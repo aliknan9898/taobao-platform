@@ -10,7 +10,7 @@
 const crypto = require('crypto');
 const db = require('./db');
 const { config } = require('./config');
-const { httpError, createSession } = require('./auth');
+const { httpError, createSession, isOwner } = require('./auth');
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -48,7 +48,8 @@ function adminUser(claims) {
   let u = db.users.find((x) => x.email === email);
   // The owner often signs in to the shop first with the same Gmail: an allowlisted customer account becomes the admin account
   if (u && u.role === 'buyer') u = db.users.update(u.id, { role: 'admin' });
-  if (u && u.role !== 'admin') throw httpError(409, `${email} is already a ${u.role} account — use another Gmail for the admin dashboard`);
+  // The owner keeps their existing role (e.g. seller) and still gets the admin dashboard — see requireRole
+  if (u && u.role !== 'admin' && !isOwner(u)) throw httpError(409, `${email} is already a ${u.role} account — use another Gmail for the admin dashboard`);
   if (u && u.google_sub && u.google_sub !== claims.sub) throw httpError(403, 'Google account mismatch');
   if (!u) u = db.users.insert({ email, name: String(claims.name || 'Admin').slice(0, 80), role: 'admin', status: 'active', pass: null, google_sub: claims.sub });
   else if (!u.google_sub) u = db.users.update(u.id, { google_sub: claims.sub });
@@ -62,6 +63,7 @@ function upsertUser(claims, app) {
   const role = APPS[app].role;
   let u = db.users.find((x) => x.google_sub === claims.sub) || db.users.find((x) => x.email === email);
   if (u) {
+    if (isOwner(u)) { if (!u.google_sub) u = db.users.update(u.id, { google_sub: claims.sub }); return u; }
     if (!['buyer', 'seller'].includes(u.role)) throw httpError(403, 'Staff accounts must sign in with email and password');
     if (u.role !== role) throw httpError(409, u.role === 'seller' ? 'This Google account is a seller account — use the Seller Center' : 'This Google account is a customer account — sellers need a separate account');
     if (!u.google_sub) u = db.users.update(u.id, { google_sub: claims.sub });

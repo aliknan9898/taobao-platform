@@ -79,6 +79,8 @@
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <footer style="text-align:center;color:var(--muted);font-size:12px;padding:20px 16px 28px">© 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. · <a href="/legal" style="color:inherit">Legal notice</a> · <a href="/privacy" style="color:inherit">Privacy</a></footer>
 <script>
+// The platform owner has full access to every app: act as this app's role
+const asMe = (u) => (u && u.owner ? { ...u, role: 'admin' } : u);
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const date = (t) => t ? new Date(Number(t)).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -99,8 +101,8 @@ function showLogin(msg = '') {
   $('#lf').onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target);
     try { const r = await api('/api/auth/login', 'POST', { email: f.get('email'), password: f.get('password') });
-      if (!['warehouse', 'admin'].includes(r.user.role)) { await api('/api/auth/logout', 'POST'); return showLogin('This account has no warehouse access'); }
-      boot(r.user);
+      if (!['warehouse', 'admin'].includes(asMe(r.user).role)) { await api('/api/auth/logout', 'POST'); return showLogin('This account has no warehouse access'); }
+      boot(asMe(r.user));
     } catch (err) { showLogin(err.message); }
   };
 }
@@ -284,7 +286,7 @@ const LISTS = {
   }
 };
 
-api('/api/me').then((u) => (['warehouse', 'admin'].includes(u.role) ? boot(u) : showLogin())).catch(() => showLogin());
+api('/api/me').then(asMe).then((u) => (['warehouse', 'admin'].includes(u.role) ? boot(u) : showLogin())).catch(() => showLogin());
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>
 </body>

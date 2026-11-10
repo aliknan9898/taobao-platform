@@ -346,10 +346,10 @@ test('Continue with Google: shop and Seller Center', async () => {
   st = await start('seller'); r = await back('ns', st);
   const ns = (await api('GET', '/api/seller/me', null, sid(r))).body;
   assert.deepStrictEqual([ns.shop_name, ns.status], ["Omar's Shop", 'pending']);
-  // Staff can never use Google
-  googleUsers.adm = { sub: 'g-a', email: 'admin@x.com' };
+  // The owner (ADMIN_EMAIL) has full access, so Google opens the shop too
+  googleUsers.adm = { sub: 'g-admin', email: 'admin@x.com' };
   st = await start('shop'); r = await back('adm', st);
-  assert.match(decodeURIComponent(r.headers.get('location')), /Staff accounts/);
+  assert.strictEqual(r.headers.get('location'), '/#/');
 });
 
 test('manual product: seller types it in, Kinan buys it by hand, warehouse receives it', async () => {
@@ -423,6 +423,20 @@ test('Continue with Google: admin dashboard only for allowlisted Gmail', async (
   googleUsers.c1b = { sub: 'g-111', email: 'gina@gmail.com' };
   r = await back('c1b');
   assert.match(decodeURIComponent(r.headers.get('location')), /not allowed/);
+  // An allowlisted owner who is already a seller keeps the shop and still gets every app
+  googleUsers.os = { sub: 'g-os', email: 'boss2@gmail.com', given_name: 'Owner' };
+  const sst = await realFetch(`${base}/auth/google?app=seller`, { redirect: 'manual' });
+  const sloc = new URL(sst.headers.get('location')); googleNonce = sloc.searchParams.get('nonce');
+  r = await realFetch(`${base}/auth/google/callback?code=os&state=${sloc.searchParams.get('state')}`, { redirect: 'manual' });
+  assert.strictEqual((await api('GET', '/api/seller/me', null, sid(r))).status, 200);
+  // The allowlist is read at start-up, so add this owner through the live config
+  require('../src/config').config.adminGoogleEmails.push('boss2@gmail.com');
+  r = await back('os');
+  assert.strictEqual(r.headers.get('location'), '/admin');
+  const tok = sid(r);
+  const me = (await api('GET', '/api/me', null, tok)).body;
+  assert.deepStrictEqual([me.role, me.owner], ['seller', true]);
+  for (const path of ['/api/admin/overview', '/api/seller/me', '/api/warehouse/couriers']) assert.strictEqual((await api('GET', path, null, tok)).status, 200, path);
 });
 
 

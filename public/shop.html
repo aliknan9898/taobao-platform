@@ -175,6 +175,8 @@
 
 <script src="/assets/common.js"></script>
 <script>
+// The platform owner has full access to every app: act as this app's role
+const asMe = (u) => (u && u.owner ? { ...u, role: 'buyer' } : u);
 const { $, $$, esc, money, date, plain, api, toast, ICONS, ORDER_STATUS, pill } = K;
 let me = null, cfg = { currency: 'usd', shipping_flat: 0, payments: 'demo' };
 
@@ -744,8 +746,8 @@ function signin(next, mode = 'in', msg = '') {
     try {
       if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'buyer' });
       const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password });
-      if (r.user.role !== 'buyer') { await api('/api/auth/logout', 'POST'); return signin(encodeURIComponent(next), mode, 'This is not a customer account. Sellers sign in at the Seller Center.'); }
-      me = r.user; toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in');
+      if (asMe(r.user).role !== 'buyer') { await api('/api/auth/logout', 'POST'); return signin(encodeURIComponent(next), mode, 'This is not a customer account. Sellers sign in at the Seller Center.'); }
+      me = asMe(r.user); toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in');
       location.hash = '#' + next; if (location.hash === '#' + next) route();
     } catch (err) { signin(encodeURIComponent(next), mode, err.message); }
   };
@@ -766,7 +768,7 @@ function wireInstall() {
   const params = new URLSearchParams(location.search);
   const loginError = K.takeLoginError();
   if (params.get('order')) { history.replaceState(null, '', `/#/orders/${params.get('order')}`); }
-  [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').catch(() => null)]);
+  [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').then(asMe).catch(() => null)]);
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
   K.registerSW();

@@ -70,6 +70,8 @@
 <div id="app"></div>
 <script src="/assets/common.js"></script>
 <script>
+// The platform owner has full access to every app: act as this app's role
+const asMe = (u) => (u && u.owner ? { ...u, role: 'seller' } : u);
 const { $, $$, esc, money, num, date, plain, api, toast, ICONS, pill } = K;
 let me = null, shop = null, cfg = { currency: 'usd', cny_rate: 7.2 };
 let draft = null; // product being imported or edited
@@ -547,8 +549,8 @@ function authScreen(mode = 'in', msg = '') {
     try {
       if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'seller' });
       const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password });
-      if (r.user.role !== 'seller') { await api('/api/auth/logout', 'POST'); return authScreen(mode, 'This is not a seller account. Customers shop at the Kinan store.'); }
-      me = r.user; await refreshShop(); route();
+      if (asMe(r.user).role !== 'seller') { await api('/api/auth/logout', 'POST'); return authScreen(mode, 'This is not a seller account. Customers shop at the Kinan store.'); }
+      me = asMe(r.user); await refreshShop(); route();
     } catch (err) { authScreen(mode, err.message); }
   };
 }
@@ -568,7 +570,7 @@ function wireInstall() {
   const connected = params.get('taobao') === 'connected';
   if (params.toString()) history.replaceState(null, '', '/seller' + location.hash);
   cfg = await api('/api/config/public').catch(() => cfg);
-  try { const u = await api('/api/me'); if (u.role === 'seller') { me = u; await refreshShop(); } } catch {}
+  try { const u = asMe(await api('/api/me')); if (u.role === 'seller') { me = u; await refreshShop(); } } catch {}
   if (!me) authScreen('in', loginError); else { route(); if (connected) toast('Taobao account connected'); }
   K.registerSW();
 })();

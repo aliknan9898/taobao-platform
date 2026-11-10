@@ -31,7 +31,19 @@ function checkPassword(pw, stored) {
 }
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
-const publicUser = (u) => u && { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, seller_id: u.seller_id };
+/** The platform owner: an address on the admin allowlist (ADMIN_EMAIL / ADMIN_GOOGLE_EMAILS). Has full access to every app. */
+const isOwner = (u) => Boolean(u && u.email && config.adminGoogleEmails.includes(String(u.email).toLowerCase()));
+const publicUser = (u) => u && { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, seller_id: u.seller_id, owner: isOwner(u) || undefined };
+
+/** The owner's seller shop (created on first use, already approved). */
+function ownerSeller(user) {
+  let s = user.seller_id && db.sellers.get(user.seller_id);
+  if (!s) {
+    s = db.sellers.insert({ user_id: user.id, shop_name: String(user.name || 'Kinan').slice(0, 60), status: 'active', commission_pct: config.defaultCommissionPct, auto_pay: false, taobao: null });
+    db.users.update(user.id, { seller_id: s.id });
+  }
+  return s;
+}
 
 function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '')); }
 
@@ -104,6 +116,13 @@ function authenticate(req) {
 
 function requireRole(user, ...roles) {
   if (!user) throw httpError(401, 'Please sign in first');
+  if (user.owner && !roles.includes(user.role)) {
+    // Owner: act as whichever role this route needs (admin first, so admin-only checks pass)
+    const role = roles.includes('admin') ? 'admin' : roles[0];
+    const acting = { ...user, role };
+    if (role === 'seller') { const s = ownerSeller(user); acting.seller_id = s.id; return { user: acting, seller: s }; }
+    return { user: acting };
+  }
   if (!roles.includes(user.role)) throw httpError(403, 'Not allowed for this account');
   if (user.role === 'seller') {
     const s = db.sellers.get(user.seller_id);
@@ -144,4 +163,4 @@ function resetPassword(token, password) {
   return createSession(db.users.get(u.id));
 }
 
-module.exports = { STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };
+module.exports = { isOwner, STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };

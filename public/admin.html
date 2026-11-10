@@ -79,6 +79,8 @@
 <footer style="text-align:center;color:var(--muted);font-size:12px;padding:20px 16px 28px">© 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. · <a href="/legal" style="color:inherit">Legal notice</a> · <a href="/privacy" style="color:inherit">Privacy</a></footer>
 
 <script>
+// The platform owner has full access to every app: act as this app's role
+const asMe = (u) => (u && u.owner ? { ...u, role: 'admin' } : u);
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const fmt = (n, cur) => (Number(n) || 0).toLocaleString('en-GB', { style: cur ? 'currency' : undefined, currency: cur ? cur.toUpperCase() : undefined, maximumFractionDigits: 2 });
@@ -103,9 +105,9 @@ function showLogin(msg = '') {
     e.preventDefault(); const f = new FormData(e.target);
     try {
       const r = await api('/api/auth/login', 'POST', { email: f.get('email'), password: f.get('password') });
-      if (r.user.role === 'warehouse') { location.href = '/warehouse'; return; }
-      if (!STAFF_LOGIN.includes(r.user.role)) { await api('/api/auth/logout', 'POST'); return showLogin('This account is not a staff account'); }
-      boot(r.user);
+      if (asMe(r.user).role === 'warehouse') { location.href = '/warehouse'; return; }
+      if (!STAFF_LOGIN.includes(asMe(r.user).role)) { await api('/api/auth/logout', 'POST'); return showLogin('This account is not a staff account'); }
+      boot(asMe(r.user));
     } catch (err) { showLogin(err.message); }
   };
 }
@@ -481,7 +483,7 @@ async function openOrder(id) {
   if (loginError || q.get('aliexpress')) history.replaceState(null, '', '/admin');
   if (q.get('aliexpress') === 'connected') setTimeout(() => alert('AliExpress account connected'), 300);
   googleSignin = await fetch('/api/config/public').then((r) => r.json()).then((c) => Boolean(c.google_signin)).catch(() => false);
-  api('/api/me').then((u) => (STAFF_LOGIN.includes(u.role) ? boot(u) : u.role === 'warehouse' ? (location.href = '/warehouse') : showLogin(loginError || 'You are signed in to the shop with a customer account — use Continue with Google with the admin Gmail'))).catch(() => showLogin(loginError));
+  api('/api/me').then(asMe).then((u) => (STAFF_LOGIN.includes(u.role) ? boot(u) : u.role === 'warehouse' ? (location.href = '/warehouse') : showLogin(loginError || 'You are signed in to the shop with a customer account — use Continue with Google with the admin Gmail'))).catch(() => showLogin(loginError));
 })();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>
