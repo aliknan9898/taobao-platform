@@ -46,6 +46,8 @@ function adminUser(claims) {
   const email = String(claims.email || '').toLowerCase();
   if (!config.adminGoogleEmails.includes(email)) throw httpError(403, 'This Google account is not allowed to open the admin dashboard');
   let u = db.users.find((x) => x.email === email);
+  // The owner often signs in to the shop first with the same Gmail: an allowlisted customer account becomes the admin account
+  if (u && u.role === 'buyer') u = db.users.update(u.id, { role: 'admin' });
   if (u && u.role !== 'admin') throw httpError(409, `${email} is already a ${u.role} account — use another Gmail for the admin dashboard`);
   if (u && u.google_sub && u.google_sub !== claims.sub) throw httpError(403, 'Google account mismatch');
   if (!u) u = db.users.insert({ email, name: String(claims.name || 'Admin').slice(0, 80), role: 'admin', status: 'active', pass: null, google_sub: claims.sub });

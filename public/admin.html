@@ -481,7 +481,7 @@ async function openOrder(id) {
   if (loginError || q.get('aliexpress')) history.replaceState(null, '', '/admin');
   if (q.get('aliexpress') === 'connected') setTimeout(() => alert('AliExpress account connected'), 300);
   googleSignin = await fetch('/api/config/public').then((r) => r.json()).then((c) => Boolean(c.google_signin)).catch(() => false);
-  api('/api/me').then((u) => (STAFF_LOGIN.includes(u.role) ? boot(u) : u.role === 'warehouse' ? (location.href = '/warehouse') : showLogin('This account is not a staff account'))).catch(() => showLogin(loginError));
+  api('/api/me').then((u) => (STAFF_LOGIN.includes(u.role) ? boot(u) : u.role === 'warehouse' ? (location.href = '/warehouse') : showLogin(loginError || 'You are signed in to the shop with a customer account — use Continue with Google with the admin Gmail'))).catch(() => showLogin(loginError));
 })();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>
