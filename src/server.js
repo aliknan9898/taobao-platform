@@ -231,7 +231,7 @@ if (require.main === module) {
   auth.bootstrapAdmin();
   const problems = configProblems();
   if (problems.length) console.warn('[config]', problems.join(' | '));
-  server.listen(config.port, () => {
+  server.listen(config.port, '0.0.0.0', () => {
     console.log(`Platform on :${config.port}  admin: /admin  warehouse: /warehouse`);
     console.log(`OAuth callback: ${config.redirectUri}`);
   });

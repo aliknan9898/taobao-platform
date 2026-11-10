@@ -8,7 +8,15 @@ const path = require('path');
 const crypto = require('crypto');
 const { config } = require('./config');
 
-fs.mkdirSync(config.dataDir, { recursive: true });
+try {
+  fs.mkdirSync(config.dataDir, { recursive: true });
+  fs.accessSync(config.dataDir, fs.constants.W_OK);
+} catch (e) {
+  // Typical cause on Render: DATA_DIR=/var/data set without an attached disk (Free plan has no disks)
+  console.error(`[db] DATA_DIR "${config.dataDir}" is not writable (${e.code || e.message}). ` +
+    'Remove DATA_DIR from the environment, or attach a persistent disk mounted at that path.');
+  process.exit(1);
+}
 const cache = new Map();
 
 function file(name) { return path.join(config.dataDir, `${name}.json`); }
