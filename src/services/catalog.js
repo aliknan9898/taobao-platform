@@ -277,7 +277,7 @@ function toBuyerView(l, seller) {
     id: l.id, title: l.title, images: visibleImages(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', category: l.category || 'other',
-    min_price: Math.min(...l.skus.map((s) => s.price)),
+    min_price: Math.min(...l.skus.map((s) => s.price)), ...require('./growth').ratingFor(l.id),
     skus: l.skus.map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
   };
 }

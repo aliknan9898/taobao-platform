@@ -53,6 +53,13 @@
   .locchip b { color: var(--ink); font-weight: 600; text-decoration: underline dotted; text-underline-offset: 3px; }
   .lp { color: var(--muted); font-size: 13px; }
   .card .lp { font-size: 12px; }
+  .sum [hidden], [hidden] { display: none !important; }
+  .stars { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--ink-2); }
+  .stars svg { width: 14px; height: 14px; color: #f5a524; } .stars b { font-weight: 600; }
+  .heart.on svg { fill: #e5484d; color: #e5484d; }
+  .rev { padding: 12px 0; border-bottom: 1px solid var(--line); display: grid; gap: 6px; } .rev:last-child { border-bottom: 0; }
+  .rev .ph { display: flex; gap: 6px; } .rev .ph img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; }
+  .rate { display: inline-flex; gap: 4px; direction: ltr; } .rate button { border: 0; background: none; padding: 2px; cursor: pointer; color: var(--line); } .rate button svg { width: 28px; height: 28px; } .rate button.on { color: #f5a524; }
   .opts { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
   .opts legend { font-weight: 600; margin-bottom: 6px; }
   .opt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); cursor: pointer; }
@@ -201,7 +208,8 @@ let me = null, cfg = { currency: 'usd', shipping_flat: 0, payments: 'demo' };
 // ---------- cart (kept on this device) ----------
 const Cart = {
   get() { try { return JSON.parse(localStorage.getItem('kinan_cart') || '[]'); } catch { return []; } },
-  set(items) { try { localStorage.setItem('kinan_cart', JSON.stringify(items)); } catch {} updateBadge(); },
+  set(items) { try { localStorage.setItem('kinan_cart', JSON.stringify(items)); } catch {} updateBadge(); Cart.sync(); },
+  sync() { clearTimeout(Cart.t); Cart.t = setTimeout(() => { if (me && me.role === 'buyer') api('/api/buyer/cart', 'PUT', { items: Cart.get() }).catch(() => {}); }, 1500); },
   add(item) {
     const c = Cart.get(); const ex = c.find((x) => x.listing_id === item.listing_id && x.mp_sku_id === item.mp_sku_id);
     if (ex) ex.qty = Math.min(999, ex.qty + item.qty); else c.push(item);
@@ -261,6 +269,9 @@ function variantLabel(props, fallback = 'Standard') {
   return String(props).split(/[;,]/).map((p) => p.split(':').pop()).filter(Boolean).join(' / ') || fallback;
 }
 const noImg = `<div class="noimg">${ICONS.box}</div>`;
+const STAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
+const stars = (r, n) => r ? `<span class="stars" title="${r} / 5">${STAR}<b>${r}</b>${n !== undefined ? `<span class="muted">(${n})</span>` : ''}</span>` : '';
+const HEART = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.4-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.8-7.5 10.2-7.5 10.2z"/></svg>';
 /** Product title / description in the reader's language (Arabic when available). */
 const T = (p) => (KinanLang.lang === 'ar' && p.title_ar) || p.title;
 const TD = (p) => (KinanLang.lang === 'ar' && p.description_ar) || p.description;
@@ -346,7 +357,7 @@ K.onUnauthorized = () => { me = null; };
 const routes = [
   [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
   [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
-  [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/wallet$/, walletPage], [/^#\/request$/, requestPage],
+  [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/wallet$/, walletPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
   [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
 ];
 async function route() {
@@ -375,7 +386,7 @@ function productCard(p) {
   const img = p.images[0];
   return `<a class="card" href="#/p/${esc(p.id)}">
     <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}<span class="tag">${money(p.min_price, p.currency)}</span></div>
-    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${localPrice(p.min_price) ? `<div class="lp">${localPrice(p.min_price)}</div>` : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
+    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.rating ? stars(p.rating, p.reviews) : ''}${localPrice(p.min_price) ? `<div class="lp">${localPrice(p.min_price)}</div>` : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
 }
 const skeletonGrid = () => `<div class="grid">${Array.from({ length: 8 }, () => '<div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="height:14px;margin-top:10px;width:80%"></div></div>').join('')}</div>`;
 
@@ -479,7 +490,7 @@ async function product(id) {
         ${p.skus.length > 1 ? `<div class="stack"><h3>Option</h3><div class="variants" id="variants">${p.skus.map((s) => `<button data-sku="${esc(s.mp_sku_id)}" ${s.in_stock ? '' : 'disabled'}>${esc(variantLabel(s.props))}</button>`).join('')}</div></div>` : ''}
         <div class="row"><div class="qty"><button type="button" id="qm" aria-label="Less">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="More">+</button></div><span class="muted" id="stock"></span></div>
         <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
-        <button class="btn quiet" id="share" style="justify-self:start">${ICONS.share} Share</button>
+        <div class="row"><button class="btn quiet" id="share">${ICONS.share} Share</button><button class="btn quiet heart" id="save" type="button">${HEART} <span>Save</span></button>${p.rating ? `<a href="#reviews" class="small" style="text-decoration:none">${stars(p.rating, p.reviews)}</a>` : ''}</div>
         <div class="landed small" id="landed"></div>
         <div class="panel flat stack small">
           <div><b>Shipping:</b> ${p.fulfillment === 'direct' ? 'Included' : 'Priced by weight and country at checkout — items from several shops ship together'}</div>
@@ -489,9 +500,24 @@ async function product(id) {
           <div class="muted">Every item is inspected at our China warehouse before it ships to you. You get a tracking number as soon as your parcel leaves.</div>`}
         </div>
         ${p.return_policy !== undefined ? `<details class="panel flat small"><summary><b>Returns</b></summary><p class="desc" style="margin-top:8px">${esc(p.return_policy || 'Returns are accepted only for items that arrive damaged or different from the listing. Contact Kinan support within 7 days of delivery with photos.')}</p></details>` : ''}
-        ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc">${esc(desc)}</p></div>` : ''}
+        ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc" dir="auto">${esc(desc)}</p></div>` : ''}
+        <div class="stack" id="reviews"></div>
       </div>
     </div>`;
+  api(`/api/catalog/${encodeURIComponent(p.id)}/reviews`).then((r) => {
+    if (!r.count) return;
+    $('#reviews').innerHTML = `<h3>Reviews ${stars(r.average, r.count)}</h3><div>${r.reviews.map((x) => `<div class="rev"><div class="row between"><b>${esc(x.name)}</b><span>${'★'.repeat(x.rating)}<span class="muted">${'★'.repeat(5 - x.rating)}</span></span></div>
+      ${x.text ? `<div dir="auto">${esc(x.text)}</div>` : ''}${x.photos.length ? `<div class="ph">${x.photos.map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" alt="" loading="lazy"></a>`).join('')}</div>` : ''}
+      <span class="muted small">Verified purchase · ${date(x.at, false)}</span></div>`).join('')}</div>`;
+  }).catch(() => {});
+  const sv = $('#save');
+  const paintSave = (on) => { sv.classList.toggle('on', on); sv.querySelector('span').textContent = on ? 'Saved' : 'Save'; };
+  if (me && me.role === 'buyer') api(`/api/buyer/wishlist/${p.id}`).then((r) => paintSave(r.saved)).catch(() => {});
+  sv.onclick = async () => {
+    if (!me || me.role !== 'buyer') { signin(encodeURIComponent(`/p/${p.id}`)); return; }
+    const on = !sv.classList.contains('on');
+    try { await api(`/api/buyer/wishlist/${p.id}`, on ? 'POST' : 'DELETE'); paintSave(on); toast(on ? 'Saved — we’ll tell you if the price drops' : 'Removed from saved items'); } catch (e) { toast(e.message); }
+  };
   const paint = () => {
     const img = p.images[imgIdx];
     $('#mainimg').innerHTML = img ? `<img src="${esc(img)}" alt="${esc(p.title)}" referrerpolicy="no-referrer">` : noImg;
@@ -602,10 +628,13 @@ async function checkout() {
     <aside class="panel sum">${items.map((x) => `<div class="small"><span>${x.qty} × ${esc(x.title.slice(0, 40))}${x.title.length > 40 ? '…' : ''}</span><span>${money(x.price * x.qty, cur)}</span></div>`).join('')}
       <div><span>Shipping</span><span id="kship">Choose a country</span></div><div class="muted small" id="kshipnote"></div>
       <div id="kpack" hidden><span>Extra protection</span><span id="kpackv"></span></div>
+      <div id="kdisc" hidden><span>Discount <code id="kcode"></code></span><span id="kdiscv" class="amt pos"></span></div>
+      <form class="row" id="cpf" style="gap:6px;flex-wrap:nowrap"><input name="code" placeholder="Discount code" autocomplete="off" style="flex:1;min-width:0;text-transform:uppercase"><button class="btn sm ghost">Apply</button></form><div class="small" id="cpm"></div>
       <div class="total"><span>Total</span><span id="ktot">${money(sub, cur)}</span></div></aside></div>`;
   let lastFee = 0;
   const extras = () => { const f = $('#af'); return f.packaging && f.packaging.value === 'protect' ? Number((cfg.packaging || {}).protect || 2) : 0; };
-  const paintTotal = () => { const t = sub + lastFee + extras(); $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
+  let coupon = null;
+  const paintTotal = () => { const t = Math.max(0, sub + lastFee + extras() - (coupon ? coupon.discount : 0)); $('#kdisc').hidden = !coupon; if (coupon) { $('#kcode').textContent = coupon.code; $('#kdiscv').textContent = '−' + money(coupon.discount, cur); } $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
   const requote = async () => {
     const code = $('#af').country_code.value; if (!code) return;
     try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, qty }) => ({ listing_id, qty })), country_code: code });
@@ -617,12 +646,19 @@ async function checkout() {
   };
   $('#af').country_code.onchange = requote; requote();
   $$('#af [name=packaging]').forEach((r) => r.onchange = paintTotal);
+  $('#cpf').onsubmit = async (e) => {
+    e.preventDefault(); const code = e.target.code.value.trim(); $('#cpm').textContent = '';
+    if (!code) { coupon = null; paintTotal(); return; }
+    try { coupon = await api('/api/buyer/coupon', 'POST', { code, subtotal: sub }); $('#cpm').innerHTML = `<span class="ok">${esc(coupon.label)} applied</span>`; }
+    catch (err) { coupon = null; $('#cpm').innerHTML = `<span class="error">${esc(err.message)}</span>`; }
+    paintTotal();
+  };
   $('#af').onsubmit = async (e) => {
     e.preventDefault(); const { packaging = 'standard', hold, ...addr } = Object.fromEntries(new FormData(e.target));
     try { localStorage.setItem('kinan_addr', JSON.stringify(addr)); } catch {}
     $('#go').disabled = true; $('#go').textContent = 'Placing order…';
     try {
-      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold) });
+      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '' });
       Cart.set([]);
       location.hash = `#/pay/${o.id}`;
     } catch (err) { $('#ce').textContent = err.message; $('#go').disabled = false; $('#go').textContent = 'Continue to payment'; }
@@ -753,13 +789,30 @@ async function orderDetail(id) {
       <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `<img src="${esc(l.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
     </div>
     <aside class="stack">
-      <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div>${o.packaging_fee ? `<div><span>Extra protection</span><span>${money(o.packaging_fee, o.currency)}</span></div>` : ''}${o.packaging === 'no_boxes' ? '<div class="muted small">Product boxes removed to save weight</div>' : ''}<div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div>${o.payment?.provider === 'wallet' ? '<div class="muted small">Paid from your Kinan wallet</div>' : ''}</div>
+      <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div>${o.discount ? `<div><span>Discount${o.coupon_code ? ` <code>${esc(o.coupon_code)}</code>` : ''}</span><span class="amt pos">−${money(o.discount, o.currency)}</span></div>` : ''}${o.packaging_fee ? `<div><span>Extra protection</span><span>${money(o.packaging_fee, o.currency)}</span></div>` : ''}${o.packaging === 'no_boxes' ? '<div class="muted small">Product boxes removed to save weight</div>' : ''}<div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div>${o.payment?.provider === 'wallet' ? '<div class="muted small">Paid from your Kinan wallet</div>' : ''}</div>
       <div class="panel stack small"><h3>Delivery address</h3><div>${esc(a.name)}<br>${esc(a.line1)}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city)} ${esc(a.postal_code)}<br>${esc(a.country)}<br>${esc(a.phone)}</div></div>
       ${['pending_payment', 'paid'].includes(o.status) ? '<button class="btn danger" id="cancel">Cancel order</button>' : ''}
+      ${o.status === 'delivered' ? '<div class="panel stack" id="revbox"></div>' : ''}
       ${returnsBox(o)}
       <div class="error" id="oe"></div>
     </aside></div>`;
   wireReturn(o);
+  if ($('#revbox')) api('/api/buyer/reviews').then((mine) => {
+    const todo = o.lines.filter((l, i, arr) => arr.findIndex((x) => x.listing_id === l.listing_id) === i && !mine.some((r) => r.order_id === o.id && r.listing_id === l.listing_id));
+    if (!todo.length) { $('#revbox').innerHTML = '<span class="muted small">Thanks for your reviews!</span>'; return; }
+    $('#revbox').innerHTML = `<h3>Rate your items</h3>${todo.map((l) => `<form class="stack" data-rev="${esc(l.listing_id)}" style="padding-top:8px;border-top:1px solid var(--line)"><b class="small" dir="auto">${esc(l.title)}</b>
+      <div class="rate">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-n="${n}" aria-label="${n} stars">${STAR}</button>`).join('')}</div>
+      <textarea name="text" rows="2" maxlength="1500" placeholder="What did you think? (optional)"></textarea>
+      <div class="row" style="gap:6px"><label class="btn sm quiet" style="cursor:pointer">Add photos<input type="file" accept="image/*" multiple hidden></label><span class="muted small" data-pc></span></div>
+      <button class="btn sm" style="justify-self:start">Post review</button></form>`).join('')}`;
+    $$('[data-rev]').forEach((f) => {
+      let rating = 0; const photos = [];
+      f.querySelectorAll('[data-n]').forEach((b) => b.onclick = () => { rating = Number(b.dataset.n); f.querySelectorAll('[data-n]').forEach((x) => x.classList.toggle('on', Number(x.dataset.n) <= rating)); });
+      f.querySelector('input[type=file]').onchange = async (e) => { for (const file of [...e.target.files].slice(0, 3 - photos.length)) { try { photos.push(await shrink(file)); } catch {} } f.querySelector('[data-pc]').textContent = photos.length ? `${photos.length} photo(s)` : ''; };
+      f.onsubmit = async (e) => { e.preventDefault(); if (!rating) { toast('Choose 1 to 5 stars'); return; }
+        try { await api(`/api/buyer/orders/${o.id}/reviews`, 'POST', { listing_id: f.dataset.rev, rating, text: f.text.value, photos }); toast('Thanks for your review!'); orderDetail(o.id); } catch (err) { toast(err.message); } };
+    });
+  }).catch(() => {});
   const sn = $('#shipnow'); if (sn) sn.onclick = async () => { sn.disabled = true; try { const r = await api('/api/buyer/ship-stored', 'POST'); toast(`${r.released} order(s) will ship together`); orderDetail(o.id); } catch (e) { toast(e.message); sn.disabled = false; } };
   const qok = $('#qcok'); if (qok) qok.onclick = async () => { qok.disabled = true; try { await api(`/api/buyer/orders/${o.id}/qc`, 'POST', { ok: true }); toast('Thank you — we’ll ship it soon'); orderDetail(o.id); } catch (e) { toast(e.message); qok.disabled = false; } };
   const qbad = $('#qcbad'); if (qbad) qbad.onclick = () => {
@@ -779,6 +832,8 @@ async function account() {
       <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
         <a class="btn ghost" href="#/orders">Your orders</a>${KinanTheme.button('btn ghost', true)}${KinanLang.button('btn ghost')}</div>
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
+      <a class="panel acrow" href="#/saved"><span class="acticon">${HEART}</span><span><b>Saved items</b><div class="muted small">We email you when a price drops or an item is back</div></span><span class="muted flip-rtl">›</span></a>
+      <div class="panel stack" id="invite"></div>
       <a class="panel acrow" href="#/request"><span class="acticon">${ICONS.plus}</span><span><b>Buy for me</b><div class="muted small">Paste any Taobao, 1688 or AliExpress link — we buy it for you</div></span><span class="muted flip-rtl">›</span></a>
       <div class="panel stack small" id="installbox"><h3>Get the Kinan Shop app</h3>
         <p class="muted">Install Kinan Shop on your phone’s home screen. On iPhone: tap Share, then “Add to Home Screen”. On Android: tap the menu, then “Install app”.</p>
@@ -788,6 +843,24 @@ async function account() {
     </div>`;
   $('#out').onclick = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; toast('Signed out'); location.hash = '#/'; };
   wireInstall();
+  api('/api/buyer/referral').then((r) => {
+    $('#invite').innerHTML = `<h3>Invite friends, earn ${money(r.reward, r.currency)}</h3>
+      <p class="muted small">Share your link. When a friend’s first order is delivered, we add ${money(r.reward, r.currency)} to your wallet. New customers get 10% off their first order with the code WELCOME10.</p>
+      <div class="row" style="gap:6px;flex-wrap:nowrap"><input readonly value="${esc(r.link)}" style="flex:1;min-width:0" id="reflink"><button class="btn sm" id="refshare" type="button">Share</button></div>
+      <div class="muted small">${r.invited} friend(s) joined · ${money(r.earned, r.currency)} earned</div>`;
+    $('#refshare').onclick = () => shareLink(r.link, 'Shop from China with Kinan — get 10% off your first order');
+  }).catch(() => { $('#invite').hidden = true; });
+}
+
+async function savedPage() {
+  if (!requireBuyer('/saved')) return;
+  const list = await api('/api/buyer/wishlist');
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/account">${ICONS.back} Account</a><h1 style="margin-top:6px">Saved items</h1><p class="muted">We email you when one of these gets cheaper or comes back in stock.</p></div></div>
+    ${list.length ? `<div class="panel">${list.map((x) => `<div class="line">${x.image ? `<img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(x.listing_id)}" style="text-decoration:none;font-weight:600" dir="auto">${esc(T(x))}</a>
+      <div class="muted small">${x.in_stock ? '' : 'Out of stock · '}${x.price < x.price_when_saved ? `<span class="amt pos">Price dropped from ${money(x.price_when_saved, x.currency)}</span>` : ''}</div></div>
+      <div style="text-align:end"><b>${money(x.price, x.currency)}</b><div><button class="btn sm quiet" data-unsave="${esc(x.listing_id)}">Remove</button></div></div></div>`).join('')}</div>`
+    : `<div class="empty"><h3>Nothing saved yet</h3><p>Tap Save on any product to keep it here.</p><a class="btn" href="#/">Browse products</a></div>`}`;
+  $$('[data-unsave]').forEach((b) => b.onclick = async () => { await api(`/api/buyer/wishlist/${b.dataset.unsave}`, 'DELETE').catch(() => {}); savedPage(); });
 }
 
 async function walletPage() {
@@ -918,6 +991,7 @@ function wireInstall() {
   }
   [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').then(asMe).catch(() => null)]);
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
+  Cart.sync();
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
   K.registerSW();
 })();

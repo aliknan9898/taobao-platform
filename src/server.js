@@ -23,6 +23,7 @@ const { COUNTRIES } = require('./countries');
 const stripe = require('./payments/stripe');
 const mailer = require('./mailer');
 const fx = require('./services/fx');
+const growth = require('./services/growth');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
 
@@ -222,11 +223,20 @@ r('POST', '/api/auth/reset', null, async ({ req, res }) => {
   setSession(res, out.token);
   return out;
 });
-r('GET', '/api/me', auth.ROLES, async ({ user }) => user);
+r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
+  // Invited by a friend (?ref= link, kept in a cookie): link the new customer to them once
+  const full = user.role === 'buyer' ? db.users.get(user.id) : null;
+  if (full && !full.referred_by && !full.ref_checked && Date.now() - (full.created_at || 0) < 3600e3) {
+    const m = (req.headers.cookie || '').match(/(?:^|;\s*)kinan_ref=([A-Za-z0-9_-]{3,24})/);
+    if (m) { growth.attachReferrer(full, m[1]); db.users.update(full.id, { ref_checked: true }); }
+  }
+  return user;
+});
 
 // Catalog (public for browsing)
 r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntries(url.searchParams)));
 r('GET', '/api/catalog/:id', null, async ({ params }) => catalog.buyerListing(params.id));
+r('GET', '/api/catalog/:id/reviews', null, async ({ params }) => growth.reviewsFor(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
 r('GET', '/api/categories', null, async () => {
@@ -268,6 +278,15 @@ r('POST', '/api/buyer/orders/:id/pay-shipping-due', BUYER, async ({ user, params
 r('GET', '/api/buyer/orders/:id/qc/:n', BUYER, async ({ user, params, res }) => { const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found'); return sendImage(res, warehouse.qcPhoto(o, params.n)); });
 r('POST', '/api/buyer/orders/:id/qc', BUYER, async ({ req, user, params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); return orders.buyerView(warehouse.qcDecision(o, user, await readJson(req))); });
 r('POST', '/api/buyer/ship-stored', BUYER, async ({ user }) => warehouse.releaseStored(user));
+r('POST', '/api/buyer/coupon', BUYER, async ({ req, user }) => { throttleLight(req); const b = await readJson(req); return growth.couponFor(b.code, user, Number(b.subtotal) || 0); });
+r('GET', '/api/buyer/referral', BUYER, async ({ user }) => growth.referralInfo(db.users.get(user.id)));
+r('GET', '/api/buyer/wishlist', BUYER, async ({ user }) => growth.wishlist(user));
+r('POST', '/api/buyer/wishlist/:id', BUYER, async ({ user, params }) => growth.save(user, params.id));
+r('DELETE', '/api/buyer/wishlist/:id', BUYER, async ({ user, params }) => growth.unsave(user, params.id));
+r('GET', '/api/buyer/wishlist/:id', BUYER, async ({ user, params }) => ({ saved: growth.isSaved(user, params.id) }));
+r('POST', '/api/buyer/orders/:id/reviews', BUYER, async ({ req, user, params }) => growth.publicReview(growth.addReview(db.users.get(user.id), params.id, await readJson(req))));
+r('GET', '/api/buyer/reviews', BUYER, async ({ user }) => db.reviews.all((x) => x.user_id === user.id).map((x) => ({ order_id: x.order_id, listing_id: x.listing_id, rating: x.rating })));
+r('PUT', '/api/buyer/cart', BUYER, async ({ req, user }) => growth.saveCart(user, (await readJson(req)).items));
 r('GET', '/api/buyer/wallet', BUYER, async ({ user }) => shopSvc.walletOf(user.id));
 r('POST', '/api/buyforme/parse', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return require('./services/buyforme').parse(b.text || b.link); });
 r('POST', '/api/buyforme/estimate', null, async ({ req }) => { throttleLight(req); return require('./services/buyforme').estimate(await readJson(req)); });
@@ -348,6 +367,11 @@ r('POST', '/api/admin/orders/:id/qc-resolved', CARE, async ({ req, params }) => 
   return orders.decorate(db.orders.update(o.id, (x) => ({ ...x, qc_review: 'resolved', qc_resolution: String(b.note || '').slice(0, 500), timeline: [...x.timeline, { at: Date.now(), event: 'qc_resolved' }] })));
 });
 r('GET', '/api/admin/orders/:id/qc/:n', STAFF, async ({ params, res }) => sendImage(res, warehouse.qcPhoto(db.orders.get(params.id) || {}, params.n)));
+r('GET', '/api/admin/coupons', ADMIN, async () => db.coupons.all().sort((a, b) => b.created_at - a.created_at).map(({ used_by, ...c }) => c));
+r('POST', '/api/admin/coupons', ADMIN, async ({ req }) => growth.saveCoupon(await readJson(req)));
+r('PATCH', '/api/admin/coupons/:id', ADMIN, async ({ req, params }) => { const c = db.coupons.get(params.id); if (!c) throw httpError(404, 'Not found'); const b = await readJson(req); return Object.keys(b).length === 1 && 'active' in b ? db.coupons.update(c.id, { active: Boolean(b.active) }) : growth.saveCoupon({ ...c, ...b }, c.id); });
+r('GET', '/api/admin/reviews', CARE, async () => db.reviews.all().sort((a, b) => b.created_at - a.created_at).slice(0, 200).map((x) => ({ ...growth.publicReview(x), status: x.status, listing_id: x.listing_id, title: db.listings.get(x.listing_id)?.title || '' })));
+r('PATCH', '/api/admin/reviews/:id', CARE, async ({ req, params }) => { const x = db.reviews.get(params.id); if (!x) throw httpError(404, 'Not found'); const b = await readJson(req); growth.resetRatings(); return db.reviews.update(x.id, { status: b.status === 'hidden' ? 'hidden' : 'published' }); });
 r('POST', '/api/admin/orders/:id/cancel', FIN, async ({ params, user }) => orders.decorate(await orders.cancelOrder(params.id, user.id)));
 r('GET', '/api/admin/staff-roles', ADMIN, async () => auth.STAFF_ROLES);
 r('GET', '/api/admin/users', PEOPLE, async () => admin.users().map((u) => (u.role === 'buyer' ? { ...u, wallet: shopSvc.walletOf(u.id).balance } : u)));
@@ -447,9 +471,9 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=300', 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'" });
         return res.end(legal.render(p));
       }
-      const im = p.match(/^\/img\/(l|s)\/([\w-]{1,80})(?:\/(\d{1,2}))?$/);
+      const im = p.match(/^\/img\/(l|s|r)\/([\w-]{1,80})(?:\/(\d{1,2}))?$/);
       if (im) {
-        const img = catalog.imageData(im[1], im[2], im[3]);
+        const img = im[1] === 'r' ? growth.reviewPhoto(im[2], im[3]) : catalog.imageData(im[1], im[2], im[3]);
         if (!img) return send(res, 404, { error: 'Not found' });
         res.writeHead(200, { 'Content-Type': img.type, 'Content-Length': img.body.length, 'Cache-Control': url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' });
         return res.end(img.body);
@@ -544,6 +568,7 @@ function startJobs() {
   every(6 * 3600e3, sellerAuth.refreshAllDue);
   every(3600e3, async () => cleanup());
   every(3600e3, async () => warehouse.releaseExpired());
+  every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); growth.cartReminders(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }
@@ -552,6 +577,7 @@ if (require.main === module) (async () => {
   try { await db.init(); } catch (e) { console.error('[db] could not connect to PostgreSQL:', e.message); process.exit(1); }
   auth.bootstrapAdmin();
   fx.apply();
+  growth.ensureWelcome();
   const problems = configProblems();
   if (problems.length) console.warn('[config]', problems.join(' | '));
   server.listen(config.port, '0.0.0.0', () => {

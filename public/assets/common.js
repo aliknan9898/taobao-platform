@@ -78,6 +78,14 @@ const K = (() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
+  // ---------- invited by a friend: ?ref=CODE is remembered for 30 days ----------
+  (() => {
+    const q = new URLSearchParams(location.search); const ref = q.get('ref');
+    if (!ref || !/^[A-Za-z0-9_-]{3,24}$/.test(ref)) return;
+    document.cookie = `kinan_ref=${ref}; max-age=${30 * 86400}; path=/; samesite=lax${location.protocol === 'https:' ? '; secure' : ''}`;
+    q.delete('ref'); history.replaceState(null, '', location.pathname + (q.toString() ? `?${q}` : '') + location.hash);
+  })();
+
   // ---------- one-tap install (opened from the download page with ?install=1) ----------
   let installEvent = null;
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvent = e; document.dispatchEvent(new Event('kinan:installable')); });

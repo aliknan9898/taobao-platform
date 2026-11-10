@@ -63,7 +63,7 @@ function validateAddress(a) {
 const PACKAGING = { standard: 0, no_boxes: 0, protect: Number(process.env.PACKAGING_PROTECT_FEE ?? 2) };
 const STORAGE_DAYS = Number(process.env.STORAGE_DAYS || 30);
 
-async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false }) {
+async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false, coupon = '' }) {
   if (!Object.prototype.hasOwnProperty.call(PACKAGING, packaging)) throw httpError(400, 'Unknown packaging option');
   if (!Array.isArray(items) || !items.length) throw httpError(400, 'Cart is empty');
   if (items.length > 100) throw httpError(400, 'Too many items');
@@ -98,10 +98,13 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   const shipping = money(ship.fee);
   const warehouseItems = lines.some((l) => !l.direct);
   const packagingFee = warehouseItems ? money(PACKAGING[packaging]) : 0;
+  const disc = coupon ? require('./growth').couponFor(coupon, buyer, subtotal) : null;
+  const discount = disc ? disc.discount : 0;
   const order = db.orders.insert({
     buyer_id: buyer.id, lines, currency: config.currency, subtotal, shipping_fee: shipping,
+    ...(disc ? { discount, coupon_code: disc.code, coupon_id: disc.coupon_id } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
-    total: money(subtotal + shipping + packagingFee), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
+    total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
   });
   const payment = await stripe.createPaymentIntent(order);
@@ -130,6 +133,7 @@ async function markPaid(orderId, { provider, intent_id }) {
   }
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));
   notify.orderPaid(db.orders.get(o.id));
+  try { require('./growth').redeem(o); } catch (e) { console.error('[coupon]', e.message); }
   adjustStock(o, -1);
   await procure(o.id);
   return db.orders.get(o.id);
@@ -477,7 +481,7 @@ function buyerView(o) {
   return {
     id: o.id, status: o.status, status_label: ORDER_STATUS_LABEL[o.status], currency: o.currency,
     subtotal: o.subtotal, shipping_fee: o.shipping_fee, total: o.total, created_at: o.created_at,
-    packaging: o.packaging || 'standard', packaging_fee: o.packaging_fee || 0, hold: Boolean(o.hold), hold_until: o.hold && o.paid_at ? o.paid_at + STORAGE_DAYS * 86400e3 : null, ship_group: o.ship_group || null,
+    discount: o.discount || 0, coupon_code: o.coupon_code || null, packaging: o.packaging || 'standard', packaging_fee: o.packaging_fee || 0, hold: Boolean(o.hold), hold_until: o.hold && o.paid_at ? o.paid_at + STORAGE_DAYS * 86400e3 : null, ship_group: o.ship_group || null,
     qc: { photos: (o.qc_photos || []).length, review: o.qc_review || null, note: o.qc_note || null, at: o.qc_at || null },
     shipping_due: o.shipping_due || 0, shipping_settled: o.shipping_settled ? { result: o.shipping_settled.result, diff: o.shipping_settled.diff, actual_weight_kg: o.shipping_settled.actual_weight_kg } : null, shipping_days: o.shipping_quote?.days || null,
     lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image, listing_id, direct: Boolean(direct) })),
