@@ -525,7 +525,14 @@ if (require.main === module) (async () => {
   startJobs();
   // Brevo: add/check the site's domain now, then every 30 minutes until it is authenticated
   const mailDomain = () => mailer.setupDomain().catch((e) => console.error('[mail] domain setup:', e.message));
-  mailDomain(); setInterval(() => { const d = mailer.domainStatus(); if (!d || !d.authenticated || !d.sender_ready) mailDomain(); }, 30 * 60e3).unref();
+  // MAIL_SELFTEST=a@x,b@y sends one test email to each address at start-up (to check sending and forwarding), then remove it
+  if (process.env.MAIL_SELFTEST) mailDomain().then(async () => {
+    for (const to of process.env.MAIL_SELFTEST.split(',').map((x) => x.trim()).filter(Boolean)) {
+      const rec = await mailer.send({ to, subject: `Kinan test email to ${to}`, title: 'Email is working', lines: [`Sent from ${mailer.sender().email} to ${to}.`, 'If this reached your inbox, sending and forwarding work.'], kind: 'test' });
+      console.log(`[mail] self-test to ${to}: ${rec ? rec.status : 'skipped'}${rec?.error ? ` — ${rec.error}` : ''}`);
+    }
+  });
+  else mailDomain(); setInterval(() => { const d = mailer.domainStatus(); if (!d || !d.authenticated || !d.sender_ready) mailDomain(); }, 30 * 60e3).unref();
   stripe.setup().then((r) => { if (r.ok) console.log(`[stripe] ready (${r.mode} mode)`); }).catch((e) => console.error('[stripe] setup failed:', e.message));
   // Render stops the instance with SIGTERM: write pending changes first
   const stop = async () => { try { await db.close(); } catch { /* exiting */ } process.exit(0); };
