@@ -56,6 +56,15 @@ const config = {
   // ADMIN_EMAIL is always allowed too. Nobody else can ever become admin through Google.
   adminGoogleEmails: [...new Set([e.ADMIN_EMAIL, ...(e.ADMIN_GOOGLE_EMAILS || '').split(',')].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean))],
 
+  // AliExpress Open Platform (openservice.aliexpress.com) — dropshipping, ships direct to the customer.
+  // Without a key, AliExpress products still work: Kinan's team orders them by hand.
+  aliexpress: {
+    appKey: e.ALIEXPRESS_APP_KEY || '', appSecret: e.ALIEXPRESS_APP_SECRET || '',
+    apiUrl: (e.ALIEXPRESS_API_URL || 'https://api-sg.aliexpress.com').replace(/\/$/, ''),
+    shippingService: e.ALIEXPRESS_SHIPPING_SERVICE || '', // e.g. CAINIAO_STANDARD; empty = AliExpress default
+    deliveryDays: e.ALIEXPRESS_DELIVERY_DAYS || '10–20'
+  },
+
   // Your China warehouse — every Taobao purchase order ships here
   warehouse: {
     name: e.WAREHOUSE_NAME || '', mobile: e.WAREHOUSE_MOBILE || '',
@@ -66,6 +75,7 @@ const config = {
 };
 config.redirectUri = `${config.publicBaseUrl}/oauth/callback`;
 config.googleRedirectUri = `${config.publicBaseUrl}/auth/google/callback`;
+config.aliexpress.redirectUri = `${config.publicBaseUrl}/oauth/aliexpress/callback`;
 
 function configProblems() {
   const p = [];

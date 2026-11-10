@@ -11,7 +11,7 @@ const crypto = require('crypto');
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'plat-'));
 Object.assign(process.env, {
   TAOBAO_APP_KEY: 'appk', TAOBAO_APP_SECRET: 'apps', TAOBAO_API_URL: 'http://taobao.mock/rest',
-  GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com', ADMIN_GOOGLE_EMAILS: 'Boss@Gmail.com', GOOGLE_CLIENT_SECRET: 'gsecret',
+  ALIEXPRESS_APP_KEY: 'aek', ALIEXPRESS_APP_SECRET: 'aes', GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com', ADMIN_GOOGLE_EMAILS: 'Boss@Gmail.com', GOOGLE_CLIENT_SECRET: 'gsecret',
   ADMIN_EMAIL: 'admin@x.com', ADMIN_PASSWORD: 'adminpass1', SHIPPING_FLAT_FEE: '8',
   WAREHOUSE_NAME: 'WH', WAREHOUSE_MOBILE: '138', WAREHOUSE_CITY: 'Guangzhou', WAREHOUSE_DETAIL: 'road 1'
 });
@@ -25,6 +25,7 @@ const { server } = require('../src/server');
 
 // ---------- mock Taobao API ----------
 const googleUsers = {}; let googleNonce = null;
+const aeMock = { calls: [], status: 'PLACE_ORDER_SUCCESS' };
 const tb = { calls: [], poStatus: 'WAIT_BUYER_P', logistics: [] };
 const realFetch = global.fetch;
 global.fetch = async (url, opts = {}) => {
@@ -37,6 +38,19 @@ global.fetch = async (url, opts = {}) => {
     const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
     const idt = `${b64({ alg: 'RS256' })}.${b64({ iss: 'https://accounts.google.com', aud: 'gid.apps.googleusercontent.com', exp: Math.floor(Date.now() / 1000) + 3600, email_verified: true, ...g, nonce: g.nonce ?? googleNonce })}.sig`;
     return { ok: true, status: 200, json: async () => ({ id_token: idt, access_token: 'x' }) };
+  }
+  if (u.hostname === 'api-sg.aliexpress.com') {
+    const params = Object.fromEntries(new URLSearchParams(opts.body));
+    const aeSign = require('../src/aliexpress/client').sign;
+    const path = u.pathname.startsWith('/rest') ? u.pathname.slice(5) : '';
+    assert.strictEqual(aeSign(params, path), params.sign, `bad AliExpress signature ${path || params.method}`);
+    aeMock.calls.push(params.method || path);
+    const ok = (j) => ({ status: 200, text: async () => JSON.stringify(j) });
+    if (path === '/auth/token/create') return ok({ code: '0', access_token: 'AE_AT', refresh_token: 'AE_RT', expires_in: 2592000, account: 'kinan@ae' });
+    if (params.method === 'aliexpress.ds.product.get') return ok({ aliexpress_ds_product_get_response: { result: { ae_item_base_info_dto: { subject: 'Silicone phone case', product_id: 1005006000111, detail: '<p>Soft case</p>' }, ae_multimedia_info_dto: { image_urls: 'https://ae01.alicdn.com/a.jpg;https://ae01.alicdn.com/b.jpg' }, ae_item_sku_info_dtos: { ae_item_sku_info_d_t_o: [{ sku_id: '111', sku_attr: '14:200#Red', offer_sale_price: '3.20', sku_available_stock: 50, ae_sku_property_dtos: { ae_sku_property_d_t_o: [{ sku_property_value: 'Red' }] } }] } }, rsp_code: 200 } });
+    if (params.method === 'aliexpress.ds.order.create') { aeMock.lastOrder = JSON.parse(params.param_place_order_request4_open_api_d_t_o); return ok({ aliexpress_ds_order_create_response: { result: { is_success: true, order_list: { number: [8123456789] } } } }); }
+    if (params.method === 'aliexpress.trade.ds.order.get') return ok({ aliexpress_trade_ds_order_get_response: { result: { order_status: aeMock.status, logistics_info_list: aeMock.status === 'WAIT_BUYER_ACCEPT_GOODS' ? { aeop_order_logistics_info: [{ logistics_no: 'LP0001', logistics_service: 'CAINIAO' }] } : {} } } });
+    return ok({ error_response: { code: 'InvalidApi', msg: 'unknown' } });
   }
   if (u.hostname !== 'taobao.mock') return realFetch(url, opts);
   const params = Object.fromEntries(new URLSearchParams(opts.body));
@@ -404,4 +418,79 @@ test('Continue with Google: admin dashboard only for allowlisted Gmail', async (
   googleUsers.c1b = { sub: 'g-111', email: 'gina@gmail.com' };
   r = await back('c1b');
   assert.match(decodeURIComponent(r.headers.get('location')), /not allowed/);
+});
+
+
+test('AliExpress, manual mode: typed-in product ships direct, admin orders it by hand', async () => {
+  const aTok = await login('admin@x.com', 'adminpass1');
+  const sTok = await login('s1@x.com', 'sellerpass');
+  assert.strictEqual((await api('GET', '/api/admin/aliexpress', null, aTok)).body.mode, 'manual');
+  assert.strictEqual((await api('GET', '/api/config/public')).body.aliexpress.import, false);
+  const img = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+  const pub = await api('POST', '/api/seller/products/manual', { source: 'aliexpress', source_link: 'https://www.aliexpress.com/item/1005005551234.html', title: 'LED desk lamp', images: [img], variants: [{ name: 'White', price: 20, stock: 30, cost_cny: 8 }] }, sTok);
+  assert.strictEqual(pub.status, 201, JSON.stringify(pub.body));
+  assert.deepStrictEqual([pub.body.source, pub.body.fulfillment, pub.body.ae_product_id, pub.body.skus[0].cost_sale], ['aliexpress', 'direct', '1005005551234', 8]);
+  await api('POST', `/api/admin/listings/${pub.body.id}/approve`, null, aTok);
+  const lst = (await api('GET', '/api/admin/listings?status=active', null, aTok)).body.find((l) => l.id === pub.body.id);
+  assert.strictEqual(lst.skus[0].margin_pct, 60, 'margin from the USD cost');
+  const item = (await api('GET', `/api/catalog/${pub.body.id}`)).body;
+  assert.strictEqual(item.fulfillment, 'direct');
+
+  await api('POST', '/api/auth/register', { role: 'buyer', email: 'ae1@x.com', password: 'buyerpass1', name: 'Sara' });
+  const bTok = await login('ae1@x.com', 'buyerpass1');
+  const o = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: item.id, mp_sku_id: item.skus[0].mp_sku_id, qty: 2 }], shipping_address: { name: 'Sara', phone: '+966500000000', country_code: 'SA', city: 'Riyadh', line1: 'King Fahd Rd 1' } }, bTok)).body;
+  assert.strictEqual(o.shipping_address.country, 'Saudi Arabia');
+  await api('POST', `/api/buyer/orders/${o.id}/demo-pay`, null, bTok);
+  let full = (await api('GET', `/api/admin/orders/${o.id}`, null, aTok)).body;
+  assert.deepStrictEqual([full.status, full.sub_orders[0].status, full.sub_orders[0].direct], ['procuring', 'AE_TO_BUY', true]);
+  assert.ok((await api('GET', '/api/admin/overview', null, aTok)).body.alerts.some((a) => /AliExpress item to order/.test(a.text)));
+  assert.strictEqual((await api('POST', `/api/admin/orders/${o.id}/aliexpress`, { place: true }, aTok)).status, 503, 'no API connection yet');
+  full = (await api('POST', `/api/admin/orders/${o.id}/aliexpress`, { ae_order_no: '3001234567' }, aTok)).body;
+  assert.strictEqual(full.sub_orders[0].status, 'AE_PAID');
+  // Once ordered on AliExpress, Kinan can't silently cancel
+  assert.strictEqual((await api('POST', `/api/buyer/orders/${o.id}/cancel`, null, bTok)).status, 409);
+  full = (await api('POST', `/api/admin/orders/${o.id}/aliexpress`, { tracking: 'LX123456789CN', carrier: 'Cainiao' }, aTok)).body;
+  assert.strictEqual(full.status, 'shipped');
+  const bv = (await api('GET', `/api/buyer/orders/${o.id}`, null, bTok)).body;
+  assert.deepStrictEqual([bv.all_direct, bv.direct[0].tracking[0].number], [true, 'LX123456789CN']);
+  assert.ok(!JSON.stringify(bv).includes('3001234567'), 'AliExpress order no. stays internal');
+  full = (await api('POST', `/api/admin/orders/${o.id}/aliexpress`, { delivered: true }, aTok)).body;
+  assert.strictEqual(full.status, 'delivered');
+  // Seller earnings: 40 gross − 10% commission − 16 AliExpress cost = 20, now payable
+  const led = (await api('GET', '/api/seller/earnings', null, sTok)).body.entries.find((e) => e.order_id === o.id);
+  assert.deepStrictEqual([led.cost, led.net, led.status], [16, 20, 'payable']);
+});
+
+test('AliExpress, API mode: connect, import by link, order placed and synced automatically', async () => {
+  const aTok = await login('admin@x.com', 'adminpass1');
+  const sTok = await login('s1@x.com', 'sellerpass');
+  const auth = new URL((await api('POST', '/api/admin/aliexpress/connect', null, aTok)).body.url);
+  assert.strictEqual(auth.origin + auth.pathname, 'https://api-sg.aliexpress.com/oauth/authorize');
+  const cb = await realFetch(`${base}/oauth/aliexpress/callback?code=c1&state=${auth.searchParams.get('state')}`, { redirect: 'manual' });
+  assert.strictEqual(cb.headers.get('location'), '/admin?aliexpress=connected');
+  assert.strictEqual((await api('GET', '/api/admin/aliexpress', null, aTok)).body.mode, 'api');
+  assert.strictEqual((await api('GET', '/api/config/public')).body.aliexpress.import, true);
+
+  const prev = (await api('POST', '/api/seller/products/aliexpress/preview', { link: 'https://ar.aliexpress.com/item/1005006000111.html?spm=x' }, sTok)).body;
+  assert.deepStrictEqual([prev.title, prev.skus[0].props, prev.skus[0].cost_sale, prev.skus[0].suggested_price], ['Silicone phone case', 'Red', 3.2, 4.16]);
+  const pub = await api('POST', '/api/seller/products/aliexpress', { link: 'https://ar.aliexpress.com/item/1005006000111.html', prices: { [prev.skus[0].mp_sku_id]: 9.99 } }, sTok);
+  assert.strictEqual(pub.status, 201, JSON.stringify(pub.body));
+  await api('POST', `/api/admin/listings/${pub.body.id}/approve`, null, aTok);
+
+  await api('POST', '/api/auth/register', { role: 'buyer', email: 'ae2@x.com', password: 'buyerpass1', name: 'Omar' });
+  const bTok = await login('ae2@x.com', 'buyerpass1');
+  const item = (await api('GET', `/api/catalog/${pub.body.id}`)).body;
+  const o = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: item.id, mp_sku_id: item.skus[0].mp_sku_id, qty: 1 }], shipping_address: { name: 'Omar', phone: '+971500000000', country: 'الإمارات', city: 'Dubai', line1: 'Marina 5' } }, bTok)).body;
+  assert.strictEqual(o.shipping_address.country, 'United Arab Emirates', 'Arabic country name understood');
+  await api('POST', `/api/buyer/orders/${o.id}/demo-pay`, null, bTok);
+  let full = (await api('GET', `/api/admin/orders/${o.id}`, null, aTok)).body;
+  assert.deepStrictEqual([full.sub_orders[0].status, full.sub_orders[0].purchase_ids], ['AE_PLACED', ['8123456789']]);
+  assert.deepStrictEqual([aeMock.lastOrder.logistics_address.country, aeMock.lastOrder.logistics_address.full_name, aeMock.lastOrder.product_items[0].sku_attr], ['AE', 'Omar', '14:200#Red'], 'placed with the customer address');
+  // AliExpress ships it → sync picks up tracking
+  aeMock.status = 'WAIT_BUYER_ACCEPT_GOODS';
+  full = (await api('POST', `/api/admin/orders/${o.id}/sync`, null, aTok)).body;
+  assert.deepStrictEqual([full.status, full.sub_orders[0].logistics[0].tracking], ['shipped', 'LP0001']);
+  aeMock.status = 'FINISH';
+  full = (await api('POST', `/api/admin/orders/${o.id}/sync`, null, aTok)).body;
+  assert.strictEqual(full.status, 'delivered');
 });

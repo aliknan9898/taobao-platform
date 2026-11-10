@@ -138,11 +138,21 @@ const VIEWS = {
         <div class="bars">${d.daily.map((x) => `<div title="${esc(x.date)}: ${fmt(x.revenue, c)}"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(3))}</small></div>`).join('')}</div></div>
       <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
+      <div class="card" id="aecard"><h2>AliExpress</h2><p class="muted">Loading…</p></div>
       <div class="card"><h2>Setup & integrations</h2>
         ${d.config_problems.length ? `<p class="warn">Missing: ${d.config_problems.map((x) => `<code>${esc(x)}</code>`).join(' ')}</p>` : '<p class="ok">Configuration complete.</p>'}
         <p class="muted">Taobao Callback URL: <code>${esc(d.webhook_urls.oauth_callback)}</code><br>
         Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
         Messages waiting to be processed: ${d.inbox_backlog}</p></div>`;
+    const aeS = await api('/api/admin/aliexpress');
+    $('#aecard').innerHTML = `<h2>AliExpress</h2>
+      <p>${aeS.mode === 'api' ? `<span class="pill ok">Connected</span> ${esc(aeS.account || '')} — products import from a link; orders are placed automatically.${aeS.needs_reauth_soon ? ' <span class="pill warn">Reconnect soon</span>' : ''}`
+        : aeS.api_configured ? '<span class="pill warn">Not connected</span> Connect Kinan’s AliExpress account to place orders automatically.'
+        : '<span class="pill warn">Manual mode</span> Sellers add AliExpress products by hand and you order them on AliExpress yourself. Add <code>ALIEXPRESS_APP_KEY</code> and <code>ALIEXPRESS_APP_SECRET</code> to switch on automatic import and ordering.'}</p>
+      <p class="muted">AliExpress items ship straight to the customer (about ${esc(aeS.delivery_days)} days). Callback URL for the AliExpress app: <code>${esc(aeS.redirect_uri)}</code></p>
+      <div class="row">${aeS.api_configured ? `<button class="btn" id="aeconn">${aeS.connected ? 'Reconnect' : 'Connect AliExpress account'}</button>` : ''}${aeS.connected ? '<button class="btn ghost" id="aedis">Disconnect</button>' : ''}</div>`;
+    const aeC = $('#aeconn'); if (aeC) aeC.onclick = async () => { try { location.href = (await api('/api/admin/aliexpress/connect', 'POST')).url; } catch (e) { alert(e.message); } };
+    const x = $('#aedis'); if (x) x.onclick = async () => { if (confirm('Disconnect AliExpress? New AliExpress orders will need to be placed by hand.')) { await api('/api/admin/aliexpress/disconnect', 'POST'); render(); } };
   },
 
   async orders(v) {
@@ -186,7 +196,7 @@ const VIEWS = {
           <div class="row" style="justify-content:space-between;align-items:flex-start">
             <div class="row" style="align-items:flex-start;gap:12px">
               ${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">` : '<div class="muted" style="width:72px;height:72px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;font-size:11px;text-align:center">No photos</div>'}
-              <div><b>${esc(l.title)}</b><div class="muted">${esc(l.shop)} · ${l.source === 'manual' ? `<span class="warn">Added manually</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || [''])[0])}" target="_blank" rel="noopener noreferrer">Taobao link</a>` : ' · no link'}${l.weight_kg ? ` · ${esc(l.weight_kg)} kg` : ''}` : `Taobao <code>${esc(l.taobao_item_id)}</code> · ${l.item_type === 'WITHOUT_MATERIAL' ? '<span class="warn">General item: seller photos only</span>' : 'Distribution Platform item'}`}</div>
+              <div><b>${esc(l.title)}</b><div class="muted">${esc(l.shop)} · ${l.source === 'aliexpress' ? `<span class="pill">AliExpress · ships direct</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || ['https://www.aliexpress.com/item/' + l.ae_product_id + '.html'])[0])}" target="_blank" rel="noopener noreferrer">AliExpress link</a>` : ''}` : l.source === 'manual' ? `<span class="warn">Added manually</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || [''])[0])}" target="_blank" rel="noopener noreferrer">Taobao link</a>` : ' · no link'}${l.weight_kg ? ` · ${esc(l.weight_kg)} kg` : ''}` : `Taobao <code>${esc(l.taobao_item_id)}</code> · ${l.item_type === 'WITHOUT_MATERIAL' ? '<span class="warn">General item: seller photos only</span>' : 'Distribution Platform item'}`}</div>
                 <div class="muted">Submitted ${date(l.review?.submitted_at || l.created_at)}${l.review?.reason ? ` · <span class="bad">Rejection reason: ${esc(l.review.reason)}</span>` : ''}</div></div>
             </div>
             <span class="pill ${l.status === 'active' ? 'ok' : l.status === 'rejected' || l.status === 'unavailable' ? 'bad' : 'warn'}">${esc(LST[l.status] || l.status)}</span>
@@ -267,7 +277,9 @@ async function openWallet(userId, email) {
 
 const STATUS_LABEL = { pending_payment:'Awaiting payment', paid:'Paid', procuring:'Buying', awaiting_parcels:'Awaiting parcels', ready_to_ship:'Ready to ship', shipped:'Shipped', delivered:'Delivered', cancelled:'Cancelled', refunded:'Refunded', attention:'Needs attention' };
 
+let aeApi = false;
 async function openOrder(id) {
+  aeApi = await api('/api/admin/aliexpress').then((x) => x.mode === 'api').catch(() => false);
   const d = $('#dlg'); const b = $('#dlgBody');
   b.innerHTML = '<p class="muted">Loading…</p>'; d.showModal();
   const o = await api(`/api/admin/orders/${id}`);
@@ -281,6 +293,11 @@ async function openOrder(id) {
     ${o.sub_orders.map((s) => `<div class="sub"><div class="row" style="justify-content:space-between"><b>${esc(s.shop)}</b><span class="pill ${s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED' ? 'bad' : s.status === 'WAIT_BUYER_CONFIRM_GOODS' ? 'ok' : 'warn'}">${esc(s.status_label)}</span></div>
       <div class="muted"><code>${esc(s.outer_purchase_id)}</code> · ${esc((s.purchase_ids || []).join(', ') || '—')}${s.pay_deadline && /WAIT_BUYER_P/.test(s.status) ? ` · pay by ${date(s.pay_deadline)}` : ''}</div>
       ${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}
+      ${s.direct ? `<div style="display:grid;gap:6px;margin-top:6px"><div class="muted">Ships straight to the customer · AliExpress order: ${esc((s.purchase_ids || []).join(', ') || '—')}${(s.logistics || []).length ? ` · tracking ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}` : ''}</div>
+        ${(s.links || []).map((x) => `<div class="muted">${x.qty} × ${esc(x.title)}${x.props ? ` (${esc(x.props)})` : ''} ${(x.link.match(/https?:\/\/\S+/) || [])[0] ? `· <a href="${esc(x.link.match(/https?:\/\/\S+/)[0])}" target="_blank" rel="noopener noreferrer">Open on AliExpress</a>` : ''}</div>`).join('')}
+        ${s.status === 'AE_TO_BUY' ? `<div class="muted">Order it on AliExpress with the customer’s address: <code>${esc([a.name, a.line1, a.line2, a.city, a.state, a.postal_code, a.country, a.phone].filter(Boolean).join(', '))}</code> <button class="btn ghost" data-copyaddr>Copy</button></div>` : ''}
+        ${!['AE_DELIVERED', 'AE_CANCELLED'].includes(s.status) ? `<div class="row"><input placeholder="AliExpress order no." data-aeo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking number" data-aet="${esc(s.outer_purchase_id)}" style="flex:1;min-width:150px"><input placeholder="Carrier" data-aec="${esc(s.outer_purchase_id)}" style="width:110px">
+          <button class="btn" data-aesave="${esc(s.outer_purchase_id)}">Save</button>${s.status === 'AE_SHIPPED' ? `<button class="btn ghost" data-aedel="${esc(s.outer_purchase_id)}">Mark delivered</button>` : ''}${s.status === 'AE_TO_BUY' && aeApi ? `<button class="btn ghost" data-aeplace="${esc(s.outer_purchase_id)}">Place via API</button>` : ''}</div>` : ''}</div>` : ''}
       ${s.manual ? `<div class="stack" style="display:grid;gap:6px;margin-top:6px">${(s.links || []).map((x) => `<div class="muted">${x.qty} × ${esc(x.title)}${x.props ? ` (${esc(x.props)})` : ''} ${(x.link.match(/https?:\/\/\S+/) || [])[0] ? `· <a href="${esc(x.link.match(/https?:\/\/\S+/)[0])}" target="_blank" rel="noopener noreferrer">Open on Taobao</a>` : x.link ? `· <code>${esc(x.link.slice(0, 80))}</code>` : '· no link'}</div>`).join('')}
         ${['MANUAL_TO_BUY', 'MANUAL_BOUGHT'].includes(s.status) ? `<div class="row"><input placeholder="Taobao order no." data-mo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking to warehouse (when shipped)" data-mt="${esc(s.outer_purchase_id)}" style="flex:1;min-width:180px"><button class="btn" data-mb="${esc(s.outer_purchase_id)}">${s.status === 'MANUAL_TO_BUY' ? 'Mark bought' : 'Save tracking'}</button></div>` : ''}</div>` : ''}
       ${(s.logistics || []).length ? `<div class="muted">Shipping: ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(' · ')}</div>` : ''}</div>`).join('') || '<p class="muted">Not created yet.</p>'}
@@ -293,6 +310,16 @@ async function openOrder(id) {
     <details><summary class="muted">Timeline</summary><ul class="muted">${o.timeline.map((t) => `<li>${date(t.at)} — ${esc(t.event)}</li>`).join('')}</ul></details>
     <div class="err" id="oe"></div>`;
   $('#close').onclick = () => d.close();
+  const ca = b.querySelector('[data-copyaddr]');
+  if (ca) ca.onclick = () => { const t = ca.previousElementSibling.textContent; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { ca.textContent = 'Copied'; }, () => prompt('Copy', t)); };
+  const aeDo = (outer, body) => async (ev) => {
+    ev.target.disabled = true;
+    try { await api(`/api/admin/orders/${id}/aliexpress`, 'POST', { outer_purchase_id: outer, ...body() }); await openOrder(id); render(); }
+    catch (e) { $('#oe').textContent = e.message; ev.target.disabled = false; }
+  };
+  b.querySelectorAll('[data-aesave]').forEach((btn) => { const o = btn.dataset.aesave; btn.onclick = aeDo(o, () => ({ ae_order_no: b.querySelector(`[data-aeo="${o}"]`).value.trim(), tracking: b.querySelector(`[data-aet="${o}"]`).value.trim(), carrier: b.querySelector(`[data-aec="${o}"]`).value.trim() })); });
+  b.querySelectorAll('[data-aedel]').forEach((btn) => { btn.onclick = aeDo(btn.dataset.aedel, () => ({ delivered: true })); });
+  b.querySelectorAll('[data-aeplace]').forEach((btn) => { btn.onclick = aeDo(btn.dataset.aeplace, () => ({ place: true })); });
   b.querySelectorAll('[data-mb]').forEach((btn) => btn.onclick = async () => {
     const outer = btn.dataset.mb; btn.disabled = true;
     try { await api(`/api/admin/orders/${id}/manual-bought`, 'POST', { outer_purchase_id: outer, taobao_order_no: b.querySelector(`[data-mo="${outer}"]`).value.trim(), tracking: b.querySelector(`[data-mt="${outer}"]`).value.trim() }); await openOrder(id); render(); }
@@ -307,7 +334,8 @@ async function openOrder(id) {
 
 (async () => {
   const q = new URLSearchParams(location.search); const loginError = q.get('login_error') || '';
-  if (loginError) history.replaceState(null, '', '/admin');
+  if (loginError || q.get('aliexpress')) history.replaceState(null, '', '/admin');
+  if (q.get('aliexpress') === 'connected') setTimeout(() => alert('AliExpress account connected'), 300);
   googleSignin = await fetch('/api/config/public').then((r) => r.json()).then((c) => Boolean(c.google_signin)).catch(() => false);
   api('/api/me').then((u) => (u.role === 'admin' ? boot(u) : showLogin('This account is not an admin account'))).catch(() => showLogin(loginError));
 })();

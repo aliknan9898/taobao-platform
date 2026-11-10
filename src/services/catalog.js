@@ -8,6 +8,7 @@ const { tokenFor } = require('../taobao/sellerAuth');
 const { itemIdFromInput } = require('../taobao/link');
 const API = require('../taobao/apis');
 const { httpError } = require('../auth');
+const aliexpress = require('./aliexpress');
 
 const LINK_ERRORS = {
   NO_URL: 'No link or product ID found.', BAD_URL: 'Invalid link.',
@@ -146,7 +147,9 @@ const IMG_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 function publishManual(seller, b = {}, listingId = null) {
   if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
   const existing = listingId ? db.listings.get(listingId) : null;
-  if (listingId && (!existing || existing.seller_id !== seller.id || existing.source !== 'manual')) throw httpError(404, 'Product not found');
+  if (listingId && (!existing || existing.seller_id !== seller.id || !['manual', 'aliexpress'].includes(existing.source))) throw httpError(404, 'Product not found');
+  // Where the item comes from decides how it ships: Taobao → our China warehouse, AliExpress → straight to the customer
+  const fromAE = b.source === 'aliexpress' || (b.source === undefined && existing?.source === 'aliexpress') || (b.source === undefined && aliexpress.isAliExpressLink(b.source_link));
   const title = String(b.title || '').trim().slice(0, 200);
   if (title.length < 3) throw httpError(400, 'Enter a product title');
   const description = String(b.description || '').replace(/<[^>]*>/g, '').trim().slice(0, 5000);
@@ -155,6 +158,7 @@ function publishManual(seller, b = {}, listingId = null) {
   if (!images.length) throw httpError(400, 'Add at least one photo');
   if (images.length > 6) throw httpError(400, 'Up to 6 photos');
   for (const im of images) {
+    if ((existing?.images || []).includes(im)) continue; // imported AliExpress photo kept as is
     if (!IMG_RE.test(im)) throw httpError(400, 'Photos must be JPEG, PNG or WebP');
     if (im.length > 400 * 1024) throw httpError(400, 'A photo is too large — use a smaller image');
   }
@@ -169,15 +173,20 @@ function publishManual(seller, b = {}, listingId = null) {
     if (!(price > 0)) throw httpError(400, `Enter a price for ${props || `option ${i + 1}`}`);
     if (cost !== null && !(cost >= 0)) throw httpError(400, 'Invalid Taobao cost');
     if (variants.length > 1 && !props) throw httpError(400, 'Give every option a name (e.g. size or colour)');
-    return { mp_sku_id: old.get(props)?.mp_sku_id || `M${Date.now().toString(36)}${i}`, props, price, stock, cost_cny: cost };
+    const prev = old.get(props) || {};
+    return fromAE
+      ? { ...prev, mp_sku_id: prev.mp_sku_id || `M${Date.now().toString(36)}${i}`, props, price, stock, cost_cny: null, cost_sale: cost === null ? (prev.cost_sale ?? null) : cost }
+      : { mp_sku_id: prev.mp_sku_id || `M${Date.now().toString(36)}${i}`, props, price, stock, cost_cny: cost };
   });
   const weight = b.weight_kg === '' || b.weight_kg === undefined || b.weight_kg === null ? null : Number(b.weight_kg);
   if (weight !== null && !(weight > 0 && weight < 100)) throw httpError(400, 'Invalid weight');
   const keepApproval = existing && existing.review?.state === 'approved' && existing.title === title
-    && (existing.description || '') === description && JSON.stringify(existing.own_images) === JSON.stringify(images);
+    && (existing.description || '') === description && JSON.stringify([...(existing.images || []), ...(existing.own_images || [])].sort()) === JSON.stringify([...images].sort());
   const doc = {
-    seller_id: seller.id, source: 'manual', source_link: sourceLink, taobao_item_id: null, mp_id: null, item_type: 'MANUAL',
-    title, description, custom_description: true, images: [], own_images: images, weight_kg: weight,
+    seller_id: seller.id, source: fromAE ? 'aliexpress' : 'manual', fulfillment: fromAE ? 'direct' : 'warehouse', source_link: sourceLink,
+    ae_product_id: fromAE ? (aliexpress.productIdFromLink(sourceLink) || existing?.ae_product_id || null) : null,
+    taobao_item_id: null, mp_id: null, item_type: fromAE ? 'ALIEXPRESS' : 'MANUAL',
+    title, description, custom_description: true, images: existing?.source === 'aliexpress' && fromAE ? (existing.images || []).filter((u) => images.includes(u)) : [], own_images: images.filter((u) => !(existing?.images || []).includes(u)), weight_kg: weight,
     begin_amount: 1, currency: config.currency, skus, last_synced_at: Date.now(),
     ...(keepApproval ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: Date.now() } })
   };
@@ -189,6 +198,7 @@ async function resync(listingId) {
   const l = db.listings.get(listingId);
   if (!l) throw httpError(404, 'Product not found');
   if (l.source === 'manual') return l; // typed in by hand: nothing to fetch from Taobao
+  if (l.source === 'aliexpress') return aliexpress.resync(l);
   try {
     const prod = await fetchProduct(l.seller_id, l.taobao_item_id);
     const bySku = new Map(prod.skus.map((s) => [s.mp_sku_id, s]));
@@ -230,7 +240,7 @@ function toBuyerView(l, seller) {
   return {
     id: l.id, title: l.title, images: visibleImages(l), description: l.description,
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: seller.logo || null } : null,
-    listed_at: l.review?.decided_at || l.created_at,
+    listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse',
     min_price: Math.min(...l.skus.map((s) => s.price)),
     skus: l.skus.map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
   };

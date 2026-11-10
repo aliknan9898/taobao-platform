@@ -50,6 +50,13 @@ Customers (Kinan Shop) and sellers (Seller Center) can tap **Continue with Googl
 
 A Google account with the same email as an existing customer or seller is linked to it. New Google sellers start as *pending* until you approve them. The admin dashboard accepts Google only for addresses in `ADMIN_EMAIL` or `ADMIN_GOOGLE_EMAILS` (comma-separated); everyone else is refused. Warehouse staff use email and password.
 
+## AliExpress (second source, ships direct)
+Sellers can add products from **Taobao** (→ China warehouse → customer) or **AliExpress** (→ straight to the customer). One cart can mix both; the customer sees two deliveries.
+
+- **Manual mode (default):** sellers add AliExpress products by hand. When one sells, the admin order shows *Open on AliExpress* and the customer's address to copy; you order it, then enter the AliExpress order number, the tracking number, and finally *Mark delivered*.
+- **API mode:** set `ALIEXPRESS_APP_KEY` / `ALIEXPRESS_APP_SECRET` (an approved app on openservice.aliexpress.com with the Dropshipping APIs; callback `PUBLIC_BASE_URL/oauth/aliexpress/callback`), then *Connect AliExpress account* on the admin Overview. Sellers can then import by link, and paid orders are placed with the customer's address automatically (`aliexpress.ds.order.create`); status and tracking sync every few minutes. You still pay each order in your AliExpress account. API names are in `src/aliexpress/client.js`, marked VERIFY.
+- Earnings: for items Kinan buys itself (AliExpress, manual Taobao), the purchase cost is deducted from the seller's earnings with the commission.
+
 ## Kinan Shop ↔ Seller Center ↔ Admin
 - **Seller Center → Shop:** the seller's logo, description and return policy (Settings) appear on their shop page and products. Only products the admin approved are shown.
 - **Admin → Shop:** wallet credits/deductions (Users → Adjust) appear in the customer's wallet with the reason; replies and prices for item requests (Item requests tab) appear on the customer's request page.

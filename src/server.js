@@ -14,6 +14,8 @@ const warehouse = require('./services/warehouse');
 const admin = require('./services/admin');
 const shopSvc = require('./services/shop');
 const google = require('./googleAuth');
+const aliexpress = require('./services/aliexpress');
+const { COUNTRIES } = require('./countries');
 const stripe = require('./payments/stripe');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
@@ -132,7 +134,7 @@ r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntr
 r('GET', '/api/catalog/:id', null, async ({ params }) => catalog.buyerListing(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -174,6 +176,8 @@ r('GET', '/api/seller/taobao/connect', SELLER, async ({ seller, url }) => {
 });
 r('POST', '/api/seller/products/preview', SELLER, async ({ req, seller }) => catalog.preview(seller, (await readJson(req)).link));
 r('POST', '/api/seller/products', SELLER, async ({ req, seller }) => catalog.publish(seller, await readJson(req)));
+r('POST', '/api/seller/products/aliexpress/preview', SELLER, async ({ req, seller }) => aliexpress.preview(seller, (await readJson(req)).link));
+r('POST', '/api/seller/products/aliexpress', SELLER, async ({ req, seller }) => aliexpress.publish(seller, await readJson(req)));
 r('POST', '/api/seller/products/manual', SELLER, async ({ req, seller }) => catalog.publishManual(seller, await readJson(req)));
 r('PUT', '/api/seller/products/:id/manual', SELLER, async ({ req, seller, params }) => catalog.publishManual(seller, await readJson(req), params.id));
 r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id));
@@ -188,7 +192,7 @@ r('POST', '/api/seller/products/:id/resync', SELLER, async ({ seller, params }) 
   const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found'); return catalog.resync(l.id);
 });
 r('GET', '/api/seller/orders', SELLER, async ({ seller }) => db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment').sort((a, b) => b.created_at - a.created_at).map((o) => orders.sellerView(o, seller.id)));
-const sellerSub = (seller, id) => { const o = db.orders.get(id); const s = o?.sub_orders.find((x) => x.seller_id === seller.id); if (!s) throw httpError(404, 'Not found'); return { o, s }; };
+const sellerSub = (seller, id) => { const o = db.orders.get(id); const s = o?.sub_orders.find((x) => x.seller_id === seller.id && !x.direct && !x.manual); if (!s) throw httpError(404, 'Not found'); return { o, s }; };
 r('POST', '/api/seller/orders/:id/pay', SELLER, async ({ seller, params }) => { const { o, s } = sellerSub(seller, params.id); return orders.paySub(o.id, s.outer_purchase_id); });
 r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => { const { o, s } = sellerSub(seller, params.id); await orders.syncSub(o.id, s.outer_purchase_id); return orders.sellerView(db.orders.get(o.id), seller.id); });
 r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
@@ -216,6 +220,10 @@ r('POST', '/api/admin/orders/:id/pay-taobao', ADMIN, async ({ params }) => {
   return out;
 });
 r('POST', '/api/admin/orders/:id/manual-bought', ADMIN, async ({ req, params, user }) => orders.decorate(orders.markManualBought(params.id, await readJson(req), user.id)));
+r('POST', '/api/admin/orders/:id/aliexpress', ADMIN, async ({ req, params, user }) => orders.decorate(await orders.updateDirect(params.id, await readJson(req), user.id)));
+r('GET', '/api/admin/aliexpress', ADMIN, async () => ({ ...aliexpress.status(), redirect_uri: config.aliexpress.redirectUri }));
+r('POST', '/api/admin/aliexpress/connect', ADMIN, async () => ({ url: aliexpress.authorizeUrl() }));
+r('POST', '/api/admin/aliexpress/disconnect', ADMIN, async () => aliexpress.disconnect());
 r('POST', '/api/admin/orders/:id/cancel', ADMIN, async ({ params, user }) => orders.decorate(await orders.cancelOrder(params.id, user.id)));
 r('GET', '/api/admin/users', ADMIN, async () => admin.users().map((u) => (u.role === 'buyer' ? { ...u, wallet: shopSvc.walletOf(u.id).balance } : u)));
 r('GET', '/api/admin/wallet/:id', ADMIN, async ({ params }) => shopSvc.walletOf(params.id));
@@ -287,6 +295,11 @@ const server = http.createServer(async (req, res) => {
       }
       return res.end();
     }
+    if (p === '/oauth/aliexpress/callback' && req.method === 'GET') {
+      try { await aliexpress.handleCallback(url.searchParams.get('code'), url.searchParams.get('state')); res.writeHead(302, { Location: '/admin?aliexpress=connected' }); }
+      catch (e) { res.writeHead(302, { Location: `/admin?login_error=${encodeURIComponent(e.message)}` }); }
+      return res.end();
+    }
     if (p === '/oauth/callback') {
       try {
         const { return_to } = await sellerAuth.handleCallback(url.searchParams.get('code'), url.searchParams.get('state'));
@@ -307,7 +320,7 @@ const server = http.createServer(async (req, res) => {
         Object.assign(ctx, auth.requireRole(user, ...rt.roles));
       }
       const out = await rt.handler(ctx);
-      return send(res, req.method === 'POST' && /register|checkout|products$|manual$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
+      return send(res, req.method === 'POST' && /register|checkout|products$|manual$|products\/aliexpress$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
     }
     send(res, 404, { error: 'Not found' });
   } catch (e) {

@@ -308,8 +308,10 @@ async function product(id) {
         <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
         <div class="panel flat stack small">
           <div><b>Shipping:</b> ${cfg.shipping_flat ? `${money(cfg.shipping_flat, cfg.currency)} per order, worldwide` : 'Calculated at checkout'}</div>
-          <div class="eta"><div><span class="muted">Buying &amp; checking in China</span><b>3–7 days</b></div><div><span class="muted">International shipping</span><b>7–15 days</b></div></div>
-          <div class="muted">Every item is inspected at our China warehouse before it ships to you. You get a tracking number as soon as your parcel leaves.</div>
+          ${p.fulfillment === 'direct' ? `<div class="eta"><div><span class="muted">Ships directly from the supplier</span><b>${esc(cfg.aliexpress?.delivery_days || '10–20')} days</b></div><div><span class="muted">Tracking</span><b>Included</b></div></div>
+          <div class="muted">This item is sent straight from the supplier to your address in its own parcel, so it arrives separately from items checked at our warehouse.</div>`
+          : `<div class="eta"><div><span class="muted">Buying &amp; checking in China</span><b>3–7 days</b></div><div><span class="muted">International shipping</span><b>7–15 days</b></div></div>
+          <div class="muted">Every item is inspected at our China warehouse before it ships to you. You get a tracking number as soon as your parcel leaves.</div>`}
         </div>
         ${p.return_policy !== undefined ? `<details class="panel flat small"><summary><b>Returns</b></summary><p class="desc" style="margin-top:8px">${esc(p.return_policy || 'Returns are accepted only for items that arrive damaged or different from the listing. Contact Kinan support within 7 days of delivery with photos.')}</p></details>` : ''}
         ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc">${esc(desc)}</p></div>` : ''}
@@ -329,7 +331,7 @@ async function product(id) {
   $$('#variants button').forEach((b) => b.onclick = () => { sku = p.skus.find((s) => s.mp_sku_id === b.dataset.sku); qty = Math.min(qty, Math.max(1, sku.stock)); paint(); });
   const setQty = (n) => { qty = Math.max(1, Math.min(Number(n) || 1, sku.stock || 1, 999)); paint(); };
   $('#qm').onclick = () => setQty(qty - 1); $('#qp').onclick = () => setQty(qty + 1); $('#qv').onchange = (e) => setQty(e.target.value);
-  const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });
+  const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });
   $('#add').onclick = () => { add(); toast('Added to cart'); };
   $('#buy').onclick = () => { add(); location.hash = '#/cart'; };
   paint();
@@ -357,14 +359,14 @@ async function cart() {
     <div class="two">
       <div class="panel">${items.length ? items.map((x, i) => `<div class="line">
           ${x.image ? `<img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer">` : `<div class="thumb"></div>`}
-          <div class="stack" style="gap:4px"><a href="#/p/${esc(x.listing_id)}" style="text-decoration:none;font-weight:600">${esc(x.title)}</a>${x.props ? `<span class="muted">${esc(x.props)}</span>` : ''}
+          <div class="stack" style="gap:4px"><a href="#/p/${esc(x.listing_id)}" style="text-decoration:none;font-weight:600">${esc(x.title)}</a>${x.props ? `<span class="muted">${esc(x.props)}</span>` : ''}${x.direct ? '<span class="pill" style="justify-self:start">Ships direct</span>' : ''}
             <div class="row"><div class="qty"><button data-dec="${i}" aria-label="Less">−</button><input value="${x.qty}" data-q="${i}" inputmode="numeric" aria-label="Quantity"><button data-inc="${i}" aria-label="More">+</button></div><button class="btn sm ghost" data-rm="${i}">Remove</button></div></div>
           <b>${money(x.price * x.qty, x.currency)}</b></div>`).join('') : '<div class="empty"><h3>Nothing left in your cart</h3></div>'}</div>
       <aside class="panel sum">
         <div><span>Subtotal</span><span>${money(sub, cur)}</span></div>
         <div><span>Shipping</span><span>${money(cfg.shipping_flat, cur)}</span></div>
         <div class="total"><span>Total</span><span>${money(sub + Number(cfg.shipping_flat || 0), cur)}</span></div>
-        ${new Set(items.map((x) => x.shop_id).filter(Boolean)).size > 1 ? '<p class="muted small">Items from different shops are packed together and arrive in one parcel.</p>' : ''}
+        ${items.some((x) => x.direct) && items.some((x) => !x.direct) ? '<p class="muted small">Items marked “Ships direct” come straight from the supplier in a separate parcel. Everything else is packed together at our warehouse.</p>' : new Set(items.map((x) => x.shop_id).filter(Boolean)).size > 1 && !items.some((x) => x.direct) ? '<p class="muted small">Items from different shops are packed together and arrive in one parcel.</p>' : ''}
         <a class="btn block" href="#/checkout" ${items.length ? '' : 'style="pointer-events:none;opacity:.5"'}>Check out</a>
         <a class="btn block ghost" href="#/">Keep shopping</a>
       </aside>
@@ -390,7 +392,8 @@ async function checkout() {
       <label class="field">Apartment, building (optional)<input name="line2" autocomplete="address-line2" value="${esc(a.line2)}"></label>
       <div class="grid-2"><label class="field">City<input name="city" required autocomplete="address-level2" value="${esc(a.city)}"></label>
       <label class="field">Postal code<input name="postal_code" autocomplete="postal-code" value="${esc(a.postal_code)}"></label></div>
-      <label class="field">Country<input name="country" required autocomplete="country-name" value="${esc(a.country)}"></label>
+      <div class="grid-2"><label class="field">Country<select name="country_code" required autocomplete="country">${(cfg.countries || []).length ? `<option value="">Choose…</option>${cfg.countries.map(([c, n]) => `<option value="${c}" ${a.country_code === c || (!a.country_code && String(a.country || '').toLowerCase() === n.toLowerCase()) ? 'selected' : ''}>${esc(n)}</option>`).join('')}` : ''}</select></label>
+      <label class="field">State / province (optional)<input name="state" autocomplete="address-level1" value="${esc(a.state)}"></label></div>
       <div class="error" id="ce"></div>
       <button class="btn" id="go">Continue to payment</button>
       <p class="muted">Your address is only shared with Kinan’s shipping team. Sellers and suppliers never see it. By placing your order you agree to the <a href="/terms" target="_blank">Terms of Service</a>; import taxes may apply in your country.</p>
@@ -469,18 +472,23 @@ async function ordersList() {
 }
 
 const STEPS = [['paid', 'Order confirmed'], ['procuring', 'Purchased from Taobao'], ['awaiting_parcels', 'On its way to our China warehouse'], ['ready_to_ship', 'Arrived, checked and consolidated'], ['shipped', 'Dispatched — in transit to you'], ['delivered', 'Delivered']];
+const DIRECT_STEPS = [['paid', 'Order confirmed'], ['procuring', 'Ordered from the supplier'], ['shipped', 'On its way to you'], ['delivered', 'Delivered']];
 async function orderDetail(id) {
   if (!requireBuyer(`/orders/${id}`)) return;
   const o = await api(`/api/buyer/orders/${id}`);
   const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
-  const idx = STEPS.findIndex(([k]) => k === o.status);
+  const steps = o.all_direct ? DIRECT_STEPS : STEPS;
+  const idx = steps.findIndex(([k]) => k === o.status);
   const ended = ['cancelled', 'refunded'].includes(o.status);
   const a = o.shipping_address;
   $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/orders">${ICONS.back} Orders</a><h1 style="margin-top:6px">Order ${esc(o.id.slice(-8).toUpperCase())}</h1><p class="muted">Placed ${date(o.created_at)}</p></div>${pill(label, cls)}</div>
     <div class="two"><div class="stack-lg">
       ${o.status === 'pending_payment' ? `<div class="panel row between"><span>This order is waiting for payment.</span><a class="btn" href="#/pay/${esc(o.id)}">Pay now</a></div>` : ''}
+      ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Shipped directly from the supplier'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
+        <div class="muted small">${d.items.map(esc).join(' · ')}</div>
+        ${d.tracking.length ? d.tracking.map((t) => `<div><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}</div>`).join('')}
       ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div></div>` : ''}
-      ${!ended && o.status !== 'pending_payment' ? `<div class="panel"><h3 style="margin-bottom:14px">Progress</h3><div class="track"><ul>${STEPS.map(([k, t], i) => `<li class="${idx > i || o.status === 'delivered' ? 'done' : idx === i ? 'now done' : ''}"><span>${t}</span></li>`).join('')}</ul></div></div>` : ''}
+      ${!ended && o.status !== 'pending_payment' ? `<div class="panel"><h3 style="margin-bottom:14px">Progress</h3><div class="track"><ul>${steps.map(([k, t], i) => `<li class="${idx > i || o.status === 'delivered' ? 'done' : idx === i ? 'now done' : ''}"><span>${t}</span></li>`).join('')}</ul></div></div>` : ''}
       <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `<img src="${esc(l.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
     </div>
     <aside class="stack">

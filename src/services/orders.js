@@ -17,7 +17,9 @@ const API = require('../taobao/apis');
 const stripe = require('../payments/stripe');
 const catalog = require('./catalog');
 const shop = require('./shop');
+const aliexpress = require('./aliexpress');
 const { httpError } = require('../auth');
+const { countryCode, countryName } = require('../countries');
 
 const money = (n) => Math.round(Number(n) * 100) / 100;
 const pick = (o, ...k) => { for (const x of k) if (o && o[x] !== undefined && o[x] !== null) return o[x]; return undefined; };
@@ -26,6 +28,7 @@ const now = () => Date.now();
 const log = (order, event, extra = {}) => [...(order.timeline || []), { at: now(), event, ...extra }];
 
 const TB_STATUS_LABEL = {
+  ...aliexpress.LABEL,
   MANUAL_TO_BUY: 'To buy by hand on Taobao', MANUAL_BOUGHT: 'Bought — waiting for Taobao to ship',
   LOCAL_PENDING: 'Submitting', BULIDING: 'Being created', BUILDING: 'Being created',
   WAIT_BUYER_P: 'Awaiting seller payment', WAIT_BUYER_PAY: 'Awaiting seller payment',
@@ -45,10 +48,15 @@ function outerId() {
 // ---------------- Checkout ----------------
 
 function validateAddress(a) {
+  // Accept a country code (new checkout) or a country name (older apps)
+  if (a && a.country_code && !a.country) a = { ...a, country: countryName(String(a.country_code).toUpperCase()) };
   const need = ['name', 'phone', 'country', 'city', 'line1'];
   const miss = need.filter((k) => !a || !String(a[k] || '').trim());
   if (miss.length) throw httpError(400, `Shipping address is missing: ${miss.join(', ')}`);
-  return Object.fromEntries([...need, 'postal_code', 'line2'].map((k) => [k, String(a[k] || '').slice(0, 200)]));
+  const out = Object.fromEntries([...need, 'postal_code', 'line2', 'state'].map((k) => [k, String(a[k] || '').slice(0, 200)]));
+  out.country_code = countryCode(a.country_code) || countryCode(a.country);
+  if (out.country_code) out.country = countryName(out.country_code);
+  return out;
 }
 
 async function checkout(buyer, { items, shipping_address }) {
@@ -74,6 +82,7 @@ async function checkout(buyer, { items, shipping_address }) {
       line_no: String(lines.length + 1), listing_id: l.id, seller_id: l.seller_id,
       mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: sku.props,
       ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
+      ...(l.fulfillment === 'direct' ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
       image: (l.own_images || [])[0] || (l.images || [])[0] || null,
       qty, price: sku.price, cost_cny: sku.cost_cny
     });
@@ -103,7 +112,10 @@ async function markPaid(orderId, { provider, intent_id }) {
     const s = db.sellers.get(sellerId);
     const gross = money(lines.reduce((a, l) => a + l.price * l.qty, 0));
     const commission = money(gross * (Number(s?.commission_pct ?? config.defaultCommissionPct) / 100));
-    db.ledger.insert({ order_id: o.id, seller_id: sellerId, type: 'sale', currency: o.currency, gross, commission, net: money(gross - commission), status: 'pending_payout' });
+    // Items Kinan buys itself (AliExpress, manual Taobao) — their purchase cost is deducted from the seller's earnings.
+    // API Taobao items are paid by the seller from their own Distribution account, so nothing is deducted.
+    const cost = money(lines.reduce((a, l) => a + (l.direct ? Number(l.cost_sale || 0) : l.manual && l.cost_cny ? l.cost_cny / config.cnyRate : 0) * l.qty, 0));
+    db.ledger.insert({ order_id: o.id, seller_id: sellerId, type: 'sale', currency: o.currency, gross, commission, cost, net: money(gross - commission - cost), status: 'pending_payout' });
   }
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));
   await procure(o.id);
@@ -144,11 +156,21 @@ function buildPurchasePayload(subOrder, lines) {
 async function procure(orderId) {
   const o = db.orders.get(orderId);
   if (!o || !['paid', 'procuring', 'attention'].includes(o.status)) return o;
-  const bySeller = groupBy(o.lines, 'seller_id');
   const subs = [...(o.sub_orders || [])];
 
+  // AliExpress items ship straight to the customer: one direct sub-order per seller
+  for (const [sellerId, lines] of Object.entries(groupBy(o.lines.filter((l) => l.direct), 'seller_id'))) {
+    let sub = subs.find((s) => s.direct && s.seller_id === sellerId);
+    if (sub && !(sub.status === 'AE_TO_BUY' && !sub.purchase_ids?.length)) continue;
+    if (!sub) { sub = aliexpress.newDirectSub(o, sellerId, lines); subs.push(sub); }
+    db.orders.update(o.id, { sub_orders: subs });
+    await aliexpress.place(db.orders.get(o.id), sub, lines);
+    db.orders.update(o.id, { sub_orders: subs });
+  }
+
+  const bySeller = groupBy(o.lines.filter((l) => !l.direct), 'seller_id');
   for (const [sellerId, lines] of Object.entries(bySeller)) {
-    let sub = subs.find((s) => s.seller_id === sellerId);
+    let sub = subs.find((s) => !s.direct && s.seller_id === sellerId);
     if (sub && sub.status !== 'CREATE_FAILED') continue;
     if (!sub) { sub = { seller_id: sellerId, order_id: o.id, outer_purchase_id: outerId(), line_nos: lines.map((l) => l.line_no), status: 'LOCAL_PENDING', purchase_ids: [] }; subs.push(sub); }
     if (lines.some((l) => l.manual)) {
@@ -174,13 +196,13 @@ async function procure(orderId) {
     }
     db.orders.update(o.id, { sub_orders: subs });
   }
-  const anyFailed = subs.some((s) => s.status === 'CREATE_FAILED');
+  const anyFailed = subs.some((s) => s.status === 'CREATE_FAILED' || (s.direct && s.error));
   db.orders.update(o.id, (x) => ({ ...x, status: anyFailed ? 'attention' : 'procuring', timeline: log(x, anyFailed ? 'procure_failed' : 'procure_started') }));
 
-  for (const s of subs) if (s.status !== 'CREATE_FAILED' && !s.manual) { try { await syncSub(o.id, s.outer_purchase_id); } catch { /* later */ } }
+  for (const s of subs) if (s.status !== 'CREATE_FAILED' && !s.manual && !s.direct) { try { await syncSub(o.id, s.outer_purchase_id); } catch { /* later */ } }
   for (const s of subs) {
     const seller = db.sellers.get(s.seller_id);
-    if (seller?.auto_pay && s.status !== 'CREATE_FAILED' && !s.manual) { try { await paySub(o.id, s.outer_purchase_id); } catch { /* shown in UI */ } }
+    if (seller?.auto_pay && s.status !== 'CREATE_FAILED' && !s.manual && !s.direct) { try { await paySub(o.id, s.outer_purchase_id); } catch { /* shown in UI */ } }
   }
   return db.orders.get(o.id);
 }
@@ -206,6 +228,11 @@ async function syncSub(orderId, outer) {
   const sub = o?.sub_orders.find((s) => s.outer_purchase_id === outer);
   if (!sub) throw httpError(404, 'Purchase order not found');
   if (sub.manual) return o; // nothing to ask Taobao: updated by hand
+  if (sub.direct) {
+    await aliexpress.sync(sub);
+    db.orders.update(o.id, (x) => ({ ...x, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === outer ? sub : s)) }));
+    return recompute(o.id);
+  }
   const token = await tokenFor(sub.seller_id);
   const params = sub.purchase_ids.length ? { [API.ORDER_QUERY_PARAM]: sub.purchase_ids.join(',') } : { outer_purchase_id: outer };
   const r = await call(API.ORDER_QUERY, params, { accessToken: token });
@@ -272,23 +299,53 @@ function markManualBought(orderId, { outer_purchase_id, taobao_order_no, trackin
 /** Derive the buyer-facing order status from sub-orders + parcels + shipment. */
 function recompute(orderId) {
   const o = db.orders.get(orderId);
-  if (!o || ['pending_payment', 'cancelled', 'refunded', 'shipped', 'delivered'].includes(o.status)) return o;
-  const subs = o.sub_orders || [];
+  if (!o || ['pending_payment', 'cancelled', 'refunded', 'delivered'].includes(o.status)) return o;
+  const all = o.sub_orders || [];
+  const subs = all.filter((s) => !s.direct);          // go through the China warehouse
+  const direct = all.filter((s) => s.direct);         // AliExpress → customer
+  if (o.status === 'shipped' && subs.length) return o; // warehouse part already left; delivery is confirmed by staff
   let status = o.status;
-  if (subs.some((s) => s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED')) status = 'attention';
-  else if (subs.length && subs.every((s) => s.status === 'WAIT_BUYER_CONFIRM_GOODS')) {
-    const parcels = db.parcels.all((p) => p.order_id === o.id);
-    const allIn = parcels.length > 0 && parcels.every((p) => p.status === 'received');
-    status = parcels.some((p) => p.status === 'qc_failed') ? 'attention' : allIn ? 'ready_to_ship' : 'awaiting_parcels';
-  } else if (subs.length) status = 'procuring';
-  if (status !== o.status) return db.orders.update(o.id, (x) => ({ ...x, status, timeline: log(x, `status:${status}`) }));
-  return o;
+  if (subs.some((s) => s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED') || direct.some((s) => s.status === 'AE_CANCELLED' || (s.error && s.status === 'AE_TO_BUY'))) status = 'attention';
+  else if (subs.length) {
+    if (subs.every((s) => s.status === 'WAIT_BUYER_CONFIRM_GOODS')) {
+      const parcels = db.parcels.all((p) => p.order_id === o.id);
+      const allIn = parcels.length > 0 && parcels.every((p) => p.status === 'received');
+      status = parcels.some((p) => p.status === 'qc_failed') ? 'attention' : allIn ? 'ready_to_ship' : 'awaiting_parcels';
+    } else status = 'procuring';
+  } else if (direct.length) {
+    // AliExpress-only order: it is shipped/delivered when every AliExpress part is
+    if (direct.every((s) => s.status === 'AE_DELIVERED')) status = 'delivered';
+    else if (direct.every((s) => ['AE_SHIPPED', 'AE_DELIVERED'].includes(s.status))) status = 'shipped';
+    else status = 'procuring';
+  }
+  if (status === o.status) return o;
+  if (status === 'delivered') for (const l of db.ledger.all((x) => x.order_id === o.id && x.status === 'pending_payout')) db.ledger.update(l.id, { status: 'payable' });
+  return db.orders.update(o.id, (x) => ({ ...x, status, timeline: log(x, `status:${status}`) }));
+}
+
+/** Admin: AliExpress part of an order — place it via the API, or record what was done by hand. */
+async function updateDirect(orderId, { outer_purchase_id, place, ...manual } = {}, by) {
+  const o = db.orders.get(orderId);
+  if (!o) throw httpError(404, 'Order not found');
+  if (['pending_payment', 'cancelled', 'refunded'].includes(o.status)) throw httpError(409, 'This order is not active');
+  const sub = o.sub_orders.find((s) => s.direct && (!outer_purchase_id || s.outer_purchase_id === outer_purchase_id));
+  if (!sub) throw httpError(404, 'No AliExpress part in this order');
+  if (place) {
+    if (!aliexpress.apiReady()) throw httpError(503, 'AliExpress API is not connected — order it by hand and enter the order number');
+    if (sub.status !== 'AE_TO_BUY') throw httpError(409, 'Already ordered on AliExpress');
+    await aliexpress.place(o, sub, o.lines.filter((l) => sub.line_nos.includes(l.line_no)));
+  } else aliexpress.manualUpdate(sub, manual);
+  db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'paid' || x.status === 'attention' ? 'procuring' : x.status, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === sub.outer_purchase_id ? sub : s)), timeline: log(x, `aliexpress:${sub.status}`, { by }) }));
+  return recompute(o.id);
 }
 
 async function cancelOrder(orderId, by) {
   const o = db.orders.get(orderId);
   if (!o) throw httpError(404, 'Order not found');
   if (['shipped', 'delivered', 'cancelled', 'refunded'].includes(o.status)) throw httpError(409, 'This order cannot be cancelled');
+  if (o.sub_orders.some((s) => s.direct && s.status !== 'AE_TO_BUY')) {
+    throw httpError(409, 'Part of this order was already ordered on AliExpress — cancel it there first, then refund the customer');
+  }
   if (o.sub_orders.some((s) => s.status === 'WAIT_BUYER_CONFIRM_GOODS')) {
     throw httpError(409, 'A Taobao seller already shipped part of this order — use the after-sales (refund) flow');
   }
@@ -306,9 +363,10 @@ async function cancelOrder(orderId, by) {
 }
 
 async function syncOpen() {
-  for (const o of db.orders.all((x) => ['procuring', 'awaiting_parcels', 'attention'].includes(x.status))) {
+  for (const o of db.orders.all((x) => ['procuring', 'awaiting_parcels', 'attention', 'ready_to_ship', 'shipped'].includes(x.status) && (['procuring', 'awaiting_parcels', 'attention'].includes(x.status) || (x.sub_orders || []).some((s) => s.direct)))) {
     for (const s of o.sub_orders) {
       if (s.manual || ['CREATE_FAILED', 'TRADE_CLOSED'].includes(s.status)) continue;
+      if (s.direct && !['AE_PLACED', 'AE_PAID', 'AE_SHIPPED'].includes(s.status)) continue;
       try { await syncSub(o.id, s.outer_purchase_id); } catch { /* keep going */ }
     }
   }
@@ -341,6 +399,12 @@ function buyerView(o) {
     shipping_address: o.shipping_address,
     payment: { provider: o.payment?.provider, client_secret: o.status === 'pending_payment' ? o.payment?.client_secret : undefined },
     tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at } : null,
+    // AliExpress parts travel separately, straight to the customer
+    direct: (o.sub_orders || []).filter((s) => s.direct).map((s) => ({
+      status: s.status, label: { AE_TO_BUY: 'Being ordered', AE_PLACED: 'Being ordered', AE_PAID: 'Ordered — preparing', AE_SHIPPED: 'On its way to you', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Being reviewed' }[s.status] || 'Being ordered',
+      items: o.lines.filter((l) => s.line_nos.includes(l.line_no)).map((l) => l.title), tracking: (s.logistics || []).map((x) => ({ carrier: x.carrier, number: x.tracking }))
+    })),
+    all_direct: (o.lines || []).every((l) => l.direct),
     timeline: (o.timeline || []).map((t) => ({ at: t.at, event: t.event }))
   };
 }
@@ -348,17 +412,17 @@ function buyerView(o) {
 /** Seller view: only their lines & sub-order, never the buyer's personal address. */
 function sellerView(o, sellerId) {
   const lines = o.lines.filter((l) => l.seller_id === sellerId);
-  const sub = (o.sub_orders || []).find((s) => s.seller_id === sellerId);
+  const sub = (o.sub_orders || []).find((s) => s.seller_id === sellerId && !s.direct) || (o.sub_orders || []).find((s) => s.seller_id === sellerId);
   return {
     id: o.id, status: o.status, status_label: ORDER_STATUS_LABEL[o.status], created_at: o.created_at, currency: o.currency,
     lines: lines.map(({ title, props, qty, price, cost_cny }) => ({ title, props, qty, price, cost_cny })),
     revenue: money(lines.reduce((a, l) => a + l.price * l.qty, 0)),
     cost_cny: money(lines.reduce((a, l) => a + l.cost_cny * l.qty, 0)),
-    purchase: sub ? { outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: TB_STATUS_LABEL[sub.status] || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] } : null
+    purchase: sub ? { direct: Boolean(sub.direct), manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: TB_STATUS_LABEL[sub.status] || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] } : null
   };
 }
 
 module.exports = {
-  checkout, markPaid, payWithWallet, markManualBought, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,
+  checkout, markPaid, payWithWallet, markManualBought, updateDirect, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,
   decorate, buyerView, sellerView, ORDER_STATUS_LABEL, TB_STATUS_LABEL, buildPurchasePayload
 };

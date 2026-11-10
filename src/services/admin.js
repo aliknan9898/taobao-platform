@@ -41,6 +41,10 @@ function overview() {
   }
   const pendingListings = db.listings.all((l) => l.status === 'pending_review').length;
   if (pendingListings) alerts.push({ kind: 'listings', text: `${pendingListings} product(s) awaiting your approval before buyers can see them` });
+  for (const o of all) for (const s of (o.sub_orders || []).filter((x) => x.direct)) {
+    if (!['cancelled', 'refunded'].includes(o.status) && s.status === 'AE_TO_BUY' && o.status !== 'pending_payment') alerts.push({ kind: 'order', id: o.id, text: `Order ${o.id.slice(-8)}: AliExpress item to order${s.error ? ` (${s.error})` : ''}` });
+    if (s.status === 'AE_PLACED') alerts.push({ kind: 'pay_deadline', id: o.id, text: `Order ${o.id.slice(-8)}: pay the AliExpress order ${(s.purchase_ids || []).join(', ')}` });
+  }
   const newRequests = db.requests.all((r) => r.status === 'new').length;
   if (newRequests) alerts.push({ kind: 'requests', text: `${newRequests} customer item request(s) waiting for a reply` });
   const pendingSellers = db.sellers.all((s) => s.status === 'pending').length;
@@ -115,8 +119,8 @@ function listings({ status } = {}) {
       ...l,
       shop: db.sellers.get(l.seller_id)?.shop_name,
       skus: l.skus.map((s) => {
-        if (s.cost_cny === null || s.cost_cny === undefined) return { ...s, margin_pct: null };
-        const costSale = s.cost_cny / config.cnyRate;
+        const costSale = s.cost_sale !== undefined && s.cost_sale !== null ? s.cost_sale : s.cost_cny !== undefined && s.cost_cny !== null ? s.cost_cny / config.cnyRate : null;
+        if (costSale === null) return { ...s, margin_pct: null };
         return { ...s, margin_pct: s.price > 0 ? Math.round(((s.price - costSale) / s.price) * 100) : null };
       })
     }));

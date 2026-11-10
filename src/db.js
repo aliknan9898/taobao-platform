@@ -76,6 +76,7 @@ module.exports = {
   ledger: collection('ledger', 'led'),
   wallet: collection('wallet', 'wal'),        // buyer wallet entries (signed amounts)
   requests: collection('requests', 'req'),    // custom item requests from buyers
+  settings: collection('settings', 'set'),    // platform-level settings, e.g. the AliExpress connection
   inbox: collection('inbox', 'msg'),          // webhook queue + dedup
   oauthStates: collection('oauth_states', 'st'),
   _reset() { cache.clear(); }

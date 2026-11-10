@@ -99,7 +99,7 @@ function shell() {
 }
 async function signOut() { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; shop = null; authScreen(); }
 
-const routes = [[/^#\/?$/, dashboard], [/^#\/products$/, products], [/^#\/add$/, addStart], [/^#\/edit\/([\w-]+)$/, editProduct], [/^#\/review$/, editorScreen], [/^#\/manual(?:\/([\w-]+))?$/, manualForm], [/^#\/orders$/, orders], [/^#\/earnings$/, earnings], [/^#\/settings$/, settings]];
+const routes = [[/^#\/?$/, dashboard], [/^#\/products$/, products], [/^#\/add$/, addStart], [/^#\/edit\/([\w-]+)$/, editProduct], [/^#\/review$/, editorScreen], [/^#\/manual(?:\/([\w-]+)|\?(ae))?$/, manualForm], [/^#\/orders$/, orders], [/^#\/earnings$/, earnings], [/^#\/settings$/, settings]];
 async function route() {
   if (!me) return;
   shell();
@@ -174,10 +174,10 @@ async function products() {
           ${p.status === 'rejected' && p.review?.reason ? `<div class="small bad">Kinan’s note: ${esc(p.review.reason)}</div>` : ''}
           ${p.sync_error ? `<div class="small warn">${esc(p.sync_error)}</div>` : ''}</div>
         <div class="row acts">
-          <a class="btn sm ghost" href="${p.source === 'manual' ? '#/manual/' : '#/edit/'}${esc(p.id)}">Edit</a>
+          <a class="btn sm ghost" href="${['manual', 'aliexpress'].includes(p.source) ? '#/manual/' : '#/edit/'}${esc(p.id)}">Edit</a>
           ${p.status === 'active' ? `<button class="btn sm ghost" data-st="paused" data-id="${esc(p.id)}">Pause</button>` : ''}
           ${p.status === 'paused' ? `<button class="btn sm" data-st="active" data-id="${esc(p.id)}">Go live</button>` : ''}
-          ${p.source === 'manual' ? '<span class="muted small">Added manually</span>' : `<button class="btn sm quiet" data-sync="${esc(p.id)}" title="Refresh cost and stock from Taobao">Refresh</button>`}
+          ${p.source === 'aliexpress' ? `<span class="pill">AliExpress · ships direct</span>${p.ae_product_id && cfg.aliexpress?.import ? `<button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : ''}` : p.source === 'manual' ? '<span class="muted small">Added manually</span>' : `<button class="btn sm quiet" data-sync="${esc(p.id)}" title="Refresh cost and stock from Taobao">Refresh</button>`}
         </div></div>`; }).join('') || `<div class="empty"><h3>${list.length ? 'Nothing in this list' : 'No products yet'}</h3><p>Paste a Taobao link to import your first product.</p><a class="btn" href="#/add">Add product</a></div>`}</section>
     <p class="muted">New products and changes to titles, descriptions or photos are reviewed by Kinan before buyers see them. Price changes go live right away.</p>`;
   $$('[data-f]').forEach((b) => b.onclick = () => { prodFilter = b.dataset.f; products(); });
@@ -200,8 +200,28 @@ function addStart(err = '') {
       <div class="error">${esc(err)}</div>
       <button class="btn" ${connected ? '' : 'disabled'} id="go">Import product</button>
     </form>
+    <section class="panel stack" style="max-width:720px;margin-top:12px"><div class="row between"><span><b>Add from AliExpress</b><br><span class="muted small">Ships straight from AliExpress to your customer — no warehouse step. Delivery about ${esc(cfg.aliexpress?.delivery_days || '10–20')} days.</span></span>${cfg.aliexpress?.import ? '' : '<a class="btn ghost" href="#/manual?ae">Add manually</a>'}</div>
+      ${cfg.aliexpress?.import ? `<form class="stack" id="aef"><label class="field">AliExpress product link<input name="link" required placeholder="https://www.aliexpress.com/item/1005….html" autocomplete="off"></label><div class="error" id="aee"></div><button class="btn" id="aego">Import from AliExpress</button></form><div id="aeprev"></div>` : ''}</section>
     <section class="panel row between" style="max-width:720px;margin-top:12px"><span><b>Add a product manually</b><br><span class="muted small">Type in the title, price and photos yourself — no Taobao connection needed. Kinan buys it on Taobao for you when it sells.</span></span><a class="btn ghost" href="#/manual">Add manually</a></section>`;
   wireConnect();
+  const aef = $('#aef');
+  if (aef) aef.onsubmit = async (e) => {
+    e.preventDefault(); const link = e.target.link.value.trim(); $('#aee').textContent = '';
+    $('#aego').disabled = true; $('#aego').textContent = 'Fetching from AliExpress…';
+    try {
+      const p = await api('/api/seller/products/aliexpress/preview', 'POST', { link });
+      $('#aeprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="aet" value="${esc(p.title)}" maxlength="200"></label></div>
+        <table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>Cost</th><th>Your price</th></tr></thead><tbody>${p.skus.map((k) => `<tr><td>${esc(k.props || 'Standard')}</td><td style="text-align:center">${money(k.cost_sale, cfg.currency)}</td><td><input type="number" step="0.01" min="0" data-aep="${esc(k.mp_sku_id)}" value="${k.suggested_price}" style="min-height:34px"></td></tr>`).join('')}</tbody></table>
+        <button class="btn" id="aepub">Submit for review</button></div>`;
+      $('#aepub').onclick = async () => {
+        const prices = Object.fromEntries($$('[data-aep]').map((i) => [i.dataset.aep, Number(i.value)]));
+        $('#aepub').disabled = true;
+        try { await api('/api/seller/products/aliexpress', 'POST', { link, title: $('#aet').value, prices }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
+        catch (err) { $('#aee').textContent = err.message; $('#aepub').disabled = false; }
+      };
+    } catch (err) { $('#aee').textContent = err.message; }
+    $('#aego').disabled = false; $('#aego').textContent = 'Import from AliExpress';
+  };
   $('#lf').onsubmit = async (e) => {
     e.preventDefault(); const link = e.target.link.value.trim();
     $('#go').disabled = true; $('#go').textContent = 'Fetching from Taobao…';
@@ -231,20 +251,22 @@ function resizeImage(file, max = 1000) {
     img.src = url;
   });
 }
-async function manualForm(id) {
+async function manualForm(id, aeFlag) {
   const v = $('#view');
   if (shop.status !== 'active') { v.innerHTML = `<div class="head"><h1>Add product</h1></div>${approvalBanner()}`; return; }
   const ex = id ? (await api('/api/seller/products')).find((x) => x.id === id) : null;
   if (id && !ex) throw new Error('Product not found');
-  const m = { images: [...(ex?.own_images || [])], variants: ex ? ex.skus.map((s) => ({ name: s.props, price: s.price, stock: s.stock, cost_cny: s.cost_cny ?? '' })) : [{ name: '', price: '', stock: 99, cost_cny: '' }] };
+  const m = { source: ex ? (ex.source === 'aliexpress' ? 'aliexpress' : 'taobao') : (aeFlag ? 'aliexpress' : 'taobao'), images: [...(ex?.own_images || []), ...(ex?.source === 'aliexpress' ? ex.images || [] : [])], variants: ex ? ex.skus.map((s) => ({ name: s.props, price: s.price, stock: s.stock, cost_cny: (ex.source === 'aliexpress' ? s.cost_sale : s.cost_cny) ?? '' })) : [{ name: '', price: '', stock: 99, cost_cny: '' }] };
   v.innerHTML = `<div class="head"><div><a class="muted" href="#/add" style="text-decoration:none">← Add product</a><h1>${ex ? 'Edit product' : 'Add a product manually'}</h1></div></div>
     <form class="panel stack" id="mf" style="max-width:760px">
-      <label class="field">Taobao / Tmall link<input name="source_link" placeholder="Paste the Taobao link or share text" value="${esc(ex?.source_link || '')}"><span class="muted small">Only Kinan sees this — we use it to buy the item when it sells.</span></label>
+      <div class="stack" style="gap:6px"><b>Where does it come from?</b><div class="seg" id="srcseg"><button type="button" data-src="taobao">Taobao</button><button type="button" data-src="aliexpress">AliExpress</button></div>
+        <span class="muted small" id="srchint"></span></div>
+      <label class="field"><span id="linklabel">Link</span><input name="source_link" placeholder="Paste the product link or share text" value="${esc(ex?.source_link || '')}"><span class="muted small">Only Kinan sees this — we use it to buy the item when it sells.</span></label>
       <label class="field">Title (shown to customers)<input name="title" required maxlength="200" value="${esc(ex?.title || '')}" placeholder="e.g. Splash-proof fleece-lined tactical jacket"></label>
       <div class="stack" style="gap:6px"><b>Photos</b><span class="muted small">Up to 6. Use your own photos or ones you have the right to use.</span>
         <div class="photos" id="ph"></div>
         <label class="btn sm quiet" style="cursor:pointer;justify-self:start">Add photos<input type="file" accept="image/*" multiple hidden id="pf"></label></div>
-      <div class="stack" style="gap:6px"><b>Options and prices</b><span class="muted small">One row per size or colour. Taobao cost (CNY) is optional and private — it helps Kinan check your margin.</span>
+      <div class="stack" style="gap:6px"><b>Options and prices</b><span class="muted small">One row per size or colour. Your cost is optional and private — it helps Kinan check your margin.</span>
         <div id="vars" class="stack" style="gap:8px"></div>
         <button type="button" class="btn sm ghost" id="addv" style="justify-self:start">+ Add option</button></div>
       <div class="grid-2"><label class="field">Weight (kg, optional)<input name="weight_kg" type="number" step="0.01" min="0" value="${esc(ex?.weight_kg ?? '')}"></label></div>
@@ -261,12 +283,19 @@ async function manualForm(id) {
       <label class="field vname">Option${m.variants.length > 1 ? '' : ' (optional)'}<input data-k="name" data-i="${i}" value="${esc(x.name)}" placeholder="e.g. Black / XL"></label>
       <label class="field">Price ${esc(String(cfg.currency || 'usd').toUpperCase())}<input data-k="price" data-i="${i}" type="number" step="0.01" min="0" required value="${esc(x.price)}"></label>
       <label class="field">Stock<input data-k="stock" data-i="${i}" type="number" min="0" value="${esc(x.stock)}"></label>
-      <label class="field">Cost ¥<input data-k="cost_cny" data-i="${i}" type="number" step="0.01" min="0" value="${esc(x.cost_cny)}" placeholder="opt."></label>
+      <label class="field">Cost ${m.source === 'aliexpress' ? esc(String(cfg.currency || 'usd').toUpperCase()) : '¥'}<input data-k="cost_cny" data-i="${i}" type="number" step="0.01" min="0" value="${esc(x.cost_cny)}" placeholder="opt."></label>
       ${m.variants.length > 1 ? `<button type="button" class="btn sm ghost vrm" data-rmv="${i}" aria-label="Remove option">×</button>` : ''}</div>`).join('');
     $$('#vars input').forEach((inp) => inp.oninput = () => { m.variants[+inp.dataset.i][inp.dataset.k] = inp.value; });
     $$('[data-rmv]').forEach((b) => b.onclick = () => { m.variants.splice(+b.dataset.rmv, 1); paintVars(); });
   };
-  paintPhotos(); paintVars();
+  const paintSrc = () => {
+    $$('#srcseg button').forEach((b) => b.classList.toggle('on', b.dataset.src === m.source));
+    $('#linklabel').textContent = m.source === 'aliexpress' ? 'AliExpress link' : 'Taobao / Tmall link';
+    $('#srchint').textContent = m.source === 'aliexpress' ? `Ships straight from AliExpress to the customer (about ${cfg.aliexpress?.delivery_days || '10–20'} days). Cost is in ${String(cfg.currency || 'usd').toUpperCase()}.` : 'Ships to Kinan’s China warehouse, is checked, then sent to the customer with their other items. Cost is in CNY (¥).';
+    paintVars();
+  };
+  $$('#srcseg button').forEach((b) => b.onclick = () => { m.source = b.dataset.src; paintSrc(); });
+  paintPhotos(); paintSrc();
   $('#addv').onclick = () => { m.variants.push({ name: '', price: m.variants[0]?.price || '', stock: 99, cost_cny: '' }); paintVars(); };
   $('#pf').onchange = async (e) => {
     for (const f of [...e.target.files].slice(0, 6 - m.images.length)) { try { m.images.push(await resizeImage(f)); } catch (err) { toast(err.message); } }
@@ -274,7 +303,7 @@ async function manualForm(id) {
   };
   $('#mf').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target; $('#me').textContent = '';
-    const body = { source_link: f.source_link.value, title: f.title.value, description: f.description.value, weight_kg: f.weight_kg.value, images: m.images,
+    const body = { source: m.source, source_link: f.source_link.value, title: f.title.value, description: f.description.value, weight_kg: f.weight_kg.value, images: m.images,
       variants: m.variants.map((x) => ({ name: x.name, price: Number(x.price), stock: x.stock === '' ? 99 : Number(x.stock), cost_cny: x.cost_cny === '' ? null : Number(x.cost_cny) })) };
     $('#msave').disabled = true; $('#msave').textContent = 'Saving…';
     try {
@@ -380,12 +409,12 @@ function orderRow(o) {
     <div style="display:grid;gap:4px;min-width:0"><div class="row"><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><span class="muted">${date(o.created_at)}</span></div>
       <div class="small">${o.lines.map((l) => `${l.qty} × ${esc(l.title)}${l.props ? ` <span class="muted">(${esc(variantLabel(l.props))})</span>` : ''}`).join('<br>')}</div>
       <div class="row">${pill(o.status_label, ['delivered', 'shipped'].includes(o.status) ? 'ok' : ['cancelled', 'refunded'].includes(o.status) ? 'bad' : 'warn')}
-        ${p ? pill(`Taobao: ${p.status_label}`, PO_STATUS_CLS(p.status)) : ''}
+        ${p ? pill(`${p.direct ? 'AliExpress' : 'Taobao'}: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
         ${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
       ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
-      ${(p?.logistics || []).length ? `<div class="small muted">To warehouse: ${p.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}</div>
-    <div style="text-align:right;display:grid;gap:6px;justify-items:end"><b>${money(o.revenue, o.currency)}</b><span class="muted">cost ¥${num(o.cost_cny)}</span>
-      <div class="row">${due ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">Refresh</button>` : ''}</div></div></div>`;
+      ${(p?.logistics || []).length ? `<div class="small muted">${p.direct ? 'To the customer' : 'To warehouse'}: ${p.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}</div>
+    <div style="text-align:right;display:grid;gap:6px;justify-items:end"><b>${money(o.revenue, o.currency)}</b>${o.cost_cny ? `<span class="muted">cost ¥${num(o.cost_cny)}</span>` : ''}
+      <div class="row">${due ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p && !p.direct && !p.manual ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">Refresh</button>` : ''}</div></div></div>`;
 }
 function wireOrderActions() {
   $$('[data-pay]').forEach((b) => b.onclick = async () => { if (!confirm('Pay this purchase order from your Taobao Distribution account balance?')) return; b.disabled = true; try { await api(`/api/seller/orders/${b.dataset.pay}/pay`, 'POST'); toast('Payment sent to Taobao'); } catch (e) { toast(e.message); } route(); });
