@@ -555,6 +555,7 @@ function signin(next, mode = 'in', msg = '') {
       <h2>${mode === 'in' ? 'Sign in to Kinan' : 'Create your Kinan account'}</h2>
       <div class="seg"><button type="button" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button type="button" data-m="up" class="${mode === 'up' ? 'on' : ''}">Create account</button></div>
       ${other ? `<p class="muted">You’re signed in as a ${esc(me.role)}. Sign in with a customer account to shop.</p>` : ''}
+      ${K.googleButton(cfg, 'shop', '#' + next)}
       ${mode === 'up' ? '<label class="field">Name<input name="name" required autocomplete="name"></label>' : ''}
       <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
       <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
@@ -588,10 +589,11 @@ function wireInstall() {
 (async () => {
   updateBadge();
   const params = new URLSearchParams(location.search);
+  const loginError = K.takeLoginError();
   if (params.get('order')) { history.replaceState(null, '', `/#/orders/${params.get('order')}`); }
   [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').catch(() => null)]);
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
-  route();
+  if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
   K.registerSW();
 })();
 </script>

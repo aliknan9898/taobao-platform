@@ -13,6 +13,7 @@ const orders = require('./services/orders');
 const warehouse = require('./services/warehouse');
 const admin = require('./services/admin');
 const shopSvc = require('./services/shop');
+const google = require('./googleAuth');
 const stripe = require('./payments/stripe');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
@@ -88,12 +89,16 @@ const ADMIN = ['admin']; const SELLER = ['seller']; const BUYER = ['buyer']; con
 
 // Auth
 r('POST', '/api/auth/register', null, async ({ req }) => auth.register(await readJson(req)));
+// SameSite=Lax so the cookie is kept after the redirect back from Google; still not sent on cross-site POSTs.
+const setSession = (res, token) => {
+  const secure = config.publicBaseUrl.startsWith('https') ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `sid=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}${secure}`);
+};
 r('POST', '/api/auth/login', null, async ({ req, res }) => {
   throttle(req.socket.remoteAddress);
   const { email, password } = await readJson(req);
   const out = auth.login(email, password);
-  const secure = config.publicBaseUrl.startsWith('https') ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `sid=${encodeURIComponent(out.token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${30 * 86400}${secure}`);
+  setSession(res, out.token);
   return out;
 });
 r('POST', '/api/auth/logout', null, async ({ req, res }) => {
@@ -110,7 +115,7 @@ r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntr
 r('GET', '/api/catalog/:id', null, async ({ params }) => catalog.buyerListing(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -241,6 +246,24 @@ const server = http.createServer(async (req, res) => {
     if (p === '/webhooks/stripe' && req.method === 'POST') {
       const out = await webhooks.stripeHook(await readRaw(req), req.headers);
       return send(res, out.status, out.body);
+    }
+    if (p === '/auth/google' && req.method === 'GET') {
+      const app = url.searchParams.get('app') === 'seller' ? 'seller' : 'shop';
+      try { res.writeHead(302, { Location: google.authorizeUrl(app, url.searchParams.get('next')), 'Cache-Control': 'no-store' }); }
+      catch (e) { res.writeHead(302, { Location: `${app === 'seller' ? '/seller' : '/'}?login_error=${encodeURIComponent(e.message)}` }); }
+      return res.end();
+    }
+    if (p === '/auth/google/callback' && req.method === 'GET') {
+      throttle(req.socket.remoteAddress);
+      try {
+        const out = await google.callback({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') });
+        if (out.token) setSession(res, out.token);
+        res.writeHead(302, { Location: out.redirect, 'Cache-Control': 'no-store' });
+      } catch (e) {
+        if ((e.status || 500) >= 500) console.error('[google]', e.message);
+        res.writeHead(302, { Location: `${e.home || '/'}?login_error=${encodeURIComponent(e.message)}` });
+      }
+      return res.end();
     }
     if (p === '/oauth/callback') {
       try {

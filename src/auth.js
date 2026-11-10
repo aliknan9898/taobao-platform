@@ -57,7 +57,15 @@ function createStaff({ email, password, name, role }) {
 
 function login(email, password) {
   const u = db.users.find((x) => x.email === String(email || '').trim().toLowerCase());
-  if (!u || !checkPassword(String(password || ''), u.pass)) throw httpError(401, 'Incorrect email or password');
+  if (!u || !u.pass || !checkPassword(String(password || ''), u.pass)) {
+    if (u && !u.pass && u.google_sub) throw httpError(401, 'This account uses Google sign-in — tap “Continue with Google”');
+    throw httpError(401, 'Incorrect email or password');
+  }
+  return createSession(u);
+}
+
+/** Start a session for a user who has already been verified (password or Google). */
+function createSession(u) {
   if (u.status !== 'active') throw httpError(403, 'Account is suspended');
   const token = crypto.randomBytes(32).toString('base64url');
   db.sessions.insert({ token_hash: sha(token), user_id: u.id, expires_at: Date.now() + SESSION_TTL });
@@ -109,4 +117,4 @@ function bootstrapAdmin() {
   }
 }
 
-module.exports = { register, createStaff, login, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };
+module.exports = { register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };

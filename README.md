@@ -41,6 +41,15 @@ No dependencies. Node.js 18 or newer.
 - No duplicate orders: `outer_purchase_id` is saved before the API call.
 - Passwords hashed with scrypt; Bearer sessions for apps, HttpOnly cookies for the sites; sign-in attempts are rate-limited.
 
+## Sign in with Google
+Customers (Kinan Shop) and sellers (Seller Center) can tap **Continue with Google**. The button appears once these are set:
+
+1. Google Cloud Console → APIs & Services → **OAuth consent screen**: app name *Kinan*, support email, scopes `email`, `profile`, `openid`; publish the app.
+2. **Credentials → Create credentials → OAuth client ID → Web application**. Authorized redirect URI: `PUBLIC_BASE_URL/auth/google/callback` (e.g. `https://kinan-17ma.onrender.com/auth/google/callback`).
+3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the server.
+
+A Google account with the same email as an existing customer or seller is linked to it. New Google sellers start as *pending* until you approve them. Admin and warehouse accounts can only use email and password.
+
 ## Kinan Shop ↔ Seller Center ↔ Admin
 - **Seller Center → Shop:** the seller's logo, description and return policy (Settings) appear on their shop page and products. Only products the admin approved are shown.
 - **Admin → Shop:** wallet credits/deductions (Users → Adjust) appear in the customer's wallet with the reason; replies and prices for item requests (Item requests tab) appear on the customer's request page.

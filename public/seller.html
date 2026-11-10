@@ -389,6 +389,7 @@ function authScreen(mode = 'in', msg = '') {
       <div>${K.brand('Seller Center')}</div>
       <h2>${mode === 'in' ? 'Sign in to sell on Kinan' : 'Open your Kinan shop'}</h2>
       <div class="seg"><button type="button" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button type="button" data-m="up" class="${mode === 'up' ? 'on' : ''}">Open a shop</button></div>
+      ${K.googleButton(cfg, 'seller')}
       ${mode === 'up' ? '<label class="field">Shop name<input name="shop_name" required maxlength="80"></label><label class="field">Your name<input name="name" required autocomplete="name"></label>' : ''}
       <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
       <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
@@ -419,12 +420,13 @@ function wireInstall() {
 }
 
 (async () => {
+  const loginError = K.takeLoginError();
   const params = new URLSearchParams(location.search);
   const connected = params.get('taobao') === 'connected';
   if (params.toString()) history.replaceState(null, '', '/seller' + location.hash);
   cfg = await api('/api/config/public').catch(() => cfg);
   try { const u = await api('/api/me'); if (u.role === 'seller') { me = u; await refreshShop(); } } catch {}
-  if (!me) authScreen(); else { route(); if (connected) toast('Taobao account connected'); }
+  if (!me) authScreen('in', loginError); else { route(); if (connected) toast('Taobao account connected'); }
   K.registerSW();
 })();
 </script>

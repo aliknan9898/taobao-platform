@@ -139,3 +139,9 @@ dialog::backdrop { background: rgba(10, 14, 30, .45); }
 .sitefoot a { color: var(--ink-2); text-decoration: none; }
 .sitefoot a:hover { text-decoration: underline; }
 body.has-tabbar .sitefoot { padding-bottom: 12px; }
+
+/* Continue with Google */
+.btn.gbtn { background: #fff; color: #1f1f1f; border: 1px solid #dadce0; gap: 10px; font-weight: 600; text-decoration: none; }
+.btn.gbtn:hover { background: #f8f9fa; }
+.ordiv { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+.ordiv::before, .ordiv::after { content: ""; flex: 1; height: 1px; background: var(--line); }

@@ -24,6 +24,8 @@ const config = {
   // Stripe (no SDK — REST over fetch). Empty key = demo mode (test payments only)
   stripeSecretKey: e.STRIPE_SECRET_KEY || '',
   stripeWebhookSecret: e.STRIPE_WEBHOOK_SECRET || '',
+  googleClientId: e.GOOGLE_CLIENT_ID || '',          // Google sign-in (OAuth 2.0 Web client)
+  googleClientSecret: e.GOOGLE_CLIENT_SECRET || '',
   stripePublishableKey: e.STRIPE_PUBLISHABLE_KEY || '', // pk_… for Stripe.js on the buyer website
   stripeApiUrl: e.STRIPE_API_URL || 'https://api.stripe.com/v1',
   currency: (e.SALE_CURRENCY || 'usd').toLowerCase(),
@@ -60,6 +62,7 @@ const config = {
   }
 };
 config.redirectUri = `${config.publicBaseUrl}/oauth/callback`;
+config.googleRedirectUri = `${config.publicBaseUrl}/auth/google/callback`;
 
 function configProblems() {
   const p = [];

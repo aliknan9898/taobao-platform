@@ -11,6 +11,7 @@ const crypto = require('crypto');
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'plat-'));
 Object.assign(process.env, {
   TAOBAO_APP_KEY: 'appk', TAOBAO_APP_SECRET: 'apps', TAOBAO_API_URL: 'http://taobao.mock/rest',
+  GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'gsecret',
   ADMIN_EMAIL: 'admin@x.com', ADMIN_PASSWORD: 'adminpass1', SHIPPING_FLAT_FEE: '8',
   WAREHOUSE_NAME: 'WH', WAREHOUSE_MOBILE: '138', WAREHOUSE_CITY: 'Guangzhou', WAREHOUSE_DETAIL: 'road 1'
 });
@@ -23,10 +24,20 @@ const webhooks = require('../src/webhooks');
 const { server } = require('../src/server');
 
 // ---------- mock Taobao API ----------
+const googleUsers = {}; let googleNonce = null;
 const tb = { calls: [], poStatus: 'WAIT_BUYER_P', logistics: [] };
 const realFetch = global.fetch;
 global.fetch = async (url, opts = {}) => {
   const u = new URL(url);
+  if (u.hostname === 'oauth2.googleapis.com') {
+    const params = Object.fromEntries(new URLSearchParams(opts.body));
+    assert.strictEqual(params.client_secret, 'gsecret');
+    const g = googleUsers[params.code];
+    if (!g) return { ok: false, status: 400, json: async () => ({ error: 'invalid_grant' }) };
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const idt = `${b64({ alg: 'RS256' })}.${b64({ iss: 'https://accounts.google.com', aud: 'gid.apps.googleusercontent.com', exp: Math.floor(Date.now() / 1000) + 3600, email_verified: true, ...g, nonce: g.nonce ?? googleNonce })}.sig`;
+    return { ok: true, status: 200, json: async () => ({ id_token: idt, access_token: 'x' }) };
+  }
   if (u.hostname !== 'taobao.mock') return realFetch(url, opts);
   const params = Object.fromEntries(new URLSearchParams(opts.body));
   const apiPath = u.pathname.replace('/rest', '');
@@ -262,4 +273,65 @@ test('Kinan Shop: store profiles, filters, item requests and wallet', async () =
   const cx = await api('POST', `/api/admin/orders/${order.id}/cancel`, null, aTok);
   assert.strictEqual(cx.status, 200, JSON.stringify(cx.body));
   assert.strictEqual((await api('GET', '/api/buyer/wallet', null, bTok)).body.balance, 100);
+});
+
+
+test('Continue with Google: shop and Seller Center', async () => {
+  assert.strictEqual((await api('GET', '/api/config/public')).body.google_signin, true);
+  const start = async (app, next = '') => {
+    const r = await realFetch(`${base}/auth/google?app=${app}&next=${encodeURIComponent(next)}`, { redirect: 'manual' });
+    assert.strictEqual(r.status, 302);
+    const loc = new URL(r.headers.get('location'));
+    assert.strictEqual(loc.origin + loc.pathname, 'https://accounts.google.com/o/oauth2/v2/auth');
+    assert.strictEqual(loc.searchParams.get('client_id'), 'gid.apps.googleusercontent.com');
+    googleNonce = loc.searchParams.get('nonce');
+    return loc.searchParams.get('state');
+  };
+  const back = (code, state) => realFetch(`${base}/auth/google/callback?code=${code}&state=${state}`, { redirect: 'manual' });
+  const sid = (r) => decodeURIComponent((r.headers.get('set-cookie') || '').match(/sid=([^;]+)/)?.[1] || '');
+
+  // New customer is created and signed in, then lands where they were going
+  googleUsers.c1 = { sub: 'g-111', email: 'Gina@Gmail.com', name: 'Gina' };
+  let st = await start('shop', '#/checkout');
+  let r = await back('c1', st);
+  assert.strictEqual(r.headers.get('location'), '/#/checkout');
+  const tok = sid(r); assert.ok(tok);
+  const me = (await api('GET', '/api/me', null, tok)).body;
+  assert.deepStrictEqual([me.role, me.email], ['buyer', 'gina@gmail.com']);
+  // State is single-use; replay fails
+  r = await back('c1', st);
+  assert.match(decodeURIComponent(r.headers.get('location')), /login_error=Sign-in link expired/);
+  // Same Google account signs in again → same user; password login explains
+  st = await start('shop'); r = await back('c1', st);
+  assert.strictEqual((await api('GET', '/api/me', null, sid(r))).body.id, me.id);
+  assert.match((await api('POST', '/api/auth/login', { email: 'gina@gmail.com', password: 'whatever1' })).body.error, /Google/);
+  // Unsafe "next" is ignored
+  st = await start('shop', 'https://evil.example'); r = await back('c1', st);
+  assert.strictEqual(r.headers.get('location'), '/#/');
+  // Wrong nonce is rejected
+  googleUsers.bad = { sub: 'g-x', email: 'x@gmail.com', nonce: 'other' };
+  st = await start('shop'); r = await back('bad', st);
+  assert.match(decodeURIComponent(r.headers.get('location')), /^\/\?login_error=Google sign-in could not be verified/);
+  // Unverified email rejected
+  googleUsers.unv = { sub: 'g-u', email: 'u@gmail.com', email_verified: false };
+  st = await start('shop'); r = await back('unv', st);
+  assert.match(decodeURIComponent(r.headers.get('location')), /not verified/);
+
+  // Existing seller (registered with a password) links Google by email
+  st = await start('seller'); googleUsers.s = { sub: 'g-s1', email: 's1@x.com', name: 'S' };
+  r = await back('s', st);
+  assert.strictEqual(r.headers.get('location'), '/seller');
+  assert.strictEqual((await api('GET', '/api/seller/me', null, sid(r))).body.shop_name, 'Shop One');
+  // A customer Google account cannot open the Seller Center, errors go back to /seller
+  st = await start('seller'); r = await back('c1', st);
+  assert.match(decodeURIComponent(r.headers.get('location')), /^\/seller\?login_error=.*customer account/);
+  // New seller via Google starts pending
+  googleUsers.ns = { sub: 'g-ns', email: 'newseller@gmail.com', given_name: 'Omar', name: 'Omar K' };
+  st = await start('seller'); r = await back('ns', st);
+  const ns = (await api('GET', '/api/seller/me', null, sid(r))).body;
+  assert.deepStrictEqual([ns.shop_name, ns.status], ["Omar's Shop", 'pending']);
+  // Staff can never use Google
+  googleUsers.adm = { sub: 'g-a', email: 'admin@x.com' };
+  st = await start('shop'); r = await back('adm', st);
+  assert.match(decodeURIComponent(r.headers.get('location')), /Staff accounts/);
 });
