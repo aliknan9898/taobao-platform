@@ -56,6 +56,8 @@ function overview() {
   if (!require('./translate').provider() && db.listings.all((l) => l.status === 'active' && !l.title_ar).length)
     alerts.push({ kind: 'setup', text: 'Automatic Arabic translation is off — add DEEPL_API_KEY (free at deepl.com) in the server settings' });
   for (const o of all.filter((x) => x.qc_review === 'problem')) alerts.push({ kind: 'order', id: o.id, text: `Order ${o.id.slice(-8)}: the customer reported a problem with the warehouse photos${o.qc_note ? ` — “${o.qc_note.slice(0, 80)}”` : ''}` });
+  const waitingMsgs = require('./messages').waiting();
+  if (waitingMsgs.length) alerts.push({ kind: 'messages', text: `${waitingMsgs.length} customer message(s) waiting for a reply — open the order to answer` });
   const newRequests = db.requests.all((r) => r.status === 'new').length;
   if (newRequests) alerts.push({ kind: 'requests', text: `${newRequests} customer item request(s) waiting for a reply` });
   const pendingSellers = db.sellers.all((s) => s.status === 'pending').length;

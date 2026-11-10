@@ -139,6 +139,7 @@ function qcDecision(order, buyer, { ok, note }) {
   if (!(order.qc_photos || []).length) throw httpError(409, 'There are no check photos for this order yet');
   if (['shipped', 'delivered'].includes(order.status)) throw httpError(409, 'This order has already shipped');
   const review = ok ? 'approved' : 'problem';
+  if (!ok) require('../push').telegram(`⚠️ Customer reported a problem with the warehouse photos — order ${order.id.slice(-8).toUpperCase()}: ${String(note || '').slice(0, 200)}`);
   return db.orders.update(order.id, (x) => ({ ...x, qc_review: review, qc_note: ok ? null : String(note || '').slice(0, 500), timeline: [...x.timeline, { at: Date.now(), event: `qc_${review}` }] }));
 }
 

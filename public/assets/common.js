@@ -78,6 +78,38 @@ const K = (() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
+  // ---------- phone notifications (Web Push) ----------
+  const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  /** 'on' | 'off' | 'denied' | 'install' (iPhone: add to home screen first) | 'unsupported' */
+  async function pushState() {
+    if (!pushSupported()) return isIOS() && !isStandalone() ? 'install' : 'unsupported';
+    if (Notification.permission === 'denied') return 'denied';
+    try { const reg = await navigator.serviceWorker.ready; return (await reg.pushManager.getSubscription()) ? 'on' : 'off'; } catch { return 'off'; }
+  }
+  async function enablePush(app) {
+    if (!pushSupported()) throw new Error(isIOS() ? 'On iPhone, add Kinan to your home screen first, then turn on notifications from the app.' : 'This browser cannot show notifications.');
+    if ((await Notification.requestPermission()) !== 'granted') throw new Error('Notifications are blocked — allow them in your browser settings.');
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    const reg = await navigator.serviceWorker.ready;
+    const { key } = await api('/api/push/key');
+    const raw = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - key.length % 4) % 4)), (c) => c.charCodeAt(0));
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw });
+    await api('/api/push/subscribe', 'POST', { ...sub.toJSON(), app });
+  }
+  async function disablePush() {
+    const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription();
+    if (sub) { await api('/api/push/unsubscribe', 'POST', { endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe(); }
+  }
+  /** A small panel with a switch, for account / settings pages. */
+  async function pushPanel(el, app) {
+    if (!el) return;
+    const st = await pushState();
+    const text = { on: 'On — you’ll get order updates and messages on this phone.', off: 'Get order updates and messages on this phone.', denied: 'Blocked in your browser settings. Allow notifications for kinan.shop to turn them on.', install: 'On iPhone, add Kinan to your home screen first, then turn notifications on from the app.', unsupported: 'This browser cannot show notifications.' }[st];
+    el.innerHTML = `<h3>Notifications</h3><p class="muted small">${text}</p>${st === 'on' ? '<button class="btn sm ghost" data-push="off" type="button">Turn off</button>' : st === 'off' ? '<button class="btn sm" data-push="on" type="button">Turn on notifications</button>' : st === 'install' ? '<a class="btn sm ghost" href="/download">How to add to home screen</a>' : ''}`;
+    const b = el.querySelector('[data-push]');
+    if (b) b.onclick = async () => { b.disabled = true; try { if (b.dataset.push === 'on') { await enablePush(app); toast('Notifications are on'); } else { await disablePush(); toast('Notifications are off'); } } catch (e) { toast(e.message); } pushPanel(el, app); };
+  }
+
   // ---------- invited by a friend: ?ref=CODE is remembered for 30 days ----------
   (() => {
     const q = new URLSearchParams(location.search); const ref = q.get('ref');
@@ -134,5 +166,5 @@ const K = (() => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show); else setTimeout(show, 50);
   }
 
-  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, offerInstall, installSheet, isIOS, isStandalone, set onUnauthorized(f) { onUnauthorized = f; } };
+  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, set onUnauthorized(f) { onUnauthorized = f; } };
 })();

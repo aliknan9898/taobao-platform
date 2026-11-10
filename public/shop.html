@@ -54,6 +54,13 @@
   .lp { color: var(--muted); font-size: 13px; }
   .card .lp { font-size: 12px; }
   .sum [hidden], [hidden] { display: none !important; }
+  .msgs { display: grid; gap: 8px; max-height: 360px; overflow-y: auto; }
+  .msg { padding: 8px 12px; border-radius: 14px; background: var(--chip); font-size: 14px; max-width: 88%; justify-self: start; }
+  .msg.me { background: var(--jade-soft); justify-self: end; }
+  .msg .muted { font-size: 11px; }
+  .wafab { position: fixed; inset-inline-end: 16px; bottom: calc(86px + env(safe-area-inset-bottom)); z-index: 30; width: 52px; height: 52px; border-radius: 50%; background: #25d366; color: #fff; display: grid; place-items: center; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
+  .wafab svg { width: 28px; height: 28px; }
+  @media (min-width: 761px) { .wafab { bottom: 24px; } }
   .stars { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--ink-2); }
   .stars svg { width: 14px; height: 14px; color: #f5a524; } .stars b { font-weight: 600; }
   .heart.on svg { fill: #e5484d; color: #e5484d; }
@@ -271,6 +278,7 @@ function variantLabel(props, fallback = 'Standard') {
 const noImg = `<div class="noimg">${ICONS.box}</div>`;
 const STAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
 const stars = (r, n) => r ? `<span class="stars" title="${r} / 5">${STAR}<b>${r}</b>${n !== undefined ? `<span class="muted">(${n})</span>` : ''}</span>` : '';
+const WA = '<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg>';
 const HEART = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.4-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.8-7.5 10.2-7.5 10.2z"/></svg>';
 /** Product title / description in the reader's language (Arabic when available). */
 const T = (p) => (KinanLang.lang === 'ar' && p.title_ar) || p.title;
@@ -792,11 +800,24 @@ async function orderDetail(id) {
       <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div>${o.discount ? `<div><span>Discount${o.coupon_code ? ` <code>${esc(o.coupon_code)}</code>` : ''}</span><span class="amt pos">−${money(o.discount, o.currency)}</span></div>` : ''}${o.packaging_fee ? `<div><span>Extra protection</span><span>${money(o.packaging_fee, o.currency)}</span></div>` : ''}${o.packaging === 'no_boxes' ? '<div class="muted small">Product boxes removed to save weight</div>' : ''}<div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div>${o.payment?.provider === 'wallet' ? '<div class="muted small">Paid from your Kinan wallet</div>' : ''}</div>
       <div class="panel stack small"><h3>Delivery address</h3><div>${esc(a.name)}<br>${esc(a.line1)}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city)} ${esc(a.postal_code)}<br>${esc(a.country)}<br>${esc(a.phone)}</div></div>
       ${['pending_payment', 'paid'].includes(o.status) ? '<button class="btn danger" id="cancel">Cancel order</button>' : ''}
+      ${o.status !== 'pending_payment' ? '<div class="panel stack" id="msgbox"></div>' : ''}
+      ${cfg.whatsapp ? `<a class="btn ghost" href="https://wa.me/${esc(cfg.whatsapp)}?text=${encodeURIComponent(`Hello Kinan, about my order ${o.id.slice(-8).toUpperCase()}: `)}" target="_blank" rel="noopener">${WA} Help on WhatsApp</a>` : ''}
       ${o.status === 'delivered' ? '<div class="panel stack" id="revbox"></div>' : ''}
       ${returnsBox(o)}
       <div class="error" id="oe"></div>
     </aside></div>`;
   wireReturn(o);
+  const paintMsgs = async () => {
+    const box = $('#msgbox'); if (!box) return;
+    const d = await api(`/api/buyer/orders/${o.id}/messages`).catch(() => null); if (!d) return;
+    const who = [['kinan', 'Kinan support'], ...d.shops.map((s) => [s.id, s.name])];
+    box.innerHTML = `<h3>Messages</h3>
+      <div class="msgs">${d.messages.length ? d.messages.map((m) => `<div class="msg ${m.from === 'buyer' ? 'me' : ''}"><b>${esc(m.from === 'buyer' ? 'You' : m.name)}</b>${m.from === 'buyer' && who.length > 1 ? ` <span class="muted">→ ${esc((who.find(([k]) => k === m.thread) || [, ''])[1])}</span>` : ''}<div dir="auto">${esc(m.text)}</div><span class="muted">${date(m.at)}</span></div>`).join('') : '<p class="muted small">Questions about this order? Write to Kinan support or the shop.</p>'}</div>
+      <form class="stack" id="msgf">${who.length > 1 ? `<select name="thread">${who.map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join('')}</select>` : ''}
+        <div class="row" style="gap:6px;flex-wrap:nowrap"><textarea name="text" rows="2" maxlength="2000" placeholder="Write a message" style="flex:1" required></textarea><button class="btn">Send</button></div></form>`;
+    $('#msgf').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { await api(`/api/buyer/orders/${o.id}/messages`, 'POST', { thread: f.thread ? f.thread.value : 'kinan', text: f.text.value }); paintMsgs(); } catch (err) { toast(err.message); } };
+  };
+  paintMsgs();
   if ($('#revbox')) api('/api/buyer/reviews').then((mine) => {
     const todo = o.lines.filter((l, i, arr) => arr.findIndex((x) => x.listing_id === l.listing_id) === i && !mine.some((r) => r.order_id === o.id && r.listing_id === l.listing_id));
     if (!todo.length) { $('#revbox').innerHTML = '<span class="muted small">Thanks for your reviews!</span>'; return; }
@@ -833,6 +854,7 @@ async function account() {
         <a class="btn ghost" href="#/orders">Your orders</a>${KinanTheme.button('btn ghost', true)}${KinanLang.button('btn ghost')}</div>
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
       <a class="panel acrow" href="#/saved"><span class="acticon">${HEART}</span><span><b>Saved items</b><div class="muted small">We email you when a price drops or an item is back</div></span><span class="muted flip-rtl">›</span></a>
+      <div class="panel stack" id="pushbox"></div>
       <div class="panel stack" id="invite"></div>
       <a class="panel acrow" href="#/request"><span class="acticon">${ICONS.plus}</span><span><b>Buy for me</b><div class="muted small">Paste any Taobao, 1688 or AliExpress link — we buy it for you</div></span><span class="muted flip-rtl">›</span></a>
       <div class="panel stack small" id="installbox"><h3>Get the Kinan Shop app</h3>
@@ -843,6 +865,7 @@ async function account() {
     </div>`;
   $('#out').onclick = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; toast('Signed out'); location.hash = '#/'; };
   wireInstall();
+  K.pushPanel($('#pushbox'), 'shop');
   api('/api/buyer/referral').then((r) => {
     $('#invite').innerHTML = `<h3>Invite friends, earn ${money(r.reward, r.currency)}</h3>
       <p class="muted small">Share your link. When a friend’s first order is delivered, we add ${money(r.reward, r.currency)} to your wallet. New customers get 10% off their first order with the code WELCOME10.</p>
@@ -992,6 +1015,7 @@ function wireInstall() {
   [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').then(asMe).catch(() => null)]);
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
   Cart.sync();
+  if (cfg.whatsapp) { const a = document.createElement('a'); a.className = 'wafab'; a.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent('Hello Kinan')}`; a.target = '_blank'; a.rel = 'noopener'; a.setAttribute('aria-label', 'WhatsApp'); a.innerHTML = WA; document.body.append(a); }
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
   K.registerSW();
 })();

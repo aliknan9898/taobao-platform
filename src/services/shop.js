@@ -101,6 +101,7 @@ function createRequest(buyer, b) {
   if (priceCny !== null && !(priceCny > 0 && priceCny < 1e6)) throw httpError(400, 'Invalid price');
   let est = null;
   if (priceCny) { try { est = bfm.estimate({ price_cny: priceCny, qty, country_code: str(b.country_code, 2).toUpperCase() }); } catch { est = null; } }
+  require('../push').telegram(`🔗 Buy-for-me request${parsed ? ` (${parsed.platform_name})` : ''}: ${str(b.title, 80) || parsed?.title || link || note.slice(0, 80)}${priceCny ? ` — ¥${priceCny}` : ''} × ${qty}\n${config.publicBaseUrl}/admin`);
   return db.requests.insert({
     buyer_id: buyer.id, link, note, qty, status: 'new', reply: '', quote: null, listing_id: null,
     platform: parsed?.platform || null, platform_name: parsed?.platform_name || null, item_id: parsed?.item_id || null,

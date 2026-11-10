@@ -49,6 +49,7 @@ function requestWithdrawal(seller, { amount, details }) {
   if (db.payouts.find((p) => p.seller_id === seller.id && p.status === 'requested')) throw httpError(409, 'You already have a withdrawal waiting — Kinan will process it soon');
   const d = cleanDetails(details || seller.payout_details || {});
   db.sellers.update(seller.id, { payout_details: d });
+  require('../push').telegram(`💸 Withdrawal request: ${seller.shop_name} — ${a} ${config.currency.toUpperCase()}\n${config.publicBaseUrl}/admin`);
   return db.payouts.insert({ seller_id: seller.id, amount: a, currency: config.currency, details: d, status: 'requested' });
 }
 
@@ -95,6 +96,7 @@ function requestReturn(buyer, orderId, b = {}) {
   const photos = (Array.isArray(b.photos) ? b.photos : []).slice(0, 3).map(String);
   for (const ph of photos) if (!IMG.test(ph) || ph.length > 400 * 1024) throw httpError(400, 'Photos must be JPEG, PNG or WebP under 300 KB');
   const value = money(o.lines.filter((l) => lines.includes(l.line_no)).reduce((a, l) => a + l.price * l.qty, 0));
+  require('../push').telegram(`↩️ Return request for order ${o.id.slice(-8).toUpperCase()}: ${reason}\n${config.publicBaseUrl}/admin`);
   return db.returns.insert({ order_id: o.id, buyer_id: buyer.id, lines, reason, note: str(b.note, 1000), photos, value, status: 'requested' });
 }
 

@@ -24,6 +24,7 @@ const stripe = require('./payments/stripe');
 const mailer = require('./mailer');
 const fx = require('./services/fx');
 const growth = require('./services/growth');
+const messages = require('./services/messages');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
 
@@ -156,6 +157,11 @@ function throttleLight(req) {
   if (light.size > 5000) for (const [k, v] of light) if (now - v.t > 10 * 60e3) light.delete(k);
 }
 
+/** Server errors reach the owner on Telegram, at most one every 10 minutes. */
+let lastErrAlert = 0;
+function errorAlert(text) { if (Date.now() - lastErrAlert < 10 * 60e3) return; lastErrAlert = Date.now(); require('./push').telegram(`🔴 Kinan server error\n${String(text).slice(0, 400)}`); }
+process.on('unhandledRejection', (e) => { console.error('[unhandled]', e?.message || e); errorAlert(`Unhandled: ${e?.message || e}`); });
+
 /** Send a stored photo ({ type, body }) as an image response. */
 function sendImage(res, img) {
   if (!img) throw httpError(404, 'Photo not found');
@@ -184,6 +190,7 @@ r('POST', '/api/auth/register', null, async ({ req }) => {
   if (list.length >= 30) throw httpError(429, 'Too many new accounts from this network — try again later');
   const out = auth.register(await readJson(req));
   list.push(now); signups.set(ip, list);
+  if (out?.role === 'seller' || out?.user?.role === 'seller') require('./push').telegram(`🏪 New seller signed up — approve them in the admin dashboard\n${config.publicBaseUrl}/admin`);
   return out;
 });
 // SameSite=Lax so the cookie is kept after the redirect back from Google; still not sent on cross-site POSTs.
@@ -244,7 +251,7 @@ r('GET', '/api/categories', null, async () => {
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
 });
 r('POST', '/api/shipping/quote', null, async ({ req }) => { const b = await readJson(req); return shipping.quote(Array.isArray(b.items) ? b.items.slice(0, 100) : [], b.country_code || b.country); });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -287,6 +294,11 @@ r('GET', '/api/buyer/wishlist/:id', BUYER, async ({ user, params }) => ({ saved:
 r('POST', '/api/buyer/orders/:id/reviews', BUYER, async ({ req, user, params }) => growth.publicReview(growth.addReview(db.users.get(user.id), params.id, await readJson(req))));
 r('GET', '/api/buyer/reviews', BUYER, async ({ user }) => db.reviews.all((x) => x.user_id === user.id).map((x) => ({ order_id: x.order_id, listing_id: x.listing_id, rating: x.rating })));
 r('PUT', '/api/buyer/cart', BUYER, async ({ req, user }) => growth.saveCart(user, (await readJson(req)).items));
+r('GET', '/api/push/key', null, async () => ({ key: require('./push').vapid().publicKey }));
+r('POST', '/api/push/subscribe', auth.ROLES, async ({ req, user }) => require('./push').subscribe(user, await readJson(req)));
+r('POST', '/api/push/unsubscribe', auth.ROLES, async ({ req, user }) => require('./push').unsubscribe(user, (await readJson(req)).endpoint));
+r('GET', '/api/buyer/orders/:id/messages', BUYER, async ({ user, params }) => { const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found'); return { shops: [...new Set(o.lines.map((l) => l.seller_id))].map((id) => db.sellers.get(id)).filter((s) => s && !s.system).map((s) => ({ id: s.id, name: s.shop_name })), messages: messages.threadsFor(o, { role: 'buyer' }) }; });
+r('POST', '/api/buyer/orders/:id/messages', BUYER, async ({ req, user, params }) => { const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found'); return messages.post(o, { role: 'buyer', user: db.users.get(user.id) }, await readJson(req)); });
 r('GET', '/api/buyer/wallet', BUYER, async ({ user }) => shopSvc.walletOf(user.id));
 r('POST', '/api/buyforme/parse', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return require('./services/buyforme').parse(b.text || b.link); });
 r('POST', '/api/buyforme/estimate', null, async ({ req }) => { throttleLight(req); return require('./services/buyforme').estimate(await readJson(req)); });
@@ -327,6 +339,9 @@ r('PATCH', '/api/seller/products/:id', SELLER, async ({ req, seller, params }) =
 r('POST', '/api/seller/products/:id/resync', SELLER, async ({ seller, params }) => {
   const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found'); return catalog.resync(l.id);
 });
+const sellerOrder = (seller, id) => { const o = db.orders.get(id); if (!o || !o.lines.some((l) => l.seller_id === seller.id) || o.status === 'pending_payment') throw httpError(404, 'Not found'); return o; };
+r('GET', '/api/seller/orders/:id/messages', SELLER, async ({ seller, params }) => messages.threadsFor(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id }));
+r('POST', '/api/seller/orders/:id/messages', SELLER, async ({ req, seller, user, params }) => messages.post(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id, user }, await readJson(req)));
 r('GET', '/api/seller/orders', SELLER, async ({ seller }) => db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment').sort((a, b) => b.created_at - a.created_at).map((o) => orders.sellerView(o, seller.id)));
 const sellerSub = (seller, id) => { const o = db.orders.get(id); const s = o?.sub_orders.find((x) => x.seller_id === seller.id && !x.direct && !x.manual); if (!s) throw httpError(404, 'Not found'); return { o, s }; };
 r('POST', '/api/seller/orders/:id/pay', SELLER, async ({ seller, params }) => { const { o, s } = sellerSub(seller, params.id); return orders.paySub(o.id, s.outer_purchase_id); });
@@ -367,6 +382,8 @@ r('POST', '/api/admin/orders/:id/qc-resolved', CARE, async ({ req, params }) => 
   return orders.decorate(db.orders.update(o.id, (x) => ({ ...x, qc_review: 'resolved', qc_resolution: String(b.note || '').slice(0, 500), timeline: [...x.timeline, { at: Date.now(), event: 'qc_resolved' }] })));
 });
 r('GET', '/api/admin/orders/:id/qc/:n', STAFF, async ({ params, res }) => sendImage(res, warehouse.qcPhoto(db.orders.get(params.id) || {}, params.n)));
+r('GET', '/api/admin/orders/:id/messages', CARE, async ({ params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); return messages.threadsFor(o, { role: 'staff' }); });
+r('POST', '/api/admin/orders/:id/messages', CARE, async ({ req, user, params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); const b = await readJson(req); return messages.post(o, { role: 'staff', user }, { thread: 'kinan', text: b.text }); });
 r('GET', '/api/admin/coupons', ADMIN, async () => db.coupons.all().sort((a, b) => b.created_at - a.created_at).map(({ used_by, ...c }) => c));
 r('POST', '/api/admin/coupons', ADMIN, async ({ req }) => growth.saveCoupon(await readJson(req)));
 r('PATCH', '/api/admin/coupons/:id', ADMIN, async ({ req, params }) => { const c = db.coupons.get(params.id); if (!c) throw httpError(404, 'Not found'); const b = await readJson(req); return Object.keys(b).length === 1 && 'active' in b ? db.coupons.update(c.id, { active: Boolean(b.active) }) : growth.saveCoupon({ ...c, ...b }, c.id); });
@@ -546,7 +563,7 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     const status = e.status || (e.name === 'TaobaoApiError' ? 502 : 500);
-    if (status >= 500) console.error('[error]', req.method, p, e.code || '', e.message);
+    if (status >= 500) { console.error('[error]', req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message}`); }
     send(res, status, { error: e.message || 'Error', code: e.code, request_id: e.requestId });
   }
 });

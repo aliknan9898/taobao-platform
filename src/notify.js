@@ -11,13 +11,18 @@ const ref = (o) => o.id.slice(-8).toUpperCase();
 const emailOf = (userId) => db.users.get(userId)?.email;
 const sellerEmail = (sellerId) => emailOf(db.sellers.get(sellerId)?.user_id);
 const fire = (p) => { Promise.resolve(p).catch(() => {}); };
+const push = require('./push');
+const sellerUser = (sellerId) => db.sellers.get(sellerId)?.user_id;
 const money = (n, cur) => { try { return Number(n).toLocaleString('en-US', { style: 'currency', currency: String(cur || config.currency).toUpperCase() }); } catch { return `${n} ${cur}`; } };
 
 function orderPaid(o) {
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `paid:${o.id}`, kind: 'order', subject: `Order ${ref(o)} confirmed`, title: 'Thank you — your order is confirmed',
     lines: [`We received your payment of ${money(o.total, o.currency)}.`, `${o.lines.reduce((a, l) => a + l.qty, 0)} item(s): ${o.lines.map((l) => l.title).slice(0, 4).join(', ')}${o.lines.length > 4 ? '…' : ''}.`, 'We will email you again when it ships, with a tracking number.'],
     button: { text: 'View your order', url: `${base()}/#/orders/${o.id}` } }));
+  push.toUser(o.buyer_id, { title: 'Order confirmed', body: `Order ${ref(o)} — ${money(o.total, o.currency)}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}` });
+  push.telegram(`🛒 New paid order ${ref(o)} — ${money(o.total, o.currency)}${o.payment?.provider === 'demo' || o.payment?.mode === 'test' ? ' (TEST)' : ''}\n${o.lines.map((l) => `${l.qty} × ${l.title}`).slice(0, 5).join('\n')}\nTo: ${o.shipping_address?.city || ''}, ${o.shipping_address?.country || ''}\n${base()}/admin`);
   for (const sellerId of new Set(o.lines.map((l) => l.seller_id))) {
+    push.toUser(sellerUser(sellerId), { title: 'New order', body: `Order ${ref(o)}: ${o.lines.filter((l) => l.seller_id === sellerId).reduce((a, l) => a + l.qty, 0)} item(s)`, url: '/seller#/orders', tag: `s-${o.id}` });
     const lines = o.lines.filter((l) => l.seller_id === sellerId);
     fire(mailer.send({ to: sellerEmail(sellerId), key: `sale:${o.id}:${sellerId}`, kind: 'sale', subject: `New order ${ref(o)} — ${lines.reduce((a, l) => a + l.qty, 0)} item(s)`, title: 'You have a new order',
       lines: [...lines.map((l) => `${l.qty} × ${l.title}`), `Sale value: ${money(lines.reduce((a, l) => a + l.price * l.qty, 0), o.currency)}.`],
@@ -27,28 +32,33 @@ function orderPaid(o) {
 
 function orderShipped(o, tracking = []) {
   const t = tracking.filter((x) => x && x.number);
+  push.toUser(o.buyer_id, { title: 'Your order is on its way', body: `Order ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}` });
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `shipped:${o.id}:${t.map((x) => x.number).join(',')}`, kind: 'order', subject: `Order ${ref(o)} is on its way`, title: 'Your order has shipped',
     lines: [...t.map((x) => `Tracking: ${x.carrier ? `${x.carrier} ` : ''}${x.number} — ${require('./services/couriers').trackingUrl(x.carrier, x.number)}`), 'You can follow every step in your Kinan orders.'],
     button: { text: 'Track your order', url: `${base()}/#/orders/${o.id}` } }));
 }
 
 function orderDelivered(o) {
+  push.toUser(o.buyer_id, { title: 'Delivered', body: `Order ${ref(o)} was delivered. Tell us what you think!`, url: `/#/orders/${o.id}`, tag: `o-${o.id}` });
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `delivered:${o.id}`, kind: 'order', subject: `Order ${ref(o)} delivered`, title: 'Your order was delivered',
     lines: ['We hope you love it. If something is wrong, you can request a return from your order page.'], button: { text: 'View order', url: `${base()}/#/orders/${o.id}` } }));
 }
 
 function qcPhotos(o) {
+  push.toUser(o.buyer_id, { title: 'Photos of your items are ready', body: `Order ${ref(o)} — check them before we ship`, url: `/#/orders/${o.id}`, tag: `qc-${o.id}` });
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `qc:${o.id}:${(o.qc_photos || []).length}`, kind: 'order', subject: `Photos of your order ${ref(o)} are ready`, title: 'Your items arrived at our warehouse',
     lines: ['We checked your items and took photos. Have a look and tell us if everything is right before we ship.'],
     button: { text: 'See the photos', url: `${base()}/#/orders/${o.id}` } }));
 }
 
 function sellerApproved(s) {
+  push.toUser(s.user_id, { title: 'Your shop is approved', body: 'You can now add products', url: '/seller#/add' });
   fire(mailer.send({ to: emailOf(s.user_id), key: `seller-approved:${s.id}`, kind: 'seller', subject: 'Your Kinan shop is approved', title: `Welcome, ${s.shop_name}!`,
     lines: ['Your shop is approved. You can now add products — Kinan reviews each product before customers see it.'], button: { text: 'Add your first product', url: `${base()}/seller#/add` } }));
 }
 
 function listingDecision(l, approved, reason) {
+  push.toUser(sellerUser(l.seller_id), { title: approved ? 'Product approved' : 'Product needs changes', body: l.title, url: '/seller#/products' });
   fire(mailer.send({ to: sellerEmail(l.seller_id), key: `listing:${l.id}:${l.review?.submitted_at || l.updated_at}:${approved ? 'ok' : 'no'}`, kind: 'seller',
     subject: approved ? `Approved: ${l.title}` : `Changes needed: ${l.title}`, title: approved ? 'Your product is live' : 'Your product needs changes',
     lines: approved ? [`“${l.title}” is now visible to customers in Kinan Shop.`] : [`“${l.title}” was not approved.`, `Kinan’s note: ${reason}`],
@@ -56,6 +66,7 @@ function listingDecision(l, approved, reason) {
 }
 
 function requestAnswered(r) {
+  push.toUser(r.buyer_id, { title: 'Kinan answered your request', body: r.quote ? `Price: ${money(r.quote, config.currency)} per item` : (r.reply || 'See the answer'), url: '/#/request', tag: `r-${r.id}` });
   fire(mailer.send({ to: emailOf(r.buyer_id), key: `request:${r.id}:${r.status}:${r.quote}:${r.reply}`, kind: 'request', subject: 'Kinan replied to your item request', title: 'We have an answer about your item',
     lines: [r.quote ? `Price: ${money(r.quote, config.currency)} per item (shipping not included).` : '', r.reply ? `Kinan: ${r.reply}` : ''].filter(Boolean),
     button: { text: r.listing_id ? 'View the product' : 'See your request', url: r.listing_id ? `${base()}/#/p/${r.listing_id}` : `${base()}/#/request` } }));
@@ -83,6 +94,7 @@ function payoutUpdate(p) {
 
 function returnUpdate(r) {
   const o = db.orders.get(r.order_id);
+  push.toUser(r.buyer_id, { title: 'Return request update', body: `Order ${o ? ref(o) : ''}: ${r.status}`, url: `/#/orders/${r.order_id}` });
   fire(mailer.send({ to: emailOf(r.buyer_id), key: `return:${r.id}:${r.status}`, kind: 'return', subject: `Return request for order ${o ? ref(o) : ''}: ${r.status}`,
     title: { approved: 'Your return was approved', refunded: 'Your refund was issued', rejected: 'Your return request was declined' }[r.status] || 'Return request update',
     lines: [r.admin_note ? `Kinan: ${r.admin_note}` : '', r.refund_amount ? `Refund: ${money(r.refund_amount, config.currency)} ${r.refund_to === 'wallet' ? 'to your Kinan wallet' : 'to your card'}.` : ''].filter(Boolean),
