@@ -26,9 +26,7 @@ async function stripeHook(rawBody, headers) {
   if (db.inbox.get(key)) return { status: 200, body: 'dup' };
   db.inbox.insert({ id: key, source: 'stripe', msg: { type: evt.type, id: evt.id }, processed: true });
   if (evt.type === 'payment_intent.succeeded') {
-    const pi = evt.data.object;
-    const orderId = pi.metadata && pi.metadata.order_id;
-    if (orderId) orders.markPaid(orderId, { provider: 'stripe', intent_id: pi.id }).catch((e) => console.error('[stripe→paid]', e.message));
+    orders.stripePaid(evt.data.object).catch((e) => console.error('[stripe→paid]', e.message));
   }
   return { status: 200, body: 'ok' };
 }

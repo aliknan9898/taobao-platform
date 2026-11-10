@@ -13,6 +13,7 @@
  */
 const db = require('../db');
 const { config } = require('../config');
+const { isTestPayment } = require('../payments/stripe');
 
 const money = (n) => Math.round(Number(n) * 100) / 100;
 const DAY = 86400e3;
@@ -31,8 +32,8 @@ function report(q = {}) {
   const includeTest = q.include_test === '1' || q.include_test === true;
   const inRange = (t) => t >= start && t <= end;
   const all = db.orders.all((o) => o.paid_at && inRange(o.paid_at) && !['cancelled', 'refunded'].includes(o.status));
-  const testCount = all.filter((o) => o.payment?.provider === 'demo').length;
-  const orders = includeTest ? all : all.filter((o) => o.payment?.provider !== 'demo');
+  const testCount = all.filter(isTestPayment).length;
+  const orders = includeTest ? all : all.filter((o) => !isTestPayment(o));
   const ids = new Set(orders.map((o) => o.id));
 
   const revenue = money(orders.reduce((a, o) => a + o.total + (o.shipping_due_paid || 0), 0));
@@ -99,7 +100,7 @@ function report(q = {}) {
 function ordersCsv(q = {}) {
   const r = report(q);
   const { start, end } = range(q);
-  const orders = db.orders.all((o) => o.paid_at && o.paid_at >= start && o.paid_at <= end && !['cancelled', 'refunded'].includes(o.status) && (r.include_test || o.payment?.provider !== 'demo'));
+  const orders = db.orders.all((o) => o.paid_at && o.paid_at >= start && o.paid_at <= end && !['cancelled', 'refunded'].includes(o.status) && (r.include_test || !isTestPayment(o)));
   const cell = (v) => { const s = String(v ?? ''); return /[",\n;]/.test(s) || /^[=+\-@]/.test(s) ? `"${(/^[=+\-@]/.test(s) ? "'" : '') + s.replace(/"/g, '""')}"` : s; };
   const rows = [['order', 'paid_at', 'status', 'customer', 'country', 'shops', 'items', 'subtotal', 'shipping', 'total', 'goods_cost', 'courier_cost', 'seller_earnings', 'payment']];
   for (const o of orders.sort((a, b) => a.paid_at - b.paid_at)) {

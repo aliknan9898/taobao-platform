@@ -431,7 +431,7 @@ async function openOrder(id) {
   const o = await api(`/api/admin/orders/${id}`);
   const a = o.shipping_address;
   b.innerHTML = `<div class="row" style="justify-content:space-between"><h2>Order <code>${esc(o.id)}</code></h2><span class="pill ${statusClass(o.status)}">${esc(o.status_label)}</span></div>
-    <div class="muted">${date(o.created_at)} · ${fmt(o.total, o.currency)} (Ship ${fmt(o.shipping_fee, o.currency)}) · Payment: ${o.payment?.provider === 'demo' ? '<span class="pill bad">TEST — no money received</span>' : esc(o.payment?.provider || '—')}</div>
+    <div class="muted">${date(o.created_at)} · ${fmt(o.total, o.currency)} (Ship ${fmt(o.shipping_fee, o.currency)}) · Payment: ${o.payment?.provider === 'demo' || o.payment?.mode === 'test' ? '<span class="pill bad">TEST — no money received</span>' : esc(o.payment?.provider || '—')}</div>
     <div class="muted">To: ${esc(a.name)}, ${esc(a.line1)}, ${esc(a.city)}, ${esc(a.country)} · ${esc(a.phone)}</div>
     <table><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Cost (CNY)</th></tr></thead><tbody>
       ${o.lines.map((l) => `<tr><td>${esc(l.title)}<div class="muted">${esc(l.props)}</div></td><td>${l.qty}</td><td>${fmt(l.price, o.currency)}</td><td>${fmt(l.cost_cny)}</td></tr>`).join('')}</tbody></table>

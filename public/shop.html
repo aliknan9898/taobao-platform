@@ -550,7 +550,7 @@ async function pay(id) {
   if (!requireBuyer(`/pay/${id}`)) return;
   const o = await api(`/api/buyer/orders/${id}`);
   if (o.status !== 'pending_payment') { location.hash = `#/orders/${id}`; return; }
-  const demo = cfg.payments === 'demo' || o.payment?.provider === 'demo';
+  const demo = cfg.payments === 'demo';
   const wallet = await api('/api/buyer/wallet').catch(() => ({ balance: 0 }));
   const canWallet = wallet.balance >= o.total;
   $('#view').innerHTML = `<div class="pagehead"><h1>Payment</h1></div>
@@ -570,16 +570,18 @@ async function pay(id) {
     return;
   }
   try {
-    if (!cfg.stripe_publishable_key || !o.payment?.client_secret) throw new Error('Card payments are not configured yet. Please try again later.');
-    const Stripe = await loadStripe();
+    if (!cfg.stripe_publishable_key) throw new Error('Card payments are not configured yet. Please try again later.');
+    const [cp, Stripe] = await Promise.all([api(`/api/buyer/orders/${id}/card-payment`, 'POST'), loadStripe()]);
+    if (cp.paid) { toast('Payment received'); location.hash = `#/orders/${id}`; return; }
     const stripe = Stripe(cfg.stripe_publishable_key);
-    const elements = stripe.elements({ clientSecret: o.payment.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+    const elements = stripe.elements({ clientSecret: cp.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
     elements.create('payment').mount('#pay-element');
     $('#paybtn').disabled = false;
     $('#paybtn').onclick = async () => {
       $('#paybtn').disabled = true; $('#pe').textContent = '';
       const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/?order=${encodeURIComponent(id)}` } });
       if (error) { $('#pe').textContent = error.message; $('#paybtn').disabled = false; return; }
+      await api(`/api/buyer/orders/${id}/confirm-card`, 'POST').catch(() => {});
       toast('Payment received'); location.hash = `#/orders/${id}`;
     };
   } catch (e) { $('#pe').textContent = e.message; }
@@ -767,7 +769,13 @@ function wireInstall() {
   updateBadge();
   const params = new URLSearchParams(location.search);
   const loginError = K.takeLoginError();
-  if (params.get('order')) { history.replaceState(null, '', `/#/orders/${params.get('order')}`); }
+  // Back from a bank check (3-D Secure) or a wallet app: confirm the payment with Stripe before showing the order
+  const backFromPay = params.get('order');
+  if (backFromPay) {
+    history.replaceState(null, '', `/#/orders/${encodeURIComponent(backFromPay)}`);
+    if (params.get('redirect_status') === 'succeeded') await api(`/api/buyer/orders/${encodeURIComponent(backFromPay)}/confirm-card`, 'POST').catch(() => {});
+    else if (params.get('redirect_status') === 'failed') setTimeout(() => toast('The payment did not go through. You can try again from the order.'), 600);
+  }
   [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').then(asMe).catch(() => null)]);
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();

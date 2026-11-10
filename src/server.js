@@ -48,12 +48,13 @@ async function readJson(req) {
   try { return JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
 }
 function page(res, file, { stripe: withStripe = false, head = '' } = {}) {
-  const stripeSrc = withStripe ? ' https://js.stripe.com' : '';
+  // Stripe.js loads from js.stripe.com and its *.js.stripe.com subdomains (see Stripe's CSP guide)
+  const stripeSrc = withStripe ? ' https://js.stripe.com https://*.js.stripe.com' : '';
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
     'Content-Security-Policy': `default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; ` +
       `script-src 'self' 'unsafe-inline'${stripeSrc}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}; ` +
-      `frame-src ${withStripe ? 'https://js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
+      `frame-src ${withStripe ? 'https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
   });
   let html = versionAssets(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
   if (head) html = html.replace('</head>', `${head}\n</head>`);
@@ -236,6 +237,11 @@ r('POST', '/api/buyer/orders/:id/demo-pay', BUYER, async ({ user, params }) => {
   return orders.buyerView(await orders.markPaid(o.id, { provider: 'demo', intent_id: o.payment?.intent_id }));
 });
 
+r('POST', '/api/buyer/orders/:id/card-payment', BUYER, async ({ user, params }) => {
+  const out = await orders.cardPayment(params.id, user);
+  return out.paid ? { paid: true } : { client_secret: out.client_secret };
+});
+r('POST', '/api/buyer/orders/:id/confirm-card', BUYER, async ({ user, params }) => orders.buyerView(await orders.confirmCard(params.id, user)));
 r('POST', '/api/buyer/orders/:id/pay-wallet', BUYER, async ({ user, params }) => orders.buyerView(await orders.payWithWallet(params.id, user)));
 r('POST', '/api/buyer/orders/:id/pay-shipping-due', BUYER, async ({ user, params }) => {
   const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');

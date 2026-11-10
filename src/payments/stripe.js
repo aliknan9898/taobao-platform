@@ -40,15 +40,33 @@ async function stripe(path, params, idempotencyKey, method = 'POST') {
   return j;
 }
 
-async function createPaymentIntent(order) {
+async function createPaymentIntent(order, attempt = 0) {
   if (demoMode()) return { provider: 'demo', intent_id: `demo_${order.id}`, client_secret: null, status: 'requires_payment_method' };
   const pi = await stripe('/payment_intents', {
     amount: toMinor(order.total, order.currency),
     currency: order.currency,
     automatic_payment_methods: { enabled: true },
     metadata: { order_id: order.id, buyer_id: order.buyer_id }
-  }, `pi_${order.id}`);
-  return { provider: 'stripe', intent_id: pi.id, client_secret: pi.client_secret, status: pi.status };
+  }, `pi_${order.id}${attempt ? `_${attempt}` : ''}`);
+  return { provider: 'stripe', intent_id: pi.id, client_secret: pi.client_secret, status: pi.status, amount: pi.amount, mode: pi.livemode ? 'live' : 'test' };
+}
+
+/** Read a PaymentIntent from Stripe (used to confirm a payment right after the buyer pays, without waiting for the webhook). */
+async function retrieveIntent(id) {
+  if (demoMode() || !/^pi_[\w]+$/.test(String(id))) return null;
+  return stripe(`/payment_intents/${id}`, null, null, 'GET');
+}
+
+/** Cancel an unpaid PaymentIntent (e.g. the order was paid from the wallet instead). Best effort. */
+async function cancelIntent(id) {
+  if (demoMode() || !/^pi_[\w]+$/.test(String(id))) return null;
+  try { return await stripe(`/payment_intents/${id}/cancel`, {}, `cancel_${id}`); } catch { return null; }
+}
+
+/** Refund a whole PaymentIntent (money taken for an order that cannot use it). */
+async function refundIntent(id, reason = 'requested_by_customer') {
+  if (demoMode()) return { demo: true };
+  return stripe('/refunds', { payment_intent: id, reason }, `rf_pi_${id}`);
 }
 
 async function refund(order, amount) {
@@ -118,4 +136,7 @@ function verifyWith(rawBody, header, secret, now) {
   return sigs.some((s) => s.length === expected.length && crypto.timingSafeEqual(Buffer.from(s), Buffer.from(expected)));
 }
 
-module.exports = { createPaymentIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };
+/** Money that was not really received: the old test button, or a card paid with Stripe test keys. */
+const isTestPayment = (o) => o?.payment?.provider === 'demo' || (o?.payment?.provider === 'stripe' && o.payment.mode === 'test');
+
+module.exports = { isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };

@@ -127,12 +127,69 @@ async function markPaid(orderId, { provider, intent_id }) {
   return db.orders.get(o.id);
 }
 
+// ---------------- Card payments (Stripe) ----------------
+
+/** Make sure an unpaid order has a live Stripe PaymentIntent for its current total (orders made in test mode, or before cards were switched on, get a new one). */
+async function cardPayment(orderId, buyer) {
+  const o = db.orders.get(orderId);
+  if (!o || o.buyer_id !== buyer.id) throw httpError(404, 'Not found');
+  if (o.status !== 'pending_payment') throw httpError(409, 'This order is already paid');
+  if (stripe.demoMode()) throw httpError(409, 'Card payments are not switched on yet');
+  const p = o.payment || {};
+  const want = stripe.toMinor(o.total, o.currency);
+  if (p.provider === 'stripe' && p.client_secret && (p.amount === undefined || p.amount === want)) {
+    // Reuse it unless Stripe says it can no longer be paid
+    const pi = await stripe.retrieveIntent(p.intent_id).catch(() => null);
+    if (pi && pi.status === 'succeeded') return { paid: true, order: await stripePaid(pi) };
+    if (pi && !['canceled'].includes(pi.status) && pi.amount === want) return { client_secret: p.client_secret };
+  }
+  const attempt = (p.attempt || 0) + 1;
+  const payment = await stripe.createPaymentIntent(o, attempt);
+  db.orders.update(o.id, { payment: { ...payment, attempt } });
+  return { client_secret: payment.client_secret };
+}
+
+/**
+ * A Stripe PaymentIntent succeeded (webhook, or the buyer's browser right after paying). Checks the order, amount and currency.
+ * If the money cannot be used — order cancelled, already paid another way, or wrong amount — it is refunded automatically.
+ */
+async function stripePaid(pi) {
+  const orderId = pi.metadata && pi.metadata.order_id;
+  const o = orderId && db.orders.get(orderId);
+  if (!o) { console.warn('[stripe] payment for unknown order', pi.id); return null; }
+  const amountOk = pi.amount_received === stripe.toMinor(o.total, o.currency) && String(pi.currency).toLowerCase() === String(o.currency).toLowerCase();
+  if (o.status === 'pending_payment' && amountOk) {
+    if (o.payment?.intent_id !== pi.id) db.orders.update(o.id, (x) => ({ ...x, payment: { ...x.payment, provider: 'stripe', intent_id: pi.id } }));
+    return markPaid(o.id, { provider: 'stripe', intent_id: pi.id });
+  }
+  if (o.payment?.provider === 'stripe' && o.payment.intent_id === pi.id && o.status !== 'pending_payment' && o.status !== 'cancelled') return o; // already recorded
+  // Money we must give back
+  const why = !amountOk ? 'amount mismatch' : o.status === 'cancelled' ? 'order was cancelled' : 'order already paid another way';
+  try {
+    await stripe.refundIntent(pi.id, 'duplicate');
+    db.orders.update(o.id, (x) => ({ ...x, timeline: log(x, 'card_payment_refunded', { intent: pi.id, why }) }));
+    console.warn(`[stripe] refunded ${pi.id} for order ${o.id}: ${why}`);
+  } catch (e) { console.error(`[stripe] could not refund ${pi.id} (${why}):`, e.message); }
+  return db.orders.get(o.id);
+}
+
+/** Called by the buyer's browser after Stripe confirms: checks with Stripe so the order shows as paid at once. */
+async function confirmCard(orderId, buyer) {
+  const o = db.orders.get(orderId);
+  if (!o || o.buyer_id !== buyer.id) throw httpError(404, 'Not found');
+  if (o.status !== 'pending_payment' || o.payment?.provider !== 'stripe') return o;
+  const pi = await stripe.retrieveIntent(o.payment.intent_id);
+  if (pi && pi.status === 'succeeded') return (await stripePaid(pi)) || db.orders.get(o.id);
+  return db.orders.get(o.id);
+}
+
 /** Pay an order in full from the buyer's Kinan wallet balance. */
 async function payWithWallet(orderId, buyer) {
   const o = db.orders.get(orderId);
   if (!o || o.buyer_id !== buyer.id) throw httpError(404, 'Not found');
   if (o.status !== 'pending_payment') throw httpError(409, 'This order is already paid');
   if (shop.walletOf(buyer.id).balance < o.total) throw httpError(409, 'Your wallet balance is not enough for this order');
+  if (o.payment?.provider === 'stripe') await stripe.cancelIntent(o.payment.intent_id);
   shop.walletEntry(buyer.id, -o.total, `Payment for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'payment' });
   db.orders.update(o.id, (x) => ({ ...x, payment: { ...x.payment, provider: 'wallet', intent_id: `wallet_${o.id}` } }));
   return markPaid(o.id, { provider: 'wallet', intent_id: `wallet_${o.id}` });
@@ -373,7 +430,7 @@ async function cancelOrder(orderId, by) {
   if (o.status !== 'pending_payment') {
     if (o.payment?.provider === 'wallet') shop.walletEntry(o.buyer_id, o.total, `Refund for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'refund' });
     else await stripe.refund(o);
-  }
+  } else if (o.payment?.provider === 'stripe') await stripe.cancelIntent(o.payment.intent_id);
   for (const led of db.ledger.all((l) => l.order_id === o.id)) db.ledger.update(led.id, { status: 'void' });
   if (o.status !== 'pending_payment') adjustStock(o, +1);
   return db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'pending_payment' ? 'cancelled' : 'refunded', timeline: log(x, 'cancelled', { by }) }));
@@ -441,6 +498,7 @@ function sellerView(o, sellerId) {
 }
 
 module.exports = {
+  cardPayment, stripePaid, confirmCard,
   checkout, markPaid, payWithWallet, markManualBought, updateDirect, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,
   decorate, buyerView, sellerView, ORDER_STATUS_LABEL, TB_STATUS_LABEL, buildPurchasePayload
 };
