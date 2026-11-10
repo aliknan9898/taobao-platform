@@ -23,6 +23,16 @@ const API_ERRORS = [
 const pick = (o, ...k) => { for (const x of k) if (o && o[x] !== undefined && o[x] !== null) return o[x]; return undefined; };
 const arr = (v) => Array.isArray(v) ? v : typeof v === 'string' ? (() => { try { const j = JSON.parse(v); return Array.isArray(j) ? j : v.split(','); } catch { return v.split(','); } })().filter(Boolean) : [];
 const money = (n) => Math.round(Number(n) * 100) / 100;
+/** Distribution Platform prices are integers in fen (18800 = ¥188.00); decimal strings are already yuan. */
+const toYuan = (v) => (/^\d+$/.test(String(v).trim()) ? money(Number(v) / 100) : money(v));
+/** [{prop_name:"color", value_name:"blue"}, …] → "color: blue / size: 1" */
+function propsLabel(p) {
+  if (!p) return '';
+  if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return p; } }
+  if (Array.isArray(p)) return p.map((x) => (x && typeof x === 'object' ? [x.prop_name || x.name, x.value_name || x.value].filter(Boolean).join(': ') : String(x))).join(' / ');
+  if (typeof p === 'object') return Object.entries(p).map(([k, v]) => `${k}: ${v}`).join(' / ');
+  return String(p);
+}
 
 /** WITHOUT_MATERIAL = full Taobao pool: no pictures/description by compliance rules. */
 function normalizeProduct(r, taobaoItemId) {
@@ -40,9 +50,11 @@ function normalizeProduct(r, taobaoItemId) {
     begin_amount: withMaterial ? Number(pick(d, 'begin_amount') ?? 1) : 1,
     source_shop: pick(d, 'shop_name', 'seller_nick'),
     skus: arr(pick(d, 'sku_list', 'skuList', 'skus')).map((s) => ({
-      mp_sku_id: String(pick(s, 'mp_sku_id', 'mpSkuId', 'sku_id', 'skuId') ?? ''),
-      props: (() => { const p = pick(s, 'properties', 'props', 'properties_name') || ''; return typeof p === 'object' ? JSON.stringify(p) : String(p); })(),
-      cost_cny: money(pick(s, 'price', 'sale_price') ?? 0),
+      // /product/get returns "mp_skuId" (see the HTTP request sample on open.taobao.global)
+      mp_sku_id: String(pick(s, 'mp_skuId', 'mp_sku_id', 'mpSkuId', 'sku_id', 'skuId') ?? ''),
+      props: propsLabel(pick(s, 'properties', 'props', 'properties_name')),
+      cost_cny: toYuan(pick(s, 'promotion_price', 'price', 'sale_price') ?? pick(d, 'promotion_price', 'price') ?? 0),
+      image: withMaterial ? pick(s, 'pic_url') : undefined, // never keep Taobao photos for WITHOUT_MATERIAL
       stock: Number(pick(s, 'quantity', 'stock', 'inventory') ?? 0) // >200 shown as 200
     })).filter((s) => s.mp_sku_id)
   };
@@ -204,4 +216,4 @@ function sellerSetStatus(l, status) {
   return status;
 }
 
-module.exports = { approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };
+module.exports = { toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };

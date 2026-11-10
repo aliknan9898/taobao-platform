@@ -63,3 +63,15 @@ test('Taobao request signature matches the official Python sample', () => {
   assert.strictEqual(signRequest('/product/get', params, 'helloworld'), 'E9F5F928AB9F703DA9EE071DEA7A5B184FCF9AFAF94AD9C12C3671173EDFE45F');
   assert.strictEqual(signRequest('/product/get', { ...params, sign: 'ignored' }, 'helloworld'), 'E9F5F928AB9F703DA9EE071DEA7A5B184FCF9AFAF94AD9C12C3671173EDFE45F');
 });
+
+test('reads /product/get in the format of the official sample response', () => {
+  const { normalizeProduct } = require('../src/services/catalog');
+  const sample = { data: { quantity: 600, mp_id: '6001304379094412300', item_id: 676648141230, item_type: 'WITHOUT_MATERIAL', begin_amount: 0, shop_name: 'Singor4', title: 'printed drawstring shorts', promotion_price: 18800, price: 18800,
+    sku_list: [{ mp_skuId: 4871614981760, quantity: 200, price: 18800, postFee: 800, sku_id: 4859054248495, pic_url: 'https://img.alicdn.com/x.jpg', properties: [{ prop_name: 'color', prop_id: 1627207, value_id: 28338, value_name: 'blue' }, { prop_name: 'size', prop_id: 20518, value_id: 27432, value_name: '1' }], promotion_price: 18800, status: 'active' }] }, success: true, code: '0' };
+  const p = normalizeProduct(sample, '676648141230');
+  assert.strictEqual(p.mp_id, '6001304379094412300');
+  assert.strictEqual(p.skus[0].mp_sku_id, '4871614981760', 'uses mp_skuId, not the Taobao sku_id');
+  assert.strictEqual(p.skus[0].cost_cny, 188, 'fen → yuan');
+  assert.strictEqual(p.skus[0].props, 'color: blue / size: 1');
+  assert.deepStrictEqual(p.images, [], 'WITHOUT_MATERIAL: no Taobao photos');
+});
