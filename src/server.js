@@ -22,6 +22,7 @@ const aliexpress = require('./services/aliexpress');
 const { COUNTRIES } = require('./countries');
 const stripe = require('./payments/stripe');
 const mailer = require('./mailer');
+const fx = require('./services/fx');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
 
@@ -217,7 +218,7 @@ r('GET', '/api/categories', null, async () => {
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
 });
 r('POST', '/api/shipping/quote', null, async ({ req }) => { const b = await readJson(req); return shipping.quote(Array.isArray(b.items) ? b.items.slice(0, 100) : [], b.country_code || b.country); });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), fx: fx.publicRates(), app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -339,7 +340,8 @@ r('POST', '/api/admin/mail/test', ADMIN, async ({ req, user }) => {
 });
 r('GET', '/api/admin/wallet/:id', FIN, async ({ params }) => shopSvc.walletOf(params.id));
 r('POST', '/api/admin/wallet/:id', FIN, async ({ req, params, user }) => shopSvc.adminAdjust(params.id, await readJson(req), user));
-r('GET', '/api/admin/settings/shipping', STAFF, async () => ({ ...shipping.settings(), zones: shipping.ZONES.map(([id, name, countries]) => ({ id, name, countries })) }));
+r('GET', '/api/admin/settings/shipping', STAFF, async () => ({ ...shipping.settings(), fx: fx.status(), zones: shipping.ZONES.map(([id, name, countries]) => ({ id, name, countries })) }));
+r('POST', '/api/admin/fx/refresh', ADMIN, async () => { await fx.refresh({ force: true }); return fx.status(); });
 r('PUT', '/api/admin/settings/shipping', ADMIN, async ({ req }) => shipping.saveSettings(await readJson(req)));
 r('GET', '/api/admin/reports', FIN, async ({ url }) => reports.report(Object.fromEntries(url.searchParams)));
 r('GET', '/api/admin/reports/orders.csv', FIN, async ({ url, res }) => {
@@ -516,6 +518,7 @@ function startJobs() {
 if (require.main === module) (async () => {
   try { await db.init(); } catch (e) { console.error('[db] could not connect to PostgreSQL:', e.message); process.exit(1); }
   auth.bootstrapAdmin();
+  fx.apply();
   const problems = configProblems();
   if (problems.length) console.warn('[config]', problems.join(' | '));
   server.listen(config.port, '0.0.0.0', () => {
@@ -533,6 +536,9 @@ if (require.main === module) (async () => {
     }
   });
   else mailDomain(); setInterval(() => { const d = mailer.domainStatus(); if (!d || !d.authenticated || !d.sender_ready) mailDomain(); }, 30 * 60e3).unref();
+  // Exchange rates: now, then every 6 hours (refreshes when older than 20 hours)
+  fx.refresh().catch((e) => console.warn('[fx]', e.message));
+  setInterval(() => fx.refresh().catch((e) => console.warn('[fx]', e.message)), 6 * 3600e3).unref();
   stripe.setup().then((r) => { if (r.ok) console.log(`[stripe] ready (${r.mode} mode)`); }).catch((e) => console.error('[stripe] setup failed:', e.message));
   // Render stops the instance with SIGTERM: write pending changes first
   const stop = async () => { try { await db.close(); } catch { /* exiting */ } process.exit(0); };

@@ -48,6 +48,13 @@
   }
   @media (min-width: 761px) { #sf .sgo svg { display: none; } }
   .sellbtn { color: var(--jade); }
+  .locchip { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 0; color: var(--ink-2); font: 14px var(--font-body); cursor: pointer; }
+  .locchip svg { width: 16px; height: 16px; color: var(--jade); flex: none; }
+  .locchip b { color: var(--ink); font-weight: 600; text-decoration: underline dotted; text-underline-offset: 3px; }
+  .lp { color: var(--muted); font-size: 13px; }
+  .card .lp { font-size: 12px; }
+  .landed { display: grid; gap: 6px; padding: 12px 14px; border-radius: var(--r-md); background: var(--jade-soft); }
+  .landed .big { font-size: 18px; font-weight: 700; color: var(--ink); }
   .iconbtn { position: relative; display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: var(--ink); text-decoration: none; }
   .iconbtn:hover { background: var(--chip); }
   .iconbtn svg { width: 22px; height: 22px; }
@@ -195,6 +202,45 @@ const Cart = {
 const countryName = (c) => ((cfg.countries || []).find(([k]) => k === c) || [c, c])[1];
 const savedAddress = () => { try { return JSON.parse(localStorage.getItem('kinan_addr') || '{}'); } catch { return {}; } };
 
+// ---------- where the customer is and which currency they read prices in ----------
+const PIN_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+const COUNTRY_CURRENCY = { SA: 'SAR', AE: 'AED', KW: 'KWD', QA: 'QAR', BH: 'BHD', OM: 'OMR', JO: 'JOD', IQ: 'IQD', EG: 'EGP', MA: 'MAD', DZ: 'DZD', TN: 'TND', LY: 'LYD', LB: 'LBP', SY: 'SYP', YE: 'YER', SD: 'SDG', TR: 'TRY', GB: 'GBP',
+  MT: 'EUR', DE: 'EUR', FR: 'EUR', IT: 'EUR', ES: 'EUR', NL: 'EUR', BE: 'EUR', AT: 'EUR', IE: 'EUR', GR: 'EUR', CY: 'EUR', PT: 'EUR', FI: 'EUR' };
+const Locale = {
+  get() {
+    let s = {}; try { s = JSON.parse(localStorage.getItem('kinan_locale') || '{}'); } catch {}
+    const guess = savedAddress().country_code || (navigator.language.split('-')[1] || '').toUpperCase() || 'SA';
+    const country = s.country || guess;
+    return { country, currency: s.currency || COUNTRY_CURRENCY[country] || 'USD' };
+  },
+  set(v) { try { localStorage.setItem('kinan_locale', JSON.stringify({ ...Locale.get(), ...v })); } catch {} }
+};
+/** Approximate price in the customer's currency (they are charged in the sale currency). '' when it is the same currency. */
+function localPrice(amount, { approx = true } = {}) {
+  const { currency } = Locale.get(); const fx = cfg.fx || { base: 'USD', rates: { USD: 1 } };
+  if (!fx.rates[currency] || currency === fx.base) return '';
+  const v = amount * fx.rates[currency];
+  const digits = v >= 100 || ['IQD', 'LBP', 'SYP', 'YER', 'SDG', 'DZD'].includes(currency) ? 0 : 2;
+  let s; try { s = new Intl.NumberFormat(KinanLang.lang === 'ar' ? 'ar-u-nu-latn' : 'en', { style: 'currency', currency, maximumFractionDigits: digits, minimumFractionDigits: digits }).format(v); } catch { s = `${v.toFixed(digits)} ${currency}`; }
+  return (approx ? '≈ ' : '') + s;
+}
+/** Dialog: deliver-to country and display currency. */
+function pickLocale(after) {
+  const cur = Locale.get(); const d = document.createElement('dialog');
+  const cs = Object.keys((cfg.fx && cfg.fx.rates) || { USD: 1 });
+  d.innerHTML = `<form method="dialog" class="stack" style="padding:20px"><h2>Deliver to</h2>
+    <label>Country<select name="country">${(cfg.countries || []).map(([c, n]) => `<option value="${esc(c)}" ${c === cur.country ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+    <label>Show prices in<select name="currency">${cs.map((c) => `<option value="${c}" ${c === cur.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    <p class="muted small">You pay in ${esc((cfg.currency || 'usd').toUpperCase())}. Prices in other currencies are close estimates, updated daily.</p>
+    <div class="row"><button class="btn" value="ok">Save</button><button class="btn ghost" value="cancel">Cancel</button></div></form>`;
+  document.body.append(d);
+  d.querySelector('[name=country]').onchange = (e) => { const c = COUNTRY_CURRENCY[e.target.value] || 'USD'; if (cs.includes(c)) d.querySelector('[name=currency]').value = c; };
+  d.onclose = () => { if (d.returnValue === 'ok') { const f = d.querySelector('form'); Locale.set({ country: f.country.value, currency: f.currency.value }); renderLocaleChip(); if (after) after(); } d.remove(); };
+  d.showModal();
+}
+function localeLabel() { const l = Locale.get(); return `<span>${esc(countryName(l.country))}</span> · ${esc(l.currency)}`; }
+function renderLocaleChip() { $$('.locchip').forEach((b) => { b.innerHTML = `${PIN_IC}<span>Deliver to</span> <b>${localeLabel()}</b>`; b.onclick = () => pickLocale(route); }); }
+
 function variantLabel(props, fallback = 'Standard') {
   if (!props) return fallback;
   try {
@@ -316,7 +362,7 @@ function productCard(p) {
   const img = p.images[0];
   return `<a class="card" href="#/p/${esc(p.id)}">
     <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}<span class="tag">${money(p.min_price, p.currency)}</span></div>
-    <div class="body"><div class="t">${esc(p.title)}</div>${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
+    <div class="body"><div class="t">${esc(p.title)}</div>${localPrice(p.min_price) ? `<div class="lp">${localPrice(p.min_price)}</div>` : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
 }
 const skeletonGrid = () => `<div class="grid">${Array.from({ length: 8 }, () => '<div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="height:14px;margin-top:10px;width:80%"></div></div>').join('')}</div>`;
 
@@ -346,6 +392,7 @@ async function home(q = '', category = '') {
       <div class="route"><span><b>You order</b></span><span>We buy on Taobao</span><span>Checked in our China warehouse</span><span><b>Delivered to you</b></span></div>
     </section>
     <div id="shopstrip"></div>`}
+    <button class="locchip" type="button"></button>
     <div class="cats" id="cats"></div>
     <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2><a href="#/request">Can’t find it? Request an item</a></div>
     ${toolbar()}
@@ -357,7 +404,7 @@ async function home(q = '', category = '') {
     $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>`
       : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
   };
-  wireToolbar(load);
+  wireToolbar(load); renderLocaleChip();
   api('/api/categories').then((cs) => {
     const el = $('#cats'); if (!el) return; const shown = cs.filter((c) => c.count > 0);
     if (shown.length) el.innerHTML = `<a class="chip ${category ? '' : 'on'}" href="#/">All</a>${shown.map((c) => `<a class="chip ${c.id === category ? 'on' : ''}" href="#/c/${c.id}">${esc(c.en)}</a>`).join('')}`;
@@ -419,6 +466,7 @@ async function product(id) {
         <div class="row"><div class="qty"><button type="button" id="qm" aria-label="Less">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="More">+</button></div><span class="muted" id="stock"></span></div>
         <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
         <button class="btn quiet" id="share" style="justify-self:start">${ICONS.share} Share</button>
+        <div class="landed small" id="landed"></div>
         <div class="panel flat stack small">
           <div><b>Shipping:</b> ${p.fulfillment === 'direct' ? 'Included' : 'Priced by weight and country at checkout — items from several shops ship together'}</div>
           ${p.fulfillment === 'direct' ? `<div class="eta"><div><span class="muted">Ships directly from the supplier</span><b>${esc(cfg.aliexpress?.delivery_days || '10–20')} days</b></div><div><span class="muted">Tracking</span><b>Included</b></div></div>
@@ -434,12 +482,28 @@ async function product(id) {
     const img = p.images[imgIdx];
     $('#mainimg').innerHTML = img ? `<img src="${esc(img)}" alt="${esc(p.title)}" referrerpolicy="no-referrer">` : noImg;
     $$('.thumbs button').forEach((b) => b.classList.toggle('on', Number(b.dataset.i) === imgIdx));
-    $('#price').innerHTML = `<span class="tag lg">${money(sku.price, p.currency)}</span>`;
+    $('#price').innerHTML = `<span class="tag lg">${money(sku.price, p.currency)}</span>${localPrice(sku.price) ? ` <span class="lp">${localPrice(sku.price)}</span>` : ''}`;
+    landed();
     $$('#variants button').forEach((b) => b.classList.toggle('on', b.dataset.sku === sku.mp_sku_id));
     $('#stock').textContent = sku.in_stock ? (sku.stock < 20 ? `Only ${sku.stock} left` : 'In stock') : 'Out of stock';
     $('#add').disabled = $('#buy').disabled = !sku.in_stock;
     $('#qv').value = qty;
   };
+  // Delivered price to the customer's country: item + shipping for this quantity, and when it arrives
+  let lq = 0;
+  async function landed() {
+    const el = $('#landed'); if (!el) return; const my = ++lq; const loc = Locale.get();
+    const q = await api('/api/shipping/quote', 'POST', { items: [{ listing_id: p.id, qty }], country_code: loc.country }).catch(() => null);
+    if (my !== lq || !q) return;
+    const total = sku.price * qty + (q.fee || 0);
+    const days = p.fulfillment === 'direct' ? (cfg.aliexpress?.delivery_days || '10–20') : (() => { const m = String(q.days || '7–15').match(/(\d+)\D+(\d+)/); return m ? `${Number(m[1]) + 3}–${Number(m[2]) + 7}` : '10–22'; })();
+    el.innerHTML = `<button class="locchip" type="button"></button>
+      <div class="big">${money(total, p.currency)} ${localPrice(total) ? `<span class="lp">${localPrice(total)}</span>` : ''}</div>
+      <div><span>${q.fee ? `Item ${money(sku.price * qty, p.currency)} + shipping about ${money(q.fee, p.currency)}` : 'Shipping included'}</span> · <span>arrives in about</span> <b>${esc(days)} days</b></div>
+      <div class="muted">Import duties or VAT may be charged by your country’s customs on delivery.</div>`;
+    renderLocaleChip();
+    el.querySelector('.locchip').onclick = () => pickLocale(() => { paint(); });
+  }
   $$('.thumbs button').forEach((b) => b.onclick = () => { imgIdx = Number(b.dataset.i); paint(); });
   $$('#variants button').forEach((b) => b.onclick = () => { sku = p.skus.find((s) => s.mp_sku_id === b.dataset.sku); qty = Math.min(qty, Math.max(1, sku.stock)); paint(); });
   const setQty = (n) => { qty = Math.max(1, Math.min(Number(n) || 1, sku.stock || 1, 999)); paint(); };
@@ -486,7 +550,7 @@ async function cart() {
       </aside>
     </div>`;
   if (savedAddress().country_code && items.length) api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, qty }) => ({ listing_id, qty })), country_code: savedAddress().country_code }).then((q) => {
-    if (!$('#cship')) return; $('#cship').textContent = q.fee ? money(q.fee, cur) : 'Included'; $('#ctot').textContent = money(sub + q.fee, cur);
+    if (!$('#cship')) return; $('#cship').textContent = q.fee ? money(q.fee, cur) : 'Included'; $('#ctot').innerHTML = `${money(sub + q.fee, cur)}${localPrice(sub + q.fee) ? `<div class="lp" style="font-weight:400">${localPrice(sub + q.fee)}</div>` : ''}`;
   }).catch(() => {});
   const upd = (i, q) => { const c = Cart.get(); if (q <= 0) c.splice(i, 1); else c[i].qty = Math.min(q, items[i].max || 999); Cart.set(c); cart(); };
   $$('[data-dec]').forEach((b) => b.onclick = () => upd(+b.dataset.dec, items[+b.dataset.dec].qty - 1));
@@ -523,7 +587,7 @@ async function checkout() {
     try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, qty }) => ({ listing_id, qty })), country_code: code });
       $('#kship').textContent = q.fee ? money(q.fee, cur) : 'Included';
       $('#kshipnote').textContent = q.fee ? `${q.weight_kg} kg estimated · arrives in about ${q.days} days. If your parcel weighs less, we refund the difference to your wallet.` : '';
-      $('#ktot').textContent = money(sub + q.fee, cur);
+      $('#ktot').innerHTML = `${money(sub + q.fee, cur)}${localPrice(sub + q.fee) ? `<div class="lp" style="font-weight:400">${localPrice(sub + q.fee)}</div>` : ''}`;
     } catch {}
   };
   $('#af').country_code.onchange = requote; requote();

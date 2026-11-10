@@ -347,7 +347,12 @@ VIEWS.shipping = async (v) => {
     </tbody></table></div>
     <div class="row"><label>Default weight per item (kg) <input name="default_item_kg" type="number" step="0.01" min="0.01" value="${s.default_item_kg}" style="width:90px"></label>
       <label>Ignore differences under <input name="settle_tolerance" type="number" step="0.01" min="0" value="${s.settle_tolerance}" style="width:90px"></label></div>
-    <div class="row"><button class="btn">Save</button><span class="ok" id="shok"></span><span class="err" id="sherr"></span></div></form>`;
+    <div class="row"><button class="btn">Save</button><span class="ok" id="shok"></span><span class="err" id="sherr"></span></div></form>
+    <div class="card" style="display:grid;gap:8px;margin-top:14px"><h2>Exchange rate</h2>
+      <p class="muted">${s.fx.fixed_by_env ? 'Fixed by hand in the server settings (CNY_PER_SALE_UNIT).' : `Updated automatically every day. Buying costs use the market rate minus ${s.fx.buffer_pct}% as a safety margin.`}</p>
+      <div class="row"><span>Market: <b>1 USD = ${s.fx.cny_market ?? '—'} CNY</b></span><span>Used for costs: <b>${s.fx.cny_used} CNY</b></span><span class="muted">${s.fx.updated_at ? date(s.fx.updated_at) : 'Not updated yet'}</span>
+      <button class="btn sm ghost" id="fxr" type="button">Update now</button></div></div>`;
+  $('#fxr').onclick = async () => { const b = $('#fxr'); b.disabled = true; try { await api('/api/admin/fx/refresh', 'POST'); VIEWS.shipping(v); } catch (err) { b.disabled = false; b.textContent = err.message; } };
   $('#shf').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target; const rates = {}; const days = {};
     for (const z of s.zones) { rates[z.id] = { first: Number(f[`first_${z.id}`].value), extra: Number(f[`extra_${z.id}`].value) }; days[z.id] = f[`days_${z.id}`].value; }
