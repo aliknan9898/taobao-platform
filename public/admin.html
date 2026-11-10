@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Dashboard</title>
+<style>
+  :root { --bg:#f5f4f0; --card:#fff; --ink:#1c1b19; --muted:#6d6b65; --line:#e5e2db; --accent:#d9480f; --accent-ink:#fff; --ok:#2b7a4b; --warn:#a86b0c; --bad:#b42318; --chip:#f0eee8; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141413; --card:#1e1e1c; --ink:#f0eee8; --muted:#a19e96; --line:#32312e; --chip:#2a2927; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,"Segoe UI",Tahoma,sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:17px; margin:0; } header h1 span { color:var(--accent); }
+  nav { display:flex; gap:4px; overflow-x:auto; padding:8px 16px; background:var(--card); border-bottom:1px solid var(--line); }
+  nav button { background:transparent; color:var(--muted); border:0; padding:8px 12px; border-radius:8px; font:inherit; cursor:pointer; white-space:nowrap; }
+  nav button.on { background:var(--chip); color:var(--ink); font-weight:600; }
+  main { max-width:1100px; margin:0 auto; padding:16px; display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
+  main > * { min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .kpi b { display:block; font-size:22px; font-variant-numeric:tabular-nums; } .kpi span { color:var(--muted); font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  th, td { text-align:left; padding:9px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .scroll { overflow-x:auto; }
+  .pill { display:inline-block; font-size:12px; padding:1px 9px; border-radius:99px; border:1px solid currentColor; white-space:nowrap; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .muted { color:var(--muted); font-size:13px; }
+  button.btn { font:inherit; border:0; border-radius:8px; padding:7px 12px; background:var(--accent); color:var(--accent-ink); cursor:pointer; white-space:nowrap; }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  button:disabled { opacity:.5; }
+  input, select { font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .alerts li { margin:4px 0; } .alerts { margin:0; padding-inline-start:18px; }
+  code { direction:ltr; unicode-bidi:embed; font-size:12px; background:var(--chip); padding:1px 5px; border-radius:4px; }
+  .login { max-width:360px; margin:12vh auto; display:grid; gap:10px; }
+  .login input { width:100%; }
+  .err { color:var(--bad); white-space:pre-wrap; font-size:14px; }
+  dialog { border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--ink); width:min(720px,94vw); padding:0; }
+  dialog::backdrop { background:rgba(0,0,0,.35); }
+  .dlg { padding:16px; display:grid; gap:12px; }
+  .sub { border:1px solid var(--line); border-radius:10px; padding:10px; display:grid; gap:4px; }
+  .bars { display:flex; align-items:flex-end; gap:6px; height:140px; padding-top:8px; }
+  .bars div { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; height:100%; justify-content:flex-end; }
+  .bars i { display:block; width:100%; background:var(--accent); border-radius:4px 4px 0 0; min-height:2px; }
+  .bars small { font-size:10px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const fmt = (n, cur) => (Number(n) || 0).toLocaleString('en-GB', { style: cur ? 'currency' : undefined, currency: cur ? cur.toUpperCase() : undefined, maximumFractionDigits: 2 });
+const date = (t) => t ? new Date(Number(t)).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const statusClass = (s) => ({ delivered:'ok', shipped:'ok', ready_to_ship:'ok', active:'ok', attention:'bad', cancelled:'bad', refunded:'bad', suspended:'bad', pending:'warn' }[s] || 'warn');
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { showLogin(); throw new Error(j.error || 'Please sign in'); }
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function showLogin(msg = '') {
+  $('#app').innerHTML = `<form class="card login" id="lf"><h2>Platform Admin</h2>
+    <input name="email" type="email" placeholder="Email" required autocomplete="username">
+    <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
+    <button class="btn">Sign in</button><div class="err">${esc(msg)}</div></form>`;
+  $('#lf').onsubmit = async (e) => {
+    e.preventDefault(); const f = new FormData(e.target);
+    try {
+      const r = await api('/api/auth/login', 'POST', { email: f.get('email'), password: f.get('password') });
+      if (r.user.role !== 'admin') { await api('/api/auth/logout', 'POST'); return showLogin('This account is not an admin account'); }
+      boot(r.user);
+    } catch (err) { showLogin(err.message); }
+  };
+}
+
+const TABS = [['overview','Overview'],['orders','Orders'],['sellers','Sellers'],['listings','Products'],['users','Users']];
+let tab = 'overview', me;
+
+function boot(user) {
+  me = user;
+  $('#app').innerHTML = `<header><h1><span>Taobao</span> Marketplace · Admin</h1>
+      <div class="row"><a href="/warehouse"><button class="btn ghost">Warehouse</button></a><span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
+    <nav>${TABS.map(([k, t]) => `<button data-t="${k}">${t}</button>`).join('')}</nav><main id="view"></main>
+    <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>`;
+  $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
+  document.querySelectorAll('nav button').forEach((b) => b.onclick = () => { tab = b.dataset.t; render(); });
+  render();
+}
+
+async function render() {
+  document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.t === tab));
+  const v = $('#view'); v.innerHTML = '<p class="muted">Loading…</p>';
+  try { await VIEWS[tab](v); } catch (e) { v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+
+const VIEWS = {
+  async overview(v) {
+    const d = await api('/api/admin/overview'); const k = d.kpis; const c = d.currency;
+    const max = Math.max(1, ...d.daily.map((x) => x.revenue));
+    v.innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><span>Revenue (30 days)</span><b>${fmt(k.revenue_30d, c)}</b></div>
+        <div class="kpi"><span>Orders (30 days)</span><b>${fmt(k.orders_30d)}</b></div>
+        <div class="kpi"><span>Platform commission</span><b>${fmt(k.commission_total, c)}</b></div>
+        <div class="kpi"><span>Payable to sellers</span><b>${fmt(k.payable_to_sellers, c)}</b></div>
+        <div class="kpi"><span>Active sellers</span><b>${fmt(k.active_sellers)}</b></div>
+        <div class="kpi"><span>Live products</span><b>${fmt(k.listings)}</b></div>
+        <div class="kpi" style="cursor:pointer" onclick="tab='listings';render()"><span>Awaiting your approval</span><b class="${k.listings_pending ? 'warn' : ''}">${fmt(k.listings_pending)}</b></div>
+      </div>
+      <div class="card"><h2>Daily revenue (14 days)</h2>
+        <div class="bars">${d.daily.map((x) => `<div title="${esc(x.date)}: ${fmt(x.revenue, c)}"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(3))}</small></div>`).join('')}</div></div>
+      <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
+      <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
+      <div class="card"><h2>Setup & integrations</h2>
+        ${d.config_problems.length ? `<p class="warn">Missing: ${d.config_problems.map((x) => `<code>${esc(x)}</code>`).join(' ')}</p>` : '<p class="ok">Configuration complete.</p>'}
+        <p class="muted">Taobao Callback URL: <code>${esc(d.webhook_urls.oauth_callback)}</code><br>
+        Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
+        Messages waiting to be processed: ${d.inbox_backlog}</p></div>`;
+  },
+
+  async orders(v) {
+    const status = v.dataset.status || '';
+    const list = await api('/api/admin/orders' + (status ? `?status=${status}` : ''));
+    v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Orders</h2>
+      <select id="fs"><option value="">All statuses</option>${Object.entries(STATUS_LABEL).map(([k, t]) => `<option value="${k}" ${k === status ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="scroll"><table><thead><tr><th>Order</th><th>Buyer</th><th>Shops</th><th>Items</th><th>Total</th><th>Destination</th><th>Status</th><th>Date</th></tr></thead><tbody>
+      ${list.map((o) => `<tr data-id="${esc(o.id)}" style="cursor:pointer"><td><code>${esc(o.id.slice(-8))}</code></td><td>${esc(o.buyer)}</td><td>${esc(o.shops.join(', '))}</td><td>${o.items}</td><td>${fmt(o.total, o.currency)}</td><td>${esc(o.destination)}</td><td><span class="pill ${statusClass(o.status)}">${esc(o.status_label)}</span></td><td class="muted">${date(o.created_at)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No orders</td></tr>'}
+      </tbody></table></div></div>`;
+    $('#fs').onchange = (e) => { v.dataset.status = e.target.value; render(); };
+    v.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => openOrder(tr.dataset.id));
+  },
+
+  async sellers(v) {
+    const list = await api('/api/admin/sellers');
+    v.innerHTML = `<div class="card"><h2>Sellers</h2><div class="scroll"><table><thead><tr><th>Shop</th><th>Email</th><th>Taobao</th><th>Products</th><th>Sales</th><th>Commission %</th><th>Status</th><th></th></tr></thead><tbody>
+      ${list.map((s) => `<tr><td><b>${esc(s.shop_name)}</b></td><td class="muted">${esc(s.email)}</td>
+        <td>${s.taobao.connected ? `<span class="pill ok">Connected</span>${s.taobao.needs_reauth_soon ? ' <span class="pill warn">Expires soon</span>' : ''}` : '<span class="pill bad">Not connected</span>'}</td>
+        <td>${s.listings}</td><td>${fmt(s.gross)}</td>
+        <td><input type="number" min="0" max="50" step="0.5" value="${s.commission_pct}" style="width:70px" data-com="${esc(s.id)}"></td>
+        <td><span class="pill ${statusClass(s.status)}">${{ pending:'Awaiting approval', active:'Active', suspended:'Suspended' }[s.status]}</span></td>
+        <td class="row">${s.status !== 'active' ? `<button class="btn" data-st="active" data-id="${esc(s.id)}">Activate</button>` : `<button class="btn ghost" data-st="suspended" data-id="${esc(s.id)}">Suspend</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No sellers</td></tr>'}
+      </tbody></table></div><p class="muted">Each seller connects their own Distribution Platform account; Taobao purchases are made and paid from that account.</p></div>`;
+    v.querySelectorAll('[data-st]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/sellers/${b.dataset.id}`, 'PATCH', { status: b.dataset.st }); } catch (e) { alert(e.message); } render(); });
+    v.querySelectorAll('[data-com]').forEach((i) => i.onchange = async () => { try { await api(`/api/admin/sellers/${i.dataset.com}`, 'PATCH', { commission_pct: Number(i.value) }); } catch (e) { alert(e.message); render(); } });
+  },
+
+  async listings(v) {
+    const filter = v.dataset.lf || 'pending_review';
+    const list = await api('/api/admin/listings' + (filter === 'all' ? '' : `?status=${filter}`));
+    const LST = { pending_review:'Awaiting review', active:'Live for buyers', paused:'Paused by seller', rejected:'Rejected', unavailable:'Unavailable on Taobao' };
+    const F = [['pending_review','Awaiting review'],['active','Live'],['rejected','Rejected'],['all','All']];
+    v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Product review</h2>
+        <div class="row">${F.map(([k, t]) => `<button class="btn ${k === filter ? '' : 'ghost'}" data-lf="${k}">${t}</button>`).join('')}</div></div>
+        <p class="muted">Products imported by sellers are hidden from the buyer app until you approve them. Price changes do not need re-approval; changing the title or photos sends a product back to review.</p></div>
+      ${list.map((l) => {
+        const img = [...(l.own_images || []), ...(l.images || [])][0];
+        const lowMargin = l.skus.some((s) => s.margin_pct !== null && s.margin_pct < 10);
+        return `<div class="card" style="display:grid;gap:10px">
+          <div class="row" style="justify-content:space-between;align-items:flex-start">
+            <div class="row" style="align-items:flex-start;gap:12px">
+              ${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">` : '<div class="muted" style="width:72px;height:72px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;font-size:11px;text-align:center">No photos</div>'}
+              <div><b>${esc(l.title)}</b><div class="muted">${esc(l.shop)} · Taobao <code>${esc(l.taobao_item_id)}</code> · ${l.item_type === 'WITHOUT_MATERIAL' ? '<span class="warn">General item: seller photos only</span>' : 'Distribution Platform item'}</div>
+                <div class="muted">Submitted ${date(l.review?.submitted_at || l.created_at)}${l.review?.reason ? ` · <span class="bad">Rejection reason: ${esc(l.review.reason)}</span>` : ''}</div></div>
+            </div>
+            <span class="pill ${l.status === 'active' ? 'ok' : l.status === 'rejected' || l.status === 'unavailable' ? 'bad' : 'warn'}">${esc(LST[l.status] || l.status)}</span>
+          </div>
+          <div class="scroll"><table><thead><tr><th>Variant</th><th>Cost (CNY)</th><th>Sale price</th><th>Margin</th><th>Stock</th></tr></thead><tbody>
+            ${l.skus.map((s) => `<tr><td>${esc(s.props || s.mp_sku_id)}</td><td>${fmt(s.cost_cny)}</td><td>${fmt(s.price, l.currency)}</td>
+              <td class="${s.margin_pct < 10 ? 'bad' : s.margin_pct < 25 ? 'warn' : 'ok'}">${s.margin_pct ?? '—'}%</td><td>${s.stock >= 200 ? '200+' : s.stock}</td></tr>`).join('')}
+          </tbody></table></div>
+          ${lowMargin ? '<div class="warn muted">Warning: very low margin on a variant — after your commission and shipping the seller may lose money.</div>' : ''}
+          ${l.status === 'pending_review' || l.status === 'rejected' ? `<div class="row">
+              <button class="btn" data-approve="${esc(l.id)}">Approve & publish</button>
+              <input placeholder="Rejection reason (shown to the seller)" style="flex:1;min-width:200px" data-reason="${esc(l.id)}">
+              <button class="btn ghost bad" data-reject="${esc(l.id)}">Reject</button></div>` : ''}
+        </div>`; }).join('') || '<div class="card muted">No products here.</div>'}`;
+    v.querySelectorAll('[data-lf]').forEach((b) => b.onclick = () => { v.dataset.lf = b.dataset.lf; render(); });
+    v.querySelectorAll('[data-approve]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/listings/${b.dataset.approve}/approve`, 'POST'); } catch (e) { alert(e.message); } render(); });
+    v.querySelectorAll('[data-reject]').forEach((b) => b.onclick = async () => {
+      const reason = v.querySelector(`[data-reason="${b.dataset.reject}"]`).value.trim();
+      if (!reason) { alert('Enter a rejection reason so the seller knows what to fix'); return; }
+      b.disabled = true; try { await api(`/api/admin/listings/${b.dataset.reject}/reject`, 'POST', { reason }); } catch (e) { alert(e.message); } render();
+    });
+  },
+
+  async users(v) {
+    const list = await api('/api/admin/users');
+    const ROLE = { admin:'Admin', seller:'Seller', buyer:'Buyer', warehouse:'Warehouse' };
+    v.innerHTML = `<div class="card"><h2>Add staff member</h2><form class="row" id="sf">
+        <input name="name" placeholder="Name" required><input name="email" type="email" placeholder="Email" required>
+        <input name="password" type="password" placeholder="Password (8+)" minlength="8" required>
+        <select name="role"><option value="warehouse">Warehouse</option><option value="admin">Admin</option></select><button class="btn">Add</button></form><div class="err" id="se"></div></div>
+      <div class="card"><h2>Users (${list.length})</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr></thead><tbody>
+      ${list.map((u) => `<tr><td>${esc(u.name || '—')}</td><td>${esc(u.email)}</td><td>${esc(ROLE[u.role])}</td><td><span class="pill ${statusClass(u.status)}">${u.status === 'active' ? 'Active' : esc(u.status)}</span></td></tr>`).join('')}
+      </tbody></table></div></div>`;
+    $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/admin/staff', 'POST', f); render(); } catch (err) { $('#se').textContent = err.message; } };
+  }
+};
+
+const STATUS_LABEL = { pending_payment:'Awaiting payment', paid:'Paid', procuring:'Buying', awaiting_parcels:'Awaiting parcels', ready_to_ship:'Ready to ship', shipped:'Shipped', delivered:'Delivered', cancelled:'Cancelled', refunded:'Refunded', attention:'Needs attention' };
+
+async function openOrder(id) {
+  const d = $('#dlg'); const b = $('#dlgBody');
+  b.innerHTML = '<p class="muted">Loading…</p>'; d.showModal();
+  const o = await api(`/api/admin/orders/${id}`);
+  const a = o.shipping_address;
+  b.innerHTML = `<div class="row" style="justify-content:space-between"><h2>Order <code>${esc(o.id)}</code></h2><span class="pill ${statusClass(o.status)}">${esc(o.status_label)}</span></div>
+    <div class="muted">${date(o.created_at)} · ${fmt(o.total, o.currency)} (Ship ${fmt(o.shipping_fee, o.currency)}) · Payment: ${esc(o.payment?.provider || '—')}</div>
+    <div class="muted">To: ${esc(a.name)}, ${esc(a.line1)}, ${esc(a.city)}, ${esc(a.country)} · ${esc(a.phone)}</div>
+    <table><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Cost (CNY)</th></tr></thead><tbody>
+      ${o.lines.map((l) => `<tr><td>${esc(l.title)}<div class="muted">${esc(l.props)}</div></td><td>${l.qty}</td><td>${fmt(l.price, o.currency)}</td><td>${fmt(l.cost_cny)}</td></tr>`).join('')}</tbody></table>
+    <h2>Taobao purchase orders</h2>
+    ${o.sub_orders.map((s) => `<div class="sub"><div class="row" style="justify-content:space-between"><b>${esc(s.shop)}</b><span class="pill ${s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED' ? 'bad' : s.status === 'WAIT_BUYER_CONFIRM_GOODS' ? 'ok' : 'warn'}">${esc(s.status_label)}</span></div>
+      <div class="muted"><code>${esc(s.outer_purchase_id)}</code> · ${esc((s.purchase_ids || []).join(', ') || '—')}${s.pay_deadline && /WAIT_BUYER_P/.test(s.status) ? ` · pay by ${date(s.pay_deadline)}` : ''}</div>
+      ${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}
+      ${(s.logistics || []).length ? `<div class="muted">Shipping: ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(' · ')}</div>` : ''}</div>`).join('') || '<p class="muted">Not created yet.</p>'}
+    <div class="row">
+      ${['paid', 'attention'].includes(o.status) ? '<button class="btn" data-a="procure">Retry purchase</button>' : ''}
+      ${o.sub_orders.some((s) => /WAIT_BUYER_P/.test(s.status)) ? '<button class="btn" data-a="pay-taobao">Pay Taobao</button>' : ''}
+      <button class="btn ghost" data-a="sync">Sync</button>
+      ${!['shipped', 'delivered', 'cancelled', 'refunded'].includes(o.status) ? '<button class="btn ghost bad" data-a="cancel">Cancel & refund</button>' : ''}
+      <button class="btn ghost" id="close">Close</button></div>
+    <details><summary class="muted">Timeline</summary><ul class="muted">${o.timeline.map((t) => `<li>${date(t.at)} — ${esc(t.event)}</li>`).join('')}</ul></details>
+    <div class="err" id="oe"></div>`;
+  $('#close').onclick = () => d.close();
+  b.querySelectorAll('[data-a]').forEach((btn) => btn.onclick = async () => {
+    if (btn.dataset.a === 'cancel' && !confirm('Cancel this order and refund the buyer?')) return;
+    btn.disabled = true;
+    try { await api(`/api/admin/orders/${id}/${btn.dataset.a}`, 'POST'); await openOrder(id); render(); } catch (e) { $('#oe').textContent = e.message; btn.disabled = false; }
+  });
+}
+
+api('/api/me').then((u) => (u.role === 'admin' ? boot(u) : showLogin('This account is not an admin account'))).catch(() => showLogin());
+</script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warehouse</title>
+<style>
+  :root { --bg:#f3f5f4; --card:#fff; --ink:#18201d; --muted:#66706b; --line:#dfe5e2; --accent:#1f6f5c; --accent-ink:#fff; --ok:#2b7a4b; --warn:#a86b0c; --bad:#b42318; --chip:#ebf0ee; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121514; --card:#1b201e; --ink:#eef2f0; --muted:#9aa5a0; --line:#2d3532; --chip:#252c29; --accent:#3aa58a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,"Segoe UI",Tahoma,sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:17px; margin:0; }
+  main { max-width:1100px; margin:0 auto; padding:16px; display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
+  main > * { min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  .counts { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .count { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .count b { display:block; font-size:24px; font-variant-numeric:tabular-nums; } .count span { color:var(--muted); font-size:13px; }
+  .scan { display:grid; grid-template-columns:2fr 1fr 1fr auto auto; gap:8px; }
+  @media (max-width:700px) { .scan { grid-template-columns:1fr 1fr; } .scan .wide { grid-column:1/-1; } }
+  input, select { font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:8px; padding:10px; width:100%; }
+  .scan input.wide { font-size:18px; direction:ltr; text-align:left; letter-spacing:.5px; }
+  button.btn { font:inherit; border:0; border-radius:8px; padding:9px 14px; background:var(--accent); color:var(--accent-ink); cursor:pointer; white-space:nowrap; }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  .result { margin-top:10px; padding:10px 12px; border-radius:8px; font-size:14px; }
+  .result.ok { background:color-mix(in srgb, var(--ok) 12%, transparent); } .result.warn { background:color-mix(in srgb, var(--warn) 14%, transparent); } .result.bad { background:color-mix(in srgb, var(--bad) 12%, transparent); }
+  .tabs { display:flex; gap:4px; overflow-x:auto; margin-bottom:10px; }
+  .tabs button { background:transparent; border:0; color:var(--muted); padding:7px 12px; border-radius:8px; font:inherit; cursor:pointer; white-space:nowrap; }
+  .tabs button.on { background:var(--chip); color:var(--ink); font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  th, td { text-align:left; padding:9px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .scroll { overflow-x:auto; }
+  .pill { display:inline-block; font-size:12px; padding:1px 9px; border-radius:99px; border:1px solid currentColor; white-space:nowrap; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .muted { color:var(--muted); font-size:13px; }
+  code { direction:ltr; unicode-bidi:embed; font-size:13px; }
+  .login { max-width:360px; margin:12vh auto; display:grid; gap:10px; }
+  .err { color:var(--bad); font-size:14px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .note { font-size:13px; padding:8px 12px; border-radius:8px; background:color-mix(in srgb, var(--warn) 12%, transparent); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const date = (t) => t ? new Date(Number(t)).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { showLogin(); throw new Error(j.error || 'Please sign in'); }
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function showLogin(msg = '') {
+  $('#app').innerHTML = `<form class="card login" id="lf"><h2>Warehouse sign in</h2>
+    <input name="email" type="email" placeholder="Email" required autocomplete="username">
+    <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
+    <button class="btn">Sign in</button><div class="err">${esc(msg)}</div></form>`;
+  $('#lf').onsubmit = async (e) => {
+    e.preventDefault(); const f = new FormData(e.target);
+    try { const r = await api('/api/auth/login', 'POST', { email: f.get('email'), password: f.get('password') });
+      if (!['warehouse', 'admin'].includes(r.user.role)) { await api('/api/auth/logout', 'POST'); return showLogin('This account has no warehouse access'); }
+      boot(r.user);
+    } catch (err) { showLogin(err.message); }
+  };
+}
+
+let tab = 'expected';
+function boot(user) {
+  $('#app').innerHTML = `<header><h1>Warehouse · China</h1><div class="row">${user.role === 'admin' ? '<a href="/admin"><button class="btn ghost">Admin dashboard</button></a>' : ''}<span class="muted">${esc(user.name || user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
+  <main>
+    <section class="card"><h2>Receive parcel</h2>
+      <form class="scan" id="scan">
+        <input class="wide" name="tracking" placeholder="Scan or type tracking number" required autofocus autocomplete="off">
+        <input name="location" placeholder="Location (A-01)">
+        <input name="weight_g" type="number" min="0" placeholder="Weight (g)">
+        <select name="qc"><option value="pass">QC passed</option><option value="fail">QC failed</option></select>
+        <button class="btn">Receive</button>
+      </form>
+      <div id="scanOut"></div>
+      <p class="note">Goods count as legally delivered once signed for here. After they leave this warehouse they can no longer be returned to the Taobao seller, so inspect them before packing.</p>
+    </section>
+    <div class="counts" id="counts"></div>
+    <section class="card"><div class="tabs" id="tabs"></div><div id="list"></div></section>
+  </main>`;
+  $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
+  $('#scan').onsubmit = onScan;
+  load();
+}
+
+async function onScan(e) {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  const out = $('#scanOut');
+  try {
+    const r = await api('/api/warehouse/receive', 'POST', f);
+    const p = r.parcel;
+    out.innerHTML = r.matched
+      ? `<div class="result ${p.status === 'qc_failed' ? 'bad' : 'ok'}">${p.status === 'qc_failed' ? 'Recorded with QC failure' : 'Received'}: <code>${esc(p.tracking)}</code> → order <code>${esc(p.order_id.slice(-8))}</code>${p.location ? ` · location ${esc(p.location)}` : ''}</div>`
+      : `<div class="result warn">Unknown parcel <code>${esc(p.tracking)}</code> — recorded under "In stock" for manual matching.</div>`;
+    e.target.reset(); e.target.tracking.focus();
+    load();
+  } catch (err) { out.innerHTML = `<div class="result bad">${esc(err.message)}</div>`; }
+}
+
+let data;
+async function load() {
+  data = await api('/api/warehouse/overview');
+  const c = data.counts;
+  $('#counts').innerHTML = [['expected','Expected parcels'],['in_stock','In stock'],['ready_orders','Orders ready to ship'],['qc_failed','QC failed'],['unmatched','Unmatched'],['in_transit','Shipments in transit']]
+    .map(([k, t]) => `<div class="count"><span>${t}</span><b class="${(k === 'qc_failed' || k === 'unmatched') && c[k] ? 'bad' : ''}">${c[k]}</b></div>`).join('');
+  const T = [['expected', `Expected (${data.expected.length})`], ['stock', `In stock (${data.in_stock.length})`], ['orders', `Orders (${data.orders.length})`], ['shipments', 'Shipments']];
+  $('#tabs').innerHTML = T.map(([k, t]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${t}</button>`).join('');
+  $('#tabs').querySelectorAll('button').forEach((b) => b.onclick = () => { tab = b.dataset.t; load(); });
+  LISTS[tab]($('#list'));
+}
+
+const LISTS = {
+  expected(el) {
+    el.innerHTML = `<div class="scroll"><table><thead><tr><th>Tracking no.</th><th>Carrier</th><th>Product</th><th>Shop</th><th>Order</th></tr></thead><tbody>
+      ${data.expected.map((p) => `<tr><td><code>${esc(p.tracking)}</code></td><td>${esc(p.carrier || '—')}</td><td>${esc(p.item || '—')}</td><td>${esc(p.shop || '—')}</td><td><code>${esc((p.order_id || '').slice(-8))}</code></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No expected parcels</td></tr>'}
+      </tbody></table></div>`;
+  },
+  stock(el) {
+    el.innerHTML = `<div class="scroll"><table><thead><tr><th>Tracking no.</th><th>Product</th><th>Location</th><th>Weight</th><th>Status</th><th>Received at</th><th></th></tr></thead><tbody>
+      ${data.in_stock.map((p) => `<tr><td><code>${esc(p.tracking)}</code></td><td>${esc(p.item || '—')}</td><td>${esc(p.location || '—')}</td><td>${p.weight_g ? esc(p.weight_g) + ' g' : '—'}</td>
+        <td>${p.unmatched ? '<span class="pill warn">Unmatched</span>' : `<span class="pill ${p.status === 'qc_failed' ? 'bad' : 'ok'}">${esc(p.status_label)}</span>`}</td><td class="muted">${date(p.received_at)}</td>
+        <td>${p.unmatched ? `<div class="row"><input placeholder="Order ID" style="width:150px" data-ord="${esc(p.id)}"><button class="btn ghost" data-assign="${esc(p.id)}">Link</button></div>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Warehouse is empty</td></tr>'}
+      </tbody></table></div>`;
+    el.querySelectorAll('[data-assign]').forEach((b) => b.onclick = async () => {
+      const v = el.querySelector(`[data-ord="${b.dataset.assign}"]`).value.trim();
+      try { await api(`/api/warehouse/parcels/${b.dataset.assign}/assign`, 'POST', { order_id: v }); load(); } catch (e) { alert(e.message); }
+    });
+  },
+  orders(el) {
+    el.innerHTML = `<div class="scroll"><table><thead><tr><th>Order</th><th>Recipient</th><th>Destination</th><th>Items</th><th>Parcels</th><th>Status</th><th>International shipping</th></tr></thead><tbody>
+      ${data.orders.map((o) => `<tr><td><code>${esc(o.id.slice(-8))}</code></td><td>${esc(o.recipient)}</td><td>${esc(o.destination)}</td><td>${o.items}</td><td>${o.parcels_received}/${o.parcels_total}</td>
+        <td><span class="pill ${o.status === 'ready_to_ship' ? 'ok' : o.status === 'attention' ? 'bad' : 'warn'}">${esc(o.status_label)}</span></td>
+        <td>${o.status === 'ready_to_ship' ? `<form class="row" data-ship="${esc(o.id)}"><input name="carrier" placeholder="Carrier" required style="width:90px"><input name="tracking" placeholder="Tracking no." required style="width:130px"><input name="weight_g" type="number" placeholder="g" style="width:70px"><button class="btn">Ship</button></form>` : '<span class="muted">Awaiting parcels</span>'}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No orders</td></tr>'}
+      </tbody></table></div>`;
+    el.querySelectorAll('[data-ship]').forEach((f) => f.onsubmit = async (e) => {
+      e.preventDefault();
+      try { await api(`/api/warehouse/orders/${f.dataset.ship}/ship`, 'POST', Object.fromEntries(new FormData(f))); tab = 'shipments'; load(); } catch (err) { alert(err.message); }
+    });
+  },
+  shipments(el) {
+    el.innerHTML = `<div class="scroll"><table><thead><tr><th>Order</th><th>Carrier</th><th>Tracking no.</th><th>Destination</th><th>Parcels</th><th>Shipped at</th><th>Status</th><th></th></tr></thead><tbody>
+      ${data.shipments.map((s) => `<tr><td><code>${esc(s.order_id.slice(-8))}</code></td><td>${esc(s.carrier)}</td><td><code>${esc(s.tracking)}</code></td><td>${esc(s.destination.city)}, ${esc(s.destination.country)}</td><td>${s.parcel_ids.length}</td><td class="muted">${date(s.shipped_at)}</td>
+        <td><span class="pill ${s.status === 'delivered' ? 'ok' : 'warn'}">${s.status === 'delivered' ? 'Delivered' : 'In transit'}</span></td>
+        <td>${s.status !== 'delivered' ? `<button class="btn ghost" data-dlv="${esc(s.order_id)}">Confirm delivery</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No shipments</td></tr>'}
+      </tbody></table></div>`;
+    el.querySelectorAll('[data-dlv]').forEach((b) => b.onclick = async () => { if (!confirm('Confirm this order was delivered to the buyer?')) return; try { await api(`/api/warehouse/orders/${b.dataset.dlv}/delivered`, 'POST'); load(); } catch (e) { alert(e.message); } });
+  }
+};
+
+api('/api/me').then((u) => (['warehouse', 'admin'].includes(u.role) ? boot(u) : showLogin())).catch(() => showLogin());
+</script>
+</body>
+</html>

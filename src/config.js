@@ -1,0 +1,60 @@
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+const envFile = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envFile)) {
+  for (const line of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+}
+const e = process.env;
+
+const config = {
+  // Taobao Global Open Platform (ONE app; every seller authorizes it with their own distribution account)
+  appKey: e.TAOBAO_APP_KEY || '',
+  appSecret: e.TAOBAO_APP_SECRET || '',
+  apiUrl: e.TAOBAO_API_URL || 'https://api.taobao.global/rest',
+  authUrl: e.TAOBAO_AUTH_URL || 'https://api.taobao.global/oauth/authorize',
+  channelOrderType: 'PANAMA_DG',
+
+  // Stripe (no SDK — REST over fetch). Empty key = demo mode (test payments only)
+  stripeSecretKey: e.STRIPE_SECRET_KEY || '',
+  stripeWebhookSecret: e.STRIPE_WEBHOOK_SECRET || '',
+  stripeApiUrl: e.STRIPE_API_URL || 'https://api.stripe.com/v1',
+  currency: (e.SALE_CURRENCY || 'usd').toLowerCase(),
+  cnyRate: Number(e.CNY_PER_SALE_UNIT || 7.2), // 1 USD ≈ 7.2 CNY, for margin display
+  shippingFlat: Number(e.SHIPPING_FLAT_FEE || 0), // international shipping charged per order
+
+  publicBaseUrl: (e.PUBLIC_BASE_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  port: Number(e.PORT || 3000),
+  dataDir: e.DATA_DIR || path.join(__dirname, '..', 'data'),
+  orderSyncMinutes: Number(e.ORDER_SYNC_MINUTES || 15),
+  defaultCommissionPct: Number(e.PLATFORM_COMMISSION_PCT || 10),
+
+  // First admin is created on startup if no admin exists
+  bootstrapAdminEmail: e.ADMIN_EMAIL || '',
+  bootstrapAdminPassword: e.ADMIN_PASSWORD || '',
+
+  // Your China warehouse — every Taobao purchase order ships here
+  warehouse: {
+    name: e.WAREHOUSE_NAME || '', mobile: e.WAREHOUSE_MOBILE || '',
+    state: e.WAREHOUSE_STATE || '', city: e.WAREHOUSE_CITY || '',
+    district: e.WAREHOUSE_DISTRICT || '', detail_address: e.WAREHOUSE_DETAIL || '',
+    zip: e.WAREHOUSE_ZIP || '', country: 'China'
+  }
+};
+config.redirectUri = `${config.publicBaseUrl}/oauth/callback`;
+
+function configProblems() {
+  const p = [];
+  if (!config.appKey || !config.appSecret) p.push('TAOBAO_APP_KEY / TAOBAO_APP_SECRET');
+  if (!config.stripeSecretKey) p.push('STRIPE_SECRET_KEY (demo mode)');
+  if (config.stripeSecretKey && !config.stripeWebhookSecret) p.push('STRIPE_WEBHOOK_SECRET');
+  const w = config.warehouse;
+  if (!w.name || !w.mobile || !w.city || !w.detail_address) p.push('WAREHOUSE_*');
+  return p;
+}
+
+module.exports = { config, configProblems };

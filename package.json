@@ -1,0 +1,9 @@
+{
+  "name": "taobao-marketplace-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-seller marketplace on Taobao Global Distribution Platform: backend API, admin dashboard, China warehouse site",
+  "main": "src/server.js",
+  "engines": { "node": ">=18" },
+  "scripts": { "start": "node src/server.js", "test": "node --test test/*.test.js" }
+}

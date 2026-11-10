@@ -1,0 +1,7 @@
+# Secrets — never commit
+.env
+# Local JSON data store
+data/
+node_modules/
+*.tmp
+.DS_Store
