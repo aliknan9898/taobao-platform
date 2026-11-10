@@ -525,6 +525,8 @@ function startJobs() {
   every(3600e3, catalog.resyncStale);
   every(6 * 3600e3, sellerAuth.refreshAllDue);
   every(3600e3, async () => cleanup());
+  every(10 * 60e3, () => require('./services/translate').translatePending());
+  setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }
 
 if (require.main === module) (async () => {

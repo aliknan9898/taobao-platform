@@ -288,6 +288,12 @@ async function manualForm(id, aeFlag) {
         <button type="button" class="btn sm ghost" id="addv" style="justify-self:start">+ Add option</button></div>
       <div class="grid-2">${catSelect(ex?.category)}<label class="field">Weight per item (kg)<input name="weight_kg" type="number" step="0.01" min="0" value="${esc(ex?.weight_kg ?? '')}" placeholder="e.g. 0.6"><span class="muted small">Used to price shipping. Leave empty to use 0.5 kg.</span></label></div>
       <label class="field">Description<textarea name="description" rows="5" maxlength="5000">${esc(ex?.description || '')}</textarea></label>
+      <details class="panel flat" ${ex?.ar_manual ? 'open' : ''}><summary><b>Arabic title and description</b> <span class="muted small">(optional)</span></summary>
+        <p class="muted small" style="margin:8px 0">Leave empty and Kinan translates your product into Arabic automatically. Write it yourself for the best result.</p>
+        <label class="field">Arabic title<input name="title_ar" dir="rtl" maxlength="300" value="${esc(ex?.ar_manual ? ex.title_ar || '' : '')}"></label>
+        <label class="field">Arabic description<textarea name="description_ar" dir="rtl" rows="4" maxlength="6000">${esc(ex?.ar_manual ? ex.description_ar || '' : '')}</textarea></label>
+        ${ex?.ar_auto && !ex?.ar_manual && ex?.title_ar ? `<p class="muted small">Automatic translation now: <span dir="rtl">${esc(ex.title_ar)}</span></p>` : ''}
+      </details>
       <div class="error" id="me"></div>
       <div class="row"><button class="btn" id="msave">${ex ? 'Save changes' : 'Submit for review'}</button><span class="muted small">Kinan reviews new products before customers see them.</span></div>
     </form>`;
@@ -320,7 +326,7 @@ async function manualForm(id, aeFlag) {
   };
   $('#mf').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target; $('#me').textContent = '';
-    const body = { category: f.category.value, source: m.source, source_link: f.source_link.value, title: f.title.value, description: f.description.value, weight_kg: f.weight_kg.value, images: m.images,
+    const body = { category: f.category.value, source: m.source, source_link: f.source_link.value, title: f.title.value, description: f.description.value, title_ar: f.title_ar.value, description_ar: f.description_ar.value, weight_kg: f.weight_kg.value, images: m.images,
       variants: m.variants.map((x) => ({ name: x.name, price: Number(x.price), stock: x.stock === '' ? 99 : Number(x.stock), cost_cny: x.cost_cny === '' ? null : Number(x.cost_cny) })) };
     $('#msave').disabled = true; $('#msave').textContent = 'Saving…';
     try {

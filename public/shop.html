@@ -253,6 +253,9 @@ function variantLabel(props, fallback = 'Standard') {
   return String(props).split(/[;,]/).map((p) => p.split(':').pop()).filter(Boolean).join(' / ') || fallback;
 }
 const noImg = `<div class="noimg">${ICONS.box}</div>`;
+/** Product title / description in the reader's language (Arabic when available). */
+const T = (p) => (KinanLang.lang === 'ar' && p.title_ar) || p.title;
+const TD = (p) => (KinanLang.lang === 'ar' && p.description_ar) || p.description;
 
 // ---------- shell ----------
 $('#brand').innerHTML = K.brand('Shop');
@@ -296,7 +299,7 @@ const Search = (() => {
       const d = await api(`/api/catalog?${new URLSearchParams({ q, limit: 6 })}`);
       if (my !== seq || input.value.trim() !== q) return;
       open(`<a href="#/search/${encodeURIComponent(q)}" data-q="${esc(q)}"><span class="si">${ICONS.search}</span><span>Search for “${esc(q)}”</span></a>` +
-        d.items.map((p) => `<a href="#/p/${esc(p.id)}">${p.images[0] ? `<img class="si" src="${esc(p.images[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="si">${ICONS.box}</span>`}<span>${esc(p.title)}</span><small>${money(p.min_price, p.currency)}</small></a>`).join(''));
+        d.items.map((p) => `<a href="#/p/${esc(p.id)}">${p.images[0] ? `<img class="si" src="${esc(p.images[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="si">${ICONS.box}</span>`}<span dir="auto">${esc(T(p))}</span><small>${money(p.min_price, p.currency)}</small></a>`).join(''));
     } catch {}
   }
   input.addEventListener('input', () => {
@@ -364,7 +367,7 @@ function productCard(p) {
   const img = p.images[0];
   return `<a class="card" href="#/p/${esc(p.id)}">
     <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}<span class="tag">${money(p.min_price, p.currency)}</span></div>
-    <div class="body"><div class="t">${esc(p.title)}</div>${localPrice(p.min_price) ? `<div class="lp">${localPrice(p.min_price)}</div>` : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
+    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${localPrice(p.min_price) ? `<div class="lp">${localPrice(p.min_price)}</div>` : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
 }
 const skeletonGrid = () => `<div class="grid">${Array.from({ length: 8 }, () => '<div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="height:14px;margin-top:10px;width:80%"></div></div>').join('')}</div>`;
 
@@ -452,7 +455,7 @@ async function product(id) {
   const v = $('#view'); v.innerHTML = `<div class="pdp"><div class="skeleton" style="aspect-ratio:1"></div><div class="stack"><div class="skeleton" style="height:32px"></div><div class="skeleton" style="height:120px"></div></div></div>`;
   const p = await api(`/api/catalog/${encodeURIComponent(id)}`);
   let sku = p.skus.find((s) => s.in_stock) || p.skus[0]; let qty = 1; let imgIdx = 0;
-  const desc = plain(p.description);
+  const desc = plain(TD(p));
   v.innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
     <div class="pdp">
       <div class="gallery">
@@ -462,7 +465,7 @@ async function product(id) {
       <div class="stack-lg" style="align-content:start">
         <div class="stack">
           ${p.shop ? `<a href="#/s/${esc(p.shop.id)}" class="muted row" style="text-decoration:none;gap:8px">${shopLogo(p.shop, 'sm')}<span>Sold by <b>${esc(p.shop.name)}</b></span></a>` : ''}
-          <h1 style="font-size:clamp(22px,3.4vw,30px)">${esc(p.title)}</h1>
+          <h1 style="font-size:clamp(22px,3.4vw,30px)" dir="auto">${esc(T(p))}</h1>
           <div id="price"></div>
         </div>
         ${p.skus.length > 1 ? `<div class="stack"><h3>Option</h3><div class="variants" id="variants">${p.skus.map((s) => `<button data-sku="${esc(s.mp_sku_id)}" ${s.in_stock ? '' : 'disabled'}>${esc(variantLabel(s.props))}</button>`).join('')}</div></div>` : ''}

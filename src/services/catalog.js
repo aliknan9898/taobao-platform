@@ -182,7 +182,7 @@ function publishManual(seller, b = {}, listingId = null) {
   const weight = b.weight_kg === '' || b.weight_kg === undefined || b.weight_kg === null ? null : Number(b.weight_kg);
   if (weight !== null && !(weight > 0 && weight < 100)) throw httpError(400, 'Invalid weight');
   const keepApproval = existing && existing.review?.state === 'approved' && existing.title === title
-    && (existing.description || '') === description && JSON.stringify([...(existing.images || []), ...(existing.own_images || [])].sort()) === JSON.stringify([...images].sort());
+    && (existing.description || '') === description && (b.title_ar === undefined || String(b.title_ar || '').trim() === (existing.ar_manual ? existing.title_ar : '')) && (b.description_ar === undefined || String(b.description_ar || '').trim() === (existing.ar_manual ? existing.description_ar || '' : '')) && JSON.stringify([...(existing.images || []), ...(existing.own_images || [])].sort()) === JSON.stringify([...images].sort());
   const doc = {
     category: require('./shipping').cleanCategory(b.category ?? existing?.category),
     seller_id: seller.id, source: fromAE ? 'aliexpress' : 'manual', fulfillment: fromAE ? 'direct' : 'warehouse', source_link: sourceLink,
@@ -190,7 +190,8 @@ function publishManual(seller, b = {}, listingId = null) {
     taobao_item_id: null, mp_id: null, item_type: fromAE ? 'ALIEXPRESS' : 'MANUAL',
     title, description, custom_description: true, images: existing?.source === 'aliexpress' && fromAE ? (existing.images || []).filter((u) => images.includes(u)) : [], own_images: images.filter((u) => !(existing?.images || []).includes(u)), weight_kg: weight,
     begin_amount: 1, currency: config.currency, skus, last_synced_at: Date.now(),
-    ...(keepApproval ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: Date.now() } })
+    ...(keepApproval ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: Date.now() } }),
+    ...require('./translate').manualPatch(b, existing)
   };
   return existing ? db.listings.update(existing.id, doc) : db.listings.insert(doc);
 }
@@ -263,7 +264,7 @@ function browse({ q = '', seller_id, category, sort = 'new', min_price, max_pric
   let items = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id)
     && (!seller_id || l.seller_id === seller_id)
     && (!category || (l.category || 'other') === category)
-    && (!needle || l.title.toLowerCase().includes(needle) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
+    && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
     .map((l) => toBuyerView(l, activeSellers.get(l.seller_id)))
     .filter((p) => p.min_price >= lo && p.min_price <= hi);
   const order = { price_asc: (a, b) => a.min_price - b.min_price, price_desc: (a, b) => b.min_price - a.min_price, new: (a, b) => b.listed_at - a.listed_at }[sort] || ((a, b) => b.listed_at - a.listed_at);
@@ -273,7 +274,7 @@ function browse({ q = '', seller_id, category, sort = 'new', min_price, max_pric
 
 function toBuyerView(l, seller) {
   return {
-    id: l.id, title: l.title, images: visibleImages(l), description: l.description,
+    id: l.id, title: l.title, images: visibleImages(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', category: l.category || 'other',
     min_price: Math.min(...l.skus.map((s) => s.price)),
@@ -294,6 +295,7 @@ function approve(listingId, adminUser) {
   if (!l) throw httpError(404, 'Product not found');
   if (l.status !== 'pending_review' && l.review?.state !== 'rejected') throw httpError(409, 'Product is not awaiting review');
   const out = db.listings.update(l.id, { status: 'active', review: { ...l.review, state: 'approved', reason: null, decided_at: Date.now(), decided_by: adminUser.id } });
+  require('./translate').translateListing(out.id).catch((err) => console.warn('[translate]', err.message));
   require('../notify').listingDecision(out, true);
   return out;
 }
