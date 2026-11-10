@@ -78,6 +78,40 @@ const K = (() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
+  // ---------- analytics: loaded only after the visitor accepts cookies ----------
+  let tracking = null; // { ga, clarity, meta, tiktok } once loaded
+  const consent = () => { try { return localStorage.getItem('kinan_consent'); } catch { return null; } };
+  function loadScript(src) { const s = document.createElement('script'); s.async = true; s.src = src; document.head.append(s); }
+  function startAnalytics(a) {
+    if (tracking || !a) return; tracking = a;
+    if (a.ga) { window.dataLayer = window.dataLayer || []; window.gtag = function () { window.dataLayer.push(arguments); }; window.gtag('js', new Date()); window.gtag('config', a.ga); loadScript(`https://www.googletagmanager.com/gtag/js?id=${a.ga}`); }
+    if (a.clarity) { window.clarity = window.clarity || function () { (window.clarity.q = window.clarity.q || []).push(arguments); }; loadScript(`https://www.clarity.ms/tag/${a.clarity}`); }
+    if (a.meta) { const f = window.fbq = function () { f.callMethod ? f.callMethod.apply(f, arguments) : f.queue.push(arguments); }; f.push = f; f.loaded = true; f.version = '2.0'; f.queue = []; loadScript('https://connect.facebook.net/en_US/fbevents.js'); f('init', a.meta); f('track', 'PageView'); }
+    if (a.tiktok) { const t = window.ttq = window.ttq || []; ['page', 'track', 'identify'].forEach((m) => { t[m] = function () { t.push([m].concat([].slice.call(arguments))); }; }); loadScript(`https://analytics.tiktok.com/i18n/pixel/events.js?sdkid=${a.tiktok}&lib=ttq`); t.page(); }
+  }
+  /** Shows the cookie choice once (EU rules); starts analytics only if accepted. */
+  function analyticsConsent(a) {
+    if (!a) return;
+    const c = consent();
+    if (c === 'yes') return startAnalytics(a);
+    if (c === 'no' || document.getElementById('kinan-consent')) return;
+    const el = document.createElement('div'); el.id = 'kinan-consent'; el.className = 'consent';
+    el.innerHTML = '<p>We use cookies to understand how Kinan is used and to improve it. <a href="/privacy" target="_blank">Privacy</a></p><div class="row"><button class="btn sm" data-c="yes" type="button">Accept</button><button class="btn sm ghost" data-c="no" type="button">Only necessary</button></div>';
+    el.querySelectorAll('[data-c]').forEach((b) => b.onclick = () => { try { localStorage.setItem('kinan_consent', b.dataset.c); } catch {} el.remove(); if (b.dataset.c === 'yes') startAnalytics(a); });
+    document.body.append(el);
+  }
+  /** Shop events → whichever tools are loaded. name: view_item | add_to_cart | begin_checkout | purchase */
+  function track(name, p = {}) {
+    if (!tracking) return;
+    try {
+      if (window.gtag) window.gtag('event', name, { currency: p.currency, value: p.value, transaction_id: p.id, items: p.items });
+      const metaName = { view_item: 'ViewContent', add_to_cart: 'AddToCart', begin_checkout: 'InitiateCheckout', purchase: 'Purchase' }[name];
+      if (window.fbq && metaName) window.fbq('track', metaName, { currency: p.currency, value: p.value });
+      const ttName = { view_item: 'ViewContent', add_to_cart: 'AddToCart', begin_checkout: 'InitiateCheckout', purchase: 'CompletePayment' }[name];
+      if (window.ttq && ttName) window.ttq.track(ttName, { currency: p.currency, value: p.value });
+    } catch { /* analytics never breaks the shop */ }
+  }
+
   // ---------- phone notifications (Web Push) ----------
   const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   /** 'on' | 'off' | 'denied' | 'install' (iPhone: add to home screen first) | 'unsupported' */
@@ -166,5 +200,5 @@ const K = (() => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show); else setTimeout(show, 50);
   }
 
-  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, set onUnauthorized(f) { onUnauthorized = f; } };
+  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
 })();

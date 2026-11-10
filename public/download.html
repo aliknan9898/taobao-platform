@@ -139,6 +139,7 @@
   $$('[data-os-link]').forEach(function (a) { if ((ios && a.dataset.osLink === 'ios') || (android && a.dataset.osLink === 'android')) a.classList.add('mine'); });
   // Store / APK links when they exist (set in the server settings); otherwise one-tap install from the site
   fetch('/api/config/public').then(function (r) { return r.json(); }).then(function (c) {
+    K.analyticsConsent(c.analytics);
     var links = c.app_links || {};
     $$('[data-os-link]').forEach(function (a) {
       var u = links[a.dataset.appKey + '_' + a.dataset.osLink];

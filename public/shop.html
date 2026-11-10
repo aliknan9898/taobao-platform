@@ -557,7 +557,8 @@ async function product(id) {
   const setQty = (n) => { qty = Math.max(1, Math.min(Number(n) || 1, sku.stock || 1, 999)); paint(); };
   $('#qm').onclick = () => setQty(qty - 1); $('#qp').onclick = () => setQty(qty + 1); $('#qv').onchange = (e) => setQty(e.target.value);
   const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });
-  $('#add').onclick = () => { add(); toast('Added to cart'); };
+  K.track('view_item', { currency: p.currency, value: sku.price, items: [{ item_id: p.id, item_name: p.title, price: sku.price }] });
+  $('#add').onclick = () => { add(); K.track('add_to_cart', { currency: p.currency, value: sku.price * qty }); toast('Added to cart'); };
   $('#share').onclick = () => shareLink(`${location.origin}/p/${p.id}`, p.title);
   $('#buy').onclick = () => { add(); location.hash = '#/cart'; };
   paint();
@@ -668,6 +669,7 @@ async function checkout() {
     try {
       const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '' });
       Cart.set([]);
+      K.track('begin_checkout', { currency: o.currency, value: o.total });
       location.hash = `#/pay/${o.id}`;
     } catch (err) { $('#ce').textContent = err.message; $('#go').disabled = false; $('#go').textContent = 'Continue to payment'; }
   };
@@ -717,6 +719,7 @@ async function pay(id) {
       const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/?order=${encodeURIComponent(id)}` } });
       if (error) { $('#pe').textContent = error.message; $('#paybtn').disabled = false; return; }
       await api(`/api/buyer/orders/${id}/confirm-card`, 'POST').catch(() => {});
+      K.track('purchase', { id, currency: o.currency, value: o.total });
       toast('Payment received'); location.hash = `#/orders/${id}`;
     };
   } catch (e) { $('#pe').textContent = e.message; }
@@ -870,7 +873,7 @@ async function account() {
   api('/api/buyer/referral').then((r) => {
     $('#invite').innerHTML = `<h3>Invite friends, earn ${money(r.reward, r.currency)}</h3>
       <p class="muted small">Share your link. When a friend’s first order is delivered, we add ${money(r.reward, r.currency)} to your wallet. New customers get 10% off their first order with the code WELCOME10.</p>
-      <div class="row" style="gap:6px;flex-wrap:nowrap"><input readonly value="${esc(r.link)}" style="flex:1;min-width:0" id="reflink"><button class="btn sm" id="refshare" type="button">Share</button></div>
+      <div class="row" style="gap:6px;flex-wrap:nowrap"><input readonly dir="ltr" value="${esc(r.link)}" style="flex:1;min-width:0" id="reflink"><button class="btn sm" id="refshare" type="button">Share</button></div>
       <div class="muted small">${r.invited} friend(s) joined · ${money(r.earned, r.currency)} earned</div>`;
     $('#refshare').onclick = () => shareLink(r.link, 'Shop from China with Kinan — get 10% off your first order');
   }).catch(() => { $('#invite').hidden = true; });
@@ -1016,6 +1019,7 @@ function wireInstall() {
   [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').then(asMe).catch(() => null)]);
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
   Cart.sync();
+  K.analyticsConsent(cfg.analytics);
   if (cfg.whatsapp) { const a = document.createElement('a'); a.className = 'wafab'; a.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent('Hello Kinan')}`; a.target = '_blank'; a.rel = 'noopener'; a.setAttribute('aria-label', 'WhatsApp'); a.innerHTML = WA; document.body.append(a); }
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
   K.registerSW();

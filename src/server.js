@@ -26,6 +26,7 @@ const fx = require('./services/fx');
 const growth = require('./services/growth');
 const messages = require('./services/messages');
 const ops = require('./services/ops');
+const seo = require('./seo');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
 
@@ -53,16 +54,19 @@ async function readJson(req) {
   try { return JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
 }
 function page(res, file, { stripe: withStripe = false, head = '' } = {}) {
+  // Customer pages may load analytics tools (only after the visitor accepts cookies)
+  const an = ['shop.html', 'download.html'].includes(file) ? seo.analyticsCsp() : { script: '', connect: '' };
   // Stripe.js loads from js.stripe.com and its *.js.stripe.com subdomains (see Stripe's CSP guide)
   const stripeSrc = withStripe ? ' https://js.stripe.com https://*.js.stripe.com' : '';
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
     'Content-Security-Policy': `default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; ` +
-      `script-src 'self' 'unsafe-inline'${stripeSrc}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}; ` +
+      `script-src 'self' 'unsafe-inline'${stripeSrc}${an.script}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}${an.connect}; ` +
       `frame-src ${withStripe ? 'https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
   });
   let html = versionAssets(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
-  if (head) html = html.replace('</head>', `${head}\n</head>`);
+  const meta = ['shop.html', 'download.html'].includes(file) ? seo.verificationMeta() : '';
+  if (head || meta) html = html.replace('</head>', `${meta}${head}\n</head>`);
   res.end(html);
 }
 
@@ -87,8 +91,9 @@ function sharePage(res, kind, id) {
   try {
     if (kind === 'p') {
       const p = catalog.buyerListing(id);
+      const raw = db.listings.get(id);
       const price = `${p.min_price.toFixed(2)} ${String(p.currency).toUpperCase()}`;
-      return page(res, 'shop.html', { stripe: true, head: shareHead({ title: `${p.title} — ${price}`, description: `${p.shop ? `Sold by ${p.shop.name} on Kinan Shop. ` : ''}${(p.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || 'Delivered to your door with tracking.'}`, image: p.images[0], url: `/p/${p.id}`, type: 'product', price: p.min_price.toFixed(2), currency: p.currency, hash: `#/p/${p.id}` }) });
+      return page(res, 'shop.html', { stripe: true, head: shareHead({ title: `${p.title} — ${price}`, description: `${p.shop ? `Sold by ${p.shop.name} on Kinan Shop. ` : ''}${(p.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || 'Delivered to your door with tracking.'}`, image: p.images[0], url: `/p/${p.id}`, type: 'product', price: p.min_price.toFixed(2), currency: p.currency, hash: `#/p/${p.id}` }) + (raw && raw.status === 'active' ? seo.productJsonLd(raw, db.sellers.get(raw.seller_id)) : '<meta name="robots" content="noindex">') });
     }
     const s = shopSvc.getShop(id);
     return page(res, 'shop.html', { stripe: true, head: shareHead({ title: `${s.name} on Kinan Shop`, description: s.description || `${s.products} products, delivered to your door with tracking.`, image: s.logo, url: `/s/${s.id}`, hash: `#/s/${s.id}` }) });
@@ -252,7 +257,7 @@ r('GET', '/api/categories', null, async () => {
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
 });
 r('POST', '/api/shipping/quote', null, async ({ req }) => { const b = await readJson(req); return shipping.quote(Array.isArray(b.items) ? b.items.slice(0, 100) : [], b.country_code || b.country); });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -497,6 +502,9 @@ const server = http.createServer(async (req, res) => {
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
       if (p === '/download' || p === '/apps') return page(res, 'download.html');
+      if (p === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(seo.robots()); }
+      if (p === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.sitemap()); }
+      if (p === '/feeds/google.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.merchantFeed()); }
       if (p === '/reset') return page(res, 'reset.html');
       if (legal.PAGES[p]) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=300', 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'" });
