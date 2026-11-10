@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
+// Proprietary and confidential. See LICENSE.
 'use strict';
 const http = require('http');
 const fs = require('fs');
@@ -12,6 +14,7 @@ const warehouse = require('./services/warehouse');
 const admin = require('./services/admin');
 const stripe = require('./payments/stripe');
 const webhooks = require('./webhooks');
+const legal = require('./legal');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 const MAX_BODY = 1024 * 1024;
@@ -36,13 +39,11 @@ async function readJson(req) {
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
 }
-const FONTS_CSS = 'https://fonts.googleapis.com';
-const FONTS_FILES = 'https://fonts.gstatic.com';
 function page(res, file, { stripe: withStripe = false } = {}) {
   const stripeSrc = withStripe ? ' https://js.stripe.com' : '';
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
-    'Content-Security-Policy': `default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' ${FONTS_CSS}; font-src 'self' ${FONTS_FILES}; ` +
+    'Content-Security-Policy': `default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; ` +
       `script-src 'self' 'unsafe-inline'${stripeSrc}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}; ` +
       `frame-src ${withStripe ? 'https://js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
   });
@@ -50,7 +51,7 @@ function page(res, file, { stripe: withStripe = false } = {}) {
 }
 
 // Static assets (CSS, JS, icons, manifests) — flat folder, no traversal
-const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8' };
 function asset(res, rel, cache = 'public, max-age=3600') {
   const name = path.basename(rel);
   const type = MIME[path.extname(name)];
@@ -106,7 +107,7 @@ r('GET', '/api/me', ['admin', 'seller', 'buyer', 'warehouse'], async ({ user }) 
 // Catalog (public for browsing)
 r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntries(url.searchParams)));
 r('GET', '/api/catalog/:id', null, async ({ params }) => catalog.buyerListing(params.id));
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, brand: 'Kinan' }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -207,6 +208,10 @@ const server = http.createServer(async (req, res) => {
       if (p === '/seller') return page(res, 'seller.html');
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
+      if (legal.PAGES[p]) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=300', 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'" });
+        return res.end(legal.render(p));
+      }
       if (p === '/sw.js') { res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); return fs.createReadStream(path.join(PUBLIC, 'sw.js')).pipe(res); }
       if (p === '/favicon.ico' || p === '/apple-touch-icon.png') return asset(res, p === '/favicon.ico' ? 'icon-192.png' : 'apple-touch-icon.png');
       if (p.startsWith('/assets/')) return asset(res, p.slice(8));

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
+// Proprietary and confidential. See LICENSE.
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
@@ -74,4 +76,22 @@ test('reads /product/get in the format of the official sample response', () => {
   assert.strictEqual(p.skus[0].cost_cny, 188, 'fen → yuan');
   assert.strictEqual(p.skus[0].props, 'color: blue / size: 1');
   assert.deepStrictEqual(p.images, [], 'WITHOUT_MATERIAL: no Taobao photos');
+});
+
+test('legal pages are served with the owner and no third-party requests', async () => {
+  for (const p of ['/terms', '/seller-terms', '/privacy', '/legal']) {
+    const r = await fetch(base + p);
+    assert.strictEqual(r.status, 200, p);
+    const html = await r.text();
+    assert.ok(html.includes('Ali Almadhoun Mohammed Kinan'), `${p} names the owner`);
+    assert.ok(!/\{\{\w+\}\}/.test(html), `${p} has no unfilled placeholders`);
+    assert.match(r.headers.get('content-security-policy'), /script-src 'none'/);
+  }
+  for (const p of ['/', '/seller', '/admin', '/warehouse']) {
+    const html = await (await fetch(base + p)).text();
+    assert.ok(!html.includes('fonts.googleapis') && !html.includes('fonts.gstatic'), `${p} loads no Google Fonts`);
+    assert.ok(html.includes('/assets/fonts.css'));
+  }
+  assert.strictEqual((await fetch(base + '/assets/bricolage-700.woff')).headers.get('content-type'), 'font/woff');
+  assert.strictEqual((await fetch(base + '/assets/FONTS-OFL.txt')).status, 200);
 });

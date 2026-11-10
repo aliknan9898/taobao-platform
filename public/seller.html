@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -10,8 +11,7 @@
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon-seller.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kinan Seller">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..700&display=swap">
+<link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/kinan.css">
 <style>
   .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
@@ -89,7 +89,7 @@ function shell() {
       <div class="foot"><div class="small"><b>${esc(shop?.shop_name || '')}</b><div class="muted">${esc(me.email)}</div></div><button class="btn ghost sm" data-out>Sign out</button></div>
     </aside>
     <div><div class="mtop mob-only">${K.brand('Seller')}<a class="btn sm quiet" href="#/settings">${esc((shop?.shop_name || '').slice(0, 18))}</a></div>
-    <main class="content" id="view"></main></div></div>
+    <main class="content" id="view"></main>${K.footer(cfg.operator?.name)}</div></div>
     <nav class="tabbar">${NAV.filter(([h]) => h !== '#/settings').map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t === 'Add product' ? 'Add' : t}</a>`).join('')}</nav>`;
   document.body.classList.add('has-tabbar');
   $$('[data-out]').forEach((b) => b.onclick = signOut);
@@ -372,11 +372,11 @@ function authScreen(mode = 'in', msg = '') {
       ${mode === 'up' ? '<label class="field">Shop name<input name="shop_name" required maxlength="80"></label><label class="field">Your name<input name="name" required autocomplete="name"></label>' : ''}
       <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
       <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
-      ${mode === 'up' ? '<span class="muted">At least 8 characters. Kinan reviews new shops before they can publish.</span>' : ''}
+      ${mode === 'up' ? '<span class="muted">At least 8 characters. Kinan reviews new shops before they can publish. By opening a shop you agree to the <a href="/seller-terms" target="_blank">Seller Terms</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</span>' : ''}
       <div class="error">${esc(msg)}</div>
       <button class="btn">${mode === 'in' ? 'Sign in' : 'Open shop'}</button>
       <a class="muted" href="/">Go to the Kinan store</a>
-    </form></div>`;
+    </form></div>${K.footer(cfg.operator?.name)}`;
   $$('.seg button').forEach((b) => b.onclick = () => authScreen(b.dataset.m));
   $('#af').onsubmit = async (e) => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));

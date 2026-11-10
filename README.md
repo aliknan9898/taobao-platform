@@ -1,5 +1,7 @@
 # Kinan — multi-seller marketplace powered by Taobao
 
+**Owner:** Ali Almadhoun Mohammed Kinan · © 2026, all rights reserved. Proprietary software — see [LICENSE](LICENSE). Not open source.
+
 One server powers four interfaces, all in English and installable on phones as apps (PWA):
 
 | Interface | User | Status |
@@ -53,3 +55,18 @@ API reference in `docs/API.md`. Suggested stack: React Native (Expo) with the St
 
 ## Card payments on the store
 Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `STRIPE_PUBLISHABLE_KEY`. Without them the store runs in test mode with a "Pay (test)" button.
+
+## Legal pages
+`/terms` (buyers), `/seller-terms`, `/privacy`, `/legal` (legal notice). They are filled from these settings, so update them once the company is registered:
+
+| Variable | Example |
+|---|---|
+| `OPERATOR_NAME` | `Ali Almadhoun Mohammed Kinan` (later the company name) |
+| `TRADING_NAME` | `Kinan` |
+| `OPERATOR_COUNTRY` | `Malta` |
+| `OPERATOR_ADDRESS` | Business address (required before public launch) |
+| `COMPANY_NUMBER`, `VAT_NUMBER` | After registration |
+| `CONTACT_EMAIL` | Public support / legal contact address |
+
+## Ownership
+Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. See `LICENSE` and `NOTICE`.

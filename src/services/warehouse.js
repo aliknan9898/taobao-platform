@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
+// Proprietary and confidential. See LICENSE.
 'use strict';
 /**
  * China warehouse: inbound parcels from Taobao sellers → receive/QC/shelve →

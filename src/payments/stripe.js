@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
+// Proprietary and confidential. See LICENSE.
 'use strict';
 /**
  * Stripe over plain REST (no SDK). Buyer pays the platform; the native app confirms

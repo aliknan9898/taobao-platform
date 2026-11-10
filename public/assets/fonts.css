@@ -1,0 +1,6 @@
+/* Kinan typefaces, self-hosted (no requests to third-party font services).
+   Bricolage Grotesque and Instrument Sans — SIL Open Font License 1.1, see /assets/FONTS-OFL.txt */
+@font-face { font-family: "Bricolage Grotesque"; font-weight: 400 600; font-style: normal; font-display: swap; src: url(/assets/bricolage-400.woff) format("woff"); }
+@font-face { font-family: "Bricolage Grotesque"; font-weight: 650 800; font-style: normal; font-display: swap; src: url(/assets/bricolage-700.woff) format("woff"); }
+@font-face { font-family: "Instrument Sans"; font-weight: 400 550; font-style: normal; font-display: swap; src: url(/assets/instrument-400.woff) format("woff"); }
+@font-face { font-family: "Instrument Sans"; font-weight: 600 800; font-style: normal; font-display: swap; src: url(/assets/instrument-700.woff) format("woff"); }

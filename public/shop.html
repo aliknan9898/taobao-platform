@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -11,8 +12,7 @@
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kinan">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..700&display=swap">
+<link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/kinan.css">
 <style>
   .search { display: flex; align-items: center; gap: 8px; background: var(--chip); border-radius: 99px; padding: 0 14px; }
@@ -103,6 +103,7 @@
   </div>
 </header>
 <main id="view" class="wrap"></main>
+<div id="foot"></div>
 <nav class="tabbar" id="tabbar"></nav>
 
 <script src="/assets/common.js"></script>
@@ -320,7 +321,7 @@ async function checkout() {
       <label class="field">Country<input name="country" required autocomplete="country-name" value="${esc(a.country)}"></label>
       <div class="error" id="ce"></div>
       <button class="btn" id="go">Continue to payment</button>
-      <p class="muted">Your address is only shared with Kinan’s shipping team. Sellers and suppliers never see it.</p>
+      <p class="muted">Your address is only shared with Kinan’s shipping team. Sellers and suppliers never see it. By placing your order you agree to the <a href="/terms" target="_blank">Terms of Service</a>; import taxes may apply in your country.</p>
     </form>
     <aside class="panel sum">${items.map((x) => `<div class="small"><span>${x.qty} × ${esc(x.title.slice(0, 40))}${x.title.length > 40 ? '…' : ''}</span><span>${money(x.price * x.qty, cur)}</span></div>`).join('')}
       <div><span>Shipping</span><span>${money(cfg.shipping_flat, cur)}</span></div>
@@ -440,7 +441,7 @@ function signin(next, mode = 'in', msg = '') {
       ${mode === 'up' ? '<label class="field">Name<input name="name" required autocomplete="name"></label>' : ''}
       <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
       <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
-      ${mode === 'up' ? '<span class="muted">At least 8 characters.</span>' : ''}
+      ${mode === 'up' ? '<span class="muted">At least 8 characters. By creating an account you agree to the <a href="/terms" target="_blank">Terms of Service</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</span>' : ''}
       <div class="error">${esc(msg)}</div>
       <button class="btn">${mode === 'in' ? 'Sign in' : 'Create account'}</button>
     </form></div>`;
@@ -472,6 +473,7 @@ function wireInstall() {
   const params = new URLSearchParams(location.search);
   if (params.get('order')) { history.replaceState(null, '', `/#/orders/${params.get('order')}`); }
   [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').catch(() => null)]);
+  $('#foot').innerHTML = K.footer(cfg.operator?.name);
   route();
   K.registerSW();
 })();

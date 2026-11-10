@@ -1,9 +1,17 @@
 {
-  "name": "taobao-marketplace-platform",
+  "name": "kinan",
   "version": "0.1.0",
   "private": true,
-  "description": "Multi-seller marketplace on Taobao Global Distribution Platform: backend API, admin dashboard, China warehouse site",
+  "description": "Kinan \u2014 multi-seller cross-border marketplace powered by the Taobao Global Distribution Platform",
+  "author": "Ali Almadhoun Mohammed Kinan",
+  "license": "UNLICENSED",
+  "copyright": "Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.",
   "main": "src/server.js",
-  "engines": { "node": ">=18" },
-  "scripts": { "start": "node src/server.js", "test": "node --test test/*.test.js" }
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  }
 }

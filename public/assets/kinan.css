@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. */
 /* Kinan design system — shared by the buyer store, seller center, admin and warehouse.
    Jade for actions, marigold for prices, navy ink on cool paper. */
 :root {
@@ -131,3 +132,10 @@ dialog::backdrop { background: rgba(10, 14, 30, .45); }
 .seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--chip); border-radius: var(--r-md); padding: 4px; }
 .seg button { font: 600 14px var(--font-body); border: 0; background: transparent; color: var(--muted); padding: 8px; border-radius: 7px; cursor: pointer; }
 .seg button.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+
+/* Site footer: ownership and legal links */
+.sitefoot { border-top: 1px solid var(--line); margin-top: 32px; padding: 20px 0 28px; color: var(--muted); font-size: 13px; }
+.sitefoot nav { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 8px; }
+.sitefoot a { color: var(--ink-2); text-decoration: none; }
+.sitefoot a:hover { text-decoration: underline; }
+body.has-tabbar .sitefoot { padding-bottom: 12px; }

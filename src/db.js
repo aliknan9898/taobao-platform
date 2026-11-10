@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
+// Proprietary and confidential. See LICENSE.
 'use strict';
 /**
  * Minimal document store: one JSON file per collection, atomic writes, in-memory cache.

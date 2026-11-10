@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
+// Proprietary and confidential. See LICENSE.
 /* Kinan service worker: makes the sites installable as apps and keeps the app shell available offline.
    API calls always go to the network; nothing personal is cached. */
 const CACHE = 'kinan-v1';

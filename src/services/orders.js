@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
+// Proprietary and confidential. See LICENSE.
 'use strict';
 /**
  * Buyer orders → per-seller Taobao purchase orders → China warehouse → outbound shipment.

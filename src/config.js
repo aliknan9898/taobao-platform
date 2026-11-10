@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
+// Proprietary and confidential. See LICENSE.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -34,6 +36,17 @@ const config = {
   orderSyncMinutes: Number(e.ORDER_SYNC_MINUTES || 15),
   defaultCommissionPct: Number(e.PLATFORM_COMMISSION_PCT || 10),
 
+  // Legal identity shown on the sites (footer, Terms, Privacy, Legal notice)
+  operator: {
+    name: e.OPERATOR_NAME || 'Ali Almadhoun Mohammed Kinan',
+    tradingName: e.TRADING_NAME || 'Kinan',
+    country: e.OPERATOR_COUNTRY || 'Malta',
+    address: e.OPERATOR_ADDRESS || '',       // business address required before public launch
+    companyNumber: e.COMPANY_NUMBER || '',   // set once the company is registered
+    vatNumber: e.VAT_NUMBER || '',
+    email: e.CONTACT_EMAIL || ''
+  },
+
   // First admin is created on startup if no admin exists
   bootstrapAdminEmail: e.ADMIN_EMAIL || '',
   bootstrapAdminPassword: e.ADMIN_PASSWORD || '',
@@ -56,6 +69,8 @@ function configProblems() {
   if (config.stripeSecretKey && !config.stripePublishableKey) p.push('STRIPE_PUBLISHABLE_KEY (buyer website card payments)');
   const w = config.warehouse;
   if (!w.name || !w.mobile || !w.city || !w.detail_address) p.push('WAREHOUSE_*');
+  if (!config.operator.email) p.push('CONTACT_EMAIL (legal pages)');
+  if (!config.operator.address) p.push('OPERATOR_ADDRESS (legal notice)');
   return p;
 }
 
