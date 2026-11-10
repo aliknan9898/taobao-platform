@@ -335,3 +335,47 @@ test('Continue with Google: shop and Seller Center', async () => {
   st = await start('shop'); r = await back('adm', st);
   assert.match(decodeURIComponent(r.headers.get('location')), /Staff accounts/);
 });
+
+test('manual product: seller types it in, Kinan buys it by hand, warehouse receives it', async () => {
+  const aTok = await login('admin@x.com', 'adminpass1');
+  const sTok = await login('s1@x.com', 'sellerpass');
+  const img = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+  const body = { source_link: '【淘宝】https://c.tb.cn/h.jisQjW97U1je5Ty?tk=G4nC62ND6AY HU006 「战术加绒冲锋衣」', title: 'Tactical fleece jacket', images: [img],
+    variants: [{ name: 'Black / L', price: 49, stock: 10, cost_cny: 199 }, { name: 'Black / XL', price: 52, stock: 5 }] };
+  assert.strictEqual((await api('POST', '/api/seller/products/manual', { ...body, images: [] }, sTok)).status, 400, 'photo required');
+  assert.strictEqual((await api('POST', '/api/seller/products/manual', { ...body, variants: [{ name: '', price: 0 }] }, sTok)).status, 400, 'price required');
+  const pub = await api('POST', '/api/seller/products/manual', body, sTok);
+  assert.strictEqual(pub.status, 201, JSON.stringify(pub.body));
+  assert.strictEqual(pub.body.status, 'pending_review');
+  const q = (await api('GET', '/api/admin/listings?status=pending_review', null, aTok)).body.find((l) => l.id === pub.body.id);
+  assert.strictEqual(q.skus[1].margin_pct, null, 'no cost → no margin');
+  await api('POST', `/api/admin/listings/${pub.body.id}/approve`, null, aTok);
+  const item = (await api('GET', `/api/catalog/${pub.body.id}`)).body;
+  assert.deepStrictEqual(item.images, [img]);
+  assert.ok(!JSON.stringify(item).includes('c.tb.cn'), 'Taobao link is hidden from buyers');
+  // Price edit keeps approval; resync is a no-op
+  const ed = await api('PUT', `/api/seller/products/${pub.body.id}/manual`, { ...body, variants: [{ ...body.variants[0], price: 45 }, body.variants[1]] }, sTok);
+  assert.strictEqual(ed.body.status, 'active');
+  assert.strictEqual((await api('POST', `/api/seller/products/${pub.body.id}/resync`, null, sTok)).status, 200);
+
+  // Buyer orders it
+  await api('POST', '/api/auth/register', { role: 'buyer', email: 'm1@x.com', password: 'buyerpass1', name: 'M' });
+  const bTok = await login('m1@x.com', 'buyerpass1');
+  const calls = tb.calls.length;
+  const o = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: item.id, mp_sku_id: item.skus[0].mp_sku_id, qty: 1 }], shipping_address: { name: 'M', phone: '1', country: 'Jordan', city: 'Amman', line1: 'St 2' } }, bTok)).body;
+  const paid = (await api('POST', `/api/buyer/orders/${o.id}/demo-pay`, null, bTok)).body;
+  assert.strictEqual(paid.status, 'procuring');
+  assert.strictEqual(tb.calls.length, calls, 'no Taobao API call for manual items');
+  let full = (await api('GET', `/api/admin/orders/${o.id}`, null, aTok)).body;
+  assert.strictEqual(full.sub_orders[0].status, 'MANUAL_TO_BUY');
+  assert.match(full.sub_orders[0].links[0].link, /c\.tb\.cn/);
+  // Admin buys it, then adds the tracking number
+  full = (await api('POST', `/api/admin/orders/${o.id}/manual-bought`, { taobao_order_no: '4012345678' }, aTok)).body;
+  assert.strictEqual(full.sub_orders[0].status, 'MANUAL_BOUGHT');
+  full = (await api('POST', `/api/admin/orders/${o.id}/manual-bought`, { tracking: 'YT123456789CN', carrier: 'YTO' }, aTok)).body;
+  assert.strictEqual(full.status, 'awaiting_parcels');
+  // Warehouse scans it → ready to ship
+  const rc = await api('POST', '/api/warehouse/receive', { tracking: 'YT123456789CN', weight_g: 900 }, aTok);
+  assert.strictEqual(rc.body.matched, true);
+  assert.strictEqual((await api('GET', `/api/buyer/orders/${o.id}`, null, bTok)).body.status, 'ready_to_ship');
+});

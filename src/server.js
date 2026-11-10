@@ -19,7 +19,7 @@ const webhooks = require('./webhooks');
 const legal = require('./legal');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
-const MAX_BODY = 1024 * 1024;
+const MAX_BODY = 4 * 1024 * 1024; // manual listings carry up to 6 resized photos
 const { httpError } = auth;
 
 // ---------- helpers ----------
@@ -45,7 +45,7 @@ function page(res, file, { stripe: withStripe = false } = {}) {
   const stripeSrc = withStripe ? ' https://js.stripe.com' : '';
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
-    'Content-Security-Policy': `default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; ` +
+    'Content-Security-Policy': `default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; ` +
       `script-src 'self' 'unsafe-inline'${stripeSrc}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}; ` +
       `frame-src ${withStripe ? 'https://js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
   });
@@ -85,13 +85,16 @@ function safeReturnTo(v) {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : null;
 }
 
-// Simple login throttling (per IP)
+// Login throttling per IP: only FAILED sign-ins count, so people who share a network can still sign in.
 const attempts = new Map();
 function throttle(ip) {
+  const now = Date.now(); const a = attempts.get(ip);
+  if (a && now - a.t > 15 * 60e3) attempts.delete(ip);
+  if ((attempts.get(ip)?.n || 0) >= 20) throw httpError(429, 'Too many attempts, try again later');
+}
+function recordFailure(ip) {
   const now = Date.now(); const a = attempts.get(ip) || { n: 0, t: now };
-  if (now - a.t > 15 * 60e3) { a.n = 0; a.t = now; }
   a.n += 1; attempts.set(ip, a);
-  if (a.n > 20) throw httpError(429, 'Too many attempts, try again later');
 }
 
 // ---------- routes ----------
@@ -110,7 +113,8 @@ const setSession = (res, token) => {
 r('POST', '/api/auth/login', null, async ({ req, res }) => {
   throttle(req.socket.remoteAddress);
   const { email, password } = await readJson(req);
-  const out = auth.login(email, password);
+  let out;
+  try { out = auth.login(email, password); } catch (e) { if (e.status === 401) recordFailure(req.socket.remoteAddress); throw e; }
   setSession(res, out.token);
   return out;
 });
@@ -170,6 +174,8 @@ r('GET', '/api/seller/taobao/connect', SELLER, async ({ seller, url }) => {
 });
 r('POST', '/api/seller/products/preview', SELLER, async ({ req, seller }) => catalog.preview(seller, (await readJson(req)).link));
 r('POST', '/api/seller/products', SELLER, async ({ req, seller }) => catalog.publish(seller, await readJson(req)));
+r('POST', '/api/seller/products/manual', SELLER, async ({ req, seller }) => catalog.publishManual(seller, await readJson(req)));
+r('PUT', '/api/seller/products/:id/manual', SELLER, async ({ req, seller, params }) => catalog.publishManual(seller, await readJson(req), params.id));
 r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id));
 r('PATCH', '/api/seller/products/:id', SELLER, async ({ req, seller, params }) => {
   const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found');
@@ -209,6 +215,7 @@ r('POST', '/api/admin/orders/:id/pay-taobao', ADMIN, async ({ params }) => {
   for (const s of o.sub_orders.filter((x) => /WAIT_BUYER_P/.test(x.status))) out.push(await orders.paySub(o.id, s.outer_purchase_id));
   return out;
 });
+r('POST', '/api/admin/orders/:id/manual-bought', ADMIN, async ({ req, params, user }) => orders.decorate(orders.markManualBought(params.id, await readJson(req), user.id)));
 r('POST', '/api/admin/orders/:id/cancel', ADMIN, async ({ params, user }) => orders.decorate(await orders.cancelOrder(params.id, user.id)));
 r('GET', '/api/admin/users', ADMIN, async () => admin.users().map((u) => (u.role === 'buyer' ? { ...u, wallet: shopSvc.walletOf(u.id).balance } : u)));
 r('GET', '/api/admin/wallet/:id', ADMIN, async ({ params }) => shopSvc.walletOf(params.id));
@@ -274,6 +281,7 @@ const server = http.createServer(async (req, res) => {
         if (out.token) setSession(res, out.token);
         res.writeHead(302, { Location: out.redirect, 'Cache-Control': 'no-store' });
       } catch (e) {
+        recordFailure(req.socket.remoteAddress);
         if ((e.status || 500) >= 500) console.error('[google]', e.message);
         res.writeHead(302, { Location: `${e.home || '/'}?login_error=${encodeURIComponent(e.message)}` });
       }
@@ -299,7 +307,7 @@ const server = http.createServer(async (req, res) => {
         Object.assign(ctx, auth.requireRole(user, ...rt.roles));
       }
       const out = await rt.handler(ctx);
-      return send(res, req.method === 'POST' && /register|checkout|products$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
+      return send(res, req.method === 'POST' && /register|checkout|products$|manual$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
     }
     send(res, 404, { error: 'Not found' });
   } catch (e) {

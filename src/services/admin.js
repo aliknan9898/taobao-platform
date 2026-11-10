@@ -115,6 +115,7 @@ function listings({ status } = {}) {
       ...l,
       shop: db.sellers.get(l.seller_id)?.shop_name,
       skus: l.skus.map((s) => {
+        if (s.cost_cny === null || s.cost_cny === undefined) return { ...s, margin_pct: null };
         const costSale = s.cost_cny / config.cnyRate;
         return { ...s, margin_pct: s.price > 0 ? Math.round(((s.price - costSale) / s.price) * 100) : null };
       })

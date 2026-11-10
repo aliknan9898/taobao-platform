@@ -181,14 +181,14 @@ const VIEWS = {
           <div class="row" style="justify-content:space-between;align-items:flex-start">
             <div class="row" style="align-items:flex-start;gap:12px">
               ${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">` : '<div class="muted" style="width:72px;height:72px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;font-size:11px;text-align:center">No photos</div>'}
-              <div><b>${esc(l.title)}</b><div class="muted">${esc(l.shop)} · Taobao <code>${esc(l.taobao_item_id)}</code> · ${l.item_type === 'WITHOUT_MATERIAL' ? '<span class="warn">General item: seller photos only</span>' : 'Distribution Platform item'}</div>
+              <div><b>${esc(l.title)}</b><div class="muted">${esc(l.shop)} · ${l.source === 'manual' ? `<span class="warn">Added manually</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || [''])[0])}" target="_blank" rel="noopener noreferrer">Taobao link</a>` : ' · no link'}${l.weight_kg ? ` · ${esc(l.weight_kg)} kg` : ''}` : `Taobao <code>${esc(l.taobao_item_id)}</code> · ${l.item_type === 'WITHOUT_MATERIAL' ? '<span class="warn">General item: seller photos only</span>' : 'Distribution Platform item'}`}</div>
                 <div class="muted">Submitted ${date(l.review?.submitted_at || l.created_at)}${l.review?.reason ? ` · <span class="bad">Rejection reason: ${esc(l.review.reason)}</span>` : ''}</div></div>
             </div>
             <span class="pill ${l.status === 'active' ? 'ok' : l.status === 'rejected' || l.status === 'unavailable' ? 'bad' : 'warn'}">${esc(LST[l.status] || l.status)}</span>
           </div>
           <div class="scroll"><table><thead><tr><th>Variant</th><th>Cost (CNY)</th><th>Sale price</th><th>Margin</th><th>Stock</th></tr></thead><tbody>
-            ${l.skus.map((s) => `<tr><td>${esc(s.props || s.mp_sku_id)}</td><td>${fmt(s.cost_cny)}</td><td>${fmt(s.price, l.currency)}</td>
-              <td class="${s.margin_pct < 10 ? 'bad' : s.margin_pct < 25 ? 'warn' : 'ok'}">${s.margin_pct ?? '—'}%</td><td>${s.stock >= 200 ? '200+' : s.stock}</td></tr>`).join('')}
+            ${l.skus.map((s) => `<tr><td>${esc(s.props || s.mp_sku_id)}</td><td>${s.cost_cny === null || s.cost_cny === undefined ? '—' : fmt(s.cost_cny)}</td><td>${fmt(s.price, l.currency)}</td>
+              <td class="${s.margin_pct === null ? 'muted' : s.margin_pct < 10 ? 'bad' : s.margin_pct < 25 ? 'warn' : 'ok'}">${s.margin_pct === null ? '—' : s.margin_pct + '%'}</td><td>${s.stock >= 200 ? '200+' : s.stock}</td></tr>`).join('')}
           </tbody></table></div>
           ${lowMargin ? '<div class="warn muted">Warning: very low margin on a variant — after your commission and shipping the seller may lose money.</div>' : ''}
           ${l.status === 'pending_review' || l.status === 'rejected' ? `<div class="row">
@@ -276,6 +276,8 @@ async function openOrder(id) {
     ${o.sub_orders.map((s) => `<div class="sub"><div class="row" style="justify-content:space-between"><b>${esc(s.shop)}</b><span class="pill ${s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED' ? 'bad' : s.status === 'WAIT_BUYER_CONFIRM_GOODS' ? 'ok' : 'warn'}">${esc(s.status_label)}</span></div>
       <div class="muted"><code>${esc(s.outer_purchase_id)}</code> · ${esc((s.purchase_ids || []).join(', ') || '—')}${s.pay_deadline && /WAIT_BUYER_P/.test(s.status) ? ` · pay by ${date(s.pay_deadline)}` : ''}</div>
       ${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}
+      ${s.manual ? `<div class="stack" style="display:grid;gap:6px;margin-top:6px">${(s.links || []).map((x) => `<div class="muted">${x.qty} × ${esc(x.title)}${x.props ? ` (${esc(x.props)})` : ''} ${(x.link.match(/https?:\/\/\S+/) || [])[0] ? `· <a href="${esc(x.link.match(/https?:\/\/\S+/)[0])}" target="_blank" rel="noopener noreferrer">Open on Taobao</a>` : x.link ? `· <code>${esc(x.link.slice(0, 80))}</code>` : '· no link'}</div>`).join('')}
+        ${['MANUAL_TO_BUY', 'MANUAL_BOUGHT'].includes(s.status) ? `<div class="row"><input placeholder="Taobao order no." data-mo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking to warehouse (when shipped)" data-mt="${esc(s.outer_purchase_id)}" style="flex:1;min-width:180px"><button class="btn" data-mb="${esc(s.outer_purchase_id)}">${s.status === 'MANUAL_TO_BUY' ? 'Mark bought' : 'Save tracking'}</button></div>` : ''}</div>` : ''}
       ${(s.logistics || []).length ? `<div class="muted">Shipping: ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(' · ')}</div>` : ''}</div>`).join('') || '<p class="muted">Not created yet.</p>'}
     <div class="row">
       ${['paid', 'attention'].includes(o.status) ? '<button class="btn" data-a="procure">Retry purchase</button>' : ''}
@@ -286,6 +288,11 @@ async function openOrder(id) {
     <details><summary class="muted">Timeline</summary><ul class="muted">${o.timeline.map((t) => `<li>${date(t.at)} — ${esc(t.event)}</li>`).join('')}</ul></details>
     <div class="err" id="oe"></div>`;
   $('#close').onclick = () => d.close();
+  b.querySelectorAll('[data-mb]').forEach((btn) => btn.onclick = async () => {
+    const outer = btn.dataset.mb; btn.disabled = true;
+    try { await api(`/api/admin/orders/${id}/manual-bought`, 'POST', { outer_purchase_id: outer, taobao_order_no: b.querySelector(`[data-mo="${outer}"]`).value.trim(), tracking: b.querySelector(`[data-mt="${outer}"]`).value.trim() }); await openOrder(id); render(); }
+    catch (e) { $('#oe').textContent = e.message; btn.disabled = false; }
+  });
   b.querySelectorAll('[data-a]').forEach((btn) => btn.onclick = async () => {
     if (btn.dataset.a === 'cancel' && !confirm('Cancel this order and refund the buyer?')) return;
     btn.disabled = true;

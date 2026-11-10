@@ -137,10 +137,58 @@ async function publish(seller, { link, prices = {}, title, description, own_imag
   return existing ? db.listings.update(existing.id, doc) : db.listings.insert(doc);
 }
 
+/**
+ * Manual listing (PDF Phase 1): the seller types the product in by hand — no Taobao API needed.
+ * Kinan's team buys it on Taobao by hand from `source_link` when an order comes in.
+ * images: data URLs (JPEG/PNG/WebP) the seller uploads, resized in the browser.
+ */
+const IMG_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+function publishManual(seller, b = {}, listingId = null) {
+  if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
+  const existing = listingId ? db.listings.get(listingId) : null;
+  if (listingId && (!existing || existing.seller_id !== seller.id || existing.source !== 'manual')) throw httpError(404, 'Product not found');
+  const title = String(b.title || '').trim().slice(0, 200);
+  if (title.length < 3) throw httpError(400, 'Enter a product title');
+  const description = String(b.description || '').replace(/<[^>]*>/g, '').trim().slice(0, 5000);
+  const sourceLink = String(b.source_link || '').trim().slice(0, 500);
+  const images = (Array.isArray(b.images) ? b.images : []).map(String);
+  if (!images.length) throw httpError(400, 'Add at least one photo');
+  if (images.length > 6) throw httpError(400, 'Up to 6 photos');
+  for (const im of images) {
+    if (!IMG_RE.test(im)) throw httpError(400, 'Photos must be JPEG, PNG or WebP');
+    if (im.length > 400 * 1024) throw httpError(400, 'A photo is too large — use a smaller image');
+  }
+  const variants = arr(b.variants).slice(0, 30);
+  if (!variants.length) throw httpError(400, 'Add at least one option with a price');
+  const old = new Map((existing?.skus || []).map((s) => [s.props, s]));
+  const skus = variants.map((v, i) => {
+    const props = String(v.name || '').trim().slice(0, 80);
+    const price = money(v.price);
+    const stock = Math.max(0, Math.min(99999, Math.floor(Number(v.stock ?? 99))));
+    const cost = v.cost_cny === '' || v.cost_cny === null || v.cost_cny === undefined ? null : money(v.cost_cny);
+    if (!(price > 0)) throw httpError(400, `Enter a price for ${props || `option ${i + 1}`}`);
+    if (cost !== null && !(cost >= 0)) throw httpError(400, 'Invalid Taobao cost');
+    if (variants.length > 1 && !props) throw httpError(400, 'Give every option a name (e.g. size or colour)');
+    return { mp_sku_id: old.get(props)?.mp_sku_id || `M${Date.now().toString(36)}${i}`, props, price, stock, cost_cny: cost };
+  });
+  const weight = b.weight_kg === '' || b.weight_kg === undefined || b.weight_kg === null ? null : Number(b.weight_kg);
+  if (weight !== null && !(weight > 0 && weight < 100)) throw httpError(400, 'Invalid weight');
+  const keepApproval = existing && existing.review?.state === 'approved' && existing.title === title
+    && (existing.description || '') === description && JSON.stringify(existing.own_images) === JSON.stringify(images);
+  const doc = {
+    seller_id: seller.id, source: 'manual', source_link: sourceLink, taobao_item_id: null, mp_id: null, item_type: 'MANUAL',
+    title, description, custom_description: true, images: [], own_images: images, weight_kg: weight,
+    begin_amount: 1, currency: config.currency, skus, last_synced_at: Date.now(),
+    ...(keepApproval ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: Date.now() } })
+  };
+  return existing ? db.listings.update(existing.id, doc) : db.listings.insert(doc);
+}
+
 /** Re-sync cost & stock from Taobao (procurement mode gets no product messages → poll). */
 async function resync(listingId) {
   const l = db.listings.get(listingId);
   if (!l) throw httpError(404, 'Product not found');
+  if (l.source === 'manual') return l; // typed in by hand: nothing to fetch from Taobao
   try {
     const prod = await fetchProduct(l.seller_id, l.taobao_item_id);
     const bySku = new Map(prod.skus.map((s) => [s.mp_sku_id, s]));
@@ -156,7 +204,7 @@ async function resync(listingId) {
 }
 
 async function resyncStale(maxAgeMs = 6 * 3600e3) {
-  for (const l of db.listings.all((x) => ['active', 'pending_review'].includes(x.status) && Date.now() - (x.last_synced_at || 0) > maxAgeMs)) {
+  for (const l of db.listings.all((x) => x.source !== 'manual' && ['active', 'pending_review'].includes(x.status) && Date.now() - (x.last_synced_at || 0) > maxAgeMs)) {
     await resync(l.id);
   }
 }
@@ -221,4 +269,4 @@ function sellerSetStatus(l, status) {
   return status;
 }
 
-module.exports = { toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };
+module.exports = { publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };

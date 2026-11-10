@@ -26,6 +26,7 @@ const now = () => Date.now();
 const log = (order, event, extra = {}) => [...(order.timeline || []), { at: now(), event, ...extra }];
 
 const TB_STATUS_LABEL = {
+  MANUAL_TO_BUY: 'To buy by hand on Taobao', MANUAL_BOUGHT: 'Bought — waiting for Taobao to ship',
   LOCAL_PENDING: 'Submitting', BULIDING: 'Being created', BUILDING: 'Being created',
   WAIT_BUYER_P: 'Awaiting seller payment', WAIT_BUYER_PAY: 'Awaiting seller payment',
   WAIT_SELLER_SEND_GOODS: 'Paid, awaiting Taobao shipment', WAIT_BUYER_CONFIRM_GOODS: 'Shipped to warehouse',
@@ -72,6 +73,7 @@ async function checkout(buyer, { items, shipping_address }) {
     lines.push({
       line_no: String(lines.length + 1), listing_id: l.id, seller_id: l.seller_id,
       mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: sku.props,
+      ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
       image: (l.own_images || [])[0] || (l.images || [])[0] || null,
       qty, price: sku.price, cost_cny: sku.cost_cny
     });
@@ -149,6 +151,12 @@ async function procure(orderId) {
     let sub = subs.find((s) => s.seller_id === sellerId);
     if (sub && sub.status !== 'CREATE_FAILED') continue;
     if (!sub) { sub = { seller_id: sellerId, order_id: o.id, outer_purchase_id: outerId(), line_nos: lines.map((l) => l.line_no), status: 'LOCAL_PENDING', purchase_ids: [] }; subs.push(sub); }
+    if (lines.some((l) => l.manual)) {
+      // Manually listed products: Kinan's team buys them on Taobao by hand (see markManualBought)
+      Object.assign(sub, { manual: true, status: 'MANUAL_TO_BUY', error: null, links: lines.map((l) => ({ title: l.title, props: l.props, qty: l.qty, link: l.source_link || '' })) });
+      db.orders.update(o.id, { sub_orders: subs });
+      continue;
+    }
     // Persist the idempotency key BEFORE calling Taobao
     db.orders.update(o.id, { sub_orders: subs });
     try {
@@ -169,10 +177,10 @@ async function procure(orderId) {
   const anyFailed = subs.some((s) => s.status === 'CREATE_FAILED');
   db.orders.update(o.id, (x) => ({ ...x, status: anyFailed ? 'attention' : 'procuring', timeline: log(x, anyFailed ? 'procure_failed' : 'procure_started') }));
 
-  for (const s of subs) if (s.status !== 'CREATE_FAILED') { try { await syncSub(o.id, s.outer_purchase_id); } catch { /* later */ } }
+  for (const s of subs) if (s.status !== 'CREATE_FAILED' && !s.manual) { try { await syncSub(o.id, s.outer_purchase_id); } catch { /* later */ } }
   for (const s of subs) {
     const seller = db.sellers.get(s.seller_id);
-    if (seller?.auto_pay && s.status !== 'CREATE_FAILED') { try { await paySub(o.id, s.outer_purchase_id); } catch { /* shown in UI */ } }
+    if (seller?.auto_pay && s.status !== 'CREATE_FAILED' && !s.manual) { try { await paySub(o.id, s.outer_purchase_id); } catch { /* shown in UI */ } }
   }
   return db.orders.get(o.id);
 }
@@ -197,6 +205,7 @@ async function syncSub(orderId, outer) {
   const o = db.orders.get(orderId);
   const sub = o?.sub_orders.find((s) => s.outer_purchase_id === outer);
   if (!sub) throw httpError(404, 'Purchase order not found');
+  if (sub.manual) return o; // nothing to ask Taobao: updated by hand
   const token = await tokenFor(sub.seller_id);
   const params = sub.purchase_ids.length ? { [API.ORDER_QUERY_PARAM]: sub.purchase_ids.join(',') } : { outer_purchase_id: outer };
   const r = await call(API.ORDER_QUERY, params, { accessToken: token });
@@ -238,6 +247,28 @@ async function paySub(orderId, outer) {
   return { submitted: sub.pay_submitted, failed: sub.pay_failed };
 }
 
+/**
+ * Admin bought a manual sub-order on Taobao by hand. With the domestic tracking number the parcel
+ * becomes "expected" in the warehouse, exactly like an API order.
+ */
+function markManualBought(orderId, { outer_purchase_id, taobao_order_no, tracking, carrier } = {}, by) {
+  const o = db.orders.get(orderId);
+  if (!o) throw httpError(404, 'Order not found');
+  if (['pending_payment', 'cancelled', 'refunded', 'shipped', 'delivered'].includes(o.status)) throw httpError(409, 'This order is not being bought');
+  const sub = o.sub_orders.find((s) => s.manual && (!outer_purchase_id || s.outer_purchase_id === outer_purchase_id));
+  if (!sub) throw httpError(404, 'No manual purchase in this order');
+  const tr = String(tracking || '').trim().slice(0, 60);
+  if (taobao_order_no !== undefined) sub.purchase_ids = ids(String(taobao_order_no).slice(0, 200));
+  if (tr) {
+    sub.logistics = [...(sub.logistics || []).filter((x) => x.tracking !== tr), { carrier: String(carrier || '').slice(0, 40), tracking: tr }];
+    if (!db.parcels.find((p) => p.tracking === tr)) db.parcels.insert({ order_id: o.id, seller_id: sub.seller_id, outer_purchase_id: sub.outer_purchase_id, tracking: tr, carrier: String(carrier || '').slice(0, 40), status: 'expected' });
+  }
+  sub.status = (sub.logistics || []).length ? 'WAIT_BUYER_CONFIRM_GOODS' : 'MANUAL_BOUGHT';
+  sub.bought_at = sub.bought_at || now();
+  db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'paid' || x.status === 'attention' ? 'procuring' : x.status, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === sub.outer_purchase_id ? sub : s)), timeline: log(x, tr ? 'manual_shipped_to_warehouse' : 'manual_bought', { by }) }));
+  return recompute(o.id);
+}
+
 /** Derive the buyer-facing order status from sub-orders + parcels + shipment. */
 function recompute(orderId) {
   const o = db.orders.get(orderId);
@@ -277,7 +308,7 @@ async function cancelOrder(orderId, by) {
 async function syncOpen() {
   for (const o of db.orders.all((x) => ['procuring', 'awaiting_parcels', 'attention'].includes(x.status))) {
     for (const s of o.sub_orders) {
-      if (['CREATE_FAILED', 'TRADE_CLOSED'].includes(s.status)) continue;
+      if (s.manual || ['CREATE_FAILED', 'TRADE_CLOSED'].includes(s.status)) continue;
       try { await syncSub(o.id, s.outer_purchase_id); } catch { /* keep going */ }
     }
   }
@@ -328,6 +359,6 @@ function sellerView(o, sellerId) {
 }
 
 module.exports = {
-  checkout, markPaid, payWithWallet, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,
+  checkout, markPaid, payWithWallet, markManualBought, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,
   decorate, buyerView, sellerView, ORDER_STATUS_LABEL, TB_STATUS_LABEL, buildPurchasePayload
 };
