@@ -7,7 +7,8 @@ const crypto = require('crypto');
  *  2. concatenate name+value
  *  3. prefix with the API path
  *  4. HMAC-SHA256 with AppSecret, hex UPPERCASE
- * Verified against the docs example (secret "helloworld" → 4190D323…FAB4A).
+ * Matches the official Python sample in "Make API Calls Through HTTP Requests"
+ * (that page's printed example hash 4190D323… does not follow from its own inputs; the sample code is authoritative).
  */
 function signRequest(apiPath, params, appSecret) {
   const base = apiPath + Object.keys(params)

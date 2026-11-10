@@ -55,3 +55,11 @@ test('Taobao return_to only allows this site or an app scheme', () => {
   assert.strictEqual(safeReturnTo('data:text/html,hi'), null);
   assert.strictEqual(safeReturnTo(''), null);
 });
+
+test('Taobao request signature matches the official Python sample', () => {
+  const { signRequest } = require('../src/taobao/sign');
+  const params = { app_key: '000000', access_token: 'test', timestamp: '1517820392000', sign_method: 'sha256', item_id: '676648141230' };
+  // Output of the Python sign() function published on open.taobao.global for these inputs
+  assert.strictEqual(signRequest('/product/get', params, 'helloworld'), 'E9F5F928AB9F703DA9EE071DEA7A5B184FCF9AFAF94AD9C12C3671173EDFE45F');
+  assert.strictEqual(signRequest('/product/get', { ...params, sign: 'ignored' }, 'helloworld'), 'E9F5F928AB9F703DA9EE071DEA7A5B184FCF9AFAF94AD9C12C3671173EDFE45F');
+});
