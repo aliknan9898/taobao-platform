@@ -35,7 +35,7 @@ test('static assets, service worker and traversal protection', async () => {
   const css = await fetch(base + '/assets/kinan.css');
   assert.strictEqual(css.status, 200); assert.match(css.headers.get('content-type'), /text\/css/);
   const man = await (await fetch(base + '/assets/shop.webmanifest')).json();
-  assert.strictEqual(man.name, 'Kinan'); assert.strictEqual(man.display, 'standalone');
+  assert.strictEqual(man.name, 'Kinan Shop'); assert.strictEqual(man.display, 'standalone');
   for (const ic of man.icons) assert.strictEqual((await fetch(base + ic.src)).status, 200, ic.src);
   const sw = await fetch(base + '/sw.js');
   assert.strictEqual(sw.status, 200); assert.strictEqual(sw.headers.get('service-worker-allowed'), '/');

@@ -4,14 +4,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Kinan — Shop from China</title>
+<title>Kinan Shop — Shop from China</title>
 <meta name="description" content="Products from China's biggest marketplace, checked at our warehouse and shipped to your door with tracking.">
 <meta name="theme-color" content="#0e7c66">
 <link rel="manifest" href="/assets/shop.webmanifest">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Kinan">
+<meta name="apple-mobile-web-app-title" content="Kinan Shop">
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/kinan.css">
 <style>
@@ -87,6 +87,28 @@
   .install { display: none; }
   footer { border-top: 1px solid var(--line); padding: 22px 0 30px; margin-top: 12px; }
   #pay-element { min-height: 40px; }
+
+  .shops { display: flex; gap: 10px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
+  .shops::-webkit-scrollbar { display: none; }
+  .shopchip { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 8px; border: 1px solid var(--line); border-radius: 99px; background: var(--surface); text-decoration: none; color: inherit; }
+  .shopchip:hover { border-color: color-mix(in srgb, var(--jade) 45%, var(--line)); }
+  .shopchip small { display: block; color: var(--muted); font-size: 12px; }
+  .slogo { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--jade-soft); color: var(--jade); display: grid; place-items: center; font-weight: 700; flex: none; overflow: hidden; }
+  .slogo.lg { width: 64px; height: 64px; font-size: 24px; border-radius: 18px; }
+  .slogo.sm { width: 22px; height: 22px; font-size: 11px; }
+  .sechead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 18px 0 10px; }
+  .sechead a { font-size: 14px; color: var(--jade); text-decoration: none; font-weight: 600; }
+  .toolbar { display: grid; grid-template-columns: minmax(0, 220px) 110px 110px auto; gap: 8px; align-items: center; margin: 4px 0 14px; }
+  .toolbar select, .toolbar input { min-height: 38px; width: 100%; }
+  @media (max-width: 520px) { .toolbar { grid-template-columns: 1fr 1fr auto; } .toolbar select { grid-column: 1 / -1; } }
+  .shophead { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; padding: 18px 0 8px; }
+  .shopgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; padding-bottom: 32px; }
+  .shopcard { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; text-decoration: none; color: inherit; }
+  .balance { font-size: 34px; font-weight: 750; letter-spacing: -.02em; }
+  .amt.pos { color: var(--jade); } .amt.neg { color: var(--bad, #b42318); }
+  .eta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .eta div { background: var(--chip); border-radius: var(--r-md); padding: 8px 10px; }
+  .eta b { display: block; }
 </style>
 </head>
 <body class="has-tabbar">
@@ -136,7 +158,7 @@ function variantLabel(props, fallback = 'Standard') {
 const noImg = `<div class="noimg">${ICONS.box}</div>`;
 
 // ---------- shell ----------
-$('#brand').innerHTML = K.brand();
+$('#brand').innerHTML = K.brand('Shop');
 $('#sicon').innerHTML = ICONS.search;
 $('#nav-orders').innerHTML = ICONS.box;
 $('#nav-account').innerHTML = ICONS.user;
@@ -149,7 +171,7 @@ function renderTabbar() {
   const h = location.hash || '#/'; const n = Cart.count();
   const tabs = [['#/', 'Shop', ICONS.shop], ['#/cart', 'Cart', ICONS.cart], ['#/orders', 'Orders', ICONS.box], ['#/account', 'Account', ICONS.user]];
   $('#tabbar').innerHTML = tabs.map(([href, t, ic]) => {
-    const on = href === '#/' ? (h === '#/' || h.startsWith('#/p/') || h.startsWith('#/s/') || h.startsWith('#/search')) : h.startsWith(href);
+    const on = href === '#/' ? (h === '#/' || h.startsWith('#/p/') || h.startsWith('#/s/') || h.startsWith('#/search') || h.startsWith('#/shops')) : href === '#/account' ? (h.startsWith(href) || h.startsWith('#/wallet') || h.startsWith('#/request')) : h.startsWith(href);
     return `<a href="${href}" class="${on ? 'on' : ''}">${ic}${t}${href === '#/cart' && n ? `<span class="badge">${n}</span>` : ''}</a>`;
   }).join('');
 }
@@ -161,6 +183,7 @@ K.onUnauthorized = () => { me = null; };
 const routes = [
   [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
   [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
+  [/^#\/shops$/, shopsList], [/^#\/wallet$/, walletPage], [/^#\/request$/, requestPage],
   [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
 ];
 async function route() {
@@ -189,32 +212,76 @@ function productCard(p) {
   const img = p.images[0];
   return `<a class="card" href="#/p/${esc(p.id)}">
     <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}<span class="tag">${money(p.min_price, p.currency)}</span></div>
-    <div class="body"><div class="t">${esc(p.title)}</div>${p.shop ? `<div class="muted">${esc(p.shop.name)}</div>` : ''}</div></a>`;
+    <div class="body"><div class="t">${esc(p.title)}</div>${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
 }
 const skeletonGrid = () => `<div class="grid">${Array.from({ length: 8 }, () => '<div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="height:14px;margin-top:10px;width:80%"></div></div>').join('')}</div>`;
+
+const initial = (n) => esc(String(n || '?').trim().charAt(0).toUpperCase());
+const shopLogo = (shop, size = '') => shop?.logo ? `<img class="slogo ${size}" src="${esc(shop.logo)}" alt="">` : `<span class="slogo ${size}" aria-hidden="true">${initial(shop?.name)}</span>`;
+let filters = { sort: 'new', min_price: '', max_price: '' };
+const toolbar = () => `<form class="toolbar" id="tb">
+    <select name="sort" aria-label="Sort"><option value="new">Newest</option><option value="price_asc">Price: low to high</option><option value="price_desc">Price: high to low</option></select>
+    <input name="min_price" type="number" min="0" step="1" placeholder="Min $" aria-label="Minimum price" value="${esc(filters.min_price)}">
+    <input name="max_price" type="number" min="0" step="1" placeholder="Max $" aria-label="Maximum price" value="${esc(filters.max_price)}">
+    <button class="btn sm ghost">Apply</button></form>`;
+function wireToolbar(reload) {
+  const f = $('#tb'); if (!f) return;
+  f.sort.value = filters.sort;
+  f.sort.onchange = () => f.requestSubmit();
+  f.onsubmit = (e) => { e.preventDefault(); filters = { sort: f.sort.value, min_price: f.min_price.value, max_price: f.max_price.value }; reload(); };
+}
+const catalogQuery = (extra) => new URLSearchParams({ limit: 100, sort: filters.sort, ...(filters.min_price ? { min_price: filters.min_price } : {}), ...(filters.max_price ? { max_price: filters.max_price } : {}), ...extra }).toString();
+const emptyFiltered = () => filters.min_price || filters.max_price;
 
 async function home(q = '') {
   const v = $('#view');
   v.innerHTML = `${q ? `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a><h2 style="margin-top:6px">Results for “${esc(q)}”</h2></div></div>` : `
     <section class="hero">
       <h1>Products from China’s biggest marketplace, shipped to your door.</h1>
-      <p>Kinan sellers pick items from Taobao. We buy them, check every parcel at our warehouse in China, and ship your order with tracking.</p>
-      <div class="route"><span><b>You order</b></span><span>Seller’s supplier ships</span><span>Checked in our China warehouse</span><span><b>Delivered to you</b></span></div>
-    </section>`}
-    <form class="search mob-only" id="msf" role="search" style="margin:4px 0 16px">${ICONS.search}<input name="q" type="search" value="${esc(q)}" placeholder="Search products" aria-label="Search products"></form>
+      <p>Shop many Kinan sellers in one cart. We buy every item on Taobao, check it at our warehouse in China, pack your order into one parcel and ship it with tracking.</p>
+      <div class="route"><span><b>You order</b></span><span>We buy on Taobao</span><span>Checked in our China warehouse</span><span><b>Delivered to you</b></span></div>
+    </section>
+    <div id="shopstrip"></div>`}
+    <form class="search mob-only" id="msf" role="search" style="margin:4px 0 12px">${ICONS.search}<input name="q" type="search" value="${esc(q)}" placeholder="Search products or shops" aria-label="Search products"></form>
+    <div class="sechead"><h2>${q ? 'Products' : 'All products'}</h2><a href="#/request">Can’t find it? Request an item</a></div>
+    ${toolbar()}
     <div id="results">${skeletonGrid()}</div>`;
   const msf = $('#msf'); if (msf) msf.onsubmit = (e) => { e.preventDefault(); const x = e.target.q.value.trim(); location.hash = x ? `#/search/${encodeURIComponent(x)}` : '#/'; };
-  const d = await api(`/api/catalog?limit=100&q=${encodeURIComponent(q)}`);
-  $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>`
-    : `<div class="empty"><h3>${q ? 'No products match your search' : 'New products are on the way'}</h3><p>${q ? 'Try a shorter or different word.' : 'Sellers are adding their first items. Check back soon.'}</p></div>`;
+  const load = async () => {
+    $('#results').innerHTML = skeletonGrid();
+    const d = await api(`/api/catalog?${catalogQuery({ q })}`);
+    $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>`
+      : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
+  };
+  wireToolbar(load);
+  if (!q) api('/api/shops').then((shops) => {
+    const el = $('#shopstrip'); if (!el || !shops.length) return;
+    el.innerHTML = `<div class="sechead"><h2>Shops</h2><a href="#/shops">See all</a></div><div class="shops">${shops.slice(0, 12).map((sh) => `<a class="shopchip" href="#/s/${esc(sh.id)}">${shopLogo(sh)}<span><b>${esc(sh.name)}</b><small>${sh.products} product${sh.products === 1 ? '' : 's'}</small></span></a>`).join('')}</div>`;
+  }).catch(() => {});
+  await load();
+}
+
+async function shopsList() {
+  const v = $('#view'); v.innerHTML = '<div class="pagehead"><h1>Shops</h1></div><div class="skeleton" style="height:160px"></div>';
+  const shops = await api('/api/shops');
+  v.innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a><h1 style="margin-top:6px">Shops</h1><p class="muted">Independent Kinan sellers. Mix products from any of them in one cart.</p></div></div>
+    ${shops.length ? `<div class="shopgrid">${shops.map((sh) => `<a class="panel shopcard" href="#/s/${esc(sh.id)}">${shopLogo(sh, 'lg')}<div class="stack" style="gap:2px"><b>${esc(sh.name)}</b><span class="muted small">${sh.products} product${sh.products === 1 ? '' : 's'}</span>${sh.description ? `<span class="small" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(sh.description)}</span>` : ''}</div></a>`).join('')}</div>`
+      : '<div class="empty"><h3>No shops yet</h3><p>Sellers are setting up. Check back soon.</p></div>'}`;
 }
 
 async function shopPage(sellerId) {
   const v = $('#view'); v.innerHTML = skeletonGrid();
-  const d = await api(`/api/catalog?limit=100&seller_id=${encodeURIComponent(sellerId)}`);
-  const name = d.items[0]?.shop?.name || 'Shop';
-  v.innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a><h1 style="margin-top:6px">${esc(name)}</h1><p class="muted">${d.total} product${d.total === 1 ? '' : 's'}</p></div></div>
-    ${d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>This shop has no products right now</h3></div>'}`;
+  const sh = await api(`/api/shops/${encodeURIComponent(sellerId)}`);
+  v.innerHTML = `<a class="back" href="#/shops">${ICONS.back} Shops</a>
+    <div class="shophead">${shopLogo(sh, 'lg')}<div class="stack" style="gap:4px"><h1 style="font-size:clamp(24px,4vw,34px)">${esc(sh.name)}</h1><span class="muted">${sh.products} product${sh.products === 1 ? '' : 's'} · On Kinan since ${date(sh.since, false)}</span></div></div>
+    ${sh.description ? `<p style="max-width:70ch;color:var(--ink-2)">${esc(sh.description)}</p>` : ''}
+    <details class="panel flat small" style="margin:10px 0 4px"><summary><b>Return policy</b></summary><p class="desc" style="margin-top:8px">${esc(sh.return_policy)}</p></details>
+    <div class="sechead"><h2>Products</h2></div>${toolbar()}<div id="results">${skeletonGrid()}</div>`;
+  const load = async () => {
+    const d = await api(`/api/catalog?${catalogQuery({ seller_id: sellerId })}`);
+    $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>No products match</h3></div>';
+  };
+  wireToolbar(load); await load();
 }
 
 async function product(id) {
@@ -230,7 +297,7 @@ async function product(id) {
       </div>
       <div class="stack-lg" style="align-content:start">
         <div class="stack">
-          ${p.shop ? `<a href="#/s/${esc(p.shop.id)}" class="muted" style="text-decoration:none">Sold by <b>${esc(p.shop.name)}</b></a>` : ''}
+          ${p.shop ? `<a href="#/s/${esc(p.shop.id)}" class="muted row" style="text-decoration:none;gap:8px">${shopLogo(p.shop, 'sm')}<span>Sold by <b>${esc(p.shop.name)}</b></span></a>` : ''}
           <h1 style="font-size:clamp(22px,3.4vw,30px)">${esc(p.title)}</h1>
           <div id="price"></div>
         </div>
@@ -239,8 +306,10 @@ async function product(id) {
         <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
         <div class="panel flat stack small">
           <div><b>Shipping:</b> ${cfg.shipping_flat ? `${money(cfg.shipping_flat, cfg.currency)} per order, worldwide` : 'Calculated at checkout'}</div>
+          <div class="eta"><div><span class="muted">Buying &amp; checking in China</span><b>3–7 days</b></div><div><span class="muted">International shipping</span><b>7–15 days</b></div></div>
           <div class="muted">Every item is inspected at our China warehouse before it ships to you. You get a tracking number as soon as your parcel leaves.</div>
         </div>
+        ${p.return_policy !== undefined ? `<details class="panel flat small"><summary><b>Returns</b></summary><p class="desc" style="margin-top:8px">${esc(p.return_policy || 'Returns are accepted only for items that arrive damaged or different from the listing. Contact Kinan support within 7 days of delivery with photos.')}</p></details>` : ''}
         ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc">${esc(desc)}</p></div>` : ''}
       </div>
     </div>`;
@@ -258,7 +327,7 @@ async function product(id) {
   $$('#variants button').forEach((b) => b.onclick = () => { sku = p.skus.find((s) => s.mp_sku_id === b.dataset.sku); qty = Math.min(qty, Math.max(1, sku.stock)); paint(); });
   const setQty = (n) => { qty = Math.max(1, Math.min(Number(n) || 1, sku.stock || 1, 999)); paint(); };
   $('#qm').onclick = () => setQty(qty - 1); $('#qp').onclick = () => setQty(qty + 1); $('#qv').onchange = (e) => setQty(e.target.value);
-  const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });
+  const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });
   $('#add').onclick = () => { add(); toast('Added to cart'); };
   $('#buy').onclick = () => { add(); location.hash = '#/cart'; };
   paint();
@@ -293,6 +362,7 @@ async function cart() {
         <div><span>Subtotal</span><span>${money(sub, cur)}</span></div>
         <div><span>Shipping</span><span>${money(cfg.shipping_flat, cur)}</span></div>
         <div class="total"><span>Total</span><span>${money(sub + Number(cfg.shipping_flat || 0), cur)}</span></div>
+        ${new Set(items.map((x) => x.shop_id).filter(Boolean)).size > 1 ? '<p class="muted small">Items from different shops are packed together and arrive in one parcel.</p>' : ''}
         <a class="btn block" href="#/checkout" ${items.length ? '' : 'style="pointer-events:none;opacity:.5"'}>Check out</a>
         <a class="btn block ghost" href="#/">Keep shopping</a>
       </aside>
@@ -351,15 +421,20 @@ async function pay(id) {
   const o = await api(`/api/buyer/orders/${id}`);
   if (o.status !== 'pending_payment') { location.hash = `#/orders/${id}`; return; }
   const demo = cfg.payments === 'demo' || o.payment?.provider === 'demo';
+  const wallet = await api('/api/buyer/wallet').catch(() => ({ balance: 0 }));
+  const canWallet = wallet.balance >= o.total;
   $('#view').innerHTML = `<div class="pagehead"><h1>Payment</h1></div>
     <div class="two"><div class="panel stack">
       ${demo ? `<div class="pill warn" style="justify-self:start">Test mode</div><p>Card payments are not switched on yet. Use the test payment to try the full order flow — no money is charged.</p><button class="btn" id="demo">Pay ${money(o.total, o.currency)} (test)</button>`
         : `<div id="pay-element"></div><button class="btn" id="paybtn" disabled>Pay ${money(o.total, o.currency)}</button>`}
+      ${wallet.balance > 0 ? `<div class="panel flat row between small"><span>Wallet balance: <b>${money(wallet.balance, o.currency)}</b></span>${canWallet ? `<button class="btn sm ghost" id="wpay">Pay with wallet</button>` : '<span class="muted">Not enough for this order</span>'}</div>` : ''}
       <div class="error" id="pe"></div>
       <a class="muted" href="#/orders/${esc(id)}">Pay later — the order stays in your orders</a>
     </div>
     <aside class="panel sum">${o.lines.map((l) => `<div class="small"><span>${l.qty} × ${esc(l.title.slice(0, 40))}</span><span>${money(l.price * l.qty, o.currency)}</span></div>`).join('')}
       <div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div><div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div></aside></div>`;
+  const wp = $('#wpay');
+  if (wp) wp.onclick = async () => { wp.disabled = true; try { await api(`/api/buyer/orders/${id}/pay-wallet`, 'POST'); toast('Paid from your wallet'); location.hash = `#/orders/${id}`; } catch (e) { $('#pe').textContent = e.message; wp.disabled = false; } };
   if (demo) {
     $('#demo').onclick = async () => { $('#demo').disabled = true; try { await api(`/api/buyer/orders/${id}/demo-pay`, 'POST'); toast('Payment received'); location.hash = `#/orders/${id}`; } catch (e) { $('#pe').textContent = e.message; $('#demo').disabled = false; } };
     return;
@@ -391,7 +466,7 @@ async function ordersList() {
     : `<div class="empty"><h3>No orders yet</h3><p>When you place an order, you can follow it here.</p><a class="btn" href="#/">Start shopping</a></div>`}`;
 }
 
-const STEPS = [['paid', 'Order confirmed'], ['procuring', 'Bought from supplier'], ['awaiting_parcels', 'Arriving at our China warehouse'], ['ready_to_ship', 'Checked and packed'], ['shipped', 'Shipped to you'], ['delivered', 'Delivered']];
+const STEPS = [['paid', 'Order confirmed'], ['procuring', 'Purchased from Taobao'], ['awaiting_parcels', 'On its way to our China warehouse'], ['ready_to_ship', 'Arrived, checked and consolidated'], ['shipped', 'Dispatched — in transit to you'], ['delivered', 'Delivered']];
 async function orderDetail(id) {
   if (!requireBuyer(`/orders/${id}`)) return;
   const o = await api(`/api/buyer/orders/${id}`);
@@ -407,7 +482,7 @@ async function orderDetail(id) {
       <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `<img src="${esc(l.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
     </div>
     <aside class="stack">
-      <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div><div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div></div>
+      <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div><div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div>${o.payment?.provider === 'wallet' ? '<div class="muted small">Paid from your Kinan wallet</div>' : ''}</div>
       <div class="panel stack small"><h3>Delivery address</h3><div>${esc(a.name)}<br>${esc(a.line1)}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city)} ${esc(a.postal_code)}<br>${esc(a.country)}<br>${esc(a.phone)}</div></div>
       ${['pending_payment', 'paid'].includes(o.status) ? '<button class="btn danger" id="cancel">Cancel order</button>' : ''}
       <div class="error" id="oe"></div>
@@ -416,19 +491,61 @@ async function orderDetail(id) {
   if (c) c.onclick = async () => { if (!confirm('Cancel this order? If you already paid, you will be refunded.')) return; c.disabled = true; try { await api(`/api/buyer/orders/${id}/cancel`, 'POST'); toast('Order cancelled'); orderDetail(id); } catch (e) { $('#oe').textContent = e.message; c.disabled = false; } };
 }
 
-function account() {
+async function account() {
   if (!me || me.role !== 'buyer') { signin('/account'); return; }
+  const wallet = await api('/api/buyer/wallet').catch(() => ({ balance: 0, currency: cfg.currency }));
   $('#view').innerHTML = `<div class="pagehead"><h1>Account</h1></div>
     <div class="stack" style="max-width:520px">
       <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
-        <a class="btn ghost" href="#/orders">Your orders</a><button class="btn danger" id="out">Sign out</button></div>
-      <div class="panel stack small" id="installbox"><h3>Get the Kinan app</h3>
-        <p class="muted">Install Kinan on your phone’s home screen. On iPhone: tap Share, then “Add to Home Screen”. On Android: tap the menu, then “Install app”.</p>
-        <button class="btn quiet install" id="installbtn">Install Kinan</button></div>
+        <a class="btn ghost" href="#/orders">Your orders</a></div>
+      <a class="panel row between" href="#/wallet" style="text-decoration:none;color:inherit"><span class="row" style="gap:10px">${ICONS.wallet}<span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span></span><b>${money(wallet.balance, wallet.currency)}</b></a>
+      <a class="panel row between" href="#/request" style="text-decoration:none;color:inherit"><span class="row" style="gap:10px">${ICONS.plus}<span><b>Request an item</b><div class="muted small">Ask us for a Taobao product that isn’t in the shop</div></span></span><span class="muted">›</span></a>
+      <div class="panel stack small" id="installbox"><h3>Get the Kinan Shop app</h3>
+        <p class="muted">Install Kinan Shop on your phone’s home screen. On iPhone: tap Share, then “Add to Home Screen”. On Android: tap the menu, then “Install app”.</p>
+        <button class="btn quiet install" id="installbtn">Install Kinan Shop</button></div>
+      <button class="btn danger" id="out">Sign out</button>
       <p class="muted">Want to sell on Kinan? <a href="/seller">Open the Seller Center</a></p>
     </div>`;
   $('#out').onclick = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; toast('Signed out'); location.hash = '#/'; };
   wireInstall();
+}
+
+async function walletPage() {
+  if (!requireBuyer('/wallet')) return;
+  const w = await api('/api/buyer/wallet');
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/account">${ICONS.back} Account</a><h1 style="margin-top:6px">Wallet</h1></div></div>
+    <div class="stack" style="max-width:620px">
+      <div class="panel stack"><span class="muted">Available balance</span><span class="balance">${money(w.balance, w.currency)}</span>
+        <p class="muted small">Refunds from cancelled orders and shipping differences after your parcel is weighed are added here. You can use the balance to pay for your next order.</p></div>
+      <div class="panel"><h3 style="margin-bottom:6px">History</h3>${w.entries.length ? w.entries.map((e) => `<div class="orderrow"><div><b>${esc(e.reason)}</b><div class="muted">${date(e.created_at)}</div></div><b class="amt ${e.amount > 0 ? 'pos' : 'neg'}">${e.amount > 0 ? '+' : ''}${money(e.amount, e.currency)}</b></div>`).join('') : '<p class="muted">No transactions yet.</p>'}</div>
+    </div>`;
+}
+
+const REQ = { new: ['Waiting for reply', 'warn'], quoted: ['Price offered', 'ok'], listed: ['Now in the shop', 'ok'], declined: ['Not available', 'bad'] };
+async function requestPage() {
+  if (!requireBuyer('/request')) return;
+  const list = await api('/api/buyer/requests');
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} Shop</a><h1 style="margin-top:6px">Request an item</h1><p class="muted">Found something on Taobao or Tmall that isn’t in Kinan Shop? Send us the link and we’ll get back to you with a price.</p></div></div>
+    <div class="two"><form class="panel stack" id="rf">
+      <label class="field">Taobao or Tmall link<input name="link" inputmode="url" placeholder="https://item.taobao.com/item.htm?id=…"></label>
+      <label class="field">Details (size, colour, anything we should know)<textarea name="note" rows="4" maxlength="1000"></textarea></label>
+      <label class="field">Quantity<input name="qty" type="number" min="1" max="999" value="1" style="max-width:120px"></label>
+      <div class="error" id="re"></div>
+      <button class="btn" id="rgo">Send request</button>
+    </form>
+    <aside class="panel"><h3 style="margin-bottom:6px">Your requests</h3>${list.length ? list.map((r) => { const [t, c] = REQ[r.status] || [r.status, '']; return `<div class="stack" style="gap:4px;padding:12px 0;border-bottom:1px solid var(--line)">
+        <div class="row between"><span class="muted small">${date(r.created_at, false)} · Qty ${r.qty}</span>${pill(t, c)}</div>
+        ${r.link ? `<a class="small" href="${esc(/^https?:/i.test(r.link) ? r.link : 'https://item.taobao.com/item.htm?id=' + r.link)}" target="_blank" rel="noopener noreferrer" style="word-break:break-all">${esc(r.link)}</a>` : ''}
+        ${r.note ? `<span class="small">${esc(r.note)}</span>` : ''}
+        ${r.quote ? `<span><b>${money(r.quote, r.currency)}</b> <span class="muted small">per item, shipping not included</span></span>` : ''}
+        ${r.reply ? `<span class="small" style="background:var(--chip);padding:8px 10px;border-radius:var(--r-md)"><b>Kinan:</b> ${esc(r.reply)}</span>` : ''}
+        ${r.listing_id ? `<a class="btn sm" href="#/p/${esc(r.listing_id)}" style="justify-self:start">View product</a>` : ''}</div>`; }).join('') : '<p class="muted">No requests yet.</p>'}</aside></div>`;
+  $('#rf').onsubmit = async (e) => {
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+    $('#rgo').disabled = true;
+    try { await api('/api/buyer/requests', 'POST', { ...f, qty: Number(f.qty) }); toast('Request sent'); requestPage(); }
+    catch (err) { $('#re').textContent = err.message; $('#rgo').disabled = false; }
+  };
 }
 
 function signin(next, mode = 'in', msg = '') {

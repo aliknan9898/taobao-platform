@@ -16,6 +16,7 @@ const { tokenFor } = require('../taobao/sellerAuth');
 const API = require('../taobao/apis');
 const stripe = require('../payments/stripe');
 const catalog = require('./catalog');
+const shop = require('./shop');
 const { httpError } = require('../auth');
 
 const money = (n) => Math.round(Number(n) * 100) / 100;
@@ -105,6 +106,17 @@ async function markPaid(orderId, { provider, intent_id }) {
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));
   await procure(o.id);
   return db.orders.get(o.id);
+}
+
+/** Pay an order in full from the buyer's Kinan wallet balance. */
+async function payWithWallet(orderId, buyer) {
+  const o = db.orders.get(orderId);
+  if (!o || o.buyer_id !== buyer.id) throw httpError(404, 'Not found');
+  if (o.status !== 'pending_payment') throw httpError(409, 'This order is already paid');
+  if (shop.walletOf(buyer.id).balance < o.total) throw httpError(409, 'Your wallet balance is not enough for this order');
+  shop.walletEntry(buyer.id, -o.total, `Payment for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'payment' });
+  db.orders.update(o.id, (x) => ({ ...x, payment: { ...x.payment, provider: 'wallet', intent_id: `wallet_${o.id}` } }));
+  return markPaid(o.id, { provider: 'wallet', intent_id: `wallet_${o.id}` });
 }
 
 // ---------------- Procurement on Taobao (per seller) ----------------
@@ -254,7 +266,10 @@ async function cancelOrder(orderId, by) {
       try { await call(API.ORDER_CANCEL, { [API.ORDER_CANCEL_PARAM]: pid }, { accessToken: await tokenFor(s.seller_id) }); } catch { /* reported in timeline */ }
     }
   }
-  if (o.status !== 'pending_payment') await stripe.refund(o);
+  if (o.status !== 'pending_payment') {
+    if (o.payment?.provider === 'wallet') shop.walletEntry(o.buyer_id, o.total, `Refund for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'refund' });
+    else await stripe.refund(o);
+  }
   for (const led of db.ledger.all((l) => l.order_id === o.id)) db.ledger.update(led.id, { status: 'void' });
   return db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'pending_payment' ? 'cancelled' : 'refunded', timeline: log(x, 'cancelled', { by }) }));
 }
@@ -313,6 +328,6 @@ function sellerView(o, sellerId) {
 }
 
 module.exports = {
-  checkout, markPaid, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,
+  checkout, markPaid, payWithWallet, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,
   decorate, buyerView, sellerView, ORDER_STATUS_LABEL, TB_STATUS_LABEL, buildPurchasePayload
 };

@@ -209,3 +209,57 @@ test('auth rules', async () => {
   assert.strictEqual((await api('POST', '/api/auth/login', { email: 'b@x.com', password: 'wrong' })).status, 401);
   assert.strictEqual((await api('GET', '/api/buyer/orders')).status, 401);
 });
+
+test('Kinan Shop: store profiles, filters, item requests and wallet', async () => {
+  tb.poStatus = 'WAIT_BUYER_P'; tb.logistics = [];
+  const aTok = await login('admin@x.com', 'adminpass1');
+  const sTok = await login('s1@x.com', 'sellerpass');
+  // Seller edits the public profile in the Seller Center
+  assert.strictEqual((await api('PATCH', '/api/seller/me', { logo: 'javascript:alert(1)' }, sTok)).status, 400);
+  const logo = 'data:image/png;base64,iVBORw0KGgo=';
+  const me = await api('PATCH', '/api/seller/me', { logo, description: 'Bags and travel gear', return_policy: 'Damaged items only, 7 days.' }, sTok);
+  assert.strictEqual(me.body.description, 'Bags and travel gear');
+  // ...and it shows up in Kinan Shop
+  const shops = (await api('GET', '/api/shops')).body;
+  const s1 = shops.find((x) => x.name === 'Shop One');
+  assert.ok(s1 && s1.products >= 1 && s1.logo === logo);
+  assert.strictEqual(s1.return_policy, undefined, 'policy only on the shop page');
+  assert.strictEqual((await api('GET', `/api/shops/${s1.id}`)).body.return_policy, 'Damaged items only, 7 days.');
+  const cat = (await api('GET', '/api/catalog?sort=price_desc')).body;
+  assert.ok(cat.items.every((p, i, a) => !i || a[i - 1].min_price >= p.min_price));
+  assert.strictEqual(cat.items[0].shop.logo, logo);
+  assert.ok(cat.items.every((p) => !('cost_cny' in p.skus[0])), 'no cost in buyer view');
+  assert.strictEqual((await api('GET', '/api/catalog?min_price=100000')).body.total, 0);
+  assert.strictEqual((await api('GET', `/api/catalog/${cat.items[0].id}`)).body.return_policy, 'Damaged items only, 7 days.');
+
+  // Buyer asks for an item that is not listed; admin answers
+  await api('POST', '/api/auth/register', { role: 'buyer', email: 'w1@x.com', password: 'buyerpass1', name: 'W' });
+  const bTok = await login('w1@x.com', 'buyerpass1');
+  assert.strictEqual((await api('POST', '/api/buyer/requests', { link: 'https://evil.example/x' }, bTok)).status, 400);
+  const req = await api('POST', '/api/buyer/requests', { link: 'https://item.taobao.com/item.htm?id=611122233344', note: 'Blue, size M', qty: 2 }, bTok);
+  assert.strictEqual(req.status, 201);
+  assert.strictEqual((await api('GET', '/api/admin/requests', null, bTok)).status, 403);
+  assert.ok((await api('GET', '/api/admin/overview', null, aTok)).body.alerts.some((a) => a.kind === 'requests'));
+  await api('PATCH', `/api/admin/requests/${req.body.id}`, { status: 'quoted', quote: 24.5, reply: 'We can get it in 10 days' }, aTok);
+  const mineReq = (await api('GET', '/api/buyer/requests', null, bTok)).body[0];
+  assert.strictEqual(mineReq.quote, 24.5); assert.strictEqual(mineReq.status, 'quoted');
+
+  // Wallet: admin credit → buyer pays an order from the wallet → cancel refunds to the wallet
+  const users = (await api('GET', '/api/admin/users', null, aTok)).body;
+  const buyer = users.find((u) => u.email === 'w1@x.com');
+  assert.strictEqual(buyer.wallet, 0);
+  assert.strictEqual((await api('POST', `/api/admin/wallet/${buyer.id}`, { amount: -5, reason: 'x' }, aTok)).status, 409, 'no negative balance');
+  assert.strictEqual((await api('POST', `/api/admin/wallet/${buyer.id}`, { amount: 100 }, aTok)).status, 400, 'reason required');
+  await api('POST', `/api/admin/wallet/${buyer.id}`, { amount: 100, reason: 'Shipping overpayment' }, aTok);
+  const p = cat.items.find((x) => x.skus.some((k) => k.in_stock));
+  const sku = p.skus.find((k) => k.in_stock);
+  const order = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty: 1 }], shipping_address: { name: 'W', phone: '1', country: 'Malta', city: 'Valletta', line1: 'St 1' } }, bTok)).body;
+  const paid = await api('POST', `/api/buyer/orders/${order.id}/pay-wallet`, null, bTok);
+  assert.strictEqual(paid.status, 200, JSON.stringify(paid.body));
+  assert.notStrictEqual(paid.body.status, 'pending_payment');
+  assert.strictEqual((await api('GET', '/api/buyer/wallet', null, bTok)).body.balance, Math.round((100 - order.total) * 100) / 100);
+  assert.strictEqual((await api('POST', `/api/buyer/orders/${order.id}/pay-wallet`, null, bTok)).status, 409, 'no double payment');
+  const cx = await api('POST', `/api/admin/orders/${order.id}/cancel`, null, aTok);
+  assert.strictEqual(cx.status, 200, JSON.stringify(cx.body));
+  assert.strictEqual((await api('GET', '/api/buyer/wallet', null, bTok)).body.balance, 100);
+});

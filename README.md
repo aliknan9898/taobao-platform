@@ -6,7 +6,7 @@ One server powers four interfaces, all in English and installable on phones as a
 
 | Interface | User | Status |
 |---|---|---|
-| Store `/` | Customers: browse, cart, checkout, pay, track orders | Built |
+| Kinan Shop `/` | Customers: browse all shops, search and filter, one cart across sellers, pay (card or wallet), 6-stage tracking, wallet, item requests | Built |
 | Seller Center `/seller` | Merchants: connect Taobao, import and edit products, pay purchase orders, earnings | Built |
 | Admin dashboard `/admin` | You | Built |
 | Warehouse site `/warehouse` | China warehouse staff | Built |
@@ -40,6 +40,12 @@ No dependencies. Node.js 18 or newer.
 - Taobao and Stripe message signatures are verified on the raw body.
 - No duplicate orders: `outer_purchase_id` is saved before the API call.
 - Passwords hashed with scrypt; Bearer sessions for apps, HttpOnly cookies for the sites; sign-in attempts are rate-limited.
+
+## Kinan Shop ↔ Seller Center ↔ Admin
+- **Seller Center → Shop:** the seller's logo, description and return policy (Settings) appear on their shop page and products. Only products the admin approved are shown.
+- **Admin → Shop:** wallet credits/deductions (Users → Adjust) appear in the customer's wallet with the reason; replies and prices for item requests (Item requests tab) appear on the customer's request page.
+- **Shop → Admin:** new item requests raise an alert on the Overview.
+- Wallet refunds: orders paid from the wallet are refunded to the wallet when cancelled.
 
 ## Before production
 

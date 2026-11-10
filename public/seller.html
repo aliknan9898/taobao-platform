@@ -345,19 +345,39 @@ function settings() {
   $('#view').innerHTML = `<div class="head"><h1>Settings</h1></div>
     <form class="panel stack" id="stf" style="max-width:640px"><h2>Shop</h2>
       <label class="field">Shop name<input name="shop_name" required maxlength="80" value="${esc(shop.shop_name)}"></label>
+      <div class="row" style="gap:14px"><div id="logoprev"></div><div class="stack" style="gap:6px"><b>Shop logo</b><span class="muted small">Square PNG, JPEG or WebP. Shown to customers in Kinan Shop.</span>
+        <div class="row"><label class="btn sm quiet" style="cursor:pointer">Upload<input type="file" accept="image/png,image/jpeg,image/webp" id="logofile" hidden></label><button type="button" class="btn sm ghost" id="logorm">Remove</button></div></div></div>
+      <label class="field">Shop description<textarea name="description" maxlength="600" rows="3" placeholder="What you sell and why customers will love it">${esc(shop.description || '')}</textarea></label>
+      <label class="field">Return policy<textarea name="return_policy" maxlength="1500" rows="4" placeholder="e.g. Returns accepted within 7 days of delivery only if the item arrives damaged or different from the listing.">${esc(shop.return_policy || '')}</textarea><span class="muted small">Shown on your shop page and on every product. Keep it clear — international returns are expensive.</span></label>
       <label class="field">Default markup on Taobao cost (%)<input name="default_markup_pct" type="number" min="0" max="500" value="${esc(shop.default_markup_pct)}"></label>
       <label class="check"><input type="checkbox" name="auto_pay" ${shop.auto_pay ? 'checked' : ''}><span><b>Pay Taobao automatically</b><br><span class="muted">Each purchase order is paid from your Distribution account balance as soon as it’s created, so you never miss a deadline.</span></span></label>
       <div class="row"><button class="btn">Save</button><span class="muted">Commission: ${esc(shop.commission_pct)}% · Status: ${esc(shop.status)}</span></div>
     </form>
+    ${shop.status === 'active' ? `<section class="panel row between" style="max-width:640px"><span><b>Your shop in Kinan Shop</b><br><span class="muted small">See your store the way customers do.</span></span><a class="btn sm ghost" href="/#/s/${esc(shop.id)}" target="_blank" rel="noopener">View shop</a></section>` : ''}
     <section class="stack" style="max-width:640px">${taobaoCard()}</section>
     <section class="panel stack" style="max-width:640px"><h2>Install the app</h2>
       <p class="muted">Add the Seller Center to your phone’s home screen. On iPhone: Share, then “Add to Home Screen”. On Android: menu, then “Install app”.</p>
       <div class="row"><button class="btn quiet" id="installbtn" style="display:none">Install Seller Center</button><button class="btn danger" data-out>Sign out</button></div></section>`;
   wireConnect(); wireInstall();
   $$('[data-out]').forEach((b) => b.onclick = signOut);
+  let logo = shop.logo || null;
+  const paintLogo = () => { $('#logoprev').innerHTML = logo ? `<img src="${esc(logo)}" alt="Shop logo" style="width:64px;height:64px;border-radius:16px;object-fit:cover;border:1px solid var(--line)">` : `<div style="width:64px;height:64px;border-radius:16px;background:var(--chip);display:grid;place-items:center;font-weight:700;font-size:24px">${esc((shop.shop_name || '?').charAt(0).toUpperCase())}</div>`; $('#logorm').style.display = logo ? '' : 'none'; };
+  paintLogo();
+  $('#logorm').onclick = () => { logo = null; paintLogo(); };
+  $('#logofile').onchange = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => { // resize to 256px square to keep it small
+      const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+      const m = Math.min(img.width, img.height); x.drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, 256, 256);
+      logo = c.toDataURL('image/jpeg', 0.85); URL.revokeObjectURL(url); paintLogo();
+    };
+    img.onerror = () => toast('Could not read that image');
+    img.src = url;
+  };
   $('#stf').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target;
-    try { shop = await api('/api/seller/me', 'PATCH', { shop_name: f.shop_name.value.trim(), default_markup_pct: Number(f.default_markup_pct.value), auto_pay: f.auto_pay.checked }); toast('Settings saved'); route(); }
+    try { shop = await api('/api/seller/me', 'PATCH', { shop_name: f.shop_name.value.trim(), logo, description: f.description.value, return_policy: f.return_policy.value, default_markup_pct: Number(f.default_markup_pct.value), auto_pay: f.auto_pay.checked }); toast('Settings saved'); route(); }
     catch (err) { toast(err.message); }
   };
 }

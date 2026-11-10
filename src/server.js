@@ -12,6 +12,7 @@ const catalog = require('./services/catalog');
 const orders = require('./services/orders');
 const warehouse = require('./services/warehouse');
 const admin = require('./services/admin');
+const shopSvc = require('./services/shop');
 const stripe = require('./payments/stripe');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
@@ -107,6 +108,8 @@ r('GET', '/api/me', ['admin', 'seller', 'buyer', 'warehouse'], async ({ user }) 
 // Catalog (public for browsing)
 r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntries(url.searchParams)));
 r('GET', '/api/catalog/:id', null, async ({ params }) => catalog.buyerListing(params.id));
+r('GET', '/api/shops', null, async () => shopSvc.listShops());
+r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
 r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
@@ -126,11 +129,16 @@ r('POST', '/api/buyer/orders/:id/demo-pay', BUYER, async ({ user, params }) => {
   return orders.buyerView(await orders.markPaid(o.id, { provider: 'demo', intent_id: o.payment?.intent_id }));
 });
 
+r('POST', '/api/buyer/orders/:id/pay-wallet', BUYER, async ({ user, params }) => orders.buyerView(await orders.payWithWallet(params.id, user)));
+r('GET', '/api/buyer/wallet', BUYER, async ({ user }) => shopSvc.walletOf(user.id));
+r('GET', '/api/buyer/requests', BUYER, async ({ user }) => db.requests.all((x) => x.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(shopSvc.buyerRequestView));
+r('POST', '/api/buyer/requests', BUYER, async ({ req, user }) => shopSvc.buyerRequestView(shopSvc.createRequest(user, await readJson(req))));
+
 // Seller
-const sellerSelf = (s) => ({ id: s.id, shop_name: s.shop_name, status: s.status, commission_pct: s.commission_pct, default_markup_pct: s.default_markup_pct ?? 30, auto_pay: s.auto_pay, taobao: sellerAuth.status(s) });
+const sellerSelf = (s) => ({ id: s.id, shop_name: s.shop_name, logo: s.logo || null, description: s.description || '', return_policy: s.return_policy || '', status: s.status, commission_pct: s.commission_pct, default_markup_pct: s.default_markup_pct ?? 30, auto_pay: s.auto_pay, taobao: sellerAuth.status(s) });
 r('GET', '/api/seller/me', SELLER, async ({ seller }) => sellerSelf(seller));
 r('PATCH', '/api/seller/me', SELLER, async ({ req, seller }) => {
-  const b = await readJson(req); const patch = {};
+  const b = await readJson(req); const patch = shopSvc.profilePatch(b);
   if (b.shop_name) patch.shop_name = String(b.shop_name).slice(0, 80);
   if (b.default_markup_pct !== undefined) { const m = Number(b.default_markup_pct); if (!(m >= 0 && m <= 500)) throw httpError(400, 'Invalid markup'); patch.default_markup_pct = m; }
   if (b.auto_pay !== undefined) patch.auto_pay = Boolean(b.auto_pay);
@@ -184,7 +192,11 @@ r('POST', '/api/admin/orders/:id/pay-taobao', ADMIN, async ({ params }) => {
   return out;
 });
 r('POST', '/api/admin/orders/:id/cancel', ADMIN, async ({ params, user }) => orders.decorate(await orders.cancelOrder(params.id, user.id)));
-r('GET', '/api/admin/users', ADMIN, async () => admin.users());
+r('GET', '/api/admin/users', ADMIN, async () => admin.users().map((u) => (u.role === 'buyer' ? { ...u, wallet: shopSvc.walletOf(u.id).balance } : u)));
+r('GET', '/api/admin/wallet/:id', ADMIN, async ({ params }) => shopSvc.walletOf(params.id));
+r('POST', '/api/admin/wallet/:id', ADMIN, async ({ req, params, user }) => shopSvc.adminAdjust(params.id, await readJson(req), user));
+r('GET', '/api/admin/requests', ADMIN, async () => shopSvc.adminRequests());
+r('PATCH', '/api/admin/requests/:id', ADMIN, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
 r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
 r('GET', '/api/admin/listings', ADMIN, async ({ url }) => admin.listings({ status: url.searchParams.get('status') || undefined }));
 r('POST', '/api/admin/listings/:id/approve', ADMIN, async ({ params, user }) => catalog.approve(params.id, user));
@@ -250,7 +262,7 @@ const server = http.createServer(async (req, res) => {
         Object.assign(ctx, auth.requireRole(user, ...rt.roles));
       }
       const out = await rt.handler(ctx);
-      return send(res, req.method === 'POST' && /register|checkout|products$|staff/.test(p) ? 201 : 200, out ?? { ok: true });
+      return send(res, req.method === 'POST' && /register|checkout|products$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
     }
     send(res, 404, { error: 'Not found' });
   } catch (e) {

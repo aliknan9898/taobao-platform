@@ -74,6 +74,8 @@ module.exports = {
   parcels: collection('parcels', 'pcl'),
   shipments: collection('shipments', 'shp'),
   ledger: collection('ledger', 'led'),
+  wallet: collection('wallet', 'wal'),        // buyer wallet entries (signed amounts)
+  requests: collection('requests', 'req'),    // custom item requests from buyers
   inbox: collection('inbox', 'msg'),          // webhook queue + dedup
   oauthStates: collection('oauth_states', 'st'),
   _reset() { cache.clear(); }

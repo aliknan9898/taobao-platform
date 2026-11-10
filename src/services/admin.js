@@ -41,6 +41,8 @@ function overview() {
   }
   const pendingListings = db.listings.all((l) => l.status === 'pending_review').length;
   if (pendingListings) alerts.push({ kind: 'listings', text: `${pendingListings} product(s) awaiting your approval before buyers can see them` });
+  const newRequests = db.requests.all((r) => r.status === 'new').length;
+  if (newRequests) alerts.push({ kind: 'requests', text: `${newRequests} customer item request(s) waiting for a reply` });
   const pendingSellers = db.sellers.all((s) => s.status === 'pending').length;
   if (pendingSellers) alerts.push({ kind: 'sellers', text: `${pendingSellers} seller(s) awaiting approval` });
 

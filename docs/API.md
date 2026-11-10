@@ -64,3 +64,17 @@ Price changes don't need re-approval. Changing the title or photos sends the pro
 
 ## Seller deep link
 Register a URL scheme in the app (e.g. `myseller://`) and pass it as `return_to`. The server accepts any custom scheme and rejects `javascript:` and `data:`.
+
+
+## Kinan Shop additions
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/shops` | public | Active shops with at least one live product |
+| GET | `/api/shops/:id` | public | One shop, incl. `return_policy` |
+| GET | `/api/catalog?sort=new\|price_asc\|price_desc&min_price=&max_price=&seller_id=&q=` | public | Filters and sorting |
+| GET | `/api/buyer/wallet` | buyer | `{ balance, entries[] }` |
+| POST | `/api/buyer/orders/:id/pay-wallet` | buyer | Pays the whole order from the wallet |
+| GET/POST | `/api/buyer/requests` | buyer | `{ link, note, qty }` — request a Taobao item that isn't listed |
+| PATCH | `/api/seller/me` | seller | Also accepts `logo` (data URL ≤ 200 KB), `description`, `return_policy` |
+| GET/POST | `/api/admin/wallet/:userId` | admin | POST `{ amount, reason }` — negative to deduct |
+| GET | `/api/admin/requests` · PATCH `/api/admin/requests/:id` | admin | `{ status: new\|quoted\|listed\|declined, reply, quote, listing_id }` |

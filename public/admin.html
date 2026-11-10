@@ -92,13 +92,13 @@ function showLogin(msg = '') {
   };
 }
 
-const TABS = [['overview','Overview'],['orders','Orders'],['sellers','Sellers'],['listings','Products'],['users','Users']];
+const TABS = [['overview','Overview'],['orders','Orders'],['sellers','Sellers'],['listings','Products'],['requests','Item requests'],['users','Users']];
 let tab = 'overview', me;
 
 function boot(user) {
   me = user;
   $('#app').innerHTML = `<header><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>Admin</small></a>
-      <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Store</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a><span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
+      <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Kinan Shop</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a><span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
     <nav>${TABS.map(([k, t]) => `<button data-t="${k}">${t}</button>`).join('')}</nav><main id="view"></main>
     <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>`;
   $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
@@ -209,12 +209,53 @@ const VIEWS = {
         <input name="name" placeholder="Name" required><input name="email" type="email" placeholder="Email" required>
         <input name="password" type="password" placeholder="Password (8+)" minlength="8" required>
         <select name="role"><option value="warehouse">Warehouse</option><option value="admin">Admin</option></select><button class="btn">Add</button></form><div class="err" id="se"></div></div>
-      <div class="card"><h2>Users (${list.length})</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr></thead><tbody>
-      ${list.map((u) => `<tr><td>${esc(u.name || '—')}</td><td>${esc(u.email)}</td><td>${esc(ROLE[u.role])}</td><td><span class="pill ${statusClass(u.status)}">${u.status === 'active' ? 'Active' : esc(u.status)}</span></td></tr>`).join('')}
-      </tbody></table></div></div>`;
+      <div class="card"><h2>Users (${list.length})</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Wallet</th></tr></thead><tbody>
+      ${list.map((u) => `<tr><td>${esc(u.name || '—')}</td><td>${esc(u.email)}</td><td>${esc(ROLE[u.role])}</td><td><span class="pill ${statusClass(u.status)}">${u.status === 'active' ? 'Active' : esc(u.status)}</span></td>
+        <td>${u.role === 'buyer' ? `<b>${fmt(u.wallet)}</b> <button class="btn ghost" data-wal="${esc(u.id)}" data-em="${esc(u.email)}">Adjust</button>` : ''}</td></tr>`).join('')}
+      </tbody></table></div><p class="muted">Wallet: credit customers for shipping overpayments or goodwill, or deduct shipping underpayments after weighing. Customers see every entry with its reason.</p></div>`;
+    v.querySelectorAll('[data-wal]').forEach((b) => b.onclick = () => openWallet(b.dataset.wal, b.dataset.em));
     $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/admin/staff', 'POST', f); render(); } catch (err) { $('#se').textContent = err.message; } };
   }
 };
+
+VIEWS.requests = async (v) => {
+  const filter = v.dataset.rf || 'new';
+  const all = await api('/api/admin/requests');
+  const list = filter === 'all' ? all : all.filter((r) => r.status === filter);
+  const RS = { new: ['New', 'warn'], quoted: ['Price offered', 'ok'], listed: ['Listed in shop', 'ok'], declined: ['Declined', 'bad'] };
+  v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Item requests</h2>
+      <div class="row">${[['new','New'],['quoted','Quoted'],['listed','Listed'],['declined','Declined'],['all','All']].map(([k, t]) => `<button class="btn ${k === filter ? '' : 'ghost'}" data-rf="${k}">${t} (${k === 'all' ? all.length : all.filter((r) => r.status === k).length})</button>`).join('')}</div></div>
+      <p class="muted">Customers ask for Taobao items that aren’t in Kinan Shop. Reply with a price, or ask a seller to list it and link the product here so the customer can buy it.</p></div>
+    ${list.map((r) => `<div class="card" style="display:grid;gap:8px">
+      <div class="row" style="justify-content:space-between"><div><b>${esc(r.buyer)}</b> <span class="muted">· ${date(r.created_at)} · Qty ${r.qty}</span></div><span class="pill ${RS[r.status][1]}">${RS[r.status][0]}</span></div>
+      ${r.link ? `<a href="${esc(/^https?:/i.test(r.link) ? r.link : 'https://item.taobao.com/item.htm?id=' + r.link)}" target="_blank" rel="noopener noreferrer" style="word-break:break-all">${esc(r.link)}</a>` : ''}
+      ${r.note ? `<div>${esc(r.note)}</div>` : ''}
+      <div class="row"><input data-reply="${esc(r.id)}" placeholder="Reply to the customer" value="${esc(r.reply)}" style="flex:1;min-width:220px">
+        <input data-quote="${esc(r.id)}" type="number" min="0" step="0.01" placeholder="Price per item" value="${r.quote ?? ''}" style="width:130px">
+        <input data-lst="${esc(r.id)}" placeholder="Product ID (lst_…)" value="${esc(r.listing_id || '')}" style="width:170px"></div>
+      <div class="row"><button class="btn" data-ans="quoted" data-id="${esc(r.id)}">Send price</button><button class="btn" data-ans="listed" data-id="${esc(r.id)}">Mark listed</button><button class="btn ghost bad" data-ans="declined" data-id="${esc(r.id)}">Decline</button></div>
+    </div>`).join('') || '<div class="card muted">No requests here.</div>'}`;
+  v.querySelectorAll('[data-rf]').forEach((b) => b.onclick = () => { v.dataset.rf = b.dataset.rf; render(); });
+  v.querySelectorAll('[data-ans]').forEach((b) => b.onclick = async () => {
+    const id = b.dataset.id; const q = (sel) => v.querySelector(`[${sel}="${id}"]`).value.trim();
+    b.disabled = true;
+    try { await api(`/api/admin/requests/${id}`, 'PATCH', { status: b.dataset.ans, reply: q('data-reply'), quote: q('data-quote') || null, listing_id: q('data-lst') || null }); render(); }
+    catch (e) { alert(e.message); b.disabled = false; }
+  });
+};
+
+async function openWallet(userId, email) {
+  const d = $('#dlg'); const b = $('#dlgBody');
+  b.innerHTML = '<p class="muted">Loading…</p>'; d.showModal();
+  const w = await api(`/api/admin/wallet/${userId}`);
+  b.innerHTML = `<div class="row" style="justify-content:space-between"><h2>Wallet · ${esc(email)}</h2><b>${fmt(w.balance, w.currency)}</b></div>
+    <form class="row" id="wf"><input name="amount" type="number" step="0.01" placeholder="Amount (−5 to deduct)" required style="width:180px"><input name="reason" placeholder="Reason, shown to the customer" required style="flex:1;min-width:200px"><button class="btn">Apply</button></form>
+    <div class="err" id="we"></div>
+    <table><thead><tr><th>Date</th><th>Reason</th><th>Amount</th></tr></thead><tbody>${w.entries.map((e) => `<tr><td class="muted">${date(e.created_at)}</td><td>${esc(e.reason)}</td><td class="${e.amount > 0 ? 'ok' : 'bad'}">${fmt(e.amount, e.currency)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No entries</td></tr>'}</tbody></table>
+    <div class="row"><button class="btn ghost" id="close">Close</button></div>`;
+  $('#close').onclick = () => { d.close(); render(); };
+  $('#wf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api(`/api/admin/wallet/${userId}`, 'POST', { amount: Number(f.amount), reason: f.reason }); openWallet(userId, email); } catch (err) { $('#we').textContent = err.message; } };
+}
 
 const STATUS_LABEL = { pending_payment:'Awaiting payment', paid:'Paid', procuring:'Buying', awaiting_parcels:'Awaiting parcels', ready_to_ship:'Ready to ship', shipped:'Shipped', delivered:'Delivered', cancelled:'Cancelled', refunded:'Refunded', attention:'Needs attention' };
 
