@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. */
 /* Kinan design system — shared by the buyer store, seller center, admin and warehouse.
-   Jade for actions, marigold for prices, navy ink on cool paper. */
+   Jade for actions, marigold for prices, navy ink on white. Always light, whatever the phone's theme. */
 :root {
-  --paper: #f4f6f9;
+  --paper: #ffffff;
   --surface: #ffffff;
   --ink: #141b3a;
   --ink-2: #4a5170;
@@ -21,14 +21,7 @@
   --r-sm: 6px; --r-md: 10px; --r-lg: 16px;
   --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --font-body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
-  color-scheme: light dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #0f1428; --surface: #171d36; --ink: #eef0f7; --ink-2: #c1c6da; --muted: #9097b3;
-    --line: #2a3150; --jade: #2fb293; --jade-ink: #04221b; --jade-soft: #123a33; --chip: #222a47;
-    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
-  }
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }

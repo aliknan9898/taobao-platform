@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Kinan Shop — Shop from China</title>
 <meta name="description" content="Products from China's biggest marketplace, checked at our warehouse and shipped to your door with tracking.">
-<meta name="theme-color" content="#0e7c66">
+<meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="/assets/shop.webmanifest">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -443,7 +443,7 @@ async function pay(id) {
     if (!cfg.stripe_publishable_key || !o.payment?.client_secret) throw new Error('Card payments are not configured yet. Please try again later.');
     const Stripe = await loadStripe();
     const stripe = Stripe(cfg.stripe_publishable_key);
-    const elements = stripe.elements({ clientSecret: o.payment.client_secret, appearance: { theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+    const elements = stripe.elements({ clientSecret: o.payment.client_secret, appearance: { theme: 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
     elements.create('payment').mount('#pay-element');
     $('#paybtn').disabled = false;
     $('#paybtn').onclick = async () => {

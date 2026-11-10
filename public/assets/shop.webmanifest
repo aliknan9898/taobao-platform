@@ -6,8 +6,8 @@
  "scope": "/",
  "display": "standalone",
  "description": "Shop products from China, delivered to your door.",
- "background_color": "#f4f6f9",
- "theme_color": "#0e7c66",
+ "background_color": "#ffffff",
+ "theme_color": "#ffffff",
  "icons": [
   {
    "src": "/assets/icon-192.png",
