@@ -1,0 +1,25 @@
+# Render Blueprint for Kinan — links the web service to its PostgreSQL database.
+# Only the settings below are managed here; other environment variables are set in the dashboard.
+services:
+  - type: web
+    name: kinan
+    runtime: node
+    plan: free
+    region: virginia
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kinan-db
+          property: connectionString
+
+databases:
+  - name: kinan-db
+    plan: free
+    region: virginia
+    databaseName: kinan_db
+    user: kinan_db_user
+    postgresMajorVersion: "17"
