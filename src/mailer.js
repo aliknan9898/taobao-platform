@@ -32,7 +32,7 @@ function layout({ title, lines = [], button, rtl = false }) {
 }
 
 /** Send (or log) one email. Never throws; returns the log record. `key` makes the send idempotent. */
-async function send({ to, subject, title, lines, button, key, kind = 'general' }) {
+async function send({ to, subject, title, lines, button, key, kind = 'general', attachments }) {
   if (!to) return null;
   if (key) { const dup = db.mail.find((m) => m.key === key); if (dup) return dup; }
   const rec = db.mail.insert({ to, subject, kind, key: key || null, status: enabled() ? 'sending' : 'not_sent' });
@@ -42,7 +42,7 @@ async function send({ to, subject, title, lines, button, key, kind = 'general' }
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST', signal: AbortSignal.timeout(15000),
       headers: { 'api-key': config.mail.brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ sender: sender(), ...(config.mail.replyTo ? { replyTo: { email: config.mail.replyTo } } : {}), to: [{ email: to }], subject, htmlContent: layout({ title: title || subject, lines, button }) })
+      body: JSON.stringify({ sender: sender(), ...(config.mail.replyTo ? { replyTo: { email: config.mail.replyTo } } : {}), to: [{ email: to }], ...(attachments ? { attachment: attachments } : {}), subject, htmlContent: layout({ title: title || subject, lines, button }) })
     });
     if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
     return db.mail.update(rec.id, { status: 'sent', sent_at: Date.now() });

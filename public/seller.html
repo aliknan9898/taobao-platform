@@ -157,9 +157,31 @@ async function dashboard() {
       <a class="kpi" href="#/earnings"><span>Available to pay out</span><b>${money(earn.payable, earn.currency)}</b></a>
       <a class="kpi" href="#/earnings"><span>On the way</span><b>${money(earn.pending, earn.currency)}</b></a>
     </div>
+    <section class="panel" id="stats"></section>
     <section class="panel"><div class="row between" style="margin-bottom:6px"><h2>Recent orders</h2><a class="muted" href="#/orders">See all</a></div>
       ${ords.slice(0, 5).map(orderRow).join('') || '<div class="empty" style="padding:24px"><p>No orders yet. Once buyers order your products, they appear here.</p></div>'}</section>`;
   wireConnect(); wireOrderActions();
+  api('/api/seller/stats').then((st) => {
+    const days = Object.keys(st.per_day).sort(); const max = Math.max(1, ...Object.values(st.per_day));
+    $('#stats').innerHTML = `<div class="row between"><h2>Last 30 days</h2><span class="muted small">${st.views} views · ${st.orders} orders · ${money(st.revenue, st.currency)}</span></div>
+      ${days.length ? `<div style="display:flex;align-items:flex-end;gap:2px;height:60px;margin:10px 0" aria-label="Views per day">${days.map((d) => `<span title="${d}: ${st.per_day[d]}" style="flex:1;background:var(--jade);opacity:.75;border-radius:3px 3px 0 0;height:${Math.max(4, (st.per_day[d] / max) * 100)}%"></span>`).join('')}</div>` : ''}
+      ${st.products.length ? `<div class="scroll"><table><thead><tr><th>Product</th><th>Views</th><th>Orders</th><th>Conversion</th></tr></thead><tbody>${st.products.slice(0, 10).map((p) => `<tr><td>${esc(p.title.slice(0, 60))}</td><td>${p.views}</td><td>${p.orders}</td><td>${p.conversion === null ? '—' : p.conversion + '%'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Views of your products will appear here.</p>'}`;
+  }).catch(() => { $('#stats').hidden = true; });
+}
+
+/** Small CSV reader (quotes, commas and new lines inside quotes; comma or semicolon separated). */
+function parseCsv(text) {
+  text = text.replace(/^\ufeff/, '');
+  const sep = (text.split('\n')[0].match(/;/g) || []).length > (text.split('\n')[0].match(/,/g) || []).length ? ';' : ',';
+  const rows = []; let row = []; let cell = ''; let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch; continue; }
+    if (ch === '"') q = true; else if (ch === sep) { row.push(cell); cell = ''; } else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; } else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  const head = (rows.shift() || []).map((h) => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  return rows.filter((r) => r.some((c) => c.trim())).map((r) => Object.fromEntries(head.map((h, i) => [h, (r[i] || '').trim()])));
 }
 
 // ---------- products ----------
@@ -215,7 +237,24 @@ function addStart(err = '') {
       <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">✎</span><div><b>Add manually</b><div class="muted small">Any Taobao item — type it in yourself. Kinan buys it when it sells.</div></div></div>
         <p class="small">No Taobao account needed.</p><a class="btn ghost" href="#/manual">Add manually</a>
       </section>
+      <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">⇪</span><div><b>Upload a spreadsheet</b><div class="muted small">Many products at once from Excel or Google Sheets (saved as CSV).</div></div></div>
+        <p class="small">Columns: title, price, stock, option, cost_cny, category, weight_kg, source_link, image_urls, description. Rows with the same title become one product with options. Leave the price empty to use your markup on cost_cny.</p>
+        <div class="row"><a class="btn ghost sm" id="csvtpl" download="kinan-products.csv">Download template</a><label class="btn sm" style="cursor:pointer">Choose CSV file<input type="file" accept=".csv,text/csv" hidden id="csvf"></label></div>
+        <div id="csvout"></div>
+      </section>
     </div>`;
+  $('#csvtpl').href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\ufefftitle,price,stock,option,cost_cny,category,weight_kg,source_link,image_urls,description\nWaterproof jacket,39,20,Black / L,129,men,0.9,https://item.taobao.com/item.htm?id=123,https://img.alicdn.com/example1.jpg,Warm fleece lining\nWaterproof jacket,39,15,Black / XL,129,men,0.9,,,\n');
+  $('#csvf').onchange = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const rows = parseCsv(await file.text()); const out = $('#csvout');
+    if (!rows.length) { out.innerHTML = '<p class="error">No rows found. Check that the first line has the column names.</p>'; return; }
+    out.innerHTML = `<p class="small">${rows.length} row(s) found. Uploading…</p>`;
+    try {
+      const r = await api('/api/seller/products/bulk', 'POST', { rows });
+      out.innerHTML = `<p><b>${r.created}</b> product(s) sent for review${r.failed ? `, <b class="bad">${r.failed}</b> with problems` : ''}.</p>${r.results.filter((x) => !x.ok).map((x) => `<div class="small bad">Row ${x.row} (${esc(x.title || 'no title')}): ${esc(x.error)}</div>`).join('')}`;
+    } catch (err) { out.innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+    e.target.value = '';
+  };
   wireConnect();
   const aef = $('#aef');
   if (aef) aef.onsubmit = async (e) => {

@@ -115,7 +115,7 @@ function showLogin(msg = '') {
 let googleSignin = false;
 // [tab, label, roles that see it]
 const ALL_TABS = [['overview','Overview','*'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['listings','Products','admin'],
-  ['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
+  ['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
 const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
 let TABS = ALL_TABS;
@@ -295,6 +295,14 @@ VIEWS.requests = async (v) => {
     try { await api(`/api/admin/requests/${id}`, 'PATCH', { status: b.dataset.ans, reply: q('data-reply'), quote: q('data-quote') || null, listing_id: q('data-lst') || null, title: q('data-title') || null, price_cny: q('data-cny') || null, weight_kg: q('data-kg') || null }); render(); }
     catch (e) { alert(e.message); b.disabled = false; }
   });
+};
+
+VIEWS.backup = async (v) => {
+  v.innerHTML = `<div class="card" style="display:grid;gap:10px"><h2>Backup</h2>
+    <p class="muted">Every night (around 2:00 UTC) a full copy of Kinan's data is emailed to the owner as a compressed file. Keep those emails — they are your copy if anything happens to the database. You can also download one now.</p>
+    <div class="row"><a class="btn" href="/api/admin/backup">Download backup now</a><button class="btn ghost" id="bk">Email today's backup now</button><span class="muted" id="bkr"></span></div></div>
+    <div class="card"><h2>Invoices</h2><p class="muted">Customers can open and print an invoice for every paid order from their order page. Staff can open one at <code>/invoice/&lt;order id&gt;</code>.</p></div>`;
+  $('#bk').onclick = async () => { $('#bk').disabled = true; try { const r = await api('/api/admin/backup/email', 'POST'); $('#bkr').textContent = r.status === 'sent' ? `Sent to ${r.to}` : r.skipped || r.status || 'Done'; } catch (e) { $('#bkr').textContent = e.message; } $('#bk').disabled = false; };
 };
 
 VIEWS.coupons = async (v) => {

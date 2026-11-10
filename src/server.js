@@ -25,6 +25,7 @@ const mailer = require('./mailer');
 const fx = require('./services/fx');
 const growth = require('./services/growth');
 const messages = require('./services/messages');
+const ops = require('./services/ops');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
 
@@ -242,7 +243,7 @@ r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
 
 // Catalog (public for browsing)
 r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntries(url.searchParams)));
-r('GET', '/api/catalog/:id', null, async ({ params }) => catalog.buyerListing(params.id));
+r('GET', '/api/catalog/:id', null, async ({ req, params }) => { const out = catalog.buyerListing(params.id); try { ops.countView(db.listings.get(params.id), clientIp(req)); } catch { /* stats are best effort */ } return out; });
 r('GET', '/api/catalog/:id/reviews', null, async ({ params }) => growth.reviewsFor(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
@@ -339,6 +340,8 @@ r('PATCH', '/api/seller/products/:id', SELLER, async ({ req, seller, params }) =
 r('POST', '/api/seller/products/:id/resync', SELLER, async ({ seller, params }) => {
   const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found'); return catalog.resync(l.id);
 });
+r('GET', '/api/seller/stats', SELLER, async ({ seller, url }) => ops.sellerStats(seller, Math.min(90, Math.max(7, Number(url.searchParams.get('days')) || 30))));
+r('POST', '/api/seller/products/bulk', SELLER, async ({ req, seller }) => ops.bulkUpload(seller, (await readJson(req)).rows));
 const sellerOrder = (seller, id) => { const o = db.orders.get(id); if (!o || !o.lines.some((l) => l.seller_id === seller.id) || o.status === 'pending_payment') throw httpError(404, 'Not found'); return o; };
 r('GET', '/api/seller/orders/:id/messages', SELLER, async ({ seller, params }) => messages.threadsFor(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id }));
 r('POST', '/api/seller/orders/:id/messages', SELLER, async ({ req, seller, user, params }) => messages.post(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id, user }, await readJson(req)));
@@ -384,6 +387,8 @@ r('POST', '/api/admin/orders/:id/qc-resolved', CARE, async ({ req, params }) => 
 r('GET', '/api/admin/orders/:id/qc/:n', STAFF, async ({ params, res }) => sendImage(res, warehouse.qcPhoto(db.orders.get(params.id) || {}, params.n)));
 r('GET', '/api/admin/orders/:id/messages', CARE, async ({ params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); return messages.threadsFor(o, { role: 'staff' }); });
 r('POST', '/api/admin/orders/:id/messages', CARE, async ({ req, user, params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); const b = await readJson(req); return messages.post(o, { role: 'staff', user }, { thread: 'kinan', text: b.text }); });
+r('GET', '/api/admin/backup', ADMIN, async ({ res }) => { const f = ops.backupFile(); res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="${f.name}"`, 'Content-Length': f.body.length, 'Cache-Control': 'no-store' }); res.end(f.body); });
+r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${new Date().toISOString().slice(0, 10)}`; for (const m of db.mail.all((x) => x.key === k)) db.mail.remove(m.id); return { ...(await ops.dailyBackup()), to: ops.backupRecipient() }; });
 r('GET', '/api/admin/coupons', ADMIN, async () => db.coupons.all().sort((a, b) => b.created_at - a.created_at).map(({ used_by, ...c }) => c));
 r('POST', '/api/admin/coupons', ADMIN, async ({ req }) => growth.saveCoupon(await readJson(req)));
 r('PATCH', '/api/admin/coupons/:id', ADMIN, async ({ req, params }) => { const c = db.coupons.get(params.id); if (!c) throw httpError(404, 'Not found'); const b = await readJson(req); return Object.keys(b).length === 1 && 'active' in b ? db.coupons.update(c.id, { active: Boolean(b.active) }) : growth.saveCoupon({ ...c, ...b }, c.id); });
@@ -477,6 +482,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET') {
       if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true });
+      const inv = p.match(/^\/invoice\/(ord_[a-f0-9]{8,40})$/);
+      if (inv) {
+        let user = null; try { user = auth.authenticate(req); } catch { user = null; }
+        const o = db.orders.get(inv[1]);
+        if (!user) { res.writeHead(302, { Location: `/#/orders/${inv[1]}` }); return res.end(); }
+        if (!o || !(o.buyer_id === user.id || (auth.STAFF_ROLES || {})[user.role] || user.role === 'admin') || o.status === 'pending_payment') return send(res, 404, 'Invoice not found');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" });
+        return res.end(ops.invoiceHtml(o));
+      }
       const sh = p.match(/^\/(p|s)\/([\w-]{1,80})$/);
       if (sh) return sharePage(res, sh[1], sh[2]);
       if (p === '/seller') return page(res, 'seller.html');
@@ -586,6 +600,7 @@ function startJobs() {
   every(3600e3, async () => cleanup());
   every(3600e3, async () => warehouse.releaseExpired());
   every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); growth.cartReminders(); });
+  every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }

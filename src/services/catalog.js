@@ -160,7 +160,7 @@ function publishManual(seller, b = {}, listingId = null) {
   if (images.length > 6) throw httpError(400, 'Up to 6 photos');
   for (const im of images) {
     if ((existing?.images || []).includes(im)) continue; // imported AliExpress photo kept as is
-    if (!IMG_RE.test(im)) throw httpError(400, 'Photos must be JPEG, PNG or WebP');
+    if (!IMG_RE.test(im) && !/^https:\/\/[^\s"'<>]{8,500}$/.test(im)) throw httpError(400, 'Photos must be JPEG, PNG or WebP');
     if (im.length > 400 * 1024) throw httpError(400, 'A photo is too large — use a smaller image');
   }
   const variants = arr(b.variants).slice(0, 30);

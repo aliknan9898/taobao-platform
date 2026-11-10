@@ -122,8 +122,14 @@ function collection(name, prefix) {
   };
 }
 
+/** Everything except sign-in sessions and one-time tokens, for backups. */
+function exportAll() {
+  const skip = new Set(['sessions', 'tokens', 'oauth_states', 'inbox']);
+  return Object.fromEntries(COLLECTIONS.filter(([n]) => !skip.has(n)).map(([n]) => [n, clone(load(n))]));
+}
+
 module.exports = {
-  id, init, flush, close,
+  id, init, flush, close, exportAll,
   get mode() { return pool ? 'postgres' : 'json'; },
   pendingWrites: () => pending.size,
   ...Object.fromEntries(COLLECTIONS.map(([name, prefix]) => [name === 'oauth_states' ? 'oauthStates' : name, collection(name, prefix)])),
