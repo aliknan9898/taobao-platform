@@ -196,11 +196,29 @@ function publishManual(seller, b = {}, listingId = null) {
 }
 
 /** Re-sync cost & stock from Taobao (procurement mode gets no product messages → poll). */
+/**
+ * After a price sync: find options now selling below cost. Kinan-bought items (AliExpress) are paused
+ * so Kinan never loses money on them; Taobao-API items (paid by the seller) are flagged for the seller.
+ */
+function checkMargins(l) {
+  if (!l) return l;
+  const losing = l.skus.filter((s) => {
+    const cost = s.cost_sale !== undefined && s.cost_sale !== null ? s.cost_sale : s.cost_cny ? s.cost_cny / config.cnyRate : null;
+    return cost !== null && s.stock > 0 && s.price < cost;
+  }).map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, cost: Math.round((s.cost_sale ?? s.cost_cny / config.cnyRate) * 100) / 100 }));
+  const before = l.price_alert?.skus?.length || 0;
+  if (!losing.length) return before ? db.listings.update(l.id, { price_alert: null }) : l;
+  const pause = l.source === 'aliexpress' && l.status === 'active';
+  const out = db.listings.update(l.id, { price_alert: { at: Date.now(), skus: losing, paused: pause || Boolean(l.price_alert?.paused) }, ...(pause ? { status: 'paused' } : {}) });
+  if (!before) require('../notify').priceAlert(out, losing, pause);
+  return out;
+}
+
 async function resync(listingId) {
   const l = db.listings.get(listingId);
   if (!l) throw httpError(404, 'Product not found');
   if (l.source === 'manual') return l; // typed in by hand: nothing to fetch from Taobao
-  if (l.source === 'aliexpress') return aliexpress.resync(l);
+  if (l.source === 'aliexpress') return checkMargins(await aliexpress.resync(l));
   try {
     const prod = await fetchProduct(l.seller_id, l.taobao_item_id);
     const bySku = new Map(prod.skus.map((s) => [s.mp_sku_id, s]));
@@ -208,7 +226,7 @@ async function resync(listingId) {
       const fresh = bySku.get(s.mp_sku_id);
       return fresh ? { ...s, cost_cny: fresh.cost_cny, stock: fresh.stock } : { ...s, stock: 0 };
     });
-    return db.listings.update(l.id, { skus, last_synced_at: Date.now(), sync_error: null, status: l.status === 'unavailable' && l.review?.state === 'approved' ? 'active' : l.status });
+    return checkMargins(db.listings.update(l.id, { skus, last_synced_at: Date.now(), sync_error: null, status: l.status === 'unavailable' && l.review?.state === 'approved' ? 'active' : l.status }));
   } catch (e) {
     const unavailable = e.status === 422;
     return db.listings.update(l.id, { sync_error: e.message, status: unavailable ? 'unavailable' : l.status, last_synced_at: Date.now() });
@@ -300,4 +318,4 @@ function sellerSetStatus(l, status) {
   return status;
 }
 
-module.exports = { photoUrl, imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };
+module.exports = { checkMargins, photoUrl, imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };

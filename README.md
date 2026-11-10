@@ -74,6 +74,16 @@ Sellers can add products from **Taobao** (→ China warehouse → customer) or *
 - **Categories:** sellers choose a category; Kinan Shop can be browsed by category.
 - **Arabic:** Kinan Shop, Kinan Seller, the download and reset pages switch between English and Arabic (right-to-left) with the language button; Arabic phones start in Arabic.
 
+## Operations
+
+- **Staff roles** (Admin → Users): *Procurement* buys orders and answers item requests; *Warehouse* uses the warehouse app; *Finance* handles withdrawals, refunds, wallets and reports; *Support* sees orders, returns and requests and can send password links to customers. Every API route checks the role.
+- **Reports** (Admin → Reports): profit & loss for any period (revenue − seller earnings − goods Kinan bought − courier costs − refunds/credits), best sellers, sellers, countries, CSV export. Test payments are left out unless ticked. Enter the courier cost when shipping so profit is right.
+- **Couriers:** every tracking number gets a "Track parcel" link (DHL, Aramex, FedEx, UPS, SMSA, Cainiao, YunExpress, 4PX, others via 17TRACK). With DHL / Aramex credentials the warehouse can compare live prices, book, and print the label in one step (`src/services/couriers.js`, fields marked VERIFY).
+- **Barcode scanning:** the warehouse app reads barcodes with the phone camera (Chrome on Android); Bluetooth/USB scanners work everywhere.
+- **Price sync:** Taobao and AliExpress costs refresh every 6 hours. Options that would sell below cost are flagged to the seller and admin; AliExpress ones are paused automatically.
+- **Share links:** `/p/<product>` and `/s/<shop>` show a photo, name and price when shared on WhatsApp, Instagram, Facebook or X.
+- **Custom domain:** add it in Render → kinan → Settings → Custom Domains, set `PUBLIC_BASE_URL` to it, and add `https://<domain>/auth/google/callback` to the Google OAuth client.
+
 ## Before production
 
 - **Database:** set `DATABASE_URL` (PostgreSQL). The free Render database expires after 30 days — upgrade it before then.

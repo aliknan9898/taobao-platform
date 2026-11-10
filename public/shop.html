@@ -288,11 +288,16 @@ async function shopsList() {
       : '<div class="empty"><h3>No shops yet</h3><p>Sellers are setting up. Check back soon.</p></div>'}`;
 }
 
+async function shareLink(url, title) {
+  if (navigator.share) { try { await navigator.share({ title, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); toast('Link copied — paste it anywhere'); } catch { prompt('Copy this link', url); }
+}
+
 async function shopPage(sellerId) {
   const v = $('#view'); v.innerHTML = skeletonGrid();
   const sh = await api(`/api/shops/${encodeURIComponent(sellerId)}`);
   v.innerHTML = `<a class="back" href="#/shops">${ICONS.back} Shops</a>
-    <div class="shophead">${shopLogo(sh, 'lg')}<div class="stack" style="gap:4px"><h1 style="font-size:clamp(24px,4vw,34px)">${esc(sh.name)}</h1><span class="muted">${sh.products} product${sh.products === 1 ? '' : 's'} · On Kinan since ${date(sh.since, false)}</span></div></div>
+    <div class="shophead">${shopLogo(sh, 'lg')}<div class="stack" style="gap:4px"><div class="row between"><h1 style="font-size:clamp(24px,4vw,34px)">${esc(sh.name)}</h1><button class="btn sm quiet" id="sshare">${ICONS.share} Share</button></div><span class="muted">${sh.products} product${sh.products === 1 ? '' : 's'} · On Kinan since ${date(sh.since, false)}</span></div></div>
     ${sh.description ? `<p style="max-width:70ch;color:var(--ink-2)">${esc(sh.description)}</p>` : ''}
     <details class="panel flat small" style="margin:10px 0 4px"><summary><b>Return policy</b></summary><p class="desc" style="margin-top:8px">${esc(sh.return_policy)}</p></details>
     <div class="sechead"><h2>Products</h2></div>${toolbar()}<div id="results">${skeletonGrid()}</div>`;
@@ -300,6 +305,7 @@ async function shopPage(sellerId) {
     const d = await api(`/api/catalog?${catalogQuery({ seller_id: sellerId })}`);
     $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>No products match</h3></div>';
   };
+  $('#sshare').onclick = () => shareLink(`${location.origin}/s/${sh.id}`, sh.name);
   wireToolbar(load); await load();
 }
 
@@ -323,6 +329,7 @@ async function product(id) {
         ${p.skus.length > 1 ? `<div class="stack"><h3>Option</h3><div class="variants" id="variants">${p.skus.map((s) => `<button data-sku="${esc(s.mp_sku_id)}" ${s.in_stock ? '' : 'disabled'}>${esc(variantLabel(s.props))}</button>`).join('')}</div></div>` : ''}
         <div class="row"><div class="qty"><button type="button" id="qm" aria-label="Less">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="More">+</button></div><span class="muted" id="stock"></span></div>
         <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
+        <button class="btn quiet" id="share" style="justify-self:start">${ICONS.share} Share</button>
         <div class="panel flat stack small">
           <div><b>Shipping:</b> ${p.fulfillment === 'direct' ? 'Included' : 'Priced by weight and country at checkout — items from several shops ship together'}</div>
           ${p.fulfillment === 'direct' ? `<div class="eta"><div><span class="muted">Ships directly from the supplier</span><b>${esc(cfg.aliexpress?.delivery_days || '10–20')} days</b></div><div><span class="muted">Tracking</span><b>Included</b></div></div>
@@ -350,6 +357,7 @@ async function product(id) {
   $('#qm').onclick = () => setQty(qty - 1); $('#qp').onclick = () => setQty(qty + 1); $('#qv').onchange = (e) => setQty(e.target.value);
   const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });
   $('#add').onclick = () => { add(); toast('Added to cart'); };
+  $('#share').onclick = () => shareLink(`${location.origin}/p/${p.id}`, p.title);
   $('#buy').onclick = () => { add(); location.hash = '#/cart'; };
   paint();
 }
@@ -551,10 +559,10 @@ async function orderDetail(id) {
       ${o.status === 'pending_payment' ? `<div class="panel row between"><span>This order is waiting for payment.</span><a class="btn" href="#/pay/${esc(o.id)}">Pay now</a></div>` : ''}
       ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Shipped directly from the supplier'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
         <div class="muted small">${d.items.map(esc).join(' · ')}</div>
-        ${d.tracking.length ? d.tracking.map((t) => `<div><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}</div>`).join('')}
+        ${d.tracking.length ? d.tracking.map((t) => `<div class="row between"><span><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></span>${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}</div>`).join('')}
       ${o.shipping_due ? `<div class="panel row between warn"><span>Your parcel weighed more than estimated. Extra shipping: <b>${money(o.shipping_due, o.currency)}</b></span><button class="btn sm" id="paydue">Pay from wallet</button></div>` : ''}
       ${o.shipping_settled?.result === 'credited' ? `<div class="panel flat small">Your parcel weighed ${o.shipping_settled.actual_weight_kg} kg, less than estimated — we added ${money(-o.shipping_settled.diff, o.currency)} to your <a href="#/wallet">wallet</a>.</div>` : ''}
-      ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div></div>` : ''}
+      ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div class="row between"><span><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></span>${o.tracking.url ? `<a class="btn sm" href="${esc(o.tracking.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div></div>` : ''}
       ${!ended && o.status !== 'pending_payment' ? `<div class="panel"><h3 style="margin-bottom:14px">Progress</h3><div class="track"><ul>${steps.map(([k, t], i) => `<li class="${idx > i || o.status === 'delivered' ? 'done' : idx === i ? 'now done' : ''}"><span>${t}</span></li>`).join('')}</ul></div></div>` : ''}
       <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `<img src="${esc(l.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
     </div>

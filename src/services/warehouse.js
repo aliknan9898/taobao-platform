@@ -49,7 +49,7 @@ function assign(parcelId, orderId) {
 }
 
 /** Pack all received parcels of an order into one outbound shipment. */
-function ship(orderId, { carrier, tracking, weight_g }, staff) {
+function ship(orderId, { carrier, tracking, weight_g, cost, label }, staff) {
   const o = db.orders.get(orderId);
   if (!o) throw httpError(404, 'Order not found');
   if (o.status !== 'ready_to_ship') throw httpError(409, 'Order is not ready to ship (all parcels must be received and pass QC)');
@@ -58,6 +58,8 @@ function ship(orderId, { carrier, tracking, weight_g }, staff) {
   const s = db.shipments.insert({
     order_id: o.id, parcel_ids: parcels.map((p) => p.id), carrier: String(carrier).slice(0, 60),
     tracking: String(tracking).slice(0, 60), weight_g: weight_g ? Number(weight_g) : null,
+    cost: Number(cost) > 0 ? Math.round(Number(cost) * 100) / 100 : null, // what Kinan paid the courier (for profit reports)
+    label: label || null,
     destination: { country: o.shipping_address.country, city: o.shipping_address.city },
     shipped_at: Date.now(), shipped_by: staff.id, status: 'in_transit'
   });
@@ -107,13 +109,13 @@ function parcelView(p) {
 function lists() {
   const readyOrders = db.orders.all((o) => ['ready_to_ship', 'awaiting_parcels', 'attention'].includes(o.status)).map((o) => {
     const ps = db.parcels.all((p) => p.order_id === o.id);
-    return { id: o.id, status: o.status, status_label: orders.ORDER_STATUS_LABEL[o.status], destination: `${o.shipping_address.city}, ${o.shipping_address.country}`, recipient: o.shipping_address.name, parcels_total: ps.length, parcels_received: ps.filter((p) => p.status === 'received').length, items: o.lines.reduce((a, l) => a + l.qty, 0) };
+    return { id: o.id, status: o.status, status_label: orders.ORDER_STATUS_LABEL[o.status], destination: `${o.shipping_address.city}, ${o.shipping_address.country}`, recipient: o.shipping_address.name, parcels_total: ps.length, parcels_received: ps.filter((p) => p.status === 'received').length, items: o.lines.reduce((a, l) => a + l.qty, 0), weight_g: ps.reduce((a, p) => a + (Number(p.weight_g) || 0), 0) || null, country_code: o.shipping_address.country_code || null };
   });
   return {
     expected: db.parcels.all((p) => p.status === 'expected').map(parcelView),
     in_stock: db.parcels.all((p) => p.status === 'received' || p.status === 'qc_failed' || p.unmatched).map(parcelView),
     orders: readyOrders,
-    shipments: db.shipments.all().slice(-50).reverse()
+    shipments: db.shipments.all().slice(-50).reverse().map((x) => ({ ...x, label: x.label ? { type: x.label.type } : null, tracking_url: require('./couriers').trackingUrl(x.carrier, x.tracking) }))
   };
 }
 

@@ -22,6 +22,12 @@
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Instrument Sans",system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
   header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  @media (max-width: 640px) {
+    header { flex-wrap:wrap; padding:10px 12px; }
+    header > .row { width:100%; flex-wrap:nowrap; overflow-x:auto; gap:6px; }
+    header > .row .muted { display:none; }
+    header > .row button { padding:6px 10px; font-size:13px; white-space:nowrap; }
+  }
   .brand { display:inline-flex; align-items:center; gap:8px; text-decoration:none; color:var(--ink); font-family:"Bricolage Grotesque",system-ui,sans-serif; font-weight:750; font-size:21px; letter-spacing:-.03em; }
   .brand svg { width:28px; height:28px; } .brand small { font:500 13px "Instrument Sans",system-ui,sans-serif; color:var(--muted); letter-spacing:0; }
   h1, h2 { font-family:"Bricolage Grotesque",system-ui,sans-serif; letter-spacing:-.01em; }
@@ -53,11 +59,24 @@
   .login { max-width:360px; margin:12vh auto; display:grid; gap:10px; }
   .err { color:var(--bad); font-size:14px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .camin { display:flex; gap:6px; align-items:center; }
+  .camin input { flex:1; min-width:0; }
+  .cambtn { flex:none; width:42px; height:40px; display:grid; place-items:center; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); cursor:pointer; }
+  .cambtn svg { width:20px; height:20px; }
+  dialog { border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--ink); width:min(560px,94vw); padding:0; }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  .dlg { padding:18px; display:grid; gap:12px; }
+  .cam { position:relative; border-radius:12px; overflow:hidden; background:#000; aspect-ratio:4/3; }
+  .cam video { width:100%; height:100%; object-fit:cover; }
+  .cam i { position:absolute; inset:28% 12%; border:3px solid #2fb293; border-radius:10px; box-shadow:0 0 0 999px rgba(0,0,0,.35); }
+  .rate { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .note { font-size:13px; padding:8px 12px; border-radius:8px; background:color-mix(in srgb, var(--warn) 12%, transparent); }
 </style>
 </head>
 <body>
 <div id="app"></div>
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <footer style="text-align:center;color:var(--muted);font-size:12px;padding:20px 16px 28px">© 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. · <a href="/legal" style="color:inherit">Legal notice</a> · <a href="/privacy" style="color:inherit">Privacy</a></footer>
 <script>
 const $ = (s, el = document) => el.querySelector(s);
@@ -87,12 +106,53 @@ function showLogin(msg = '') {
 }
 
 let tab = 'expected';
+let couriers = { dhl: false, aramex: false, carriers: [] };
+const CAM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13 8v8M16.5 8v8"/></svg>';
+
+// ---------- camera barcode scanner ----------
+// Uses the phone's built-in barcode reader (Chrome on Android). Bluetooth/USB scanners work everywhere: they type into the field.
+let camStream = null;
+function stopCam() { if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; } }
+async function scanInto(input, after) {
+  const d = $('#dlg'); const b = $('#dlgBody');
+  if (!('BarcodeDetector' in window)) {
+    b.innerHTML = `<h2>Camera scanning isn’t available here</h2><p>This browser can’t read barcodes with the camera (for example Safari on iPhone). Use Chrome on Android, a Bluetooth / USB barcode scanner (it types into the field), or type the number.</p><button class="btn" id="cx">OK</button>`;
+    d.showModal(); $('#cx').onclick = () => { d.close(); input.focus(); }; return;
+  }
+  b.innerHTML = `<h2>Scan barcode</h2><div class="cam"><video id="cv" playsinline muted></video><i></i></div><p class="muted" id="cmsg">Point the camera at the barcode on the parcel.</p><button class="btn ghost" id="cx">Cancel</button>`;
+  d.showModal();
+  let done = false;
+  const close = () => { done = true; stopCam(); if (d.open) d.close(); };
+  $('#cx').onclick = close; d.onclose = () => { done = true; stopCam(); };
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    const v = $('#cv'); v.srcObject = camStream; await v.play();
+    const formats = (await BarcodeDetector.getSupportedFormats()).filter((f) => ['code_128', 'code_39', 'code_93', 'codabar', 'ean_13', 'ean_8', 'itf', 'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'pdf417'].includes(f));
+    const det = new BarcodeDetector({ formats });
+    const tick = async () => {
+      if (done) return;
+      try {
+        const found = await det.detect(v);
+        const code = found.map((x) => x.rawValue.trim()).find((x) => x.length >= 6);
+        if (code) { if (navigator.vibrate) navigator.vibrate(80); input.value = code; close(); input.dispatchEvent(new Event('input')); if (after) after(code); return; }
+      } catch { /* frame not ready */ }
+      setTimeout(tick, 250);
+    };
+    tick();
+  } catch (err) { $('#cmsg').textContent = err.name === 'NotAllowedError' ? 'Camera permission was refused. Allow the camera for this site in your browser settings.' : `Camera error: ${err.message}`; }
+}
+function wireCams(root) {
+  root.querySelectorAll('[data-cam]').forEach((btn) => btn.onclick = () => {
+    const input = btn.parentElement.querySelector('input');
+    scanInto(input, () => { const next = btn.closest('form')?.querySelector('input[name="location"], input[name="weight_g"]'); if (next) next.focus(); });
+  });
+}
 function boot(user) {
   $('#app').innerHTML = `<header><a class="brand" href="/warehouse"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>Warehouse · China</small></a><div class="row">${user.role === 'admin' ? '<a href="/admin"><button class="btn ghost">Admin dashboard</button></a>' : ''}${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.name || user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
   <main>
     <section class="card"><h2>Receive parcel</h2>
       <form class="scan" id="scan">
-        <input class="wide" name="tracking" placeholder="Scan or type tracking number" required autofocus autocomplete="off">
+        <div class="camin wide"><input name="tracking" placeholder="Scan or type tracking number" required autofocus autocomplete="off" inputmode="text"><button type="button" class="cambtn" data-cam="tracking" aria-label="Scan with camera" title="Scan with camera">${CAM}</button></div>
         <input name="location" placeholder="Location (A-01)">
         <input name="weight_g" type="number" min="0" placeholder="Weight (g)">
         <select name="qc"><option value="pass">QC passed</option><option value="fail">QC failed</option></select>
@@ -106,6 +166,8 @@ function boot(user) {
   </main>`;
   $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
   $('#scan').onsubmit = onScan;
+  wireCams($('#scan'));
+  api('/api/warehouse/couriers').then((c) => { couriers = c; }).catch(() => {});
   load();
 }
 
@@ -136,6 +198,57 @@ async function load() {
   LISTS[tab]($('#list'));
 }
 
+// ---------- ship an order ----------
+function openShip(o) {
+  const d = $('#dlg'); const b = $('#dlgBody');
+  const api_on = couriers.dhl || couriers.aramex;
+  b.innerHTML = `<h2>Ship order <code>${esc(o.id.slice(-8))}</code></h2>
+    <div class="muted">${esc(o.recipient)} · ${esc(o.destination)} · ${o.items} item(s)</div>
+    <form id="shf" style="display:grid;gap:10px">
+      <div class="grid2"><label>Weight (g)<input name="weight_g" type="number" min="1" required value="${esc(o.weight_g || '')}"></label>
+        <label>Box L×W×H (cm)<div class="row" style="flex-wrap:nowrap;gap:4px"><input name="length_cm" type="number" min="1" placeholder="30"><input name="width_cm" type="number" min="1" placeholder="20"><input name="height_cm" type="number" min="1" placeholder="10"></div></label></div>
+      ${api_on ? `<div><button type="button" class="btn" id="getr">Get courier prices</button> <span class="muted">${[couriers.dhl && 'DHL', couriers.aramex && 'Aramex'].filter(Boolean).join(' · ')}</span></div><div id="rates" style="display:grid;gap:8px"></div><hr style="border:0;border-top:1px solid var(--line);width:100%">` : ''}
+      <b>${api_on ? 'Or ship by hand' : 'Courier details'}</b>
+      <div class="grid2"><label>Courier<select name="carrier">${(couriers.carriers.length ? couriers.carriers : [{ key: 'other', label: 'Other' }]).map((c) => `<option value="${esc(c.label)}">${esc(c.label)}</option>`).join('')}</select></label>
+        <label>Courier cost (${'what you paid'})<input name="cost" type="number" min="0" step="0.01" placeholder="for profit reports"></label></div>
+      <label>Tracking number<div class="camin"><input name="tracking" autocomplete="off"><button type="button" class="cambtn" data-cam="tracking" aria-label="Scan with camera">${CAM}</button></div></label>
+      <div class="err" id="she"></div>
+      <div class="row"><button class="btn" id="shgo">Ship by hand</button><button type="button" class="btn ghost" id="shx">Close</button></div>
+    </form>`;
+  d.showModal();
+  const f = $('#shf');
+  $('#shx').onclick = () => d.close();
+  f.querySelector('[data-cam]').onclick = () => scanInto(f.tracking);
+  const dims = () => ({ weight_g: Number(f.weight_g.value), length_cm: Number(f.length_cm.value) || undefined, width_cm: Number(f.width_cm.value) || undefined, height_cm: Number(f.height_cm.value) || undefined });
+  f.onsubmit = async (e) => {
+    e.preventDefault(); $('#she').textContent = '';
+    if (!f.tracking.value.trim()) { $('#she').textContent = 'Enter or scan the tracking number'; return; }
+    try { await api(`/api/warehouse/orders/${o.id}/ship`, 'POST', { carrier: f.carrier.value, tracking: f.tracking.value.trim(), weight_g: f.weight_g.value, cost: f.cost.value }); d.close(); tab = 'shipments'; load(); }
+    catch (err) { $('#she').textContent = err.message; }
+  };
+  const gr = $('#getr');
+  if (gr) gr.onclick = async () => {
+    if (!f.weight_g.value) { $('#she').textContent = 'Enter the weight first'; return; }
+    gr.disabled = true; gr.textContent = 'Asking couriers…'; $('#rates').innerHTML = '';
+    try {
+      const r = await api(`/api/warehouse/orders/${o.id}/rates`, 'POST', dims());
+      $('#rates').innerHTML = r.rates.map((x, i) => `<div class="rate"><div><b>${esc(x.carrier_label)}</b> · ${esc(x.service || '')}<div class="muted">${x.eta ? 'Arrives ' + esc(String(x.eta).slice(0, 10)) : ''}</div></div><div class="row"><b>${esc(x.price)} ${esc(x.currency)}</b><button type="button" class="btn" data-buy="${i}">Buy label</button></div></div>`).join('')
+        + r.errors.map((m) => `<div class="err">${esc(m)}</div>`).join('') || '<div class="muted">No prices returned.</div>';
+      $('#rates').querySelectorAll('[data-buy]').forEach((bt) => bt.onclick = async () => {
+        const x = r.rates[Number(bt.dataset.buy)];
+        if (!confirm(`Book ${x.carrier_label} ${x.service || ''} for ${x.price} ${x.currency}? The courier will charge your account.`)) return;
+        bt.disabled = true; bt.textContent = 'Booking…';
+        try {
+          const s = await api(`/api/warehouse/orders/${o.id}/label`, 'POST', { carrier: x.carrier, code: x.code, price: x.price, ...dims() });
+          b.innerHTML = `<h2>Shipped ✓</h2><p>${esc(s.carrier)} · <code>${esc(s.tracking)}</code></p>${s.label ? `<a class="btn" href="/api/warehouse/shipments/${esc(s.id)}/label" target="_blank" rel="noopener">Print label</a>` : '<p class="muted">The courier did not return a label — print it from their website.</p>'}<button class="btn ghost" id="shx2">Close</button>`;
+          $('#shx2').onclick = () => d.close(); tab = 'shipments'; load();
+        } catch (err) { bt.disabled = false; bt.textContent = 'Buy label'; $('#she').textContent = err.message; }
+      });
+    } catch (err) { $('#she').textContent = err.message; }
+    gr.disabled = false; gr.textContent = 'Get courier prices';
+  };
+}
+
 const LISTS = {
   expected(el) {
     el.innerHTML = `<div class="scroll"><table><thead><tr><th>Tracking no.</th><th>Carrier</th><th>Product</th><th>Shop</th><th>Order</th></tr></thead><tbody>
@@ -157,16 +270,13 @@ const LISTS = {
     el.innerHTML = `<div class="scroll"><table><thead><tr><th>Order</th><th>Recipient</th><th>Destination</th><th>Items</th><th>Parcels</th><th>Status</th><th>International shipping</th></tr></thead><tbody>
       ${data.orders.map((o) => `<tr><td><code>${esc(o.id.slice(-8))}</code></td><td>${esc(o.recipient)}</td><td>${esc(o.destination)}</td><td>${o.items}</td><td>${o.parcels_received}/${o.parcels_total}</td>
         <td><span class="pill ${o.status === 'ready_to_ship' ? 'ok' : o.status === 'attention' ? 'bad' : 'warn'}">${esc(o.status_label)}</span></td>
-        <td>${o.status === 'ready_to_ship' ? `<form class="row" data-ship="${esc(o.id)}"><input name="carrier" placeholder="Carrier" required style="width:90px"><input name="tracking" placeholder="Tracking no." required style="width:130px"><input name="weight_g" type="number" placeholder="g" style="width:70px"><button class="btn">Ship</button></form>` : '<span class="muted">Awaiting parcels</span>'}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No orders</td></tr>'}
+        <td>${o.status === 'ready_to_ship' ? `<button class="btn" data-ship="${esc(o.id)}">Ship…</button>` : '<span class="muted">Awaiting parcels</span>'}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No orders</td></tr>'}
       </tbody></table></div>`;
-    el.querySelectorAll('[data-ship]').forEach((f) => f.onsubmit = async (e) => {
-      e.preventDefault();
-      try { await api(`/api/warehouse/orders/${f.dataset.ship}/ship`, 'POST', Object.fromEntries(new FormData(f))); tab = 'shipments'; load(); } catch (err) { alert(err.message); }
-    });
+    el.querySelectorAll('[data-ship]').forEach((b) => b.onclick = () => openShip(data.orders.find((o) => o.id === b.dataset.ship)));
   },
   shipments(el) {
     el.innerHTML = `<div class="scroll"><table><thead><tr><th>Order</th><th>Carrier</th><th>Tracking no.</th><th>Destination</th><th>Parcels</th><th>Shipped at</th><th>Status</th><th></th></tr></thead><tbody>
-      ${data.shipments.map((s) => `<tr><td><code>${esc(s.order_id.slice(-8))}</code></td><td>${esc(s.carrier)}</td><td><code>${esc(s.tracking)}</code></td><td>${esc(s.destination.city)}, ${esc(s.destination.country)}</td><td>${s.parcel_ids.length}</td><td class="muted">${date(s.shipped_at)}</td>
+      ${data.shipments.map((s) => `<tr><td><code>${esc(s.order_id.slice(-8))}</code></td><td>${esc(s.carrier)}${s.cost ? `<div class="muted">cost ${esc(s.cost)}</div>` : ''}</td><td><a href="${esc(s.tracking_url || '#')}" target="_blank" rel="noopener"><code>${esc(s.tracking)}</code></a>${s.label ? ` <a class="btn ghost" href="/api/warehouse/shipments/${esc(s.id)}/label" target="_blank" rel="noopener">Label</a>` : ''}</td><td>${esc(s.destination.city)}, ${esc(s.destination.country)}</td><td>${s.parcel_ids.length}</td><td class="muted">${date(s.shipped_at)}</td>
         <td><span class="pill ${s.status === 'delivered' ? 'ok' : 'warn'}">${s.status === 'delivered' ? 'Delivered' : 'In transit'}</span></td>
         <td>${s.status !== 'delivered' ? `<button class="btn ghost" data-dlv="${esc(s.order_id)}">Confirm delivery</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No shipments</td></tr>'}
       </tbody></table></div>`;

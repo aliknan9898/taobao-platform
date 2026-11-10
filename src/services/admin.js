@@ -45,6 +45,8 @@ function overview() {
     if (!['cancelled', 'refunded'].includes(o.status) && s.status === 'AE_TO_BUY' && o.status !== 'pending_payment') alerts.push({ kind: 'order', id: o.id, text: `Order ${o.id.slice(-8)}: AliExpress item to order${s.error ? ` (${s.error})` : ''}` });
     if (s.status === 'AE_PLACED') alerts.push({ kind: 'pay_deadline', id: o.id, text: `Order ${o.id.slice(-8)}: pay the AliExpress order ${(s.purchase_ids || []).join(', ')}` });
   }
+  const losing = db.listings.all((l) => l.price_alert?.skus?.length);
+  if (losing.length) alerts.push({ kind: 'listings', text: `${losing.length} product(s) now cost more than their price after the last price sync${losing.some((l) => l.price_alert.paused) ? ' (AliExpress ones were paused)' : ''}` });
   const payReq = db.payouts.all((p) => p.status === 'requested');
   if (payReq.length) alerts.push({ kind: 'payouts', text: `${payReq.length} seller withdrawal request(s) to pay` });
   const retReq = db.returns.all((r) => r.status === 'requested');

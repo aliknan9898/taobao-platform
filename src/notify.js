@@ -28,7 +28,7 @@ function orderPaid(o) {
 function orderShipped(o, tracking = []) {
   const t = tracking.filter((x) => x && x.number);
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `shipped:${o.id}:${t.map((x) => x.number).join(',')}`, kind: 'order', subject: `Order ${ref(o)} is on its way`, title: 'Your order has shipped',
-    lines: [...t.map((x) => `Tracking: ${x.carrier ? `${x.carrier} ` : ''}${x.number}`), 'You can follow every step in your Kinan orders.'],
+    lines: [...t.map((x) => `Tracking: ${x.carrier ? `${x.carrier} ` : ''}${x.number} — ${require('./services/couriers').trackingUrl(x.carrier, x.number)}`), 'You can follow every step in your Kinan orders.'],
     button: { text: 'Track your order', url: `${base()}/#/orders/${o.id}` } }));
 }
 
@@ -61,6 +61,13 @@ function passwordReset(user, url) {
     button: { text: 'Choose a new password', url } });
 }
 
+function priceAlert(l, skus, paused) {
+  const opts = skus.map((s) => `${s.props || 'Standard'}: your price ${money(s.price, config.currency)}, now costs ${money(s.cost, config.currency)}`);
+  fire(mailer.send({ to: sellerEmail(l.seller_id), key: `price:${l.id}:${skus.map((s) => s.cost).join(',')}`, kind: 'seller', subject: `Price check: ${l.title}`, title: paused ? 'We paused a product that would sell at a loss' : 'A product now costs more than its price',
+    lines: [`The supplier price of “${l.title}” went up:`, ...opts, paused ? 'It is paused so nobody can buy it at a loss. Raise the price, then put it live again.' : 'Raise the price in Seller Center so you don’t lose money on new orders.'],
+    button: { text: 'Update the price', url: `${base()}/seller#/products` } }));
+}
+
 function payoutUpdate(p) {
   fire(mailer.send({ to: sellerEmail(p.seller_id), key: `payout:${p.id}:${p.status}`, kind: 'payout', subject: `Withdrawal ${p.status === 'paid' ? 'sent' : 'update'} — ${money(p.amount, p.currency)}`,
     title: p.status === 'paid' ? 'Your withdrawal was sent' : 'Your withdrawal request was declined',
@@ -76,4 +83,4 @@ function returnUpdate(r) {
     button: { text: 'View order', url: `${base()}/#/orders/${r.order_id}` } }));
 }
 
-module.exports = { orderPaid, orderShipped, orderDelivered, sellerApproved, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate };
+module.exports = { priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate };

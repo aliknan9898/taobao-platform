@@ -66,8 +66,10 @@
   dialog::backdrop { background:rgba(0,0,0,.35); }
   .dlg { padding:16px; display:grid; gap:12px; }
   .sub { border:1px solid var(--line); border-radius:10px; padding:10px; display:grid; gap:4px; }
-  .bars { display:flex; align-items:flex-end; gap:6px; height:140px; padding-top:8px; }
-  .bars div { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; height:100%; justify-content:flex-end; }
+  .bars { display:flex; align-items:flex-end; gap:6px; height:140px; padding-top:8px; min-width:0; }
+  .bars.many { gap:2px; }
+  .bars.many small { display:none; }
+  .bars div { flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; gap:4px; height:100%; justify-content:flex-end; }
   .bars i { display:block; width:100%; background:var(--marigold); border-radius:4px 4px 0 0; min-height:2px; }
   .bars small { font-size:10px; color:var(--muted); }
 </style>
@@ -101,19 +103,30 @@ function showLogin(msg = '') {
     e.preventDefault(); const f = new FormData(e.target);
     try {
       const r = await api('/api/auth/login', 'POST', { email: f.get('email'), password: f.get('password') });
-      if (r.user.role !== 'admin') { await api('/api/auth/logout', 'POST'); return showLogin('This account is not an admin account'); }
+      if (r.user.role === 'warehouse') { location.href = '/warehouse'; return; }
+      if (!STAFF_LOGIN.includes(r.user.role)) { await api('/api/auth/logout', 'POST'); return showLogin('This account is not a staff account'); }
       boot(r.user);
     } catch (err) { showLogin(err.message); }
   };
 }
 
 let googleSignin = false;
-const TABS = [['overview','Overview'],['orders','Orders'],['sellers','Sellers'],['listings','Products'],['requests','Item requests'],['payouts','Withdrawals'],['returns','Returns'],['shipping','Shipping'],['users','Users']];
+// [tab, label, roles that see it]
+const ALL_TABS = [['overview','Overview','*'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['listings','Products','admin'],
+  ['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['users','Users','admin finance support']];
+const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
+const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
+let TABS = ALL_TABS;
+const isAdmin = () => me?.role === 'admin';
+const canBuy = () => ['admin', 'procurement'].includes(me?.role);
+const canMoney = () => ['admin', 'finance'].includes(me?.role);
 let tab = 'overview', me;
 
 function boot(user) {
   me = user;
-  $('#app').innerHTML = `<header><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>Admin</small></a>
+  TABS = ALL_TABS.filter(([, , r]) => can(r));
+  if (!TABS.some(([k]) => k === tab)) tab = 'overview';
+  $('#app').innerHTML = `<header><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
       <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Kinan Shop</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a>${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
     <nav>${TABS.map(([k, t]) => `<button data-t="${k}">${t}</button>`).join('')}</nav><main id="view"></main>
     <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>`;
@@ -147,18 +160,18 @@ const VIEWS = {
       <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
       <div class="card" id="aecard"><h2>AliExpress</h2><p class="muted">Loading…</p></div>
-      <div class="card"><h2>Setup & integrations</h2>
+      ${isAdmin() ? '' : '<!--'}<div class="card"><h2>Setup & integrations</h2>
         ${d.config_problems.length ? `<p class="warn">Missing: ${d.config_problems.map((x) => `<code>${esc(x)}</code>`).join(' ')}</p>` : '<p class="ok">Configuration complete.</p>'}
         <p class="muted">Taobao Callback URL: <code>${esc(d.webhook_urls.oauth_callback)}</code><br>
         Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
-        Messages waiting to be processed: ${d.inbox_backlog}</p></div>`;
+        Messages waiting to be processed: ${d.inbox_backlog}</p></div>${isAdmin() ? '' : '-->'}`;
     const aeS = await api('/api/admin/aliexpress');
     $('#aecard').innerHTML = `<h2>AliExpress</h2>
       <p>${aeS.mode === 'api' ? `<span class="pill ok">Connected</span> ${esc(aeS.account || '')} — products import from a link; orders are placed automatically.${aeS.needs_reauth_soon ? ' <span class="pill warn">Reconnect soon</span>' : ''}`
         : aeS.api_configured ? '<span class="pill warn">Not connected</span> Connect Kinan’s AliExpress account to place orders automatically.'
         : '<span class="pill warn">Manual mode</span> Sellers add AliExpress products by hand and you order them on AliExpress yourself. Add <code>ALIEXPRESS_APP_KEY</code> and <code>ALIEXPRESS_APP_SECRET</code> to switch on automatic import and ordering.'}</p>
       <p class="muted">AliExpress items ship straight to the customer (about ${esc(aeS.delivery_days)} days). Callback URL for the AliExpress app: <code>${esc(aeS.redirect_uri)}</code></p>
-      <div class="row">${aeS.api_configured ? `<button class="btn" id="aeconn">${aeS.connected ? 'Reconnect' : 'Connect AliExpress account'}</button>` : ''}${aeS.connected ? '<button class="btn ghost" id="aedis">Disconnect</button>' : ''}</div>`;
+      <div class="row">${aeS.api_configured && isAdmin() ? `<button class="btn" id="aeconn">${aeS.connected ? 'Reconnect' : 'Connect AliExpress account'}</button>` : ''}${aeS.connected && isAdmin() ? '<button class="btn ghost" id="aedis">Disconnect</button>' : ''}</div>`;
     const aeC = $('#aeconn'); if (aeC) aeC.onclick = async () => { try { location.href = (await api('/api/admin/aliexpress/connect', 'POST')).url; } catch (e) { alert(e.message); } };
     const x = $('#aedis'); if (x) x.onclick = async () => { if (confirm('Disconnect AliExpress? New AliExpress orders will need to be placed by hand.')) { await api('/api/admin/aliexpress/disconnect', 'POST'); render(); } };
   },
@@ -230,21 +243,23 @@ const VIEWS = {
 
   async users(v) {
     const list = await api('/api/admin/users');
-    const ROLE = { admin:'Admin', seller:'Seller', buyer:'Buyer', warehouse:'Warehouse' };
-    v.innerHTML = `<div class="card"><h2>Add staff member</h2><form class="row" id="sf">
+    const ROLE = { admin:'Admin', seller:'Seller', buyer:'Buyer', warehouse:'Warehouse', procurement:'Procurement', finance:'Finance', support:'Support' };
+    const roles = isAdmin() ? await api('/api/admin/staff-roles') : null;
+    v.innerHTML = `${roles ? `<div class="card"><h2>Add staff member</h2><form class="row" id="sf">
         <input name="name" placeholder="Name" required><input name="email" type="email" placeholder="Email" required>
         <input name="password" type="password" placeholder="Password (8+)" minlength="8" required>
-        <select name="role"><option value="warehouse">Warehouse</option><option value="admin">Admin</option></select><button class="btn">Add</button></form><div class="err" id="se"></div></div>
+        <select name="role">${Object.keys(roles).filter((r) => r !== 'admin').concat('admin').map((r) => `<option value="${r}">${ROLE[r]}</option>`).join('')}</select><button class="btn">Add</button></form><div class="err" id="se"></div>
+        <ul class="muted" style="margin:8px 0 0;padding-inline-start:18px">${Object.entries(roles).map(([r, d]) => `<li><b>${ROLE[r]}</b> — ${esc(d)}</li>`).join('')}</ul></div>` : ''}
       <div class="card"><h2>Users (${list.length})</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Wallet</th><th></th></tr></thead><tbody>
       ${list.map((u) => `<tr><td>${esc(u.name || '—')}</td><td>${esc(u.email)}</td><td>${esc(ROLE[u.role])}</td><td><span class="pill ${statusClass(u.status)}">${u.status === 'active' ? 'Active' : esc(u.status)}</span></td>
-        <td>${u.role === 'buyer' ? `<b>${fmt(u.wallet)}</b> <button class="btn ghost" data-wal="${esc(u.id)}" data-em="${esc(u.email)}">Adjust</button>` : ''}</td>
-        <td><button class="btn ghost" data-rl="${esc(u.id)}" title="Create a one-hour link to set a new password">Reset link</button></td></tr>`).join('')}
+        <td>${u.role === 'buyer' ? `<b>${fmt(u.wallet)}</b>${canMoney() ? ` <button class="btn ghost" data-wal="${esc(u.id)}" data-em="${esc(u.email)}">Adjust</button>` : ''}` : ''}</td>
+        <td>${isAdmin() || (me.role === 'support' && ['buyer', 'seller'].includes(u.role)) ? `<button class="btn ghost" data-rl="${esc(u.id)}" title="Create a one-hour link to set a new password">Reset link</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div><p class="muted">Wallet: credit customers for shipping overpayments or goodwill, or deduct shipping underpayments after weighing. Customers see every entry with its reason.</p></div>`;
     v.querySelectorAll('[data-wal]').forEach((b) => b.onclick = () => openWallet(b.dataset.wal, b.dataset.em));
     v.querySelectorAll('[data-rl]').forEach((b) => b.onclick = async () => {
       try { const r = await api(`/api/admin/users/${b.dataset.rl}/reset-link`, 'POST'); prompt('Send this link to the user (works once, for 1 hour):', r.url); } catch (e) { alert(e.message); }
     });
-    $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/admin/staff', 'POST', f); render(); } catch (err) { $('#se').textContent = err.message; } };
+    if ($('#sf')) $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/admin/staff', 'POST', f); render(); } catch (err) { $('#se').textContent = err.message; } };
   }
 };
 
@@ -272,6 +287,47 @@ VIEWS.requests = async (v) => {
     try { await api(`/api/admin/requests/${id}`, 'PATCH', { status: b.dataset.ans, reply: q('data-reply'), quote: q('data-quote') || null, listing_id: q('data-lst') || null }); render(); }
     catch (e) { alert(e.message); b.disabled = false; }
   });
+};
+
+VIEWS.reports = async (v) => {
+  const q = v.dataset.rq ? JSON.parse(v.dataset.rq) : { days: 30, include_test: '' };
+  const qs = new URLSearchParams(Object.entries(q).filter(([, x]) => x !== '' && x !== undefined)).toString();
+  const d = await api('/api/admin/reports?' + qs); const t = d.totals; const c = d.currency;
+  const max = Math.max(1, ...d.days.map((x) => x.revenue));
+  const row = (label, val, cls = '', sign = '') => `<tr><td>${label}</td><td style="text-align:end" class="${cls}">${sign}${fmt(val, c)}</td></tr>`;
+  v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Profit & loss</h2>
+      <form class="row" id="rf"><select name="days">${[[7,'7 days'],[30,'30 days'],[90,'90 days'],[365,'12 months'],['custom','Custom']].map(([k, l]) => `<option value="${k}" ${String(q.days || 'custom') === String(k) ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <input type="date" name="from" value="${esc(q.from || d.from)}" ${q.days ? 'hidden' : ''}><input type="date" name="to" value="${esc(q.to || d.to)}" ${q.days ? 'hidden' : ''}>
+        <label class="row" style="gap:4px"><input type="checkbox" name="include_test" ${q.include_test ? 'checked' : ''} style="width:auto">include test payments</label>
+        <button class="btn ghost">Show</button><a href="/api/admin/reports/orders.csv?${esc(qs)}" download><button type="button" class="btn ghost">Download CSV</button></a></form></div>
+      <p class="muted">${esc(d.from)} → ${esc(d.to)}${d.test_orders && !d.include_test ? ` · ${d.test_orders} order(s) paid with test payments are left out` : ''}</p></div>
+    <div class="kpis">
+      <div class="kpi"><span>Revenue</span><b>${fmt(t.revenue, c)}</b></div>
+      <div class="kpi"><span>Profit</span><b class="${t.profit < 0 ? 'bad' : 'ok'}">${fmt(t.profit, c)}</b></div>
+      <div class="kpi"><span>Margin</span><b>${t.margin_pct}%</b></div>
+      <div class="kpi"><span>Orders</span><b>${fmt(t.orders)}</b></div>
+      <div class="kpi"><span>Average order</span><b>${fmt(t.avg_order, c)}</b></div>
+    </div>
+    <div class="card"><h2>Breakdown</h2><table><tbody>
+      ${row('Customers paid (products + shipping)', t.revenue)}
+      <tr><td class="muted" style="padding-inline-start:20px">of which products</td><td style="text-align:end" class="muted">${fmt(t.items_revenue, c)}</td></tr>
+      <tr><td class="muted" style="padding-inline-start:20px">of which shipping</td><td style="text-align:end" class="muted">${fmt(t.shipping_charged, c)}</td></tr>
+      ${row('Seller earnings (after your commission of ' + fmt(t.commission, c) + ')', t.seller_earnings, 'bad', '−')}
+      ${row('Goods Kinan bought (AliExpress, manual products)', t.goods, 'bad', '−')}
+      ${row('Courier costs', t.courier, 'bad', '−')}
+      ${row('Refunds and wallet credits', t.customer_credits, 'bad', '−')}
+      <tr><td><b>Profit</b></td><td style="text-align:end"><b class="${t.profit < 0 ? 'bad' : 'ok'}">${fmt(t.profit, c)}</b></td></tr>
+    </tbody></table>${d.shipments_without_cost ? `<p class="warn">${d.shipments_without_cost} shipment(s) have no courier cost recorded — profit is shown too high. Enter the cost when shipping in the warehouse app.</p>` : ''}</div>
+    <div class="card"><h2>Daily revenue</h2><div class="bars ${d.days.length > 16 ? 'many' : ''}">${d.days.slice(-60).map((x) => `<div title="${esc(x.date)}: ${fmt(x.revenue, c)} · ${x.orders} order(s)"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(8))}</small></div>`).join('')}</div></div>
+    <div class="card"><h2>Best-selling products</h2><div class="scroll"><table><thead><tr><th>Product</th><th>Shop</th><th>Sold</th><th>Sales</th></tr></thead><tbody>
+      ${d.best.map((p) => `<tr><td>${esc(p.title)}</td><td class="muted">${esc(p.shop)}</td><td>${p.qty}</td><td>${fmt(p.revenue, c)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No sales in this period</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h2>Sellers</h2><div class="scroll"><table><thead><tr><th>Shop</th><th>Orders</th><th>Items</th><th>Sales</th><th>Your commission</th><th>Returns</th></tr></thead><tbody>
+      ${d.sellers.map((s) => `<tr><td><b>${esc(s.shop)}</b></td><td>${s.orders}</td><td>${s.items}</td><td>${fmt(s.gross, c)}</td><td>${fmt(s.commission, c)}</td><td class="${s.return_rate > 10 ? 'bad' : ''}">${s.returns} (${s.return_rate}%)</td></tr>`).join('') || '<tr><td colspan="6" class="muted">—</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h2>Countries</h2><div class="scroll"><table><thead><tr><th>Country</th><th>Orders</th><th>Revenue</th></tr></thead><tbody>
+      ${d.countries.map((x) => `<tr><td>${esc(x.country)}</td><td>${x.orders}</td><td>${fmt(x.revenue, c)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">—</td></tr>'}</tbody></table></div></div>`;
+  const f = $('#rf');
+  f.days.onchange = () => { f.from.hidden = f.to.hidden = f.days.value !== 'custom'; };
+  f.onsubmit = (e) => { e.preventDefault(); v.dataset.rq = JSON.stringify(f.days.value === 'custom' ? { from: f.from.value, to: f.to.value, include_test: f.include_test.checked ? '1' : '' } : { days: f.days.value, include_test: f.include_test.checked ? '1' : '' }); render(); };
 };
 
 VIEWS.shipping = async (v) => {
@@ -336,7 +392,7 @@ VIEWS.returns = async (v) => {
         <div class="row"><input type="number" step="0.01" min="0" data-ra="${esc(r.id)}" value="${r.value}" style="width:110px">
           <select data-rto="${esc(r.id)}"><option value="wallet">to Kinan wallet</option>${r.paid_by === 'stripe' ? '<option value="card">to card</option>' : ''}</select>
           <label class="row" style="gap:4px"><input type="checkbox" data-rcs="${esc(r.id)}" checked style="width:auto">charge seller</label>
-          <button class="btn" data-ract="refund" data-id="${esc(r.id)}">Refund</button>
+          ${canMoney() ? `<button class="btn" data-ract="refund" data-id="${esc(r.id)}">Refund</button>` : ''}
           ${r.status === 'requested' ? `<button class="btn ghost" data-ract="approve" data-id="${esc(r.id)}">Approve return</button>` : ''}
           <button class="btn ghost bad" data-ract="reject" data-id="${esc(r.id)}">Reject</button></div>` : ''}
     </div>`).join('') || '<div class="card muted">No returns here.</div>'}`;
@@ -384,16 +440,16 @@ async function openOrder(id) {
       ${s.direct ? `<div style="display:grid;gap:6px;margin-top:6px"><div class="muted">Ships straight to the customer · AliExpress order: ${esc((s.purchase_ids || []).join(', ') || '—')}${(s.logistics || []).length ? ` · tracking ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}` : ''}</div>
         ${(s.links || []).map((x) => `<div class="muted">${x.qty} × ${esc(x.title)}${x.props ? ` (${esc(x.props)})` : ''} ${(x.link.match(/https?:\/\/\S+/) || [])[0] ? `· <a href="${esc(x.link.match(/https?:\/\/\S+/)[0])}" target="_blank" rel="noopener noreferrer">Open on AliExpress</a>` : ''}</div>`).join('')}
         ${s.status === 'AE_TO_BUY' ? `<div class="muted">Order it on AliExpress with the customer’s address: <code>${esc([a.name, a.line1, a.line2, a.city, a.state, a.postal_code, a.country, a.phone].filter(Boolean).join(', '))}</code> <button class="btn ghost" data-copyaddr>Copy</button></div>` : ''}
-        ${!['AE_DELIVERED', 'AE_CANCELLED'].includes(s.status) ? `<div class="row"><input placeholder="AliExpress order no." data-aeo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking number" data-aet="${esc(s.outer_purchase_id)}" style="flex:1;min-width:150px"><input placeholder="Carrier" data-aec="${esc(s.outer_purchase_id)}" style="width:110px">
+        ${canBuy() && !['AE_DELIVERED', 'AE_CANCELLED'].includes(s.status) ? `<div class="row"><input placeholder="AliExpress order no." data-aeo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking number" data-aet="${esc(s.outer_purchase_id)}" style="flex:1;min-width:150px"><input placeholder="Carrier" data-aec="${esc(s.outer_purchase_id)}" style="width:110px">
           <button class="btn" data-aesave="${esc(s.outer_purchase_id)}">Save</button>${s.status === 'AE_SHIPPED' ? `<button class="btn ghost" data-aedel="${esc(s.outer_purchase_id)}">Mark delivered</button>` : ''}${s.status === 'AE_TO_BUY' && aeApi ? `<button class="btn ghost" data-aeplace="${esc(s.outer_purchase_id)}">Place via API</button>` : ''}</div>` : ''}</div>` : ''}
       ${s.manual ? `<div class="stack" style="display:grid;gap:6px;margin-top:6px">${(s.links || []).map((x) => `<div class="muted">${x.qty} × ${esc(x.title)}${x.props ? ` (${esc(x.props)})` : ''} ${(x.link.match(/https?:\/\/\S+/) || [])[0] ? `· <a href="${esc(x.link.match(/https?:\/\/\S+/)[0])}" target="_blank" rel="noopener noreferrer">Open on Taobao</a>` : x.link ? `· <code>${esc(x.link.slice(0, 80))}</code>` : '· no link'}</div>`).join('')}
-        ${['MANUAL_TO_BUY', 'MANUAL_BOUGHT'].includes(s.status) ? `<div class="row"><input placeholder="Taobao order no." data-mo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking to warehouse (when shipped)" data-mt="${esc(s.outer_purchase_id)}" style="flex:1;min-width:180px"><button class="btn" data-mb="${esc(s.outer_purchase_id)}">${s.status === 'MANUAL_TO_BUY' ? 'Mark bought' : 'Save tracking'}</button></div>` : ''}</div>` : ''}
+        ${canBuy() && ['MANUAL_TO_BUY', 'MANUAL_BOUGHT'].includes(s.status) ? `<div class="row"><input placeholder="Taobao order no." data-mo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking to warehouse (when shipped)" data-mt="${esc(s.outer_purchase_id)}" style="flex:1;min-width:180px"><button class="btn" data-mb="${esc(s.outer_purchase_id)}">${s.status === 'MANUAL_TO_BUY' ? 'Mark bought' : 'Save tracking'}</button></div>` : ''}</div>` : ''}
       ${(s.logistics || []).length ? `<div class="muted">Shipping: ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(' · ')}</div>` : ''}</div>`).join('') || '<p class="muted">Not created yet.</p>'}
     <div class="row">
-      ${['paid', 'attention'].includes(o.status) ? '<button class="btn" data-a="procure">Retry purchase</button>' : ''}
-      ${o.sub_orders.some((s) => /WAIT_BUYER_P/.test(s.status)) ? '<button class="btn" data-a="pay-taobao">Pay Taobao</button>' : ''}
+      ${canBuy() && ['paid', 'attention'].includes(o.status) ? '<button class="btn" data-a="procure">Retry purchase</button>' : ''}
+      ${canBuy() && o.sub_orders.some((s) => /WAIT_BUYER_P/.test(s.status)) ? '<button class="btn" data-a="pay-taobao">Pay Taobao</button>' : ''}
       <button class="btn ghost" data-a="sync">Sync</button>
-      ${!['shipped', 'delivered', 'cancelled', 'refunded'].includes(o.status) ? '<button class="btn ghost bad" data-a="cancel">Cancel & refund</button>' : ''}
+      ${canMoney() && !['shipped', 'delivered', 'cancelled', 'refunded'].includes(o.status) ? '<button class="btn ghost bad" data-a="cancel">Cancel & refund</button>' : ''}
       <button class="btn ghost" id="close">Close</button></div>
     <details><summary class="muted">Timeline</summary><ul class="muted">${o.timeline.map((t) => `<li>${date(t.at)} — ${esc(t.event)}</li>`).join('')}</ul></details>
     <div class="err" id="oe"></div>`;
@@ -425,7 +481,7 @@ async function openOrder(id) {
   if (loginError || q.get('aliexpress')) history.replaceState(null, '', '/admin');
   if (q.get('aliexpress') === 'connected') setTimeout(() => alert('AliExpress account connected'), 300);
   googleSignin = await fetch('/api/config/public').then((r) => r.json()).then((c) => Boolean(c.google_signin)).catch(() => false);
-  api('/api/me').then((u) => (u.role === 'admin' ? boot(u) : showLogin('This account is not an admin account'))).catch(() => showLogin(loginError));
+  api('/api/me').then((u) => (STAFF_LOGIN.includes(u.role) ? boot(u) : u.role === 'warehouse' ? (location.href = '/warehouse') : showLogin('This account is not a staff account'))).catch(() => showLogin(loginError));
 })();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>

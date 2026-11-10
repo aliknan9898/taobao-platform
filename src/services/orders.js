@@ -416,11 +416,11 @@ function buyerView(o) {
     lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image, listing_id, direct: Boolean(direct) })),
     shipping_address: o.shipping_address,
     payment: { provider: o.payment?.provider, client_secret: o.status === 'pending_payment' ? o.payment?.client_secret : undefined },
-    tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at } : null,
+    tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, url: require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,
     // AliExpress parts travel separately, straight to the customer
     direct: (o.sub_orders || []).filter((s) => s.direct).map((s) => ({
       status: s.status, label: { AE_TO_BUY: 'Being ordered', AE_PLACED: 'Being ordered', AE_PAID: 'Ordered — preparing', AE_SHIPPED: 'On its way to you', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Being reviewed' }[s.status] || 'Being ordered',
-      items: o.lines.filter((l) => s.line_nos.includes(l.line_no)).map((l) => l.title), tracking: (s.logistics || []).map((x) => ({ carrier: x.carrier, number: x.tracking }))
+      items: o.lines.filter((l) => s.line_nos.includes(l.line_no)).map((l) => l.title), tracking: (s.logistics || []).map((x) => ({ carrier: x.carrier, number: x.tracking, url: require('./couriers').trackingUrl(x.carrier, x.tracking) }))
     })),
     all_direct: (o.lines || []).every((l) => l.direct),
     timeline: (o.timeline || []).map((t) => ({ at: t.at, event: t.event }))

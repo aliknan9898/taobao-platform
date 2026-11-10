@@ -10,7 +10,13 @@ const db = require('./db');
 const { config } = require('./config');
 
 const SESSION_TTL = 30 * 86400e3;
-const ROLES = ['admin', 'seller', 'buyer', 'warehouse'];
+const ROLES = ['admin', 'seller', 'buyer', 'warehouse', 'procurement', 'finance', 'support'];
+/** Staff roles the admin can create, and what each one is for. */
+const STAFF_ROLES = {
+  admin: 'Everything', procurement: 'Buys orders on Taobao / AliExpress, answers item requests',
+  warehouse: 'Receives, checks and ships parcels in China', finance: 'Withdrawals, refunds, wallets and reports',
+  support: 'Customer questions: orders, returns, item requests, password links'
+};
 
 function hashPassword(pw) {
   const salt = crypto.randomBytes(16);
@@ -48,7 +54,7 @@ function register({ email, password, name, role, shop_name }) {
 }
 
 function createStaff({ email, password, name, role }) {
-  if (!['admin', 'warehouse'].includes(role)) throw httpError(400, 'Invalid role');
+  if (!STAFF_ROLES[role]) throw httpError(400, 'Invalid role');
   if (!validEmail(email) || !password || password.length < 8) throw httpError(400, 'Invalid data');
   email = email.trim().toLowerCase();
   if (db.users.find((u) => u.email === email)) throw httpError(409, 'Email is already registered');
@@ -138,4 +144,4 @@ function resetPassword(token, password) {
   return createSession(db.users.get(u.id));
 }
 
-module.exports = { createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };
+module.exports = { STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };

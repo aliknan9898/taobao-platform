@@ -15,6 +15,8 @@ const admin = require('./services/admin');
 const shopSvc = require('./services/shop');
 const moneySvc = require('./services/money');
 const shipping = require('./services/shipping');
+const reports = require('./services/reports');
+const couriers = require('./services/couriers');
 const google = require('./googleAuth');
 const aliexpress = require('./services/aliexpress');
 const { COUNTRIES } = require('./countries');
@@ -45,7 +47,7 @@ async function readJson(req) {
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
 }
-function page(res, file, { stripe: withStripe = false } = {}) {
+function page(res, file, { stripe: withStripe = false, head = '' } = {}) {
   const stripeSrc = withStripe ? ' https://js.stripe.com' : '';
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
@@ -53,7 +55,38 @@ function page(res, file, { stripe: withStripe = false } = {}) {
       `script-src 'self' 'unsafe-inline'${stripeSrc}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}; ` +
       `frame-src ${withStripe ? 'https://js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
   });
-  res.end(versionAssets(fs.readFileSync(path.join(PUBLIC, file), 'utf8')));
+  let html = versionAssets(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
+  if (head) html = html.replace('</head>', `${head}\n</head>`);
+  res.end(html);
+}
+
+/**
+ * Share links: /p/<product> and /s/<shop> carry Open Graph tags so WhatsApp, Instagram, Facebook and X
+ * show the photo, name and price. People who open them land on the same page in Kinan Shop.
+ */
+const attr = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function shareHead({ title, description, image, url, type = 'website', price, currency, hash }) {
+  const abs = (u) => (u && u.startsWith('/') ? config.publicBaseUrl + u : u);
+  return [
+    `<meta property="og:site_name" content="Kinan Shop">`, `<meta property="og:type" content="${attr(type)}">`,
+    `<meta property="og:title" content="${attr(title)}">`, `<meta property="og:description" content="${attr(description)}">`,
+    `<meta property="og:url" content="${attr(abs(url))}">`, image ? `<meta property="og:image" content="${attr(abs(image))}">` : '',
+    `<meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}">`, `<meta name="description" content="${attr(description)}">`,
+    price ? `<meta property="product:price:amount" content="${attr(price)}"><meta property="product:price:currency" content="${attr(String(currency).toUpperCase())}">` : '',
+    `<link rel="canonical" href="${attr(abs(url))}">`,
+    `<script>if(!location.hash)history.replaceState(null,'','/${hash}')</script>`
+  ].filter(Boolean).join('\n');
+}
+function sharePage(res, kind, id) {
+  try {
+    if (kind === 'p') {
+      const p = catalog.buyerListing(id);
+      const price = `${p.min_price.toFixed(2)} ${String(p.currency).toUpperCase()}`;
+      return page(res, 'shop.html', { stripe: true, head: shareHead({ title: `${p.title} — ${price}`, description: `${p.shop ? `Sold by ${p.shop.name} on Kinan Shop. ` : ''}${(p.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || 'Delivered to your door with tracking.'}`, image: p.images[0], url: `/p/${p.id}`, type: 'product', price: p.min_price.toFixed(2), currency: p.currency, hash: `#/p/${p.id}` }) });
+    }
+    const s = shopSvc.getShop(id);
+    return page(res, 'shop.html', { stripe: true, head: shareHead({ title: `${s.name} on Kinan Shop`, description: s.description || `${s.products} products, delivered to your door with tracking.`, image: s.logo, url: `/s/${s.id}`, hash: `#/s/${s.id}` }) });
+  } catch { return page(res, 'shop.html', { stripe: true }); }
 }
 
 // Cache busting: every /assets/*.css|js link in a page gets ?v=<content hash>, so phones pick up
@@ -115,6 +148,12 @@ function recordFailure(ip) {
 const routes = [];
 const r = (method, pattern, roles, handler) => routes.push({ method, re: new RegExp(`^${pattern.replace(/:(\w+)/g, '(?<$1>[A-Za-z0-9_-]{1,80})')}$`), roles, handler });
 const ADMIN = ['admin']; const SELLER = ['seller']; const BUYER = ['buyer']; const WH = ['warehouse', 'admin'];
+// Staff roles: who may use which part of the admin dashboard
+const STAFF = ['admin', 'procurement', 'finance', 'support'];       // overview + read orders
+const PROC = ['admin', 'procurement'];                             // buying on Taobao / AliExpress
+const FIN = ['admin', 'finance'];                                  // money: withdrawals, refunds, wallets, reports
+const CARE = ['admin', 'support', 'procurement'];                  // item requests
+const PEOPLE = ['admin', 'finance', 'support'];                    // users list
 
 // Auth
 // Sign-ups: at most 30 accounts per IP per hour (slows down spam without blocking families or offices)
@@ -164,7 +203,7 @@ r('POST', '/api/auth/reset', null, async ({ req, res }) => {
   setSession(res, out.token);
   return out;
 });
-r('GET', '/api/me', ['admin', 'seller', 'buyer', 'warehouse'], async ({ user }) => user);
+r('GET', '/api/me', auth.ROLES, async ({ user }) => user);
 
 // Catalog (public for browsing)
 r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntries(url.searchParams)));
@@ -234,7 +273,7 @@ r('PATCH', '/api/seller/products/:id', SELLER, async ({ req, seller, params }) =
   const b = await readJson(req); const patch = {};
   if (b.status) patch.status = catalog.sellerSetStatus(l, b.status);
   if (b.prices) patch.skus = l.skus.map((s) => (b.prices[s.mp_sku_id] > 0 ? { ...s, price: Math.round(b.prices[s.mp_sku_id] * 100) / 100 } : s));
-  return db.listings.update(l.id, patch);
+  return b.prices ? catalog.checkMargins(db.listings.update(l.id, patch)) : db.listings.update(l.id, patch);
 });
 r('POST', '/api/seller/products/:id/resync', SELLER, async ({ seller, params }) => {
   const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found'); return catalog.resync(l.id);
@@ -251,45 +290,57 @@ r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
 r('POST', '/api/seller/payouts', SELLER, async ({ req, seller }) => moneySvc.requestWithdrawal(seller, await readJson(req)));
 
 // Admin
-r('GET', '/api/admin/overview', ADMIN, async () => admin.overview());
+r('GET', '/api/admin/overview', STAFF, async () => admin.overview());
 r('GET', '/api/admin/sellers', ADMIN, async () => admin.sellers());
 r('PATCH', '/api/admin/sellers/:id', ADMIN, async ({ req, params }) => admin.updateSeller(params.id, await readJson(req)));
-r('GET', '/api/admin/orders', ADMIN, async ({ url }) => admin.listOrders({ status: url.searchParams.get('status') || undefined }));
-r('GET', '/api/admin/orders/:id', ADMIN, async ({ params }) => orders.decorate(db.orders.get(params.id)) || Promise.reject(httpError(404, 'Not found')));
-r('POST', '/api/admin/orders/:id/procure', ADMIN, async ({ params }) => orders.decorate(await orders.procure(params.id)));
-r('POST', '/api/admin/orders/:id/sync', ADMIN, async ({ params }) => {
+r('GET', '/api/admin/orders', STAFF, async ({ url }) => admin.listOrders({ status: url.searchParams.get('status') || undefined }));
+r('GET', '/api/admin/orders/:id', STAFF, async ({ params }) => orders.decorate(db.orders.get(params.id)) || Promise.reject(httpError(404, 'Not found')));
+r('POST', '/api/admin/orders/:id/procure', PROC, async ({ params }) => orders.decorate(await orders.procure(params.id)));
+r('POST', '/api/admin/orders/:id/sync', STAFF, async ({ params }) => {
   const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found');
   for (const s of o.sub_orders) { try { await orders.syncSub(o.id, s.outer_purchase_id); } catch { /* shown */ } }
   return orders.decorate(db.orders.get(o.id));
 });
-r('POST', '/api/admin/orders/:id/pay-taobao', ADMIN, async ({ params }) => {
+r('POST', '/api/admin/orders/:id/pay-taobao', PROC, async ({ params }) => {
   const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found');
   const out = [];
   for (const s of o.sub_orders.filter((x) => /WAIT_BUYER_P/.test(x.status))) out.push(await orders.paySub(o.id, s.outer_purchase_id));
   return out;
 });
-r('POST', '/api/admin/orders/:id/manual-bought', ADMIN, async ({ req, params, user }) => orders.decorate(orders.markManualBought(params.id, await readJson(req), user.id)));
-r('POST', '/api/admin/orders/:id/aliexpress', ADMIN, async ({ req, params, user }) => orders.decorate(await orders.updateDirect(params.id, await readJson(req), user.id)));
-r('GET', '/api/admin/aliexpress', ADMIN, async () => ({ ...aliexpress.status(), redirect_uri: config.aliexpress.redirectUri }));
+r('POST', '/api/admin/orders/:id/manual-bought', PROC, async ({ req, params, user }) => orders.decorate(orders.markManualBought(params.id, await readJson(req), user.id)));
+r('POST', '/api/admin/orders/:id/aliexpress', PROC, async ({ req, params, user }) => orders.decorate(await orders.updateDirect(params.id, await readJson(req), user.id)));
+r('GET', '/api/admin/aliexpress', STAFF, async () => ({ ...aliexpress.status(), redirect_uri: config.aliexpress.redirectUri }));
 r('POST', '/api/admin/aliexpress/connect', ADMIN, async () => ({ url: aliexpress.authorizeUrl() }));
 r('POST', '/api/admin/aliexpress/disconnect', ADMIN, async () => aliexpress.disconnect());
-r('POST', '/api/admin/orders/:id/cancel', ADMIN, async ({ params, user }) => orders.decorate(await orders.cancelOrder(params.id, user.id)));
-r('GET', '/api/admin/users', ADMIN, async () => admin.users().map((u) => (u.role === 'buyer' ? { ...u, wallet: shopSvc.walletOf(u.id).balance } : u)));
-r('POST', '/api/admin/users/:id/reset-link', ADMIN, async ({ params }) => {
+r('POST', '/api/admin/orders/:id/cancel', FIN, async ({ params, user }) => orders.decorate(await orders.cancelOrder(params.id, user.id)));
+r('GET', '/api/admin/staff-roles', ADMIN, async () => auth.STAFF_ROLES);
+r('GET', '/api/admin/users', PEOPLE, async () => admin.users().map((u) => (u.role === 'buyer' ? { ...u, wallet: shopSvc.walletOf(u.id).balance } : u)));
+r('POST', '/api/admin/users/:id/reset-link', ['admin', 'support'], async ({ params, user }) => {
   const u = db.users.get(params.id); if (!u) throw httpError(404, 'User not found');
+  if (user.role !== 'admin' && !['buyer', 'seller'].includes(u.role)) throw httpError(403, 'Only an admin can reset a staff password');
   return { url: resetUrl(auth.createResetToken(u)), expires_in_minutes: 60 };
 });
 r('GET', '/api/admin/mail', ADMIN, async () => ({ enabled: require('./mailer').enabled(), recent: db.mail.all().slice(-50).reverse() }));
-r('GET', '/api/admin/wallet/:id', ADMIN, async ({ params }) => shopSvc.walletOf(params.id));
-r('POST', '/api/admin/wallet/:id', ADMIN, async ({ req, params, user }) => shopSvc.adminAdjust(params.id, await readJson(req), user));
-r('GET', '/api/admin/settings/shipping', ADMIN, async () => ({ ...shipping.settings(), zones: shipping.ZONES.map(([id, name, countries]) => ({ id, name, countries })) }));
+r('GET', '/api/admin/wallet/:id', FIN, async ({ params }) => shopSvc.walletOf(params.id));
+r('POST', '/api/admin/wallet/:id', FIN, async ({ req, params, user }) => shopSvc.adminAdjust(params.id, await readJson(req), user));
+r('GET', '/api/admin/settings/shipping', STAFF, async () => ({ ...shipping.settings(), zones: shipping.ZONES.map(([id, name, countries]) => ({ id, name, countries })) }));
 r('PUT', '/api/admin/settings/shipping', ADMIN, async ({ req }) => shipping.saveSettings(await readJson(req)));
-r('GET', '/api/admin/payouts', ADMIN, async ({ url }) => moneySvc.listPayouts({ status: url.searchParams.get('status') || undefined }));
-r('POST', '/api/admin/payouts/:id', ADMIN, async ({ req, params, user }) => moneySvc.decidePayout(params.id, await readJson(req), user));
-r('GET', '/api/admin/returns', ADMIN, async () => moneySvc.adminReturns());
-r('POST', '/api/admin/returns/:id', ADMIN, async ({ req, params, user }) => moneySvc.decideReturn(params.id, await readJson(req), user));
-r('GET', '/api/admin/requests', ADMIN, async () => shopSvc.adminRequests());
-r('PATCH', '/api/admin/requests/:id', ADMIN, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
+r('GET', '/api/admin/reports', FIN, async ({ url }) => reports.report(Object.fromEntries(url.searchParams)));
+r('GET', '/api/admin/reports/orders.csv', FIN, async ({ url, res }) => {
+  const csv = reports.ordersCsv(Object.fromEntries(url.searchParams));
+  res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="kinan-orders-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' });
+  res.end(csv);
+});
+r('GET', '/api/admin/payouts', FIN, async ({ url }) => moneySvc.listPayouts({ status: url.searchParams.get('status') || undefined }));
+r('POST', '/api/admin/payouts/:id', FIN, async ({ req, params, user }) => moneySvc.decidePayout(params.id, await readJson(req), user));
+r('GET', '/api/admin/returns', PEOPLE, async () => moneySvc.adminReturns());
+r('POST', '/api/admin/returns/:id', PEOPLE, async ({ req, params, user }) => {
+  const b = await readJson(req);
+  if (b.action === 'refund' && !FIN.includes(user.role)) throw httpError(403, 'Only admin or finance can issue refunds');
+  return moneySvc.decideReturn(params.id, b, user);
+});
+r('GET', '/api/admin/requests', CARE, async () => shopSvc.adminRequests());
+r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
 r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
 r('GET', '/api/admin/listings', ADMIN, async ({ url }) => admin.listings({ status: url.searchParams.get('status') || undefined }));
 r('POST', '/api/admin/listings/:id/approve', ADMIN, async ({ params, user }) => catalog.approve(params.id, user));
@@ -300,6 +351,26 @@ r('GET', '/api/warehouse/overview', WH, async () => ({ ...warehouse.inventory(),
 r('POST', '/api/warehouse/receive', WH, async ({ req, user }) => warehouse.receive(await readJson(req), user));
 r('POST', '/api/warehouse/parcels/:id/assign', WH, async ({ req, params }) => warehouse.assign(params.id, (await readJson(req)).order_id));
 r('POST', '/api/warehouse/orders/:id/ship', WH, async ({ req, params, user }) => warehouse.ship(params.id, await readJson(req), user));
+r('GET', '/api/warehouse/couriers', WH, async () => couriers.status());
+r('POST', '/api/warehouse/orders/:id/rates', WH, async ({ req, params }) => {
+  const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Order not found');
+  return couriers.rates(o, await readJson(req));
+});
+r('POST', '/api/warehouse/orders/:id/label', WH, async ({ req, params, user }) => {
+  const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Order not found');
+  if (o.status !== 'ready_to_ship') throw httpError(409, 'Order is not ready to ship');
+  const b = await readJson(req);
+  const out = await couriers.label(o, b, b);
+  const s = warehouse.ship(o.id, { carrier: out.carrier, tracking: out.tracking, weight_g: b.weight_g, cost: out.cost, label: out.label }, user);
+  return { ...s, label: s.label ? { type: s.label.type } : null };
+});
+r('GET', '/api/warehouse/shipments/:id/label', WH, async ({ params, res }) => {
+  const s = db.shipments.get(params.id); if (!s?.label) throw httpError(404, 'No label for this shipment');
+  if (s.label.type === 'url') { res.writeHead(302, { Location: s.label.url }); return res.end(); }
+  const pdf = Buffer.from(s.label.data, 'base64');
+  res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="label-${s.tracking}.pdf"`, 'Content-Length': pdf.length, 'Cache-Control': 'no-store' });
+  res.end(pdf);
+});
 r('POST', '/api/warehouse/orders/:id/delivered', WH, async ({ params }) => warehouse.markDelivered(params.id));
 
 // ---------- server ----------
@@ -310,6 +381,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/healthz') return send(res, 200, 'ok');
     if (req.method === 'GET') {
       if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true });
+      const sh = p.match(/^\/(p|s)\/([\w-]{1,80})$/);
+      if (sh) return sharePage(res, sh[1], sh[2]);
       if (p === '/seller') return page(res, 'seller.html');
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
@@ -388,6 +461,7 @@ const server = http.createServer(async (req, res) => {
         Object.assign(ctx, auth.requireRole(user, ...rt.roles));
       }
       const out = await rt.handler(ctx);
+      if (res.writableEnded) return; // handler wrote its own response (e.g. a CSV download)
       return send(res, req.method === 'POST' && /register|checkout|products$|manual$|products\/aliexpress$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
     }
     send(res, 404, { error: 'Not found' });

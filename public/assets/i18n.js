@@ -133,6 +133,7 @@
     'Tap': 'اضغط', '), then': ')، ثم', 'Kinan buys AliExpress and manually added products for you.': 'تشتري كنان منتجات علي إكسبرس والمنتجات المضافة يدوياً نيابةً عنك.', 'Standard': 'عادي',
     'For products imported from Taobao, Kinan creates a purchase order from your account.': 'للمنتجات المستوردة من تاوباو، تنشئ كنان أمر شراء من حسابك.', 'Pay each one before its deadline.': 'ادفع كلاً منها قبل موعده.', 'Automatic payment is on.': 'الدفع التلقائي مفعّل.',
     'To buy by hand on Taobao': 'ستشتريه كنان من تاوباو', 'Bought — waiting for Taobao to ship': 'تم الشراء — بانتظار شحن تاوباو', 'Shipped to warehouse': 'شُحن إلى المستودع',
+    'Track parcel': 'تتبّع الطرد', 'Share': 'مشاركة', 'Link copied — paste it anywhere': 'تم نسخ الرابط — الصقه في أي مكان',
     'Your name': 'اسمك', 'Seller': 'البائع', 'Seller Center': 'مركز البائعين', 'Shop ': 'المتجر', 'Go to the Kinan store': 'اذهب إلى متجر كنان', 'Hello,': 'مرحباً،',
     // ---- more ----
     "Add the title, photos and price yourself; Kinan orders it on AliExpress when it sells.": "أدخل العنوان والصور والسعر بنفسك، وتطلبه كنان من علي إكسبرس عند بيعه.",
