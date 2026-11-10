@@ -379,6 +379,13 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
   try {
     if (p === '/healthz') return send(res, 200, 'ok');
+    // Send visitors of the old *.onrender.com address to the main domain (pages only; API calls and webhooks keep working)
+    const host = String(req.headers.host || '').toLowerCase();
+    const mainHost = new URL(config.publicBaseUrl).host;
+    if ((req.method === 'GET' || req.method === 'HEAD') && host.endsWith('.onrender.com') && !mainHost.endsWith('.onrender.com') && host !== mainHost && !p.startsWith('/api/') && !p.startsWith('/webhooks/')) {
+      res.writeHead(301, { Location: config.publicBaseUrl + req.url });
+      return res.end();
+    }
     if (req.method === 'GET') {
       if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true });
       const sh = p.match(/^\/(p|s)\/([\w-]{1,80})$/);
