@@ -37,6 +37,12 @@ function orderDelivered(o) {
     lines: ['We hope you love it. If something is wrong, you can request a return from your order page.'], button: { text: 'View order', url: `${base()}/#/orders/${o.id}` } }));
 }
 
+function qcPhotos(o) {
+  fire(mailer.send({ to: emailOf(o.buyer_id), key: `qc:${o.id}:${(o.qc_photos || []).length}`, kind: 'order', subject: `Photos of your order ${ref(o)} are ready`, title: 'Your items arrived at our warehouse',
+    lines: ['We checked your items and took photos. Have a look and tell us if everything is right before we ship.'],
+    button: { text: 'See the photos', url: `${base()}/#/orders/${o.id}` } }));
+}
+
 function sellerApproved(s) {
   fire(mailer.send({ to: emailOf(s.user_id), key: `seller-approved:${s.id}`, kind: 'seller', subject: 'Your Kinan shop is approved', title: `Welcome, ${s.shop_name}!`,
     lines: ['Your shop is approved. You can now add products — Kinan reviews each product before customers see it.'], button: { text: 'Add your first product', url: `${base()}/seller#/add` } }));
@@ -83,4 +89,4 @@ function returnUpdate(r) {
     button: { text: 'View order', url: `${base()}/#/orders/${r.order_id}` } }));
 }
 
-module.exports = { priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate };
+module.exports = { priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate, qcPhotos };

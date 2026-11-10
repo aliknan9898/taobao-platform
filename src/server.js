@@ -155,6 +155,13 @@ function throttleLight(req) {
   if (light.size > 5000) for (const [k, v] of light) if (now - v.t > 10 * 60e3) light.delete(k);
 }
 
+/** Send a stored photo ({ type, body }) as an image response. */
+function sendImage(res, img) {
+  if (!img) throw httpError(404, 'Photo not found');
+  res.writeHead(200, { 'Content-Type': img.type, 'Content-Length': img.body.length, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+  res.end(img.body);
+}
+
 // ---------- routes ----------
 // [method, pattern, roles (null = public), handler({req,res,params,url,user,seller,body})]
 const routes = [];
@@ -227,7 +234,7 @@ r('GET', '/api/categories', null, async () => {
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
 });
 r('POST', '/api/shipping/quote', null, async ({ req }) => { const b = await readJson(req); return shipping.quote(Array.isArray(b.items) ? b.items.slice(0, 100) : [], b.country_code || b.country); });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), fx: fx.publicRates(), app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -258,6 +265,9 @@ r('POST', '/api/buyer/orders/:id/pay-shipping-due', BUYER, async ({ user, params
   const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
   return orders.buyerView(shipping.payShippingDue(o, user));
 });
+r('GET', '/api/buyer/orders/:id/qc/:n', BUYER, async ({ user, params, res }) => { const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found'); return sendImage(res, warehouse.qcPhoto(o, params.n)); });
+r('POST', '/api/buyer/orders/:id/qc', BUYER, async ({ req, user, params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); return orders.buyerView(warehouse.qcDecision(o, user, await readJson(req))); });
+r('POST', '/api/buyer/ship-stored', BUYER, async ({ user }) => warehouse.releaseStored(user));
 r('GET', '/api/buyer/wallet', BUYER, async ({ user }) => shopSvc.walletOf(user.id));
 r('POST', '/api/buyforme/parse', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return require('./services/buyforme').parse(b.text || b.link); });
 r('POST', '/api/buyforme/estimate', null, async ({ req }) => { throttleLight(req); return require('./services/buyforme').estimate(await readJson(req)); });
@@ -332,6 +342,12 @@ r('POST', '/api/admin/orders/:id/aliexpress', PROC, async ({ req, params, user }
 r('GET', '/api/admin/aliexpress', STAFF, async () => ({ ...aliexpress.status(), redirect_uri: config.aliexpress.redirectUri }));
 r('POST', '/api/admin/aliexpress/connect', ADMIN, async () => ({ url: aliexpress.authorizeUrl() }));
 r('POST', '/api/admin/aliexpress/disconnect', ADMIN, async () => aliexpress.disconnect());
+r('POST', '/api/admin/orders/:id/qc-resolved', CARE, async ({ req, params }) => {
+  const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found');
+  const b = await readJson(req);
+  return orders.decorate(db.orders.update(o.id, (x) => ({ ...x, qc_review: 'resolved', qc_resolution: String(b.note || '').slice(0, 500), timeline: [...x.timeline, { at: Date.now(), event: 'qc_resolved' }] })));
+});
+r('GET', '/api/admin/orders/:id/qc/:n', STAFF, async ({ params, res }) => sendImage(res, warehouse.qcPhoto(db.orders.get(params.id) || {}, params.n)));
 r('POST', '/api/admin/orders/:id/cancel', FIN, async ({ params, user }) => orders.decorate(await orders.cancelOrder(params.id, user.id)));
 r('GET', '/api/admin/staff-roles', ADMIN, async () => auth.STAFF_ROLES);
 r('GET', '/api/admin/users', PEOPLE, async () => admin.users().map((u) => (u.role === 'buyer' ? { ...u, wallet: shopSvc.walletOf(u.id).balance } : u)));
@@ -391,7 +407,7 @@ r('POST', '/api/warehouse/orders/:id/label', WH, async ({ req, params, user }) =
   if (o.status !== 'ready_to_ship') throw httpError(409, 'Order is not ready to ship');
   const b = await readJson(req);
   const out = await couriers.label(o, b, b);
-  const s = warehouse.ship(o.id, { carrier: out.carrier, tracking: out.tracking, weight_g: b.weight_g, cost: out.cost, label: out.label }, user);
+  const s = warehouse.ship(o.id, { carrier: out.carrier, tracking: out.tracking, weight_g: b.weight_g, cost: out.cost, label: out.label, with: b.with }, user);
   return { ...s, label: s.label ? { type: s.label.type } : null };
 });
 r('GET', '/api/warehouse/shipments/:id/label', WH, async ({ params, res }) => {
@@ -401,6 +417,8 @@ r('GET', '/api/warehouse/shipments/:id/label', WH, async ({ params, res }) => {
   res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="label-${s.tracking}.pdf"`, 'Content-Length': pdf.length, 'Cache-Control': 'no-store' });
   res.end(pdf);
 });
+r('POST', '/api/warehouse/orders/:id/qc-photos', WH, async ({ req, params, user }) => warehouse.addQcPhotos(params.id, (await readJson(req)).images, user));
+r('GET', '/api/warehouse/orders/:id/qc/:n', WH, async ({ params, res }) => sendImage(res, warehouse.qcPhoto(db.orders.get(params.id) || {}, params.n)));
 r('POST', '/api/warehouse/orders/:id/delivered', WH, async ({ params }) => warehouse.markDelivered(params.id));
 
 // ---------- server ----------
@@ -525,6 +543,7 @@ function startJobs() {
   every(3600e3, catalog.resyncStale);
   every(6 * 3600e3, sellerAuth.refreshAllDue);
   every(3600e3, async () => cleanup());
+  every(3600e3, async () => warehouse.releaseExpired());
   every(10 * 60e3, () => require('./services/translate').translatePending());
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }

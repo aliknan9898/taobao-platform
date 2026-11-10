@@ -55,6 +55,7 @@ function overview() {
   if (demoPaid.length) alerts.push({ kind: 'test_payments', text: `${demoPaid.length} order(s) were paid with TEST payments (card payments are not switched on) — don't buy their goods unless you know the customer` });
   if (!require('./translate').provider() && db.listings.all((l) => l.status === 'active' && !l.title_ar).length)
     alerts.push({ kind: 'setup', text: 'Automatic Arabic translation is off — add DEEPL_API_KEY (free at deepl.com) in the server settings' });
+  for (const o of all.filter((x) => x.qc_review === 'problem')) alerts.push({ kind: 'order', id: o.id, text: `Order ${o.id.slice(-8)}: the customer reported a problem with the warehouse photos${o.qc_note ? ` — “${o.qc_note.slice(0, 80)}”` : ''}` });
   const newRequests = db.requests.all((r) => r.status === 'new').length;
   if (newRequests) alerts.push({ kind: 'requests', text: `${newRequests} customer item request(s) waiting for a reply` });
   const pendingSellers = db.sellers.all((s) => s.status === 'pending').length;

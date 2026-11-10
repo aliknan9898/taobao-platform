@@ -60,7 +60,11 @@ function validateAddress(a) {
   return out;
 }
 
-async function checkout(buyer, { items, shipping_address }) {
+const PACKAGING = { standard: 0, no_boxes: 0, protect: Number(process.env.PACKAGING_PROTECT_FEE ?? 2) };
+const STORAGE_DAYS = Number(process.env.STORAGE_DAYS || 30);
+
+async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false }) {
+  if (!Object.prototype.hasOwnProperty.call(PACKAGING, packaging)) throw httpError(400, 'Unknown packaging option');
   if (!Array.isArray(items) || !items.length) throw httpError(400, 'Cart is empty');
   if (items.length > 100) throw httpError(400, 'Too many items');
   const address = validateAddress(shipping_address);
@@ -92,9 +96,12 @@ async function checkout(buyer, { items, shipping_address }) {
   const subtotal = money(lines.reduce((s, x) => s + x.price * x.qty, 0));
   const ship = require('./shipping').quote(lines.map((l) => ({ listing_id: l.listing_id, qty: l.qty })), address.country_code || address.country);
   const shipping = money(ship.fee);
+  const warehouseItems = lines.some((l) => !l.direct);
+  const packagingFee = warehouseItems ? money(PACKAGING[packaging]) : 0;
   const order = db.orders.insert({
     buyer_id: buyer.id, lines, currency: config.currency, subtotal, shipping_fee: shipping,
-    total: money(subtotal + shipping), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
+    packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
+    total: money(subtotal + shipping + packagingFee), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
   });
   const payment = await stripe.createPaymentIntent(order);
@@ -459,7 +466,7 @@ function groupBy(arr, k) { return arr.reduce((m, x) => ((m[x[k]] = m[x[k]] || []
 
 function decorate(o) {
   return o && {
-    ...o, status_label: ORDER_STATUS_LABEL[o.status] || o.status,
+    ...o, status_label: ORDER_STATUS_LABEL[o.status] || o.status, qc_photos: (o.qc_photos || []).length,
     sub_orders: (o.sub_orders || []).map((s) => ({ ...s, status_label: TB_STATUS_LABEL[s.status] || s.status, shop: db.sellers.get(s.seller_id)?.shop_name }))
   };
 }
@@ -470,6 +477,8 @@ function buyerView(o) {
   return {
     id: o.id, status: o.status, status_label: ORDER_STATUS_LABEL[o.status], currency: o.currency,
     subtotal: o.subtotal, shipping_fee: o.shipping_fee, total: o.total, created_at: o.created_at,
+    packaging: o.packaging || 'standard', packaging_fee: o.packaging_fee || 0, hold: Boolean(o.hold), hold_until: o.hold && o.paid_at ? o.paid_at + STORAGE_DAYS * 86400e3 : null, ship_group: o.ship_group || null,
+    qc: { photos: (o.qc_photos || []).length, review: o.qc_review || null, note: o.qc_note || null, at: o.qc_at || null },
     shipping_due: o.shipping_due || 0, shipping_settled: o.shipping_settled ? { result: o.shipping_settled.result, diff: o.shipping_settled.diff, actual_weight_kg: o.shipping_settled.actual_weight_kg } : null, shipping_days: o.shipping_quote?.days || null,
     lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image, listing_id, direct: Boolean(direct) })),
     shipping_address: o.shipping_address,
@@ -499,6 +508,7 @@ function sellerView(o, sellerId) {
 }
 
 module.exports = {
+  PACKAGING, STORAGE_DAYS,
   cardPayment, stripePaid, confirmCard,
   checkout, markPaid, payWithWallet, markManualBought, updateDirect, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,
   decorate, buyerView, sellerView, ORDER_STATUS_LABEL, TB_STATUS_LABEL, buildPurchasePayload

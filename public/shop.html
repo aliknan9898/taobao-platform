@@ -53,6 +53,14 @@
   .locchip b { color: var(--ink); font-weight: 600; text-decoration: underline dotted; text-underline-offset: 3px; }
   .lp { color: var(--muted); font-size: 13px; }
   .card .lp { font-size: 12px; }
+  .opts { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .opts legend { font-weight: 600; margin-bottom: 6px; }
+  .opt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); cursor: pointer; }
+  .opt:has(input:checked) { border-color: var(--jade); background: var(--jade-soft); }
+  .opt input { width: auto; margin-top: 3px; }
+  .opt b { display: block; font-size: 14px; } .opt small { color: var(--muted); font-size: 12px; }
+  .qcg { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; }
+  .qcg img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--r-md); }
   .bfm { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px 16px; border-radius: var(--r-lg); background: var(--jade-soft); text-decoration: none; color: inherit; margin: 6px 0 14px; }
   .bfm b { display: block; font-size: 16px; }
   .landed { display: grid; gap: 6px; padding: 12px 14px; border-radius: var(--r-md); background: var(--jade-soft); }
@@ -581,28 +589,40 @@ async function checkout() {
       <label class="field">Postal code<input name="postal_code" autocomplete="postal-code" value="${esc(a.postal_code)}"></label></div>
       <div class="grid-2"><label class="field">Country<select name="country_code" required autocomplete="country">${(cfg.countries || []).length ? `<option value="">Choose…</option>${cfg.countries.map(([c, n]) => `<option value="${c}" ${a.country_code === c || (!a.country_code && String(a.country || '').toLowerCase() === n.toLowerCase()) ? 'selected' : ''}>${esc(n)}</option>`).join('')}` : ''}</select></label>
       <label class="field">State / province (optional)<input name="state" autocomplete="address-level1" value="${esc(a.state)}"></label></div>
+      ${items.some((x) => !x.direct) ? `<fieldset class="opts"><legend>Packing</legend>
+        <label class="opt"><input type="radio" name="packaging" value="standard" checked><span><b>Standard</b><small>We pack your items safely.</small></span><span>Free</span></label>
+        <label class="opt"><input type="radio" name="packaging" value="no_boxes"><span><b>Remove product boxes</b><small>Lighter parcel — cheaper shipping, often refunded to your wallet.</small></span><span>Free</span></label>
+        <label class="opt"><input type="radio" name="packaging" value="protect"><span><b>Extra protection</b><small>Bubble wrap and a stronger box for fragile items.</small></span><span>${money((cfg.packaging || {}).protect || 2, cur)}</span></label>
+      </fieldset>
+      <label class="opt"><input type="checkbox" name="hold"><span><b>Store in the warehouse</b><small>Keep this order up to ${cfg.storage_days || 30} days and ship it in one box with your next orders. Tap “Ship now” any time.</small></span><span>Free</span></label>` : ''}
       <div class="error" id="ce"></div>
       <button class="btn" id="go">Continue to payment</button>
       <p class="muted">Your address is only shared with Kinan’s shipping team. Sellers and suppliers never see it. By placing your order you agree to the <a href="/terms" target="_blank">Terms of Service</a>; import taxes may apply in your country.</p>
     </form>
     <aside class="panel sum">${items.map((x) => `<div class="small"><span>${x.qty} × ${esc(x.title.slice(0, 40))}${x.title.length > 40 ? '…' : ''}</span><span>${money(x.price * x.qty, cur)}</span></div>`).join('')}
       <div><span>Shipping</span><span id="kship">Choose a country</span></div><div class="muted small" id="kshipnote"></div>
+      <div id="kpack" hidden><span>Extra protection</span><span id="kpackv"></span></div>
       <div class="total"><span>Total</span><span id="ktot">${money(sub, cur)}</span></div></aside></div>`;
+  let lastFee = 0;
+  const extras = () => { const f = $('#af'); return f.packaging && f.packaging.value === 'protect' ? Number((cfg.packaging || {}).protect || 2) : 0; };
+  const paintTotal = () => { const t = sub + lastFee + extras(); $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
   const requote = async () => {
     const code = $('#af').country_code.value; if (!code) return;
     try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, qty }) => ({ listing_id, qty })), country_code: code });
+      lastFee = q.fee || 0;
       $('#kship').textContent = q.fee ? money(q.fee, cur) : 'Included';
       $('#kshipnote').textContent = q.fee ? `${q.weight_kg} kg estimated · arrives in about ${q.days} days. If your parcel weighs less, we refund the difference to your wallet.` : '';
-      $('#ktot').innerHTML = `${money(sub + q.fee, cur)}${localPrice(sub + q.fee) ? `<div class="lp" style="font-weight:400">${localPrice(sub + q.fee)}</div>` : ''}`;
+      paintTotal();
     } catch {}
   };
   $('#af').country_code.onchange = requote; requote();
+  $$('#af [name=packaging]').forEach((r) => r.onchange = paintTotal);
   $('#af').onsubmit = async (e) => {
-    e.preventDefault(); const addr = Object.fromEntries(new FormData(e.target));
+    e.preventDefault(); const { packaging = 'standard', hold, ...addr } = Object.fromEntries(new FormData(e.target));
     try { localStorage.setItem('kinan_addr', JSON.stringify(addr)); } catch {}
     $('#go').disabled = true; $('#go').textContent = 'Placing order…';
     try {
-      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr });
+      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold) });
       Cart.set([]);
       location.hash = `#/pay/${o.id}`;
     } catch (err) { $('#ce').textContent = err.message; $('#go').disabled = false; $('#go').textContent = 'Continue to payment'; }
@@ -665,7 +685,7 @@ async function ordersList() {
   v.innerHTML = `<div class="pagehead"><h1>Your orders</h1></div>${list.length ? `<div class="panel">${list.map((o) => {
     const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
     return `<a class="orderrow" href="#/orders/${esc(o.id)}"><div><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><div class="muted">${date(o.created_at, false)} · ${o.lines.reduce((a, l) => a + l.qty, 0)} item(s)</div></div>
-      <div style="text-align:end"><b>${money(o.total, o.currency)}</b><div>${pill(label, cls)}</div></div></a>`; }).join('')}</div>`
+      <div style="text-align:end"><b>${money(o.total, o.currency)}</b><div>${pill(label, cls)}</div>${o.hold ? `<div>${pill('Stored', 'warn')}</div>` : ''}</div></a>`; }).join('')}</div>`
     : `<div class="empty"><h3>No orders yet</h3><p>When you place an order, you can follow it here.</p><a class="btn" href="#/">Start shopping</a></div>`}`;
 }
 
@@ -721,6 +741,11 @@ async function orderDetail(id) {
       ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Shipped directly from the supplier'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
         <div class="muted small">${d.items.map(esc).join(' · ')}</div>
         ${d.tracking.length ? d.tracking.map((t) => `<div class="row between"><span><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></span>${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}</div>`).join('')}
+      ${o.hold && !ended ? `<div class="panel stack"><div class="row between"><h3>Stored in our warehouse</h3>${pill('Stored', 'warn')}</div><p class="muted small">We keep it${o.hold_until ? ` free until ${date(o.hold_until, false)}` : ''} and ship it in one box with your other stored orders.</p><button class="btn" id="shipnow">Ship my stored orders now</button></div>` : ''}
+      ${o.qc.photos ? `<div class="panel stack"><div class="row between"><h3>Photos from our warehouse</h3>${o.qc.review === 'approved' ? pill('You approved', 'ok') : o.qc.review === 'problem' ? pill('Problem reported', 'bad') : o.qc.review === 'resolved' ? pill('Resolved', 'ok') : pill('Please check', 'warn')}</div>
+        <div class="qcg">${Array.from({ length: o.qc.photos }, (_, i) => `<a href="/api/buyer/orders/${esc(o.id)}/qc/${i}" target="_blank"><img src="/api/buyer/orders/${esc(o.id)}/qc/${i}" alt="Photo ${i + 1}" loading="lazy"></a>`).join('')}</div>
+        ${o.qc.review === 'pending' && !['shipped', 'delivered'].includes(o.status) ? `<p class="muted small">Your items arrived and we checked them. Is everything right?</p><div class="row"><button class="btn" id="qcok">Looks good — ship it</button><button class="btn ghost" id="qcbad">Something is wrong</button></div><div id="qcf"></div>` : ''}
+        ${o.qc.review === 'problem' ? `<p class="small">Thanks — Kinan support will contact you before we ship.${o.qc.note ? ` <span class="muted">“${esc(o.qc.note)}”</span>` : ''}</p>` : ''}</div>` : ''}
       ${o.shipping_due ? `<div class="panel row between warn"><span>Your parcel weighed more than estimated. Extra shipping: <b>${money(o.shipping_due, o.currency)}</b></span><button class="btn sm" id="paydue">Pay from wallet</button></div>` : ''}
       ${o.shipping_settled?.result === 'credited' ? `<div class="panel flat small">Your parcel weighed ${o.shipping_settled.actual_weight_kg} kg, less than estimated — we added ${money(-o.shipping_settled.diff, o.currency)} to your <a href="#/wallet">wallet</a>.</div>` : ''}
       ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div class="row between"><span><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></span>${o.tracking.url ? `<a class="btn sm" href="${esc(o.tracking.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div></div>` : ''}
@@ -728,13 +753,19 @@ async function orderDetail(id) {
       <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `<img src="${esc(l.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
     </div>
     <aside class="stack">
-      <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div><div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div>${o.payment?.provider === 'wallet' ? '<div class="muted small">Paid from your Kinan wallet</div>' : ''}</div>
+      <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div>${o.packaging_fee ? `<div><span>Extra protection</span><span>${money(o.packaging_fee, o.currency)}</span></div>` : ''}${o.packaging === 'no_boxes' ? '<div class="muted small">Product boxes removed to save weight</div>' : ''}<div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div>${o.payment?.provider === 'wallet' ? '<div class="muted small">Paid from your Kinan wallet</div>' : ''}</div>
       <div class="panel stack small"><h3>Delivery address</h3><div>${esc(a.name)}<br>${esc(a.line1)}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city)} ${esc(a.postal_code)}<br>${esc(a.country)}<br>${esc(a.phone)}</div></div>
       ${['pending_payment', 'paid'].includes(o.status) ? '<button class="btn danger" id="cancel">Cancel order</button>' : ''}
       ${returnsBox(o)}
       <div class="error" id="oe"></div>
     </aside></div>`;
   wireReturn(o);
+  const sn = $('#shipnow'); if (sn) sn.onclick = async () => { sn.disabled = true; try { const r = await api('/api/buyer/ship-stored', 'POST'); toast(`${r.released} order(s) will ship together`); orderDetail(o.id); } catch (e) { toast(e.message); sn.disabled = false; } };
+  const qok = $('#qcok'); if (qok) qok.onclick = async () => { qok.disabled = true; try { await api(`/api/buyer/orders/${o.id}/qc`, 'POST', { ok: true }); toast('Thank you — we’ll ship it soon'); orderDetail(o.id); } catch (e) { toast(e.message); qok.disabled = false; } };
+  const qbad = $('#qcbad'); if (qbad) qbad.onclick = () => {
+    $('#qcf').innerHTML = `<form class="stack" id="qcff"><label class="field">What is wrong?<textarea name="note" rows="3" maxlength="500" required></textarea></label><button class="btn">Send to Kinan support</button></form>`;
+    $('#qcff').onsubmit = async (e) => { e.preventDefault(); try { await api(`/api/buyer/orders/${o.id}/qc`, 'POST', { ok: false, note: e.target.note.value }); toast('Sent — we will contact you'); orderDetail(o.id); } catch (err) { toast(err.message); } };
+  };
   const pd = $('#paydue'); if (pd) pd.onclick = async () => { pd.disabled = true; try { await api(`/api/buyer/orders/${o.id}/pay-shipping-due`, 'POST'); toast('Paid'); orderDetail(o.id); } catch (e) { toast(e.message); pd.disabled = false; } };
   const c = $('#cancel');
   if (c) c.onclick = async () => { if (!confirm('Cancel this order? If you already paid, you will be refunded.')) return; c.disabled = true; try { await api(`/api/buyer/orders/${id}/cancel`, 'POST'); toast('Order cancelled'); orderDetail(id); } catch (e) { $('#oe').textContent = e.message; c.disabled = false; } };

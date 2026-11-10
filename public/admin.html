@@ -446,6 +446,10 @@ async function openOrder(id) {
     <div class="muted">To: ${esc(a.name)}, ${esc(a.line1)}, ${esc(a.city)}, ${esc(a.country)} · ${esc(a.phone)}</div>
     <table><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Cost (CNY)</th></tr></thead><tbody>
       ${o.lines.map((l) => `<tr><td>${esc(l.title)}<div class="muted">${esc(l.props)}</div></td><td>${l.qty}</td><td>${fmt(l.price, o.currency)}</td><td>${fmt(l.cost_cny)}</td></tr>`).join('')}</tbody></table>
+    ${o.packaging && o.packaging !== 'standard' ? `<div><span class="pill">${o.packaging === 'protect' ? 'Extra protection' : 'Remove boxes'}</span></div>` : ''}${o.hold ? '<div><span class="pill warn">Stored in the warehouse until the customer taps Ship now</span></div>' : ''}
+    ${o.qc_photos ? `<h2>Check photos</h2><div class="row">${Array.from({ length: o.qc_photos }, (_, i) => `<a href="/api/admin/orders/${esc(o.id)}/qc/${i}" target="_blank"><img src="/api/admin/orders/${esc(o.id)}/qc/${i}" alt="" style="width:84px;height:84px;object-fit:cover;border-radius:8px"></a>`).join('')}</div>
+      <div class="muted">Customer: ${{ pending: 'has not answered yet', approved: 'looks good', problem: `<b class="bad">reported a problem</b>${o.qc_note ? ` — “${esc(o.qc_note)}”` : ''}`, resolved: 'problem resolved' }[o.qc_review] || '—'}</div>
+      ${o.qc_review === 'problem' ? '<div class="row"><input id="qcres" placeholder="What was agreed with the customer" style="flex:1"><button class="btn" data-qcres>Mark resolved — allow shipping</button></div>' : ''}` : ''}
     <h2>Taobao purchase orders</h2>
     ${o.sub_orders.map((s) => `<div class="sub"><div class="row" style="justify-content:space-between"><b>${esc(s.shop)}</b><span class="pill ${s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED' ? 'bad' : s.status === 'WAIT_BUYER_CONFIRM_GOODS' ? 'ok' : 'warn'}">${esc(s.status_label)}</span></div>
       <div class="muted"><code>${esc(s.outer_purchase_id)}</code> · ${esc((s.purchase_ids || []).join(', ') || '—')}${s.pay_deadline && /WAIT_BUYER_P/.test(s.status) ? ` · pay by ${date(s.pay_deadline)}` : ''}</div>
@@ -467,6 +471,8 @@ async function openOrder(id) {
     <details><summary class="muted">Timeline</summary><ul class="muted">${o.timeline.map((t) => `<li>${date(t.at)} — ${esc(t.event)}</li>`).join('')}</ul></details>
     <div class="err" id="oe"></div>`;
   $('#close').onclick = () => d.close();
+  const qr = b.querySelector('[data-qcres]');
+  if (qr) qr.onclick = async () => { qr.disabled = true; try { await api(`/api/admin/orders/${o.id}/qc-resolved`, 'POST', { note: $('#qcres').value }); openOrder(o.id); } catch (e) { $('#oe').textContent = e.message; qr.disabled = false; } };
   const ca = b.querySelector('[data-copyaddr]');
   if (ca) ca.onclick = () => { const t = ca.previousElementSibling.textContent; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { ca.textContent = 'Copied'; }, () => prompt('Copy', t)); };
   const aeDo = (outer, body) => async (ev) => {

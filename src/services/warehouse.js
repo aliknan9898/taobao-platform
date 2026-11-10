@@ -48,15 +48,29 @@ function assign(parcelId, orderId) {
   return r;
 }
 
-/** Pack all received parcels of an order into one outbound shipment. */
-function ship(orderId, { carrier, tracking, weight_g, cost, label }, staff) {
+const money = (n) => Math.round(Number(n) * 100) / 100;
+const sameAddress = (a, b) => ['country_code', 'city', 'line1', 'postal_code', 'name'].every((k) => String(a?.[k] || '').trim().toLowerCase() === String(b?.[k] || '').trim().toLowerCase());
+
+/**
+ * Pack all received parcels of an order into one outbound shipment.
+ * `with` = other ready orders of the same customer and address to put in the same box (consolidation):
+ * the customer paid shipping per order, so the saving from one combined box goes back to their wallet.
+ */
+function ship(orderId, { carrier, tracking, weight_g, cost, label, with: withIds = [] }, staff) {
   const o = db.orders.get(orderId);
   if (!o) throw httpError(404, 'Order not found');
-  if (o.status !== 'ready_to_ship') throw httpError(409, 'Order is not ready to ship (all parcels must be received and pass QC)');
+  const group = [o, ...[...new Set((Array.isArray(withIds) ? withIds : []).map(String))].filter((id) => id !== o.id).map((id) => db.orders.get(id))];
+  for (const x of group) {
+    if (!x) throw httpError(404, 'Order not found');
+    if (x.status !== 'ready_to_ship') throw httpError(409, `Order ${x.id.slice(-8)} is not ready to ship (all parcels must be received and pass QC)`);
+    if (x.hold) throw httpError(409, `Order ${x.id.slice(-8)}: the customer asked us to store it until they tap “Ship now”`);
+    if (x.qc_review === 'problem') throw httpError(409, `Order ${x.id.slice(-8)}: the customer reported a problem with the check photos — Kinan support must resolve it first`);
+    if (x !== o && (x.buyer_id !== o.buyer_id || !sameAddress(x.shipping_address, o.shipping_address))) throw httpError(400, 'Only orders of the same customer going to the same address can share a box');
+  }
   if (!carrier || !tracking) throw httpError(400, 'Carrier and tracking number are required');
-  const parcels = db.parcels.all((p) => p.order_id === o.id && p.status === 'received');
+  const parcels = db.parcels.all((p) => group.some((x) => x.id === p.order_id) && p.status === 'received');
   const s = db.shipments.insert({
-    order_id: o.id, parcel_ids: parcels.map((p) => p.id), carrier: String(carrier).slice(0, 60),
+    order_id: o.id, order_ids: group.map((x) => x.id), parcel_ids: parcels.map((p) => p.id), carrier: String(carrier).slice(0, 60),
     tracking: String(tracking).slice(0, 60), weight_g: weight_g ? Number(weight_g) : null,
     cost: Number(cost) > 0 ? Math.round(Number(cost) * 100) / 100 : null, // what Kinan paid the courier (for profit reports)
     label: label || null,
@@ -64,18 +78,96 @@ function ship(orderId, { carrier, tracking, weight_g, cost, label }, staff) {
     shipped_at: Date.now(), shipped_by: staff.id, status: 'in_transit'
   });
   for (const p of parcels) db.parcels.update(p.id, { status: 'packed', shipment_id: s.id });
-  db.orders.update(o.id, (x) => ({ ...x, status: 'shipped', shipment_id: s.id, timeline: [...x.timeline, { at: Date.now(), event: 'shipped', tracking: s.tracking }] }));
+  for (const x of group) db.orders.update(x.id, (y) => ({ ...y, status: 'shipped', shipment_id: s.id, timeline: [...y.timeline, { at: Date.now(), event: 'shipped', tracking: s.tracking, ...(group.length > 1 ? { combined: group.length } : {}) }] }));
   // Settle the shipping price with the real weight (overpaid → wallet credit, underpaid → amount due)
   const grams = Number(weight_g) || parcels.reduce((a, p) => a + (Number(p.weight_g) || 0), 0);
-  try { require('./shipping').settleAfterWeighing(db.orders.get(o.id), grams); } catch (e) { console.error('[shipping] settle failed', e.message); }
-  notify.orderShipped(db.orders.get(o.id), [{ carrier: s.carrier, number: s.tracking }]);
+  try {
+    if (group.length === 1) require('./shipping').settleAfterWeighing(db.orders.get(o.id), grams);
+    else settleGroup(group.map((x) => db.orders.get(x.id)), grams);
+  } catch (e) { console.error('[shipping] settle failed', e.message); }
+  for (const x of group) notify.orderShipped(db.orders.get(x.id), [{ carrier: s.carrier, number: s.tracking }]);
   return s;
+}
+
+/** One box for several orders: compare one combined shipping price with what was paid in total. */
+function settleGroup(group, grams) {
+  const shipping = require('./shipping'); const shop = require('./shop');
+  const st = shipping.settings();
+  if (st.mode !== 'weight' || !grams) return null;
+  const paid = money(group.reduce((a, x) => a + (Number(x.shipping_fee) || 0), 0));
+  const actual = shipping.priceFor(grams / 1000, group[0].shipping_address?.country_code).fee;
+  const diff = money(actual - paid);
+  const rec = { actual_weight_kg: Math.round(grams) / 1000, actual_fee: actual, diff, combined: group.map((x) => x.id), at: Date.now() };
+  const ref = group.map((x) => x.id.slice(-8).toUpperCase()).join(', ');
+  if (Math.abs(diff) < st.settle_tolerance) { for (const x of group) db.orders.update(x.id, { shipping_settled: { ...rec, result: 'within_tolerance' } }); return rec; }
+  if (diff < 0) {
+    shop.walletEntry(group[0].buyer_id, -diff, `Combined shipping saving — orders ${ref} shipped in one box`, { order_id: group[0].id, kind: 'shipping_refund' });
+    for (const x of group) db.orders.update(x.id, { shipping_settled: { ...rec, result: 'credited' } });
+  } else {
+    db.orders.update(group[0].id, { shipping_due: diff, shipping_settled: { ...rec, result: 'due' } });
+    for (const x of group.slice(1)) db.orders.update(x.id, { shipping_settled: { ...rec, result: 'due_on_other_order' } });
+  }
+  return rec;
+}
+
+// ---------------- Check photos (QC) ----------------
+const IMG = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+
+/** Warehouse adds photos of the received items; the customer looks at them before the box ships. */
+function addQcPhotos(orderId, images, staff) {
+  const o = db.orders.get(orderId);
+  if (!o) throw httpError(404, 'Order not found');
+  if (['pending_payment', 'cancelled', 'refunded', 'shipped', 'delivered'].includes(o.status)) throw httpError(409, 'Photos can be added only while the order is in the warehouse');
+  const list = (Array.isArray(images) ? images : []).map(String);
+  if (!list.length) throw httpError(400, 'Add at least one photo');
+  if ((o.qc_photos || []).length + list.length > 8) throw httpError(400, 'Up to 8 photos per order');
+  for (const im of list) { if (!IMG.test(im)) throw httpError(400, 'Photos must be JPEG, PNG or WebP'); if (im.length > 500 * 1024) throw httpError(400, 'A photo is too large'); }
+  const out = db.orders.update(o.id, (x) => ({ ...x, qc_photos: [...(x.qc_photos || []), ...list.map((data) => ({ data, at: Date.now(), by: staff.id }))], qc_review: 'pending', qc_at: Date.now(), timeline: [...x.timeline, { at: Date.now(), event: 'qc_photos' }] }));
+  try { notify.qcPhotos && notify.qcPhotos(out); } catch { /* email is best effort */ }
+  return { photos: out.qc_photos.length, review: out.qc_review };
+}
+
+function qcPhoto(order, n) {
+  const ph = (order.qc_photos || [])[Number(n) || 0];
+  const m = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(ph?.data || '');
+  return m ? { type: m[1], body: Buffer.from(m[2], 'base64') } : null;
+}
+
+/** Customer: photos look right (ship it) or something is wrong (Kinan support looks before it ships). */
+function qcDecision(order, buyer, { ok, note }) {
+  if (order.buyer_id !== buyer.id) throw httpError(404, 'Not found');
+  if (!(order.qc_photos || []).length) throw httpError(409, 'There are no check photos for this order yet');
+  if (['shipped', 'delivered'].includes(order.status)) throw httpError(409, 'This order has already shipped');
+  const review = ok ? 'approved' : 'problem';
+  return db.orders.update(order.id, (x) => ({ ...x, qc_review: review, qc_note: ok ? null : String(note || '').slice(0, 500), timeline: [...x.timeline, { at: Date.now(), event: `qc_${review}` }] }));
+}
+
+// ---------------- Storage: ship several orders together ----------------
+/** Customer taps “Ship now”: all their stored orders are released and marked to share one box. */
+function releaseStored(buyer) {
+  const held = db.orders.all((o) => o.buyer_id === buyer.id && o.hold && !['cancelled', 'refunded', 'shipped', 'delivered'].includes(o.status));
+  if (!held.length) throw httpError(409, 'You have no stored orders');
+  const group = `grp_${Date.now().toString(36)}`;
+  for (const o of held) db.orders.update(o.id, (x) => ({ ...x, hold: false, ship_group: group, timeline: [...x.timeline, { at: Date.now(), event: 'ship_requested' }] }));
+  return { released: held.length, group };
+}
+
+/** Stored orders older than the free storage period are released automatically. */
+function releaseExpired(days = Number(process.env.STORAGE_DAYS || 30)) {
+  let n = 0;
+  for (const o of db.orders.all((x) => x.hold && x.paid_at && Date.now() - x.paid_at > days * 86400e3)) {
+    db.orders.update(o.id, (x) => ({ ...x, hold: false, ship_group: x.ship_group || `grp_auto_${x.buyer_id}`, timeline: [...x.timeline, { at: Date.now(), event: 'storage_ended' }] })); n++;
+  }
+  return n;
 }
 
 function markDelivered(orderId) {
   const o = db.orders.get(orderId);
   if (!o || o.status !== 'shipped') throw httpError(409, 'Order has not been shipped yet');
   if (o.shipment_id) db.shipments.update(o.shipment_id, { status: 'delivered', delivered_at: Date.now() });
+  // Orders that travelled in the same box are delivered together
+  const sh = o.shipment_id ? db.shipments.get(o.shipment_id) : null;
+  for (const id of (sh?.order_ids || []).filter((id) => id !== o.id)) { const x = db.orders.get(id); if (x && x.status === 'shipped') { db.orders.update(x.id, { shipment_id: null }); markDelivered(x.id); db.orders.update(x.id, { shipment_id: sh.id }); } }
   for (const l of db.ledger.all((x) => x.order_id === o.id && x.status === 'pending_payout')) db.ledger.update(l.id, { status: 'payable' });
   const out = db.orders.update(o.id, (x) => ({ ...x, status: 'delivered', timeline: [...x.timeline, { at: Date.now(), event: 'delivered' }] }));
   notify.orderDelivered(out);
@@ -109,7 +201,9 @@ function parcelView(p) {
 function lists() {
   const readyOrders = db.orders.all((o) => ['ready_to_ship', 'awaiting_parcels', 'attention'].includes(o.status)).map((o) => {
     const ps = db.parcels.all((p) => p.order_id === o.id);
-    return { id: o.id, status: o.status, status_label: orders.ORDER_STATUS_LABEL[o.status], destination: `${o.shipping_address.city}, ${o.shipping_address.country}`, recipient: o.shipping_address.name, parcels_total: ps.length, parcels_received: ps.filter((p) => p.status === 'received').length, items: o.lines.reduce((a, l) => a + l.qty, 0), weight_g: ps.reduce((a, p) => a + (Number(p.weight_g) || 0), 0) || null, country_code: o.shipping_address.country_code || null };
+    return { id: o.id, status: o.status, status_label: orders.ORDER_STATUS_LABEL[o.status], destination: `${o.shipping_address.city}, ${o.shipping_address.country}`, recipient: o.shipping_address.name, parcels_total: ps.length, parcels_received: ps.filter((p) => p.status === 'received').length, items: o.lines.reduce((a, l) => a + l.qty, 0), weight_g: ps.reduce((a, p) => a + (Number(p.weight_g) || 0), 0) || null, country_code: o.shipping_address.country_code || null,
+      hold: Boolean(o.hold), ship_group: o.ship_group || null, packaging: o.packaging || 'standard', qc_photos: (o.qc_photos || []).length, qc_review: o.qc_review || null, qc_note: o.qc_note || null,
+      combine_with: db.orders.all((x) => x.id !== o.id && x.buyer_id === o.buyer_id && x.status === 'ready_to_ship' && !x.hold && sameAddress(x.shipping_address, o.shipping_address)).map((x) => x.id) };
   });
   return {
     expected: db.parcels.all((p) => p.status === 'expected').map(parcelView),
@@ -119,4 +213,4 @@ function lists() {
   };
 }
 
-module.exports = { receive, assign, ship, markDelivered, inventory, lists, PARCEL_LABEL };
+module.exports = { receive, assign, ship, settleGroup, markDelivered, inventory, lists, addQcPhotos, qcPhoto, qcDecision, releaseStored, releaseExpired, PARCEL_LABEL };
