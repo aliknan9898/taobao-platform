@@ -49,8 +49,21 @@ function page(res, file, { stripe: withStripe = false } = {}) {
       `script-src 'self' 'unsafe-inline'${stripeSrc}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}; ` +
       `frame-src ${withStripe ? 'https://js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
   });
-  fs.createReadStream(path.join(PUBLIC, file)).pipe(res);
+  res.end(versionAssets(fs.readFileSync(path.join(PUBLIC, file), 'utf8')));
 }
+
+// Cache busting: every /assets/*.css|js link in a page gets ?v=<content hash>, so phones pick up
+// a new deploy immediately instead of keeping yesterday's styles from their cache.
+const assetVersions = new Map();
+function assetVersion(name) {
+  if (!assetVersions.has(name)) {
+    let v = '0';
+    try { v = require('crypto').createHash('sha1').update(fs.readFileSync(path.join(PUBLIC, 'assets', name))).digest('hex').slice(0, 10); } catch { /* missing file */ }
+    assetVersions.set(name, v);
+  }
+  return assetVersions.get(name);
+}
+const versionAssets = (html) => html.replace(/(["'])\/assets\/([\w.-]+\.(?:css|js))\1/g, (m, q, name) => `${q}/assets/${name}?v=${assetVersion(name)}${q}`);
 
 // Static assets (CSS, JS, icons, manifests) — flat folder, no traversal
 const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8' };
@@ -231,7 +244,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === '/sw.js') { res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); return fs.createReadStream(path.join(PUBLIC, 'sw.js')).pipe(res); }
       if (p === '/favicon.ico' || p === '/apple-touch-icon.png') return asset(res, p === '/favicon.ico' ? 'icon-192.png' : 'apple-touch-icon.png');
-      if (p.startsWith('/assets/')) return asset(res, p.slice(8));
+      if (p.startsWith('/assets/')) return asset(res, p.slice(8), url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
     }
 
     if (p === '/webhooks/taobao') {
