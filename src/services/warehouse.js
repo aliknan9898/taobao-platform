@@ -9,6 +9,7 @@
  * so QC must happen here, before packing.
  */
 const db = require('../db');
+const notify = require('../notify');
 const orders = require('./orders');
 const { httpError } = require('../auth');
 
@@ -62,6 +63,10 @@ function ship(orderId, { carrier, tracking, weight_g }, staff) {
   });
   for (const p of parcels) db.parcels.update(p.id, { status: 'packed', shipment_id: s.id });
   db.orders.update(o.id, (x) => ({ ...x, status: 'shipped', shipment_id: s.id, timeline: [...x.timeline, { at: Date.now(), event: 'shipped', tracking: s.tracking }] }));
+  // Settle the shipping price with the real weight (overpaid → wallet credit, underpaid → amount due)
+  const grams = Number(weight_g) || parcels.reduce((a, p) => a + (Number(p.weight_g) || 0), 0);
+  try { require('./shipping').settleAfterWeighing(db.orders.get(o.id), grams); } catch (e) { console.error('[shipping] settle failed', e.message); }
+  notify.orderShipped(db.orders.get(o.id), [{ carrier: s.carrier, number: s.tracking }]);
   return s;
 }
 
@@ -70,7 +75,9 @@ function markDelivered(orderId) {
   if (!o || o.status !== 'shipped') throw httpError(409, 'Order has not been shipped yet');
   if (o.shipment_id) db.shipments.update(o.shipment_id, { status: 'delivered', delivered_at: Date.now() });
   for (const l of db.ledger.all((x) => x.order_id === o.id && x.status === 'pending_payout')) db.ledger.update(l.id, { status: 'payable' });
-  return db.orders.update(o.id, (x) => ({ ...x, status: 'delivered', timeline: [...x.timeline, { at: Date.now(), event: 'delivered' }] }));
+  const out = db.orders.update(o.id, (x) => ({ ...x, status: 'delivered', timeline: [...x.timeline, { at: Date.now(), event: 'delivered' }] }));
+  notify.orderDelivered(out);
+  return out;
 }
 
 /** Inventory overview = what is physically in the warehouse right now. */

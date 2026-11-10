@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reset password — Kinan</title>
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#ffffff">
+<script src="/assets/theme.js"></script>
+<script src="/assets/i18n.js"></script>
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/kinan.css">
+</head>
+<body>
+<div class="auth" style="min-height:90vh"><div class="panel stack" id="box" style="width:min(420px,100%)"></div></div>
+<script src="/assets/common.js"></script>
+<script>
+(function () {
+  var $ = K.$, esc = K.esc, api = K.api;
+  var token = (location.hash.match(/t=([\w-]+)/) || [])[1];
+  var app = new URLSearchParams(location.search).get('app') || 'shop';
+  var HOME = { buyer: '/#/', seller: '/seller', admin: '/admin', warehouse: '/warehouse' };
+  var box = $('#box');
+  var head = K.brand();
+
+  function ask(msg) {
+    box.innerHTML = head + '<h2>Forgot your password?</h2><p class="muted">Enter the email of your Kinan account and we’ll send you a link to choose a new password.</p>' +
+      '<form class="stack" id="f"><label class="field">Email<input name="email" type="email" required autocomplete="username"></label><div class="error">' + esc(msg || '') + '</div><button class="btn">Send reset link</button></form>' +
+      '<a class="muted" href="' + (app === 'seller' ? '/seller' : app === 'admin' ? '/admin' : '/#/signin') + '">Back to sign in</a>';
+    $('#f').onsubmit = function (e) {
+      e.preventDefault(); var b = e.target.querySelector('button'); b.disabled = true;
+      api('/api/auth/forgot', 'POST', { email: e.target.email.value }).then(function (r) {
+        box.innerHTML = head + '<h2>Check your email</h2><p>If an account exists for <b>' + esc(e.target.email.value) + '</b>, a reset link is on its way. It works for 1 hour.</p>' +
+          (r.email_enabled ? '' : '<p class="muted small">Email isn’t switched on for Kinan yet — ask Kinan support for a reset link.</p>');
+      }, function (err) { ask(err.message); });
+    };
+  }
+
+  function choose(msg) {
+    box.innerHTML = head + '<h2>Choose a new password</h2>' +
+      '<form class="stack" id="f"><label class="field">New password<input name="p1" type="password" minlength="8" required autocomplete="new-password"></label>' +
+      '<label class="field">Repeat it<input name="p2" type="password" minlength="8" required autocomplete="new-password"></label>' +
+      '<span class="muted small">At least 8 characters. You’ll be signed out on other devices.</span><div class="error">' + esc(msg || '') + '</div><button class="btn">Save password</button></form>';
+    $('#f').onsubmit = function (e) {
+      e.preventDefault(); var f = e.target;
+      if (f.p1.value !== f.p2.value) return choose('The two passwords don’t match');
+      f.querySelector('button').disabled = true;
+      api('/api/auth/reset', 'POST', { token: token, password: f.p1.value }).then(function (r) {
+        history.replaceState(null, '', '/reset');
+        box.innerHTML = head + '<h2>Password saved</h2><p>You’re signed in.</p><a class="btn" href="' + (HOME[r.user.role] || '/') + '">Continue</a>';
+      }, function (err) { choose(err.message); });
+    };
+  }
+
+  if (token) choose(); else ask();
+})();
+</script>
+</body>
+</html>

@@ -18,6 +18,7 @@ const stripe = require('../payments/stripe');
 const catalog = require('./catalog');
 const shop = require('./shop');
 const aliexpress = require('./aliexpress');
+const notify = require('../notify');
 const { httpError } = require('../auth');
 const { countryCode, countryName } = require('../countries');
 
@@ -88,10 +89,11 @@ async function checkout(buyer, { items, shipping_address }) {
     });
   }
   const subtotal = money(lines.reduce((s, x) => s + x.price * x.qty, 0));
-  const shipping = money(config.shippingFlat || 0);
+  const ship = require('./shipping').quote(lines.map((l) => ({ listing_id: l.listing_id, qty: l.qty })), address.country_code || address.country);
+  const shipping = money(ship.fee);
   const order = db.orders.insert({
     buyer_id: buyer.id, lines, currency: config.currency, subtotal, shipping_fee: shipping,
-    total: money(subtotal + shipping), shipping_address: address,
+    total: money(subtotal + shipping), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
   });
   const payment = await stripe.createPaymentIntent(order);
@@ -118,6 +120,7 @@ async function markPaid(orderId, { provider, intent_id }) {
     db.ledger.insert({ order_id: o.id, seller_id: sellerId, type: 'sale', currency: o.currency, gross, commission, cost, net: money(gross - commission - cost), status: 'pending_payout' });
   }
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));
+  notify.orderPaid(db.orders.get(o.id));
   await procure(o.id);
   return db.orders.get(o.id);
 }
@@ -320,7 +323,10 @@ function recompute(orderId) {
   }
   if (status === o.status) return o;
   if (status === 'delivered') for (const l of db.ledger.all((x) => x.order_id === o.id && x.status === 'pending_payout')) db.ledger.update(l.id, { status: 'payable' });
-  return db.orders.update(o.id, (x) => ({ ...x, status, timeline: log(x, `status:${status}`) }));
+  const updated = db.orders.update(o.id, (x) => ({ ...x, status, timeline: log(x, `status:${status}`) }));
+  if (status === 'shipped') notify.orderShipped(updated, direct.flatMap((s) => (s.logistics || []).map((t) => ({ carrier: t.carrier, number: t.tracking }))));
+  if (status === 'delivered') notify.orderDelivered(updated);
+  return updated;
 }
 
 /** Admin: AliExpress part of an order — place it via the API, or record what was done by hand. */
@@ -335,7 +341,8 @@ async function updateDirect(orderId, { outer_purchase_id, place, ...manual } = {
     if (sub.status !== 'AE_TO_BUY') throw httpError(409, 'Already ordered on AliExpress');
     await aliexpress.place(o, sub, o.lines.filter((l) => sub.line_nos.includes(l.line_no)));
   } else aliexpress.manualUpdate(sub, manual);
-  db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'paid' || x.status === 'attention' ? 'procuring' : x.status, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === sub.outer_purchase_id ? sub : s)), timeline: log(x, `aliexpress:${sub.status}`, { by }) }));
+  const saved = db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'paid' || x.status === 'attention' ? 'procuring' : x.status, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === sub.outer_purchase_id ? sub : s)), timeline: log(x, `aliexpress:${sub.status}`, { by }) }));
+  if (sub.status === 'AE_SHIPPED' && (sub.logistics || []).length && saved.lines.some((l) => !l.direct)) notify.orderShipped(saved, sub.logistics.map((t) => ({ carrier: t.carrier, number: t.tracking })));
   return recompute(o.id);
 }
 
@@ -395,7 +402,8 @@ function buyerView(o) {
   return {
     id: o.id, status: o.status, status_label: ORDER_STATUS_LABEL[o.status], currency: o.currency,
     subtotal: o.subtotal, shipping_fee: o.shipping_fee, total: o.total, created_at: o.created_at,
-    lines: o.lines.map(({ title, props, qty, price, image, listing_id }) => ({ title, props, qty, price, image, listing_id })),
+    shipping_due: o.shipping_due || 0, shipping_settled: o.shipping_settled ? { result: o.shipping_settled.result, diff: o.shipping_settled.diff, actual_weight_kg: o.shipping_settled.actual_weight_kg } : null, shipping_days: o.shipping_quote?.days || null,
+    lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image, listing_id, direct: Boolean(direct) })),
     shipping_address: o.shipping_address,
     payment: { provider: o.payment?.provider, client_secret: o.status === 'pending_payment' ? o.payment?.client_secret : undefined },
     tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at } : null,

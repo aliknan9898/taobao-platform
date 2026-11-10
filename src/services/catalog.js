@@ -93,7 +93,7 @@ async function preview(seller, link) {
  * Seller publishes a listing with their own sale prices.
  * own_images: optional HTTPS URLs of photos the SELLER owns (required to show images for WITHOUT_MATERIAL items).
  */
-async function publish(seller, { link, prices = {}, title, description, own_images = [], images_rights_confirmed = false }) {
+async function publish(seller, { link, prices = {}, title, description, own_images = [], images_rights_confirmed = false, category }) {
   if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
   const p = await itemIdFromInput(link);
   if (!p.ok) throw httpError(400, LINK_ERRORS[p.reason] || 'Unsupported link');
@@ -120,6 +120,7 @@ async function publish(seller, { link, prices = {}, title, description, own_imag
     && existing.title === newTitle && JSON.stringify(existing.own_images || []) === JSON.stringify(ownImgs)
     && (existing.description || '') === (newDesc || '');
   const doc = {
+    category: require('./shipping').cleanCategory(category ?? existing?.category),
     seller_id: seller.id,
     taobao_item_id: prod.taobao_item_id, mp_id: prod.mp_id, item_type: prod.item_type,
     title: newTitle,
@@ -183,6 +184,7 @@ function publishManual(seller, b = {}, listingId = null) {
   const keepApproval = existing && existing.review?.state === 'approved' && existing.title === title
     && (existing.description || '') === description && JSON.stringify([...(existing.images || []), ...(existing.own_images || [])].sort()) === JSON.stringify([...images].sort());
   const doc = {
+    category: require('./shipping').cleanCategory(b.category ?? existing?.category),
     seller_id: seller.id, source: fromAE ? 'aliexpress' : 'manual', fulfillment: fromAE ? 'direct' : 'warehouse', source_link: sourceLink,
     ae_product_id: fromAE ? (aliexpress.productIdFromLink(sourceLink) || existing?.ae_product_id || null) : null,
     taobao_item_id: null, mp_id: null, item_type: fromAE ? 'ALIEXPRESS' : 'MANUAL',
@@ -219,28 +221,42 @@ async function resyncStale(maxAgeMs = 6 * 3600e3) {
   }
 }
 
-function visibleImages(l) { return [...(l.own_images || []), ...(l.images || [])]; }
+// Uploaded photos are stored as data URLs; buyers get short cacheable links instead (see /img routes).
+const crypto = require('crypto');
+const ver = (str) => crypto.createHash('sha1').update(str).digest('hex').slice(0, 8);
+function photoUrl(l, i, u) { return /^data:/.test(u) ? `/img/l/${l.id}/${i}?v=${ver(u)}` : u; }
+function logoUrl(seller) { return seller?.logo ? (/^data:/.test(seller.logo) ? `/img/s/${seller.id}?v=${ver(seller.logo)}` : seller.logo) : null; }
+function visibleImages(l) { const own = l.own_images || []; return [...own.map((u, i) => photoUrl(l, i, u)), ...(l.images || [])]; }
+/** Decode a stored photo for the /img routes. */
+function imageData(kind, id, n) {
+  let u = null;
+  if (kind === 'l') { const l = db.listings.get(id); if (l && ['active', 'paused', 'pending_review'].includes(l.status)) u = (l.own_images || [])[Number(n) || 0]; }
+  if (kind === 's') u = db.sellers.get(id)?.logo;
+  const m = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(u || '');
+  return m ? { type: m[1], body: Buffer.from(m[2], 'base64') } : null;
+}
 
 /** Buyer catalog: only active listings of active sellers. Cost is never exposed to buyers. */
-function browse({ q = '', seller_id, sort = 'new', min_price, max_price, limit = 40, offset = 0 } = {}) {
+function browse({ q = '', seller_id, category, sort = 'new', min_price, max_price, limit = 40, offset = 0 } = {}) {
   const activeSellers = new Map(db.sellers.all((s) => s.status === 'active').map((s) => [s.id, s]));
   const needle = String(q).toLowerCase().trim();
   const lo = Number(min_price) || 0; const hi = Number(max_price) || Infinity;
   let items = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id)
     && (!seller_id || l.seller_id === seller_id)
+    && (!category || (l.category || 'other') === category)
     && (!needle || l.title.toLowerCase().includes(needle) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
     .map((l) => toBuyerView(l, activeSellers.get(l.seller_id)))
     .filter((p) => p.min_price >= lo && p.min_price <= hi);
   const order = { price_asc: (a, b) => a.min_price - b.min_price, price_desc: (a, b) => b.min_price - a.min_price, new: (a, b) => b.listed_at - a.listed_at }[sort] || ((a, b) => b.listed_at - a.listed_at);
   items = items.sort(order);
-  return { total: items.length, items: items.slice(Number(offset) || 0, (Number(offset) || 0) + Math.min(Number(limit) || 40, 100)) };
+  return { total: items.length, items: items.slice(Number(offset) || 0, (Number(offset) || 0) + (limit === 100000 ? items.length : Math.min(Number(limit) || 40, 100))) };
 }
 
 function toBuyerView(l, seller) {
   return {
     id: l.id, title: l.title, images: visibleImages(l), description: l.description,
-    currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: seller.logo || null } : null,
-    listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse',
+    currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
+    listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', category: l.category || 'other',
     min_price: Math.min(...l.skus.map((s) => s.price)),
     skus: l.skus.map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
   };
@@ -258,7 +274,9 @@ function approve(listingId, adminUser) {
   const l = db.listings.get(listingId);
   if (!l) throw httpError(404, 'Product not found');
   if (l.status !== 'pending_review' && l.review?.state !== 'rejected') throw httpError(409, 'Product is not awaiting review');
-  return db.listings.update(l.id, { status: 'active', review: { ...l.review, state: 'approved', reason: null, decided_at: Date.now(), decided_by: adminUser.id } });
+  const out = db.listings.update(l.id, { status: 'active', review: { ...l.review, state: 'approved', reason: null, decided_at: Date.now(), decided_by: adminUser.id } });
+  require('../notify').listingDecision(out, true);
+  return out;
 }
 
 function reject(listingId, reason, adminUser) {
@@ -266,7 +284,9 @@ function reject(listingId, reason, adminUser) {
   if (!l) throw httpError(404, 'Product not found');
   const why = String(reason || '').trim().slice(0, 300);
   if (!why) throw httpError(400, 'Enter a rejection reason so the seller knows what to fix');
-  return db.listings.update(l.id, { status: 'rejected', review: { ...l.review, state: 'rejected', reason: why, decided_at: Date.now(), decided_by: adminUser.id } });
+  const out = db.listings.update(l.id, { status: 'rejected', review: { ...l.review, state: 'rejected', reason: why, decided_at: Date.now(), decided_by: adminUser.id } });
+  require('../notify').listingDecision(out, false, why);
+  return out;
 }
 
 /** Seller may pause/resume only listings the admin already approved. */
@@ -279,4 +299,4 @@ function sellerSetStatus(l, status) {
   return status;
 }
 
-module.exports = { publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };
+module.exports = { imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };

@@ -166,7 +166,7 @@ test('full marketplace flow: seller → buyer → Taobao → warehouse → deliv
   assert.strictEqual((await api('POST', '/api/buyer/checkout', { items: [{ listing_id: pub.body.id, mp_sku_id: 'S1b', qty: 1 }], shipping_address: { name: 'Sara', phone: '1', country: 'MT', city: 'Valletta', line1: 'St 1' } }, bTok)).status, 409, 'out-of-stock rejected');
   const co = await api('POST', '/api/buyer/checkout', { items: [{ listing_id: pub.body.id, mp_sku_id: 'S1', qty: 2 }], shipping_address: { name: 'Sara', phone: '+356', country: 'Malta', city: 'Valletta', line1: 'Republic St 1' } }, bTok);
   assert.strictEqual(co.status, 201);
-  assert.strictEqual(co.body.total, 47.98); // 2×19.99 + 8 shipping
+  assert.strictEqual(co.body.total, 52.48); // 2×19.99 + Europe 1 kg (9 first 0.5 kg + 3.5 extra 0.5 kg)
   const orderId = co.body.id;
 
   // Pay (demo) → procurement on Taobao with the SELLER's token, shipped to warehouse, PANAMA_DG
@@ -247,12 +247,14 @@ test('Kinan Shop: store profiles, filters, item requests and wallet', async () =
   // ...and it shows up in Kinan Shop
   const shops = (await api('GET', '/api/shops')).body;
   const s1 = shops.find((x) => x.name === 'Shop One');
-  assert.ok(s1 && s1.products >= 1 && s1.logo === logo);
+  assert.ok(s1 && s1.products >= 1 && /^\/img\/s\/sel_\w+\?v=\w+$/.test(s1.logo), 'logo served as a link, not inline data');
+  const lg = await realFetch(base + s1.logo);
+  assert.deepStrictEqual([lg.status, lg.headers.get('content-type')], [200, 'image/png']);
   assert.strictEqual(s1.return_policy, undefined, 'policy only on the shop page');
   assert.strictEqual((await api('GET', `/api/shops/${s1.id}`)).body.return_policy, 'Damaged items only, 7 days.');
   const cat = (await api('GET', '/api/catalog?sort=price_desc')).body;
   assert.ok(cat.items.every((p, i, a) => !i || a[i - 1].min_price >= p.min_price));
-  assert.strictEqual(cat.items[0].shop.logo, logo);
+  assert.strictEqual(cat.items[0].shop.logo, s1.logo);
   assert.ok(cat.items.every((p) => !('cost_cny' in p.skus[0])), 'no cost in buyer view');
   assert.strictEqual((await api('GET', '/api/catalog?min_price=100000')).body.total, 0);
   assert.strictEqual((await api('GET', `/api/catalog/${cat.items[0].id}`)).body.return_policy, 'Damaged items only, 7 days.');
@@ -365,7 +367,10 @@ test('manual product: seller types it in, Kinan buys it by hand, warehouse recei
   assert.strictEqual(q.skus[1].margin_pct, null, 'no cost → no margin');
   await api('POST', `/api/admin/listings/${pub.body.id}/approve`, null, aTok);
   const item = (await api('GET', `/api/catalog/${pub.body.id}`)).body;
-  assert.deepStrictEqual(item.images, [img]);
+  assert.match(item.images[0], /^\/img\/l\/lst_\w+\/0\?v=\w+$/);
+  const ph = await realFetch(base + item.images[0]);
+  assert.deepStrictEqual([ph.status, ph.headers.get('content-type'), ph.headers.get('cache-control')], [200, 'image/jpeg', 'public, max-age=31536000, immutable']);
+  assert.strictEqual((await realFetch(base + '/img/l/lst_nope/0')).status, 404);
   assert.ok(!JSON.stringify(item).includes('c.tb.cn'), 'Taobao link is hidden from buyers');
   // Price edit keeps approval; resync is a no-op
   const ed = await api('PUT', `/api/seller/products/${pub.body.id}/manual`, { ...body, variants: [{ ...body.variants[0], price: 45 }, body.variants[1]] }, sTok);
@@ -493,4 +498,108 @@ test('AliExpress, API mode: connect, import by link, order placed and synced aut
   aeMock.status = 'FINISH';
   full = (await api('POST', `/api/admin/orders/${o.id}/sync`, null, aTok)).body;
   assert.strictEqual(full.status, 'delivered');
+});
+
+test('password reset and email log', async () => {
+  const aTok = await login('admin@x.com', 'adminpass1');
+  // Unknown email: same answer, nothing sent
+  assert.deepStrictEqual((await api('POST', '/api/auth/forgot', { email: 'nobody@x.com' })).body, { ok: true, email_enabled: false });
+  await api('POST', '/api/auth/forgot', { email: 'W1@x.com' });
+  let mail = (await api('GET', '/api/admin/mail', null, aTok)).body;
+  assert.strictEqual(mail.enabled, false);
+  assert.ok(mail.recent.some((m) => m.kind === 'reset' && m.to === 'w1@x.com' && m.status === 'not_sent'));
+  // Emails were queued along the way for orders, sales and approvals (once each)
+  for (const k of ['order', 'sale', 'seller', 'request']) assert.ok(mail.recent.some((m) => m.kind === k), `has ${k} email`);
+  const keys = mail.recent.map((m) => m.key).filter(Boolean);
+  assert.strictEqual(new Set(keys).size, keys.length, 'no duplicate emails');
+  // Admin creates a reset link for a user without email set up
+  const users = (await api('GET', '/api/admin/users', null, aTok)).body;
+  const w1 = users.find((u) => u.email === 'w1@x.com');
+  const old = await login('w1@x.com', 'buyerpass1');
+  const { url } = (await api('POST', `/api/admin/users/${w1.id}/reset-link`, null, aTok)).body;
+  const token = url.split('#t=')[1];
+  assert.ok(token && url.startsWith('http'));
+  assert.strictEqual((await api('POST', '/api/auth/reset', { token, password: 'short' })).status, 400);
+  const r = await api('POST', '/api/auth/reset', { token, password: 'newpass123' });
+  assert.strictEqual(r.status, 200); assert.strictEqual(r.body.user.email, 'w1@x.com');
+  assert.strictEqual((await api('GET', '/api/me', null, old)).status, 401, 'old sessions signed out');
+  assert.strictEqual((await api('POST', '/api/auth/reset', { token, password: 'another123' })).status, 400, 'single use');
+  assert.strictEqual((await api('POST', '/api/auth/login', { email: 'w1@x.com', password: 'buyerpass1' })).status, 401);
+  assert.ok(await login('w1@x.com', 'newpass123'));
+  assert.strictEqual((await realFetch(base + '/reset')).status, 200);
+});
+
+test('seller withdrawals and customer returns', async () => {
+  const aTok = await login('admin@x.com', 'adminpass1');
+  const sTok = await login('s1@x.com', 'sellerpass');
+  let e = (await api('GET', '/api/seller/earnings', null, sTok)).body;
+  assert.ok(e.available >= 20, `has earnings (${e.available})`);
+  const start = e.available;
+  assert.strictEqual((await api('POST', '/api/seller/payouts', { amount: start + 1, details: { method: 'bank', holder: 'Ali', iban: 'MT84MALT011000012345MTLCAST001S' } }, sTok)).status, 409);
+  assert.strictEqual((await api('POST', '/api/seller/payouts', { amount: 15, details: { method: 'bank', holder: 'Ali', iban: 'nope' } }, sTok)).status, 400);
+  const p = await api('POST', '/api/seller/payouts', { amount: 15, details: { method: 'bank', holder: 'Ali', iban: 'MT84 MALT 0110 0001 2345 MTLC AST0 01S' } }, sTok);
+  assert.strictEqual(p.status, 200, JSON.stringify(p.body));
+  assert.strictEqual(p.body.details.iban, 'MT84MALT011000012345MTLCAST001S');
+  assert.strictEqual((await api('POST', '/api/seller/payouts', { amount: 10 }, sTok)).status, 409, 'one at a time');
+  e = (await api('GET', '/api/seller/earnings', null, sTok)).body;
+  assert.deepStrictEqual([e.available, e.requested], [Math.round((start - 15) * 100) / 100, 15]);
+  assert.ok((await api('GET', '/api/admin/overview', null, aTok)).body.alerts.some((a) => a.kind === 'payouts'));
+  assert.strictEqual((await api('POST', `/api/admin/payouts/${p.body.id}`, { action: 'decline' }, aTok)).status, 400, 'reason needed');
+  await api('POST', `/api/admin/payouts/${p.body.id}`, { action: 'paid', reference: 'WISE-123' }, aTok);
+  e = (await api('GET', '/api/seller/earnings', null, sTok)).body;
+  assert.deepStrictEqual([e.requested, e.withdrawn, e.payouts[0].status], [0, 15, 'paid']);
+
+  // Return on the delivered AliExpress order from earlier
+  const bTok = await login('ae1@x.com', 'buyerpass1');
+  const o = (await api('GET', '/api/buyer/orders', null, bTok)).body.find((x) => x.status === 'delivered');
+  assert.strictEqual((await api('POST', `/api/buyer/orders/${o.id}/returns`, { lines: ['1'] }, bTok)).status, 400, 'reason needed');
+  const r = await api('POST', `/api/buyer/orders/${o.id}/returns`, { lines: ['1'], reason: 'damaged', note: 'Cracked' }, bTok);
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+  assert.strictEqual((await api('POST', `/api/buyer/orders/${o.id}/returns`, { lines: ['1'], reason: 'other' }, bTok)).status, 409, 'one open return');
+  const before = (await api('GET', '/api/buyer/wallet', null, bTok)).body.balance;
+  assert.strictEqual((await api('POST', `/api/admin/returns/${r.body.id}`, { action: 'refund', amount: 9999 }, aTok)).status, 400);
+  await api('POST', `/api/admin/returns/${r.body.id}`, { action: 'refund', amount: 10, refund_to: 'wallet', charge_seller: true, note: 'Sorry about that' }, aTok);
+  assert.strictEqual((await api('GET', '/api/buyer/wallet', null, bTok)).body.balance, before + 10);
+  const view = (await api('GET', `/api/buyer/orders/${o.id}`, null, bTok)).body;
+  assert.deepStrictEqual([view.returns[0].status, view.returns[0].refund_amount], ['refunded', 10]);
+  e = (await api('GET', '/api/seller/earnings', null, sTok)).body;
+  assert.ok(e.entries.some((x) => x.type === 'refund' && x.net === -10), 'charged to the seller');
+  assert.strictEqual(e.available, Math.round((start - 15 - 10) * 100) / 100);
+});
+
+test('categories and shipping by weight and country', async () => {
+  const aTok = await login('admin@x.com', 'adminpass1');
+  const sTok = await login('s1@x.com', 'sellerpass');
+  const cats = (await api('GET', '/api/categories')).body;
+  assert.ok(cats.length >= 10 && cats.every((c) => c.en && c.ar));
+  const img = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+  const pub = (await api('POST', '/api/seller/products/manual', { title: 'Hiking boots', category: 'shoes_bags', weight_kg: 1.2, images: [img], variants: [{ name: '42', price: 30, stock: 9 }] }, sTok)).body;
+  await api('POST', `/api/admin/listings/${pub.id}/approve`, null, aTok);
+  const inCat = (await api('GET', '/api/catalog?category=shoes_bags')).body;
+  assert.ok(inCat.items.some((p) => p.id === pub.id) && inCat.items.every((p) => p.category === 'shoes_bags'));
+  // 2 × 1.2 kg = 2.4 → 2.5 kg chargeable; Gulf 8 + 4 × 3 = 20
+  let q = (await api('POST', '/api/shipping/quote', { items: [{ listing_id: pub.id, qty: 2 }], country_code: 'SA' })).body;
+  assert.deepStrictEqual([q.fee, q.weight_kg, q.chargeable_kg, q.zone], [20, 2.4, 2.5, 'gulf']);
+  assert.strictEqual((await api('POST', '/api/shipping/quote', { items: [{ listing_id: pub.id, qty: 1 }], country: 'Egypt' })).body.zone, 'africa');
+  // Admin changes the Gulf rate
+  const st = (await api('GET', '/api/admin/settings/shipping', null, aTok)).body;
+  await api('PUT', '/api/admin/settings/shipping', { ...st, rates: { ...st.rates, gulf: { first: 6, extra: 2 } } }, aTok);
+  q = (await api('POST', '/api/shipping/quote', { items: [{ listing_id: pub.id, qty: 2 }], country_code: 'SA' })).body;
+  assert.strictEqual(q.fee, 14);
+
+  // Order, then the parcel weighs less at dispatch → difference back to the wallet
+  await api('POST', '/api/auth/register', { role: 'buyer', email: 'sh1@x.com', password: 'buyerpass1', name: 'H' });
+  const bTok = await login('sh1@x.com', 'buyerpass1');
+  const o = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: pub.id, mp_sku_id: pub.skus[0].mp_sku_id, qty: 2 }], shipping_address: { name: 'H', phone: '1', country_code: 'SA', city: 'Jeddah', line1: 'St 3' } }, bTok)).body;
+  assert.deepStrictEqual([o.shipping_fee, o.total], [14, 74]);
+  await api('POST', `/api/buyer/orders/${o.id}/demo-pay`, null, bTok);
+  await api('POST', `/api/admin/orders/${o.id}/manual-bought`, { tracking: 'SHW1' }, aTok);
+  await api('POST', '/api/warehouse/receive', { tracking: 'SHW1', weight_g: 1300 }, aTok);
+  const sh = await api('POST', `/api/warehouse/orders/${o.id}/ship`, { carrier: 'DHL', tracking: 'DHL1', weight_g: 1400 }, aTok);
+  assert.strictEqual(sh.status, 200, JSON.stringify(sh.body));
+  // 1.4 kg → 1.5 kg → 6 + 2×2 = 10 → customer overpaid 4
+  const bv = (await api('GET', `/api/buyer/orders/${o.id}`, null, bTok)).body;
+  assert.deepStrictEqual([bv.shipping_settled.result, bv.shipping_settled.diff], ['credited', -4]);
+  assert.strictEqual((await api('GET', '/api/buyer/wallet', null, bTok)).body.balance, 4);
+  await api('PUT', '/api/admin/settings/shipping', st, aTok); // restore
 });

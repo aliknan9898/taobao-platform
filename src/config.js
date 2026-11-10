@@ -35,6 +35,10 @@ const config = {
   publicBaseUrl: (e.PUBLIC_BASE_URL || 'http://localhost:3000').replace(/\/$/, ''),
   port: Number(e.PORT || 3000),
   dataDir: e.DATA_DIR || path.join(__dirname, '..', 'data'),
+  // PostgreSQL connection (Render: the database's Internal Database URL). Without it data lives in JSON files.
+  databaseUrl: e.DATABASE_URL || '',
+  // Email (Brevo transactional API — free tier; a verified sender address is enough, no domain needed)
+  mail: { brevoKey: e.BREVO_API_KEY || '', from: e.MAIL_FROM || e.CONTACT_EMAIL || '', fromName: e.MAIL_FROM_NAME || 'Kinan' },
   orderSyncMinutes: Number(e.ORDER_SYNC_MINUTES || 15),
   defaultCommissionPct: Number(e.PLATFORM_COMMISSION_PCT || 10),
 
@@ -86,6 +90,8 @@ function configProblems() {
   const w = config.warehouse;
   if (!w.name || !w.mobile || !w.city || !w.detail_address) p.push('WAREHOUSE_*');
   if (!config.operator.email) p.push('CONTACT_EMAIL (legal pages)');
+  if (!config.mail.brevoKey || !config.mail.from) p.push('BREVO_API_KEY + MAIL_FROM (emails, password reset)');
+  if (!config.databaseUrl) p.push('DATABASE_URL (data is lost on restart)');
   if (!config.operator.address) p.push('OPERATOR_ADDRESS (legal notice)');
   return p;
 }

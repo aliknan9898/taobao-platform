@@ -76,7 +76,7 @@ function showLogin(msg = '') {
   $('#app').innerHTML = `<form class="card login" id="lf"><a class="brand" href="/warehouse"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>Warehouse</small></a><h2>Sign in to the warehouse</h2>
     <input name="email" type="email" placeholder="Email" required autocomplete="username">
     <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
-    <button class="btn">Sign in</button><div class="err">${esc(msg)}</div></form>`;
+    <button class="btn">Sign in</button><div class="err">${esc(msg)}</div><a class="muted" style="font-size:13px" href="/reset?app=warehouse">Forgot your password?</a></form>`;
   $('#lf').onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target);
     try { const r = await api('/api/auth/login', 'POST', { email: f.get('email'), password: f.get('password') });

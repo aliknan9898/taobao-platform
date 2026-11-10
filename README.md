@@ -63,9 +63,20 @@ Sellers can add products from **Taobao** (→ China warehouse → customer) or *
 - **Shop → Admin:** new item requests raise an alert on the Overview.
 - Wallet refunds: orders paid from the wallet are refunded to the wallet when cancelled.
 
+## Data, email and money
+
+- **Database:** set `DATABASE_URL` and everything is stored in PostgreSQL (table `kinan_docs`; loaded at start-up, written in the background). Without it, data is kept in JSON files in `DATA_DIR`, which is lost on every Render restart.
+- **Photos:** uploaded product photos and shop logos are served as cacheable links (`/img/...`) instead of being sent inside every page.
+- **Email:** with `BREVO_API_KEY` + `MAIL_FROM` customers get order, shipping and delivery emails, sellers get new-order, approval and payout emails, and everyone can reset their password. Without it, emails are logged (Admin → API `/api/admin/mail`) and the admin can create reset links from **Users → Reset link**.
+- **Withdrawals:** sellers request a withdrawal (IBAN, Wise or PayPal) from Earnings; the admin pays it by hand and records it in **Withdrawals**.
+- **Returns:** customers request a return within `RETURN_DAYS` of delivery; the admin approves, rejects or refunds (wallet or card) in **Returns**, optionally charging the seller.
+- **Shipping:** priced by weight and destination zone (Admin → **Shipping**). AliExpress items are not charged. When the warehouse ships with the real weight, overpayments are credited to the customer's wallet; underpayments become an amount due on the order.
+- **Categories:** sellers choose a category; Kinan Shop can be browsed by category.
+- **Arabic:** Kinan Shop, Kinan Seller, the download and reset pages switch between English and Arabic (right-to-left) with the language button; Arabic phones start in Arabic.
+
 ## Before production
 
-- **Database:** `src/db.js` stores JSON files and is only suitable for testing. Move to PostgreSQL before launch.
+- **Database:** set `DATABASE_URL` (PostgreSQL). The free Render database expires after 30 days — upgrade it before then.
 - **Seller payouts:** the ledger calculates what each seller is owed, but actual transfers need **Stripe Connect** (one account per merchant).
 - **Taobao field names:** some aren't documented in the guides provided; they're all in `src/taobao/apis.js`, marked VERIFY.
 - **After-sales (refunds/returns):** not built yet. The endpoints are listed in the Taobao manual §6.1.4.

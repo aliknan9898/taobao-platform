@@ -123,7 +123,7 @@ async function preview(seller, link) {
 }
 
 /** Import (or re-import) an AliExpress product via the API with the seller's prices. */
-async function publish(seller, { link, prices = {}, title, description } = {}) {
+async function publish(seller, { link, prices = {}, title, description, category } = {}) {
   if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
   const p = await preview(seller, link);
   const existing = db.listings.find((l) => l.seller_id === seller.id && l.source === 'aliexpress' && l.ae_product_id === p.ae_product_id);
@@ -136,6 +136,7 @@ async function publish(seller, { link, prices = {}, title, description } = {}) {
   const newDesc = String(description ?? p.description).replace(/<[^>]*>/g, '').slice(0, 5000);
   const keep = existing && existing.review?.state === 'approved' && existing.title === newTitle && (existing.description || '') === newDesc;
   const doc = {
+    category: require('./shipping').cleanCategory(category ?? existing?.category),
     seller_id: seller.id, source: 'aliexpress', fulfillment: 'direct', ae_product_id: p.ae_product_id, source_link: p.source_link,
     taobao_item_id: null, mp_id: null, item_type: 'ALIEXPRESS', title: newTitle, description: newDesc, custom_description: true,
     images: p.images, own_images: existing?.own_images || [], begin_amount: 1, currency: config.currency, skus, last_synced_at: now(), sync_error: null,

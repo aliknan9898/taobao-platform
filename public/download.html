@@ -8,6 +8,7 @@
 <meta name="description" content="Install Kinan Shop and Kinan Seller on your Android phone or iPhone — free, no app store needed.">
 <meta name="theme-color" content="#ffffff">
 <script src="/assets/theme.js"></script>
+<script src="/assets/i18n.js"></script>
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <link rel="stylesheet" href="/assets/fonts.css">
@@ -22,7 +23,7 @@
   .app .head { display: flex; gap: 14px; align-items: center; }
   .app img { width: 64px; height: 64px; border-radius: 16px; box-shadow: var(--shadow); }
   .app h2 { font-size: 22px; }
-  .app ul { margin: 0; padding-left: 18px; color: var(--ink-2); display: grid; gap: 4px; }
+  .app ul { margin: 0; padding-inline-start: 18px; color: var(--ink-2); display: grid; gap: 4px; }
   .app .link { font-size: 13px; color: var(--muted); word-break: break-all; }
   .copy { font: inherit; color: var(--jade); background: none; border: 0; padding: 0; cursor: pointer; font-weight: 600; }
   .seg { margin: 6px 0 14px; max-width: 340px; }
@@ -40,7 +41,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><span id="brand"></span><button class="btn sm ghost" data-theme-toggle></button></div>
+  <div class="top"><span id="brand"></span><span class="row" style="gap:6px"><span id="langbtn"></span><button class="btn sm ghost" data-theme-toggle></button></span></div>
 
   <section class="hero">
     <h1>Get the Kinan apps</h1>
@@ -97,6 +98,7 @@
 (function () {
   var $ = K.$, $$ = K.$$;
   $('#brand').innerHTML = K.brand();
+  $('#langbtn').innerHTML = KinanLang.button('btn sm ghost');
   $('#foot').innerHTML = K.footer();
   // Full links shown under each app, ready to share
   $$('.app').forEach(function (card) {

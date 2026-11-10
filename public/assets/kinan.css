@@ -150,3 +150,15 @@ body.has-tabbar .sitefoot { padding-bottom: 12px; }
 [data-theme-toggle] { display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
 button.iconbtn { border: 0; background: transparent; padding: 0; font: inherit; }
 :root[data-theme="dark"] .btn.gbtn { background: #fff; color: #1f1f1f; }
+
+/* Arabic (right-to-left) */
+html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; }
+html[dir="rtl"] h1, html[dir="rtl"] h2, html[dir="rtl"] h3 { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; letter-spacing: 0; }
+html[dir="rtl"] th, html[dir="rtl"] td { text-align: right; }
+html[dir="rtl"] .tag { padding: 3px 16px 3px 10px; border-radius: 6px 4px 4px 6px; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%); }
+html[dir="rtl"] .tag.lg { padding: 6px 24px 6px 16px; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%); }
+html[dir="rtl"] .tabbar .badge { left: auto; right: calc(50% + 6px); }
+html[dir="rtl"] .flip-rtl, html[dir="rtl"] .back svg { transform: scaleX(-1); }
+html[dir="rtl"] input[type="email"], html[dir="rtl"] input[type="url"], html[dir="rtl"] input[type="tel"], html[dir="rtl"] input[inputmode="url"],
+html[dir="rtl"] input[name="iban"], html[dir="rtl"] input[name="bic"], html[dir="rtl"] input[name="link"], html[dir="rtl"] input[name="source_link"], html[dir="rtl"] code { direction: ltr; text-align: right; unicode-bidi: plaintext; }
+[data-lang-toggle] { font-family: "Segoe UI", Tahoma, system-ui, sans-serif; }

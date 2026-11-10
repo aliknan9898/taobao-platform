@@ -22,6 +22,14 @@
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Instrument Sans",system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
   header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header > .row { flex-wrap:wrap; justify-content:flex-end; }
+  @media (max-width: 760px) {
+    header { flex-wrap:wrap; padding:10px 12px; }
+    header > .row { width:100%; flex-wrap:nowrap; overflow-x:auto; justify-content:flex-start; gap:6px; scrollbar-width:none; }
+    header > .row::-webkit-scrollbar { display:none; }
+    header > .row .btn, header > .row button { padding:6px 10px; font-size:13px; white-space:nowrap; }
+    header > .row .muted { display:none; }
+  }
   .brand { display:inline-flex; align-items:center; gap:8px; text-decoration:none; color:var(--ink); font-family:"Bricolage Grotesque",system-ui,sans-serif; font-weight:750; font-size:21px; letter-spacing:-.03em; }
   .brand svg { width:28px; height:28px; } .brand small { font:500 13px "Instrument Sans",system-ui,sans-serif; color:var(--muted); letter-spacing:0; }
   h1, h2 { font-family:"Bricolage Grotesque",system-ui,sans-serif; letter-spacing:-.01em; }
@@ -88,7 +96,7 @@ function showLogin(msg = '') {
     ${googleSignin ? `<a class="gbtn" href="/auth/google?app=admin"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.2-8.5 2.2-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>Continue with Google</a><div class="ordiv"><span>or with email</span></div>` : ''}
     <input name="email" type="email" placeholder="Email" required autocomplete="username">
     <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
-    <button class="btn">Sign in</button><div class="err">${esc(msg)}</div></form>`;
+    <button class="btn">Sign in</button><div class="err">${esc(msg)}</div><a class="muted" style="font-size:13px" href="/reset?app=admin">Forgot your password?</a></form>`;
   $('#lf').onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target);
     try {
@@ -100,7 +108,7 @@ function showLogin(msg = '') {
 }
 
 let googleSignin = false;
-const TABS = [['overview','Overview'],['orders','Orders'],['sellers','Sellers'],['listings','Products'],['requests','Item requests'],['users','Users']];
+const TABS = [['overview','Overview'],['orders','Orders'],['sellers','Sellers'],['listings','Products'],['requests','Item requests'],['payouts','Withdrawals'],['returns','Returns'],['shipping','Shipping'],['users','Users']];
 let tab = 'overview', me;
 
 function boot(user) {
@@ -196,7 +204,7 @@ const VIEWS = {
           <div class="row" style="justify-content:space-between;align-items:flex-start">
             <div class="row" style="align-items:flex-start;gap:12px">
               ${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">` : '<div class="muted" style="width:72px;height:72px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;font-size:11px;text-align:center">No photos</div>'}
-              <div><b>${esc(l.title)}</b><div class="muted">${esc(l.shop)} · ${l.source === 'aliexpress' ? `<span class="pill">AliExpress · ships direct</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || ['https://www.aliexpress.com/item/' + l.ae_product_id + '.html'])[0])}" target="_blank" rel="noopener noreferrer">AliExpress link</a>` : ''}` : l.source === 'manual' ? `<span class="warn">Added manually</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || [''])[0])}" target="_blank" rel="noopener noreferrer">Taobao link</a>` : ' · no link'}${l.weight_kg ? ` · ${esc(l.weight_kg)} kg` : ''}` : `Taobao <code>${esc(l.taobao_item_id)}</code> · ${l.item_type === 'WITHOUT_MATERIAL' ? '<span class="warn">General item: seller photos only</span>' : 'Distribution Platform item'}`}</div>
+              <div><b>${esc(l.title)}</b><div class="muted">${esc(l.category || 'no category')} · ${esc(l.shop)} · ${l.source === 'aliexpress' ? `<span class="pill">AliExpress · ships direct</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || ['https://www.aliexpress.com/item/' + l.ae_product_id + '.html'])[0])}" target="_blank" rel="noopener noreferrer">AliExpress link</a>` : ''}` : l.source === 'manual' ? `<span class="warn">Added manually</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || [''])[0])}" target="_blank" rel="noopener noreferrer">Taobao link</a>` : ' · no link'}${l.weight_kg ? ` · ${esc(l.weight_kg)} kg` : ''}` : `Taobao <code>${esc(l.taobao_item_id)}</code> · ${l.item_type === 'WITHOUT_MATERIAL' ? '<span class="warn">General item: seller photos only</span>' : 'Distribution Platform item'}`}</div>
                 <div class="muted">Submitted ${date(l.review?.submitted_at || l.created_at)}${l.review?.reason ? ` · <span class="bad">Rejection reason: ${esc(l.review.reason)}</span>` : ''}</div></div>
             </div>
             <span class="pill ${l.status === 'active' ? 'ok' : l.status === 'rejected' || l.status === 'unavailable' ? 'bad' : 'warn'}">${esc(LST[l.status] || l.status)}</span>
@@ -227,11 +235,15 @@ const VIEWS = {
         <input name="name" placeholder="Name" required><input name="email" type="email" placeholder="Email" required>
         <input name="password" type="password" placeholder="Password (8+)" minlength="8" required>
         <select name="role"><option value="warehouse">Warehouse</option><option value="admin">Admin</option></select><button class="btn">Add</button></form><div class="err" id="se"></div></div>
-      <div class="card"><h2>Users (${list.length})</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Wallet</th></tr></thead><tbody>
+      <div class="card"><h2>Users (${list.length})</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Wallet</th><th></th></tr></thead><tbody>
       ${list.map((u) => `<tr><td>${esc(u.name || '—')}</td><td>${esc(u.email)}</td><td>${esc(ROLE[u.role])}</td><td><span class="pill ${statusClass(u.status)}">${u.status === 'active' ? 'Active' : esc(u.status)}</span></td>
-        <td>${u.role === 'buyer' ? `<b>${fmt(u.wallet)}</b> <button class="btn ghost" data-wal="${esc(u.id)}" data-em="${esc(u.email)}">Adjust</button>` : ''}</td></tr>`).join('')}
+        <td>${u.role === 'buyer' ? `<b>${fmt(u.wallet)}</b> <button class="btn ghost" data-wal="${esc(u.id)}" data-em="${esc(u.email)}">Adjust</button>` : ''}</td>
+        <td><button class="btn ghost" data-rl="${esc(u.id)}" title="Create a one-hour link to set a new password">Reset link</button></td></tr>`).join('')}
       </tbody></table></div><p class="muted">Wallet: credit customers for shipping overpayments or goodwill, or deduct shipping underpayments after weighing. Customers see every entry with its reason.</p></div>`;
     v.querySelectorAll('[data-wal]').forEach((b) => b.onclick = () => openWallet(b.dataset.wal, b.dataset.em));
+    v.querySelectorAll('[data-rl]').forEach((b) => b.onclick = async () => {
+      try { const r = await api(`/api/admin/users/${b.dataset.rl}/reset-link`, 'POST'); prompt('Send this link to the user (works once, for 1 hour):', r.url); } catch (e) { alert(e.message); }
+    });
     $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/admin/staff', 'POST', f); render(); } catch (err) { $('#se').textContent = err.message; } };
   }
 };
@@ -258,6 +270,82 @@ VIEWS.requests = async (v) => {
     const id = b.dataset.id; const q = (sel) => v.querySelector(`[${sel}="${id}"]`).value.trim();
     b.disabled = true;
     try { await api(`/api/admin/requests/${id}`, 'PATCH', { status: b.dataset.ans, reply: q('data-reply'), quote: q('data-quote') || null, listing_id: q('data-lst') || null }); render(); }
+    catch (e) { alert(e.message); b.disabled = false; }
+  });
+};
+
+VIEWS.shipping = async (v) => {
+  const s = await api('/api/admin/settings/shipping');
+  v.innerHTML = `<form class="card" id="shf" style="display:grid;gap:12px"><h2>Shipping prices</h2>
+    <p class="muted">Charged at checkout for items that go through the China warehouse (AliExpress items ship direct and are not charged). Price = first 0.5 kg + each extra 0.5 kg. When the warehouse ships with the real weight, overpayments go back to the customer’s wallet and underpayments become an amount due on the order.</p>
+    <div class="row"><label class="row" style="gap:6px"><input type="radio" name="mode" value="weight" ${s.mode !== 'flat' ? 'checked' : ''} style="width:auto"> By weight and country</label>
+      <label class="row" style="gap:6px"><input type="radio" name="mode" value="flat" ${s.mode === 'flat' ? 'checked' : ''} style="width:auto"> Flat price per order</label>
+      <input name="flat" type="number" step="0.01" min="0" value="${s.flat}" style="width:100px"></div>
+    <div class="scroll"><table><thead><tr><th>Zone</th><th>Countries</th><th>First 0.5 kg</th><th>Each extra 0.5 kg</th><th>Delivery days</th></tr></thead><tbody>
+      ${s.zones.map((z) => `<tr><td><b>${esc(z.name)}</b></td><td class="muted" style="font-size:12px">${esc(z.countries.join(', ') || 'All others')}</td>
+        <td><input type="number" step="0.01" min="0" name="first_${z.id}" value="${s.rates[z.id].first}" style="width:90px"></td>
+        <td><input type="number" step="0.01" min="0" name="extra_${z.id}" value="${s.rates[z.id].extra}" style="width:90px"></td>
+        <td><input name="days_${z.id}" value="${esc(s.days[z.id])}" style="width:90px"></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="row"><label>Default weight per item (kg) <input name="default_item_kg" type="number" step="0.01" min="0.01" value="${s.default_item_kg}" style="width:90px"></label>
+      <label>Ignore differences under <input name="settle_tolerance" type="number" step="0.01" min="0" value="${s.settle_tolerance}" style="width:90px"></label></div>
+    <div class="row"><button class="btn">Save</button><span class="ok" id="shok"></span><span class="err" id="sherr"></span></div></form>`;
+  $('#shf').onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target; const rates = {}; const days = {};
+    for (const z of s.zones) { rates[z.id] = { first: Number(f[`first_${z.id}`].value), extra: Number(f[`extra_${z.id}`].value) }; days[z.id] = f[`days_${z.id}`].value; }
+    try { await api('/api/admin/settings/shipping', 'PUT', { mode: f.mode.value, flat: Number(f.flat.value), default_item_kg: Number(f.default_item_kg.value), settle_tolerance: Number(f.settle_tolerance.value), rates, days }); $('#shok').textContent = 'Saved'; $('#sherr').textContent = ''; }
+    catch (err) { $('#sherr').textContent = err.message; }
+  };
+};
+
+VIEWS.payouts = async (v) => {
+  const filter = v.dataset.pf || 'requested';
+  const list = await api('/api/admin/payouts' + (filter === 'all' ? '' : `?status=${filter}`));
+  const PS = { requested: ['Waiting', 'warn'], paid: ['Paid', 'ok'], declined: ['Declined', 'bad'] };
+  v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Seller withdrawals</h2>
+      <div class="row">${[['requested','Waiting'],['paid','Paid'],['declined','Declined'],['all','All']].map(([k, t]) => `<button class="btn ${k === filter ? '' : 'ghost'}" data-pf="${k}">${t}</button>`).join('')}</div></div>
+      <p class="muted">Pay each request from your bank or Wise, then record it here with the transfer reference. The seller is emailed either way.</p></div>
+    ${list.map((p) => `<div class="card" style="display:grid;gap:8px">
+      <div class="row" style="justify-content:space-between"><div><b>${esc(p.shop)}</b> <span class="muted">· ${date(p.created_at)}</span></div><span class="pill ${PS[p.status][1]}">${PS[p.status][0]}</span></div>
+      <div style="font-size:22px;font-weight:700">${fmt(p.amount, p.currency)}</div>
+      <div class="muted">${esc(p.details.holder)} · ${p.details.method === 'bank' ? `IBAN <code>${esc(p.details.iban)}</code>${p.details.bic ? ` · BIC <code>${esc(p.details.bic)}</code>` : ''}` : `${p.details.method === 'wise' ? 'Wise' : 'PayPal'} <code>${esc(p.details.email)}</code>`}</div>
+      ${p.reference ? `<div class="muted">Reference: ${esc(p.reference)}</div>` : ''}${p.note ? `<div class="bad">${esc(p.note)}</div>` : ''}
+      ${p.status === 'requested' ? `<div class="row"><input data-ref="${esc(p.id)}" placeholder="Transfer reference" style="flex:1;min-width:160px"><button class="btn" data-pay="${esc(p.id)}">Mark paid</button>
+        <input data-note="${esc(p.id)}" placeholder="Reason to decline" style="flex:1;min-width:160px"><button class="btn ghost bad" data-dec="${esc(p.id)}">Decline</button></div>` : ''}
+    </div>`).join('') || '<div class="card muted">Nothing here.</div>'}`;
+  v.querySelectorAll('[data-pf]').forEach((b) => b.onclick = () => { v.dataset.pf = b.dataset.pf; render(); });
+  v.querySelectorAll('[data-pay]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/payouts/${b.dataset.pay}`, 'POST', { action: 'paid', reference: v.querySelector(`[data-ref="${b.dataset.pay}"]`).value }); render(); } catch (e) { alert(e.message); b.disabled = false; } });
+  v.querySelectorAll('[data-dec]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/payouts/${b.dataset.dec}`, 'POST', { action: 'decline', note: v.querySelector(`[data-note="${b.dataset.dec}"]`).value }); render(); } catch (e) { alert(e.message); b.disabled = false; } });
+};
+
+VIEWS.returns = async (v) => {
+  const filter = v.dataset.rtf || 'open';
+  const all = await api('/api/admin/returns');
+  const list = filter === 'all' ? all : filter === 'open' ? all.filter((r) => ['requested', 'approved'].includes(r.status)) : all.filter((r) => r.status === filter);
+  const RS = { requested: ['New', 'warn'], approved: ['Approved — awaiting item', 'warn'], refunded: ['Refunded', 'ok'], rejected: ['Rejected', 'bad'] };
+  v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Returns</h2>
+      <div class="row">${[['open','Open'],['refunded','Refunded'],['rejected','Rejected'],['all','All']].map(([k, t]) => `<button class="btn ${k === filter ? '' : 'ghost'}" data-rtf="${k}">${t}</button>`).join('')}</div></div>
+      <p class="muted">Approve to tell the customer to send the item back, or refund straight away when returning isn’t worth the shipping. Refunds can be charged to the seller’s earnings.</p></div>
+    ${list.map((r) => `<div class="card" style="display:grid;gap:8px">
+      <div class="row" style="justify-content:space-between"><div><b>${esc(r.buyer)}</b> <span class="muted">· order <code>${esc(r.order_id.slice(-8))}</code> · ${date(r.created_at)}</span></div><span class="pill ${RS[r.status][1]}">${RS[r.status][0]}</span></div>
+      <div><b>${esc(r.reason_label)}</b>${r.note ? ` — ${esc(r.note)}` : ''}</div>
+      ${r.items.map((i) => `<div class="muted">${i.qty} × ${esc(i.title)}${i.props ? ` (${esc(i.props)})` : ''} · ${fmt(i.price * i.qty, r.currency)} · ${esc(i.shop)}</div>`).join('')}
+      ${r.photos.length ? `<div class="row">${r.photos.map((ph) => `<a href="${esc(ph)}" target="_blank"><img src="${esc(ph)}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:8px"></a>`).join('')}</div>` : ''}
+      ${r.admin_note ? `<div class="muted">Your note: ${esc(r.admin_note)}</div>` : ''}${r.refund_amount ? `<div class="ok">Refunded ${fmt(r.refund_amount, r.currency)} to ${r.refund_to === 'card' ? 'card' : 'wallet'}</div>` : ''}
+      ${['requested', 'approved'].includes(r.status) ? `<div class="row"><input data-rn="${esc(r.id)}" placeholder="Note to the customer (return address, reason…)" style="flex:1;min-width:220px"></div>
+        <div class="row"><input type="number" step="0.01" min="0" data-ra="${esc(r.id)}" value="${r.value}" style="width:110px">
+          <select data-rto="${esc(r.id)}"><option value="wallet">to Kinan wallet</option>${r.paid_by === 'stripe' ? '<option value="card">to card</option>' : ''}</select>
+          <label class="row" style="gap:4px"><input type="checkbox" data-rcs="${esc(r.id)}" checked style="width:auto">charge seller</label>
+          <button class="btn" data-ract="refund" data-id="${esc(r.id)}">Refund</button>
+          ${r.status === 'requested' ? `<button class="btn ghost" data-ract="approve" data-id="${esc(r.id)}">Approve return</button>` : ''}
+          <button class="btn ghost bad" data-ract="reject" data-id="${esc(r.id)}">Reject</button></div>` : ''}
+    </div>`).join('') || '<div class="card muted">No returns here.</div>'}`;
+  v.querySelectorAll('[data-rtf]').forEach((b) => b.onclick = () => { v.dataset.rtf = b.dataset.rtf; render(); });
+  v.querySelectorAll('[data-ract]').forEach((b) => b.onclick = async () => {
+    const id = b.dataset.id; const q = (k) => v.querySelector(`[${k}="${id}"]`);
+    if (b.dataset.ract === 'refund' && !confirm(`Refund ${q('data-ra').value}?`)) return;
+    b.disabled = true;
+    try { await api(`/api/admin/returns/${id}`, 'POST', { action: b.dataset.ract, note: q('data-rn').value, amount: Number(q('data-ra').value), refund_to: q('data-rto').value, charge_seller: q('data-rcs').checked }); render(); }
     catch (e) { alert(e.message); b.disabled = false; }
   });
 };

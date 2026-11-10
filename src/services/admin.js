@@ -45,6 +45,10 @@ function overview() {
     if (!['cancelled', 'refunded'].includes(o.status) && s.status === 'AE_TO_BUY' && o.status !== 'pending_payment') alerts.push({ kind: 'order', id: o.id, text: `Order ${o.id.slice(-8)}: AliExpress item to order${s.error ? ` (${s.error})` : ''}` });
     if (s.status === 'AE_PLACED') alerts.push({ kind: 'pay_deadline', id: o.id, text: `Order ${o.id.slice(-8)}: pay the AliExpress order ${(s.purchase_ids || []).join(', ')}` });
   }
+  const payReq = db.payouts.all((p) => p.status === 'requested');
+  if (payReq.length) alerts.push({ kind: 'payouts', text: `${payReq.length} seller withdrawal request(s) to pay` });
+  const retReq = db.returns.all((r) => r.status === 'requested');
+  if (retReq.length) alerts.push({ kind: 'returns', text: `${retReq.length} return request(s) to review` });
   const newRequests = db.requests.all((r) => r.status === 'new').length;
   if (newRequests) alerts.push({ kind: 'requests', text: `${newRequests} customer item request(s) waiting for a reply` });
   const pendingSellers = db.sellers.all((s) => s.status === 'pending').length;
@@ -56,7 +60,7 @@ function overview() {
       revenue_30d: money(recent.reduce((a, o) => a + o.total, 0)),
       orders_30d: recent.length,
       commission_total: money(led.reduce((a, l) => a + l.commission, 0)),
-      payable_to_sellers: money(led.filter((l) => l.status === 'payable').reduce((a, l) => a + l.net, 0)),
+      payable_to_sellers: money(db.sellers.all().reduce((a, x) => { const b = require('./money').sellerBalance(x.id); return a + b.available + b.requested; }, 0)),
       active_sellers: db.sellers.all((s) => s.status === 'active').length,
       buyers: db.users.all((u) => u.role === 'buyer').length,
       listings: db.listings.all((l) => l.status === 'active').length,
@@ -97,7 +101,9 @@ function updateSeller(id, { status, commission_pct }) {
     if (!(c >= 0 && c <= 50)) throw httpError(400, 'Commission must be between 0 and 50%');
     patch.commission_pct = c;
   }
-  return db.sellers.update(id, patch);
+  const out = db.sellers.update(id, patch);
+  if (patch.status === 'active' && s.status !== 'active') require('../notify').sellerApproved(out);
+  return out;
 }
 
 function listOrders({ status } = {}) {

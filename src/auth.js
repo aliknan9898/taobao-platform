@@ -117,4 +117,25 @@ function bootstrapAdmin() {
   }
 }
 
-module.exports = { register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };
+// ---------- password reset ----------
+const RESET_TTL = 3600e3;
+/** One-hour, single-use reset token. Only its hash is stored. */
+function createResetToken(user) {
+  for (const t of db.tokens.all((x) => x.kind === 'reset' && x.user_id === user.id)) db.tokens.remove(t.id);
+  const token = crypto.randomBytes(32).toString('base64url');
+  db.tokens.insert({ kind: 'reset', token_hash: sha(token), user_id: user.id, expires_at: Date.now() + RESET_TTL });
+  return token;
+}
+function resetPassword(token, password) {
+  if (!password || String(password).length < 8) throw httpError(400, 'Password must be at least 8 characters');
+  const t = token && db.tokens.find((x) => x.kind === 'reset' && x.token_hash === sha(token));
+  if (!t || t.expires_at < Date.now()) throw httpError(400, 'This reset link has expired or was already used. Ask for a new one.');
+  db.tokens.remove(t.id);
+  const u = db.users.get(t.user_id);
+  if (!u || u.status !== 'active') throw httpError(403, 'Account is not active');
+  db.users.update(u.id, { pass: hashPassword(String(password)) });
+  for (const s of db.sessions.all((x) => x.user_id === u.id)) db.sessions.remove(s.id); // sign out everywhere
+  return createSession(db.users.get(u.id));
+}
+
+module.exports = { createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };

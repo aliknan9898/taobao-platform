@@ -13,6 +13,8 @@ const orders = require('./services/orders');
 const warehouse = require('./services/warehouse');
 const admin = require('./services/admin');
 const shopSvc = require('./services/shop');
+const moneySvc = require('./services/money');
+const shipping = require('./services/shipping');
 const google = require('./googleAuth');
 const aliexpress = require('./services/aliexpress');
 const { COUNTRIES } = require('./countries');
@@ -127,6 +129,23 @@ r('POST', '/api/auth/logout', null, async ({ req, res }) => {
   res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
   return { ok: true };
 });
+// Forgot / reset password. Always answers OK so nobody can probe which emails have accounts.
+const resetUrl = (token) => `${config.publicBaseUrl}/reset#t=${token}`;
+r('POST', '/api/auth/forgot', null, async ({ req }) => {
+  throttle(req.socket.remoteAddress); recordFailure(req.socket.remoteAddress); // every request counts towards the limit
+  const { email } = await readJson(req);
+  const u = db.users.find((x) => x.email === String(email || '').trim().toLowerCase() && x.status === 'active');
+  if (u) await require('./notify').passwordReset(u, resetUrl(auth.createResetToken(u)));
+  return { ok: true, email_enabled: require('./mailer').enabled() };
+});
+r('POST', '/api/auth/reset', null, async ({ req, res }) => {
+  throttle(req.socket.remoteAddress);
+  const { token, password } = await readJson(req);
+  let out;
+  try { out = auth.resetPassword(token, password); } catch (e) { recordFailure(req.socket.remoteAddress); throw e; }
+  setSession(res, out.token);
+  return out;
+});
 r('GET', '/api/me', ['admin', 'seller', 'buyer', 'warehouse'], async ({ user }) => user);
 
 // Catalog (public for browsing)
@@ -134,19 +153,26 @@ r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntr
 r('GET', '/api/catalog/:id', null, async ({ params }) => catalog.buyerListing(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/categories', null, async () => {
+  const counts = {}; for (const p of catalog.browse({ limit: 100000 }).items) counts[p.category] = (counts[p.category] || 0) + 1;
+  return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
+});
+r('POST', '/api/shipping/quote', null, async ({ req }) => { const b = await readJson(req); return shipping.quote(Array.isArray(b.items) ? b.items.slice(0, 100) : [], b.country_code || b.country); });
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
 r('GET', '/api/buyer/orders', BUYER, async ({ user }) => db.orders.all((o) => o.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(orders.buyerView));
 r('GET', '/api/buyer/orders/:id', BUYER, async ({ user, params }) => {
-  const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found'); return orders.buyerView(o);
+  const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
+  return { ...orders.buyerView(o), returns: db.returns.all((r) => r.order_id === o.id).map(moneySvc.buyerReturnView), return_days: moneySvc.RETURN_DAYS };
 });
 r('POST', '/api/buyer/orders/:id/cancel', BUYER, async ({ user, params }) => {
   const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
   if (!['pending_payment', 'paid'].includes(o.status)) throw httpError(409, 'Order processing has started — please contact support');
   return orders.buyerView(await orders.cancelOrder(o.id, user.id));
 });
+r('POST', '/api/buyer/orders/:id/returns', BUYER, async ({ req, user, params }) => moneySvc.buyerReturnView(moneySvc.requestReturn(user, params.id, await readJson(req))));
 r('POST', '/api/buyer/orders/:id/demo-pay', BUYER, async ({ user, params }) => {
   if (!stripe.demoMode()) throw httpError(403, 'Demo payment is disabled');
   const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
@@ -154,6 +180,10 @@ r('POST', '/api/buyer/orders/:id/demo-pay', BUYER, async ({ user, params }) => {
 });
 
 r('POST', '/api/buyer/orders/:id/pay-wallet', BUYER, async ({ user, params }) => orders.buyerView(await orders.payWithWallet(params.id, user)));
+r('POST', '/api/buyer/orders/:id/pay-shipping-due', BUYER, async ({ user, params }) => {
+  const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
+  return orders.buyerView(shipping.payShippingDue(o, user));
+});
 r('GET', '/api/buyer/wallet', BUYER, async ({ user }) => shopSvc.walletOf(user.id));
 r('GET', '/api/buyer/requests', BUYER, async ({ user }) => db.requests.all((x) => x.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(shopSvc.buyerRequestView));
 r('POST', '/api/buyer/requests', BUYER, async ({ req, user }) => shopSvc.buyerRequestView(shopSvc.createRequest(user, await readJson(req))));
@@ -197,9 +227,10 @@ r('POST', '/api/seller/orders/:id/pay', SELLER, async ({ seller, params }) => { 
 r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => { const { o, s } = sellerSub(seller, params.id); await orders.syncSub(o.id, s.outer_purchase_id); return orders.sellerView(db.orders.get(o.id), seller.id); });
 r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
   const led = db.ledger.all((l) => l.seller_id === seller.id && l.status !== 'void');
-  const sum = (f) => Math.round(led.filter(f).reduce((a, l) => a + l.net, 0) * 100) / 100;
-  return { currency: config.currency, pending: sum((l) => l.status === 'pending_payout'), payable: sum((l) => l.status === 'payable'), paid: sum((l) => l.status === 'paid'), entries: led.slice(-100).reverse() };
+  const b = moneySvc.sellerBalance(seller.id);
+  return { ...b, payable: b.available, paid: b.withdrawn, entries: led.slice(-100).reverse(), payouts: moneySvc.listPayouts({ sellerId: seller.id }).slice(0, 50), payout_details: seller.payout_details || null };
 });
+r('POST', '/api/seller/payouts', SELLER, async ({ req, seller }) => moneySvc.requestWithdrawal(seller, await readJson(req)));
 
 // Admin
 r('GET', '/api/admin/overview', ADMIN, async () => admin.overview());
@@ -226,8 +257,19 @@ r('POST', '/api/admin/aliexpress/connect', ADMIN, async () => ({ url: aliexpress
 r('POST', '/api/admin/aliexpress/disconnect', ADMIN, async () => aliexpress.disconnect());
 r('POST', '/api/admin/orders/:id/cancel', ADMIN, async ({ params, user }) => orders.decorate(await orders.cancelOrder(params.id, user.id)));
 r('GET', '/api/admin/users', ADMIN, async () => admin.users().map((u) => (u.role === 'buyer' ? { ...u, wallet: shopSvc.walletOf(u.id).balance } : u)));
+r('POST', '/api/admin/users/:id/reset-link', ADMIN, async ({ params }) => {
+  const u = db.users.get(params.id); if (!u) throw httpError(404, 'User not found');
+  return { url: resetUrl(auth.createResetToken(u)), expires_in_minutes: 60 };
+});
+r('GET', '/api/admin/mail', ADMIN, async () => ({ enabled: require('./mailer').enabled(), recent: db.mail.all().slice(-50).reverse() }));
 r('GET', '/api/admin/wallet/:id', ADMIN, async ({ params }) => shopSvc.walletOf(params.id));
 r('POST', '/api/admin/wallet/:id', ADMIN, async ({ req, params, user }) => shopSvc.adminAdjust(params.id, await readJson(req), user));
+r('GET', '/api/admin/settings/shipping', ADMIN, async () => ({ ...shipping.settings(), zones: shipping.ZONES.map(([id, name, countries]) => ({ id, name, countries })) }));
+r('PUT', '/api/admin/settings/shipping', ADMIN, async ({ req }) => shipping.saveSettings(await readJson(req)));
+r('GET', '/api/admin/payouts', ADMIN, async ({ url }) => moneySvc.listPayouts({ status: url.searchParams.get('status') || undefined }));
+r('POST', '/api/admin/payouts/:id', ADMIN, async ({ req, params, user }) => moneySvc.decidePayout(params.id, await readJson(req), user));
+r('GET', '/api/admin/returns', ADMIN, async () => moneySvc.adminReturns());
+r('POST', '/api/admin/returns/:id', ADMIN, async ({ req, params, user }) => moneySvc.decideReturn(params.id, await readJson(req), user));
 r('GET', '/api/admin/requests', ADMIN, async () => shopSvc.adminRequests());
 r('PATCH', '/api/admin/requests/:id', ADMIN, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
 r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
@@ -254,9 +296,17 @@ const server = http.createServer(async (req, res) => {
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
       if (p === '/download' || p === '/apps') return page(res, 'download.html');
+      if (p === '/reset') return page(res, 'reset.html');
       if (legal.PAGES[p]) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=300', 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'" });
         return res.end(legal.render(p));
+      }
+      const im = p.match(/^\/img\/(l|s)\/([\w-]{1,80})(?:\/(\d{1,2}))?$/);
+      if (im) {
+        const img = catalog.imageData(im[1], im[2], im[3]);
+        if (!img) return send(res, 404, { error: 'Not found' });
+        res.writeHead(200, { 'Content-Type': img.type, 'Content-Length': img.body.length, 'Cache-Control': url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' });
+        return res.end(img.body);
       }
       if (p === '/sw.js') { res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); return fs.createReadStream(path.join(PUBLIC, 'sw.js')).pipe(res); }
       if (p === '/favicon.ico' || p === '/apple-touch-icon.png') return asset(res, p === '/favicon.ico' ? 'icon-192.png' : 'apple-touch-icon.png');
@@ -338,7 +388,8 @@ function startJobs() {
   every(6 * 3600e3, sellerAuth.refreshAllDue);
 }
 
-if (require.main === module) {
+if (require.main === module) (async () => {
+  try { await db.init(); } catch (e) { console.error('[db] could not connect to PostgreSQL:', e.message); process.exit(1); }
   auth.bootstrapAdmin();
   const problems = configProblems();
   if (problems.length) console.warn('[config]', problems.join(' | '));
@@ -347,6 +398,9 @@ if (require.main === module) {
     console.log(`OAuth callback: ${config.redirectUri}`);
   });
   startJobs();
-}
+  // Render stops the instance with SIGTERM: write pending changes first
+  const stop = async () => { try { await db.close(); } catch { /* exiting */ } process.exit(0); };
+  process.on('SIGTERM', stop); process.on('SIGINT', stop);
+})();
 
 module.exports = { server, safeReturnTo };

@@ -39,7 +39,7 @@ const DEFAULT_RETURNS = 'Returns are accepted only for items that arrive damaged
 function publicShop(s, { full = false } = {}) {
   const products = db.listings.all((l) => l.seller_id === s.id && l.status === 'active').length;
   return {
-    id: s.id, name: s.shop_name, logo: s.logo || null, description: s.description || '', products,
+    id: s.id, name: s.shop_name, logo: require('./catalog').logoUrl(s), description: s.description || '', products,
     since: s.created_at, ...(full ? { return_policy: s.return_policy || DEFAULT_RETURNS } : {})
   };
 }
@@ -114,7 +114,9 @@ function answerRequest(id, b) {
     if (b.listing_id) { const l = db.listings.get(String(b.listing_id)); if (!l || l.status !== 'active') throw httpError(400, 'That product is not live in the shop'); patch.listing_id = l.id; }
     else patch.listing_id = null;
   }
-  return db.requests.update(id, patch);
+  const out = db.requests.update(id, patch);
+  if (out.status !== 'new') require('../notify').requestAnswered(out);
+  return out;
 }
 
 module.exports = { profilePatch, publicShop, listShops, getShop, walletOf, walletEntry, adminAdjust, createRequest, buyerRequestView, adminRequests, answerRequest, DEFAULT_RETURNS };
