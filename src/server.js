@@ -238,6 +238,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/seller') return page(res, 'seller.html');
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
+      if (p === '/download' || p === '/apps') return page(res, 'download.html');
       if (legal.PAGES[p]) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=300', 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'" });
         return res.end(legal.render(p));

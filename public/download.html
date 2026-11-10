@@ -1,0 +1,121 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Get the Kinan apps</title>
+<meta name="description" content="Install Kinan Shop and Kinan Seller on your Android phone or iPhone — free, no app store needed.">
+<meta name="theme-color" content="#ffffff">
+<script src="/assets/theme.js"></script>
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/kinan.css">
+<style>
+  .top { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; }
+  .hero { padding: 28px 0 8px; display: grid; gap: 10px; max-width: 640px; }
+  .hero h1 { font-size: clamp(30px, 7vw, 48px); font-weight: 750; letter-spacing: -.03em; }
+  .hero p { color: var(--ink-2); font-size: 17px; }
+  .apps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin: 22px 0; }
+  .app { display: grid; gap: 14px; align-content: start; }
+  .app .head { display: flex; gap: 14px; align-items: center; }
+  .app img { width: 64px; height: 64px; border-radius: 16px; box-shadow: var(--shadow); }
+  .app h2 { font-size: 22px; }
+  .app ul { margin: 0; padding-left: 18px; color: var(--ink-2); display: grid; gap: 4px; }
+  .app .link { font-size: 13px; color: var(--muted); word-break: break-all; }
+  .copy { font: inherit; color: var(--jade); background: none; border: 0; padding: 0; cursor: pointer; font-weight: 600; }
+  .seg { margin: 6px 0 14px; max-width: 340px; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; counter-reset: s; padding: 0; margin: 0; }
+  .steps li { list-style: none; display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: center; }
+  .steps li::before { counter-increment: s; content: counter(s); width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--jade); color: var(--jade-ink); font-weight: 700; }
+  .steps .ic { display: inline-flex; align-items: center; justify-content: center; vertical-align: -5px; width: 24px; height: 24px; border-radius: 6px; background: var(--chip); }
+  .steps .ic svg { width: 16px; height: 16px; }
+  .note { font-size: 13px; color: var(--muted); }
+  .why { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 18px 0 8px; }
+  .why div { padding: 12px 14px; border-radius: var(--r-md); background: var(--chip); font-size: 14px; }
+  .why b { display: block; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><span id="brand"></span><button class="btn sm ghost" data-theme-toggle></button></div>
+
+  <section class="hero">
+    <h1>Get the Kinan apps</h1>
+    <p>Free for Android and iPhone. No app store needed — install straight from your browser in a few seconds. Apps update themselves automatically.</p>
+  </section>
+
+  <section class="apps">
+    <article class="panel app">
+      <div class="head"><img src="/assets/icon-192.png" alt=""><div><h2>Kinan Shop</h2><span class="muted">For customers</span></div></div>
+      <ul><li>Shop many sellers in one cart</li><li>Pay by card or wallet</li><li>Track every step to your door</li></ul>
+      <a class="btn block" href="/" data-app="/">Open Kinan Shop</a>
+      <div class="link"><span class="u"></span> · <button class="copy" type="button">Copy link</button></div>
+    </article>
+    <article class="panel app">
+      <div class="head"><img src="/assets/icon-seller-192.png" alt=""><div><h2>Kinan Seller</h2><span class="muted">For sellers</span></div></div>
+      <ul><li>Import products from Taobao</li><li>Track orders and earnings</li><li>Manage your shop from your phone</li></ul>
+      <a class="btn block" href="/seller" data-app="/seller">Open Kinan Seller</a>
+      <div class="link"><span class="u"></span> · <button class="copy" type="button">Copy link</button></div>
+    </article>
+  </section>
+
+  <section class="panel stack">
+    <h2>How to install</h2>
+    <div class="seg" role="tablist"><button type="button" data-os="android">Android</button><button type="button" data-os="ios">iPhone</button></div>
+
+    <div data-for="android">
+      <ol class="steps">
+        <li><span>Tap <b>Open</b> on the app above. Use <b>Chrome</b>.</span></li>
+        <li><span>Tap the menu <span class="ic"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></span> at the top right.</span></li>
+        <li><span>Tap <b>Install app</b> (or <b>Add to Home screen</b>), then <b>Install</b>.</span></li>
+      </ol>
+      <p class="note" style="margin-top:12px">Chrome may also show an “Install” banner at the bottom — tapping it does the same.</p>
+    </div>
+
+    <div data-for="ios" hidden>
+      <ol class="steps">
+        <li><span>Open the app above in <b>Safari</b> (installing doesn’t work from Chrome on iPhone).</span></li>
+        <li><span>Tap Share <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></span> at the bottom of the screen.</span></li>
+        <li><span>Scroll down, tap <b>Add to Home Screen</b>, then <b>Add</b>.</span></li>
+      </ol>
+    </div>
+
+    <div class="why">
+      <div><b>Full screen</b>Opens like a normal app, without the browser bar.</div>
+      <div><b>Always up to date</b>New features arrive by themselves.</div>
+      <div><b>Light on storage</b>Takes almost no space on your phone.</div>
+    </div>
+  </section>
+</div>
+<div id="foot"></div>
+
+<script src="/assets/common.js"></script>
+<script>
+(function () {
+  var $ = K.$, $$ = K.$$;
+  $('#brand').innerHTML = K.brand();
+  $('#foot').innerHTML = K.footer();
+  // Full links shown under each app, ready to share
+  $$('.app').forEach(function (card) {
+    var a = card.querySelector('[data-app]'); var url = location.origin + a.getAttribute('data-app');
+    card.querySelector('.u').textContent = url.replace(/^https?:\/\//, '');
+    card.querySelector('.copy').onclick = function () {
+      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(function () { K.toast('Link copied'); }, function () { prompt('Copy this link', url); });
+    };
+  });
+  // Show the steps for this phone first
+  var ua = navigator.userAgent;
+  var ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function pick(os) {
+    $$('[data-os]').forEach(function (b) { b.classList.toggle('on', b.dataset.os === os); b.setAttribute('aria-selected', b.dataset.os === os); });
+    $$('[data-for]').forEach(function (d) { d.hidden = d.dataset.for !== os; });
+  }
+  $$('[data-os]').forEach(function (b) { b.onclick = function () { pick(b.dataset.os); }; });
+  pick(ios ? 'ios' : 'android');
+})();
+</script>
+</body>
+</html>

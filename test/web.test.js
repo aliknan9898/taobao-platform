@@ -31,6 +31,15 @@ test('every interface is served with its brand and manifest', async () => {
   assert.doesNotMatch(sellerCsp, /stripe/);
 });
 
+test('download page lists the customer and seller apps', async () => {
+  const r = await fetch(base + '/download');
+  assert.strictEqual(r.status, 200);
+  const html = await r.text();
+  assert.ok(html.includes('Kinan Shop') && html.includes('Kinan Seller') && html.includes('Add to Home Screen'));
+  assert.ok(!html.includes('href="/admin"'), 'staff apps are not advertised');
+  assert.match(html, /\/assets\/kinan\.css\?v=\w+/);
+});
+
 test('static assets, service worker and traversal protection', async () => {
   const css = await fetch(base + '/assets/kinan.css');
   assert.strictEqual(css.status, 200); assert.match(css.headers.get('content-type'), /text\/css/);
