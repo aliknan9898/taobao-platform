@@ -78,7 +78,7 @@ async function preview(seller, link) {
  * Seller publishes a listing with their own sale prices.
  * own_images: optional HTTPS URLs of photos the SELLER owns (required to show images for WITHOUT_MATERIAL items).
  */
-async function publish(seller, { link, prices = {}, title, own_images = [], images_rights_confirmed = false }) {
+async function publish(seller, { link, prices = {}, title, description, own_images = [], images_rights_confirmed = false }) {
   if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
   const p = await itemIdFromInput(link);
   if (!p.ok) throw httpError(400, LINK_ERRORS[p.reason] || 'Unsupported link');
@@ -97,8 +97,13 @@ async function publish(seller, { link, prices = {}, title, own_images = [], imag
   const newTitle = String(title || prod.title || `#${prod.taobao_item_id}`).slice(0, 200);
   // Admin approval: a NEW listing, or a change to what buyers see (title / photos), goes back to review.
   // Price changes on an approved listing do not need re-approval.
+  // Seller's own description (plain text) replaces Taobao's; never keep Taobao text for WITHOUT_MATERIAL items
+  const newDesc = description !== undefined && description !== null && String(description).trim()
+    ? String(description).replace(/<[^>]*>/g, '').slice(0, 5000) : (existing?.custom_description ? existing.description : prod.description);
+  const customDesc = Boolean(description !== undefined && description !== null && String(description).trim()) || Boolean(existing?.custom_description && (description === undefined || description === null));
   const keepApproval = existing && existing.review?.state === 'approved'
-    && existing.title === newTitle && JSON.stringify(existing.own_images || []) === JSON.stringify(ownImgs);
+    && existing.title === newTitle && JSON.stringify(existing.own_images || []) === JSON.stringify(ownImgs)
+    && (existing.description || '') === (newDesc || '');
   const doc = {
     seller_id: seller.id,
     taobao_item_id: prod.taobao_item_id, mp_id: prod.mp_id, item_type: prod.item_type,
@@ -106,7 +111,8 @@ async function publish(seller, { link, prices = {}, title, own_images = [], imag
     // Never copy Taobao material for WITHOUT_MATERIAL items; only seller-owned images then
     images: prod.with_material ? prod.images : [],
     own_images: ownImgs,
-    description: prod.description,
+    description: newDesc,
+    custom_description: customDesc,
     begin_amount: prod.begin_amount,
     currency: config.currency,
     skus, last_synced_at: Date.now(),

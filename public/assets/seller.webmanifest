@@ -1,0 +1,29 @@
+{
+ "name": "Kinan Seller Center",
+ "short_name": "Kinan Seller",
+ "id": "/seller",
+ "start_url": "/seller",
+ "scope": "/seller",
+ "display": "standalone",
+ "description": "Import Taobao products into your Kinan shop and manage orders.",
+ "background_color": "#f4f6f9",
+ "theme_color": "#1f3a8a",
+ "icons": [
+  {
+   "src": "/assets/icon-seller-192.png",
+   "sizes": "192x192",
+   "type": "image/png"
+  },
+  {
+   "src": "/assets/icon-seller-512.png",
+   "sizes": "512x512",
+   "type": "image/png"
+  },
+  {
+   "src": "/assets/icon-seller-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ]
+}

@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kinan Seller Center</title>
+<meta name="theme-color" content="#1f3a8a">
+<link rel="manifest" href="/assets/seller.webmanifest">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon-seller.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kinan Seller">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..700&display=swap">
+<link rel="stylesheet" href="/assets/kinan.css">
+<style>
+  .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
+  @media (max-width: 760px) { .shell { grid-template-columns: 1fr; } }
+  .side { position: sticky; top: 0; height: 100vh; padding: 18px 14px; border-right: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; gap: 22px; }
+  .side nav { display: grid; gap: 2px; }
+  .side nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--r-md); text-decoration: none; color: var(--ink-2); font-weight: 500; }
+  .side nav a svg { width: 20px; height: 20px; }
+  .side nav a.on { background: var(--jade-soft); color: var(--jade); font-weight: 650; }
+  .side .foot { margin-top: auto; display: grid; gap: 8px; }
+  .mtop { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .content { padding: 22px clamp(16px, 3vw, 36px) 40px; max-width: 1120px; width: 100%; display: grid; gap: 20px; align-content: start; }
+  .head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 16px; display: grid; gap: 2px; text-decoration: none; color: inherit; }
+  .kpi b { font: 700 26px var(--font-display); font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: 13px; }
+  .banner { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 14px 16px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--line)); }
+  .banner.ok { background: var(--jade-soft); border-color: color-mix(in srgb, var(--jade) 30%, var(--line)); }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; }
+  .tabs button { font: 600 14px var(--font-body); border: 0; background: transparent; color: var(--muted); padding: 8px 12px; border-radius: var(--r-md); cursor: pointer; white-space: nowrap; }
+  .tabs button.on { background: var(--chip); color: var(--ink); }
+  .prod { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .prod:last-child { border-bottom: 0; }
+  .prod img, .prod .thumb { width: 64px; height: 64px; border-radius: var(--r-md); object-fit: cover; background: var(--chip); }
+  .prod .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 560px) { .prod { grid-template-columns: 56px minmax(0, 1fr); } .prod .acts { grid-column: 1 / -1; } .prod img, .prod .thumb { width: 56px; height: 56px; } }
+  .steps { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+  .steps b { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--chip); color: var(--ink-2); font-size: 12px; }
+  .steps .on b { background: var(--jade); color: var(--jade-ink); }
+  .steps .on { color: var(--ink); font-weight: 600; }
+  .steps i { width: 24px; height: 1px; background: var(--line); }
+  .editor { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .editor { grid-template-columns: 1fr; } }
+  .photos { display: flex; gap: 8px; flex-wrap: wrap; }
+  .photos img { width: 76px; height: 76px; object-fit: cover; border-radius: var(--r-md); background: var(--chip); }
+  .price-in { width: 110px; }
+  .margin { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .preview-card { position: sticky; top: 20px; }
+  .preview-card .ph { aspect-ratio: 1; background: var(--chip); border-radius: var(--r-md); overflow: hidden; position: relative; }
+  .preview-card .ph img { width: 100%; height: 100%; object-fit: cover; }
+  .preview-card .tag { position: absolute; left: 10px; bottom: 10px; }
+  .callout { font-size: 13px; padding: 10px 12px; border-radius: var(--r-md); background: var(--chip); color: var(--ink-2); }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="/assets/common.js"></script>
+<script>
+const { $, $$, esc, money, num, date, plain, api, toast, ICONS, pill } = K;
+let me = null, shop = null, cfg = { currency: 'usd', cny_rate: 7.2 };
+let draft = null; // product being imported or edited
+
+const PRODUCT_STATUS = { pending_review: ['In review', 'warn'], active: ['Live', 'ok'], paused: ['Paused', ''], rejected: ['Needs changes', 'bad'], unavailable: ['Unavailable on Taobao', 'bad'] };
+const PO_STATUS_CLS = (s) => /WAIT_BUYER_P/.test(s) ? 'warn' : /CREATE_FAILED|TRADE_CLOSED/.test(s) ? 'bad' : 'ok';
+const NAV = [['#/', 'Dashboard', ICONS.home], ['#/products', 'Products', ICONS.shop], ['#/add', 'Add product', ICONS.plus], ['#/orders', 'Orders', ICONS.box], ['#/earnings', 'Earnings', ICONS.wallet], ['#/settings', 'Settings', ICONS.user]];
+
+function variantLabel(props) {
+  if (!props) return 'Standard';
+  try { const j = JSON.parse(props); if (Array.isArray(j)) return j.map((x) => typeof x === 'object' ? (x.value_name || x.value || Object.values(x).join(' ')) : x).join(' / '); if (j && typeof j === 'object') return Object.values(j).join(' / '); } catch {}
+  return String(props).split(/[;,]/).map((p) => p.split(':').pop()).filter(Boolean).join(' / ') || 'Standard';
+}
+const costInSale = (cny) => Number(cny) / Number(cfg.cny_rate || 7.2);
+function marginPct(price, cny) { const c = costInSale(cny); return price > 0 ? Math.round(((price - c) / price) * 100) : null; }
+const marginCls = (m) => m === null ? '' : m < 10 ? 'bad' : m < 25 ? 'warn' : 'ok';
+
+// ---------- shell ----------
+function shell() {
+  const h = location.hash || '#/';
+  const isOn = (href) => href === '#/' ? h === '#/' || h === '#' : h.startsWith(href);
+  $('#app').innerHTML = `<div class="shell">
+    <aside class="side desk-only">${K.brand('Seller Center')}
+      <nav>${NAV.map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t}</a>`).join('')}</nav>
+      <div class="foot"><div class="small"><b>${esc(shop?.shop_name || '')}</b><div class="muted">${esc(me.email)}</div></div><button class="btn ghost sm" data-out>Sign out</button></div>
+    </aside>
+    <div><div class="mtop mob-only">${K.brand('Seller')}<a class="btn sm quiet" href="#/settings">${esc((shop?.shop_name || '').slice(0, 18))}</a></div>
+    <main class="content" id="view"></main></div></div>
+    <nav class="tabbar">${NAV.filter(([h]) => h !== '#/settings').map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t === 'Add product' ? 'Add' : t}</a>`).join('')}</nav>`;
+  document.body.classList.add('has-tabbar');
+  $$('[data-out]').forEach((b) => b.onclick = signOut);
+}
+async function signOut() { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; shop = null; authScreen(); }
+
+const routes = [[/^#\/?$/, dashboard], [/^#\/products$/, products], [/^#\/add$/, addStart], [/^#\/edit\/([\w-]+)$/, editProduct], [/^#\/review$/, editorScreen], [/^#\/orders$/, orders], [/^#\/earnings$/, earnings], [/^#\/settings$/, settings]];
+async function route() {
+  if (!me) return;
+  shell();
+  const h = location.hash || '#/';
+  for (const [re, fn] of routes) {
+    const m = h.match(re);
+    if (m) { try { await fn(...m.slice(1)); } catch (e) { $('#view').innerHTML = `<div class="empty"><h3>Couldn’t load this page</h3><p>${esc(e.message)}</p><button class="btn ghost" onclick="route()">Try again</button></div>`; } window.scrollTo(0, 0); return; }
+  }
+  location.hash = '#/';
+}
+window.addEventListener('hashchange', route);
+const refreshShop = async () => { shop = await api('/api/seller/me'); };
+
+function approvalBanner() {
+  if (shop.status === 'pending') return `<div class="banner"><div><b>Your shop is waiting for approval</b><div class="small">Kinan reviews new sellers before they can publish. Meanwhile, connect your Taobao account and prepare products.</div></div></div>`;
+  if (shop.status === 'suspended') return `<div class="banner" style="background:color-mix(in srgb,var(--bad) 10%,var(--surface))"><div><b>Your shop is suspended</b><div class="small">Your products are hidden from buyers. Contact Kinan support for details.</div></div></div>`;
+  return '';
+}
+function taobaoCard() {
+  const t = shop.taobao || {};
+  if (t.connected) return `<div class="banner ok"><div><b>Taobao account connected</b><div class="small">${t.account ? esc(t.account) + ' · ' : ''}Orders are bought from this account.${t.needs_reauth_soon ? ' <span class="warn">Authorization expires soon — reconnect to keep orders flowing.</span>' : ''}</div></div>${t.needs_reauth_soon ? '<button class="btn sm" data-connect>Reconnect</button>' : ''}</div>`;
+  return `<div class="banner"><div><b>Connect your Taobao account</b><div class="small">You need a Taobao Distribution Platform account to import products. Kinan buys each order from your account and ships it to our China warehouse.</div></div><button class="btn" data-connect>Connect Taobao</button></div>`;
+}
+function wireConnect() {
+  $$('[data-connect]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await api(`/api/seller/taobao/connect?return_to=${encodeURIComponent(location.origin + '/seller?taobao=connected')}`); location.href = r.url; }
+    catch (e) { toast(e.message); b.disabled = false; }
+  });
+}
+
+// ---------- dashboard ----------
+async function dashboard() {
+  const v = $('#view');
+  v.innerHTML = '<div class="skeleton" style="height:120px"></div>';
+  const [prods, ords, earn] = await Promise.all([api('/api/seller/products'), api('/api/seller/orders'), api('/api/seller/earnings')]);
+  const count = (s) => prods.filter((p) => p.status === s).length;
+  const toPay = ords.filter((o) => o.purchase && /WAIT_BUYER_P/.test(o.purchase.status));
+  v.innerHTML = `<div class="head"><div><h1>Hello, ${esc(shop.shop_name)}</h1><p class="muted">Here’s what needs your attention today.</p></div><a class="btn" href="#/add">Add product</a></div>
+    ${approvalBanner()}${taobaoCard()}
+    ${toPay.length ? `<div class="banner" style="background:color-mix(in srgb,var(--bad) 9%,var(--surface))"><div><b>${toPay.length} order${toPay.length > 1 ? 's' : ''} waiting for your payment to Taobao</b><div class="small">Unpaid purchase orders are closed by Taobao at the deadline and the buyer is refunded.</div></div><a class="btn" href="#/orders">Pay now</a></div>` : ''}
+    <div class="kpis">
+      <a class="kpi" href="#/products"><span>Live products</span><b>${count('active')}</b></a>
+      <a class="kpi" href="#/products"><span>In review</span><b>${count('pending_review')}</b></a>
+      <a class="kpi" href="#/products"><span>Needs changes</span><b class="${count('rejected') ? 'bad' : ''}">${count('rejected')}</b></a>
+      <a class="kpi" href="#/orders"><span>Orders</span><b>${ords.length}</b></a>
+      <a class="kpi" href="#/earnings"><span>Available to pay out</span><b>${money(earn.payable, earn.currency)}</b></a>
+      <a class="kpi" href="#/earnings"><span>On the way</span><b>${money(earn.pending, earn.currency)}</b></a>
+    </div>
+    <section class="panel"><div class="row between" style="margin-bottom:6px"><h2>Recent orders</h2><a class="muted" href="#/orders">See all</a></div>
+      ${ords.slice(0, 5).map(orderRow).join('') || '<div class="empty" style="padding:24px"><p>No orders yet. Once buyers order your products, they appear here.</p></div>'}</section>`;
+  wireConnect(); wireOrderActions();
+}
+
+// ---------- products ----------
+let prodFilter = 'all';
+async function products() {
+  const v = $('#view');
+  v.innerHTML = '<div class="skeleton" style="height:240px"></div>';
+  const list = (await api('/api/seller/products')).sort((a, b) => (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0));
+  const F = [['all', 'All'], ['active', 'Live'], ['pending_review', 'In review'], ['rejected', 'Needs changes'], ['paused', 'Paused']];
+  const shown = list.filter((p) => prodFilter === 'all' || p.status === prodFilter);
+  v.innerHTML = `<div class="head"><h1>Products</h1><a class="btn" href="#/add">Add product</a></div>
+    <div class="tabs">${F.map(([k, t]) => `<button data-f="${k}" class="${k === prodFilter ? 'on' : ''}">${t} (${k === 'all' ? list.length : list.filter((p) => p.status === k).length})</button>`).join('')}</div>
+    <section class="panel">${shown.map((p) => {
+      const img = [...(p.own_images || []), ...(p.images || [])][0];
+      const [lab, cls] = PRODUCT_STATUS[p.status] || [p.status, ''];
+      const prices = p.skus.map((s) => s.price); const lo = Math.min(...prices), hi = Math.max(...prices);
+      return `<div class="prod">${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<div class="thumb"></div>'}
+        <div style="min-width:0;display:grid;gap:4px"><div class="t">${esc(p.title)}</div>
+          <div class="row">${pill(lab, cls)}<span class="muted">${money(lo, p.currency)}${hi !== lo ? ` – ${money(hi, p.currency)}` : ''} · ${p.skus.length} option${p.skus.length > 1 ? 's' : ''}</span></div>
+          ${p.status === 'rejected' && p.review?.reason ? `<div class="small bad">Kinan’s note: ${esc(p.review.reason)}</div>` : ''}
+          ${p.sync_error ? `<div class="small warn">${esc(p.sync_error)}</div>` : ''}</div>
+        <div class="row acts">
+          <a class="btn sm ghost" href="#/edit/${esc(p.id)}">Edit</a>
+          ${p.status === 'active' ? `<button class="btn sm ghost" data-st="paused" data-id="${esc(p.id)}">Pause</button>` : ''}
+          ${p.status === 'paused' ? `<button class="btn sm" data-st="active" data-id="${esc(p.id)}">Go live</button>` : ''}
+          <button class="btn sm quiet" data-sync="${esc(p.id)}" title="Refresh cost and stock from Taobao">Refresh</button>
+        </div></div>`; }).join('') || `<div class="empty"><h3>${list.length ? 'Nothing in this list' : 'No products yet'}</h3><p>Paste a Taobao link to import your first product.</p><a class="btn" href="#/add">Add product</a></div>`}</section>
+    <p class="muted">New products and changes to titles, descriptions or photos are reviewed by Kinan before buyers see them. Price changes go live right away.</p>`;
+  $$('[data-f]').forEach((b) => b.onclick = () => { prodFilter = b.dataset.f; products(); });
+  $$('[data-st]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/seller/products/${b.dataset.id}`, 'PATCH', { status: b.dataset.st }); toast(b.dataset.st === 'active' ? 'Product is live' : 'Product paused'); } catch (e) { toast(e.message); } products(); });
+  $$('[data-sync]').forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = 'Refreshing…'; try { await api(`/api/seller/products/${b.dataset.sync}/resync`, 'POST'); toast('Cost and stock updated'); } catch (e) { toast(e.message); } products(); });
+}
+
+// ---------- add / edit ----------
+function stepper(n) {
+  return `<div class="steps">${['Paste link', 'Edit details', 'Kinan review'].map((t, i) => `${i ? '<i></i>' : ''}<span class="${i + 1 <= n ? 'on' : ''}"><b>${i + 1}</b> ${t}</span>`).join(' ')}</div>`;
+}
+function addStart(err = '') {
+  const v = $('#view');
+  const connected = shop.taobao?.connected;
+  v.innerHTML = `<div class="head"><h1>Add product</h1></div>${stepper(1)}
+    ${connected ? '' : taobaoCard()}
+    <form class="panel stack" id="lf" style="max-width:720px">
+      <label class="field">Taobao or Tmall product link<input name="link" required placeholder="https://item.taobao.com/item.htm?id=…" autocomplete="off" ${connected ? 'autofocus' : 'disabled'}></label>
+      <span class="muted">You can also paste just the product ID. Goofish and Taote items aren’t supported.</span>
+      <div class="error">${esc(err)}</div>
+      <button class="btn" ${connected ? '' : 'disabled'} id="go">Import product</button>
+    </form>`;
+  wireConnect();
+  $('#lf').onsubmit = async (e) => {
+    e.preventDefault(); const link = e.target.link.value.trim();
+    $('#go').disabled = true; $('#go').textContent = 'Fetching from Taobao…';
+    try {
+      const p = await api('/api/seller/products/preview', 'POST', { link });
+      const existing = (await api('/api/seller/products')).find((x) => x.taobao_item_id === p.taobao_item_id);
+      if (existing) { toast('You already have this product — opening it'); location.hash = `#/edit/${existing.id}`; return; }
+      draft = { mode: 'new', link: p.taobao_item_id, taobao_item_id: p.taobao_item_id, item_type: p.item_type, title: p.title, description: plain(p.description), taobao_images: p.images, own_images: [], skus: p.skus.map((s) => ({ ...s, price: s.suggested_price })) };
+      location.hash = '#/review';
+    } catch (err2) { addStart(err2.message); }
+  };
+}
+async function editProduct(id) {
+  const p = (await api('/api/seller/products')).find((x) => x.id === id);
+  if (!p) throw new Error('Product not found');
+  draft = { mode: 'edit', id: p.id, link: p.taobao_item_id, taobao_item_id: p.taobao_item_id, item_type: p.item_type, status: p.status, review: p.review,
+    title: p.title, description: plain(p.description), taobao_images: p.images || [], own_images: p.own_images || [], skus: p.skus.map((s) => ({ ...s })),
+    orig: { title: p.title, description: plain(p.description), own: JSON.stringify(p.own_images || []), prices: JSON.stringify(p.skus.map((s) => s.price)) } };
+  editorScreen();
+}
+
+function editorScreen() {
+  if (!draft) { location.hash = '#/add'; return; }
+  const d = draft; const v = $('#view');
+  const noMaterial = d.item_type === 'WITHOUT_MATERIAL';
+  v.innerHTML = `<div class="head"><div><a class="muted" href="#/${d.mode === 'new' ? 'add' : 'products'}" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">${ICONS.back} Back</a><h1 style="margin-top:6px">${d.mode === 'new' ? 'Edit before publishing' : 'Edit product'}</h1></div>
+      ${d.mode === 'edit' ? pill(...(PRODUCT_STATUS[d.status] || [d.status, ''])) : ''}</div>
+    ${d.mode === 'new' ? stepper(2) : ''}
+    ${d.mode === 'edit' && d.status === 'rejected' && d.review?.reason ? `<div class="banner" style="background:color-mix(in srgb,var(--bad) 9%,var(--surface))"><div><b>Kinan asked for changes</b><div class="small">${esc(d.review.reason)}</div></div></div>` : ''}
+    <form class="editor" id="ef">
+      <div class="stack-lg">
+        <section class="panel stack"><h2>Details</h2>
+          <label class="field">Title buyers will see<input name="title" required maxlength="200" value="${esc(d.title)}"></label>
+          <span class="muted">Write a clear English title. Taobao titles are often in Chinese and full of keywords.</span>
+          <label class="field">Description<textarea name="description" rows="6" maxlength="5000" placeholder="Material, size, what’s in the box…">${esc(d.description)}</textarea></label>
+        </section>
+        <section class="panel stack"><h2>Photos</h2>
+          ${noMaterial ? '<div class="callout">This item comes from Taobao’s general catalog, so its Taobao photos can’t be used. Add your own photos — buyers won’t see the product without them.</div>'
+            : d.taobao_images.length ? `<div class="small muted">From Taobao</div><div class="photos">${d.taobao_images.slice(0, 8).map((u) => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer" loading="lazy">`).join('')}</div>` : ''}
+          <label class="field">Your own photos (one https link per line, shown first)<textarea name="own_images" rows="3" placeholder="https://…">${esc(d.own_images.join('\n'))}</textarea></label>
+          <label class="check"><input type="checkbox" name="rights" ${d.own_images.length ? 'checked' : ''}><span>I own these photos or have permission to use them.</span></label>
+        </section>
+        <section class="panel stack"><div class="row between"><h2>Prices</h2>
+            <div class="row small"><span class="muted">Markup</span><input id="mk" type="number" min="0" max="500" value="${esc(shop.default_markup_pct)}" style="width:80px;min-height:36px">%<button type="button" class="btn sm quiet" id="mkgo">Apply to all</button></div></div>
+          <div class="scroll"><table><thead><tr><th>Option</th><th>Taobao cost</th><th>Your price (${esc(cfg.currency.toUpperCase())})</th><th>Margin</th><th>Stock</th></tr></thead><tbody>
+            ${d.skus.map((s, i) => `<tr><td>${esc(variantLabel(s.props))}</td><td class="muted">¥${num(s.cost_cny)} <span class="small">(${money(costInSale(s.cost_cny), cfg.currency)})</span></td>
+              <td><input class="price-in" type="number" min="0.01" step="0.01" required value="${esc(s.price)}" data-p="${i}"></td>
+              <td class="margin" data-m="${i}"></td><td>${s.stock >= 200 ? '200+' : s.stock}</td></tr>`).join('')}
+          </tbody></table></div>
+          <span class="muted">Margin is before Kinan’s ${esc(shop.commission_pct)}% commission. Cost uses ¥${num(cfg.cny_rate)} = 1 ${esc(cfg.currency.toUpperCase())}.</span>
+        </section>
+      </div>
+      <aside class="stack preview-card">
+        <section class="panel stack"><span class="muted">Buyer preview</span><div class="ph" id="pvimg"></div><b id="pvt"></b></section>
+        <div class="error" id="ee"></div>
+        <button class="btn block" id="save">${d.mode === 'new' ? 'Submit for review' : 'Save changes'}</button>
+        <p class="muted">${d.mode === 'new' ? 'Kinan checks every new product, usually within a day. You’ll see the result under Products.' : 'Price-only changes go live right away. Changing the title, description or photos sends the product back to review.'}</p>
+      </aside>
+    </form>`;
+  const f = $('#ef');
+  const paint = () => {
+    d.skus.forEach((s, i) => { const m = marginPct(Number(s.price), s.cost_cny); const el = $(`[data-m="${i}"]`); el.textContent = m === null ? '—' : `${m}%`; el.className = `margin ${marginCls(m)}`; });
+    const own = f.own_images.value.split(/\s+/).filter((u) => /^https:\/\//.test(u));
+    const img = own[0] || (noMaterial ? null : d.taobao_images[0]);
+    const lo = Math.min(...d.skus.map((s) => Number(s.price) || 0));
+    $('#pvimg').innerHTML = (img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer">` : '<div style="display:grid;place-items:center;height:100%" class="muted">No photo</div>') + `<span class="tag">${money(lo, cfg.currency)}</span>`;
+    $('#pvt').textContent = f.title.value || 'Untitled';
+  };
+  $$('[data-p]').forEach((inp) => inp.oninput = () => { d.skus[+inp.dataset.p].price = Number(inp.value); paint(); });
+  f.title.oninput = paint; f.own_images.oninput = paint;
+  $('#mkgo').onclick = () => {
+    const mk = Number($('#mk').value) || 0;
+    d.skus.forEach((s, i) => { s.price = Math.round(costInSale(s.cost_cny) * (1 + mk / 100) * 100) / 100; $(`[data-p="${i}"]`).value = s.price; });
+    paint();
+  };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const title = f.title.value.trim(); const description = f.description.value.trim();
+    const own = f.own_images.value.split(/\s+/).map((x) => x.trim()).filter(Boolean);
+    if (own.some((u) => !/^https:\/\//.test(u))) { $('#ee').textContent = 'Photo links must start with https://'; return; }
+    if (own.length && !f.rights.checked) { $('#ee').textContent = 'Confirm that you own the photos, or remove them.'; return; }
+    if (noMaterial && !own.length) { $('#ee').textContent = 'Add at least one photo of your own for this product.'; return; }
+    const prices = Object.fromEntries(d.skus.map((s) => [s.mp_sku_id, Number(s.price)]));
+    if (Object.values(prices).some((p) => !(p > 0))) { $('#ee').textContent = 'Every option needs a price.'; return; }
+    const btn = $('#save'); btn.disabled = true; btn.textContent = 'Saving…'; $('#ee').textContent = '';
+    try {
+      const priceOnly = d.mode === 'edit' && title === d.orig.title && description === d.orig.description && JSON.stringify(own) === d.orig.own;
+      if (priceOnly) {
+        await api(`/api/seller/products/${d.id}`, 'PATCH', { prices });
+        toast('Prices updated');
+      } else {
+        await api('/api/seller/products', 'POST', { link: d.link, title, description, prices, own_images: own, images_rights_confirmed: f.rights.checked });
+        toast(d.mode === 'new' ? 'Sent to Kinan for review' : 'Saved — sent back for review');
+      }
+      draft = null; location.hash = '#/products';
+    } catch (err) { $('#ee').textContent = err.message; btn.disabled = false; btn.textContent = d.mode === 'new' ? 'Submit for review' : 'Save changes'; }
+  };
+  paint();
+}
+
+// ---------- orders ----------
+function orderRow(o) {
+  const p = o.purchase;
+  const due = p && /WAIT_BUYER_P/.test(p.status);
+  return `<div class="prod" style="grid-template-columns:minmax(0,1fr) auto">
+    <div style="display:grid;gap:4px;min-width:0"><div class="row"><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><span class="muted">${date(o.created_at)}</span></div>
+      <div class="small">${o.lines.map((l) => `${l.qty} × ${esc(l.title)}${l.props ? ` <span class="muted">(${esc(variantLabel(l.props))})</span>` : ''}`).join('<br>')}</div>
+      <div class="row">${pill(o.status_label, ['delivered', 'shipped'].includes(o.status) ? 'ok' : ['cancelled', 'refunded'].includes(o.status) ? 'bad' : 'warn')}
+        ${p ? pill(`Taobao: ${p.status_label}`, PO_STATUS_CLS(p.status)) : ''}
+        ${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
+      ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
+      ${(p?.logistics || []).length ? `<div class="small muted">To warehouse: ${p.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}</div>
+    <div style="text-align:right;display:grid;gap:6px;justify-items:end"><b>${money(o.revenue, o.currency)}</b><span class="muted">cost ¥${num(o.cost_cny)}</span>
+      <div class="row">${due ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">Refresh</button>` : ''}</div></div></div>`;
+}
+function wireOrderActions() {
+  $$('[data-pay]').forEach((b) => b.onclick = async () => { if (!confirm('Pay this purchase order from your Taobao Distribution account balance?')) return; b.disabled = true; try { await api(`/api/seller/orders/${b.dataset.pay}/pay`, 'POST'); toast('Payment sent to Taobao'); } catch (e) { toast(e.message); } route(); });
+  $$('[data-osync]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/seller/orders/${b.dataset.osync}/sync`, 'POST'); toast('Order updated'); } catch (e) { toast(e.message); } route(); });
+}
+async function orders() {
+  const v = $('#view'); v.innerHTML = '<div class="skeleton" style="height:240px"></div>';
+  const list = await api('/api/seller/orders');
+  v.innerHTML = `<div class="head"><div><h1>Orders</h1><p class="muted">Kinan creates a Taobao purchase order from your account for every paid order. ${shop.auto_pay ? 'Automatic payment is on.' : 'Pay each one before its deadline.'}</p></div></div>
+    <section class="panel">${list.map(orderRow).join('') || '<div class="empty"><h3>No orders yet</h3><p>Paid orders for your products appear here.</p></div>'}</section>
+    <p class="muted">Buyer names and addresses stay private. Taobao ships to Kinan’s China warehouse, and we ship to the buyer.</p>`;
+  wireOrderActions();
+}
+
+// ---------- earnings ----------
+async function earnings() {
+  const e = await api('/api/seller/earnings');
+  const ST = { pending_payout: ['On the way', 'warn'], payable: ['Available', 'ok'], paid: ['Paid out', ''] };
+  $('#view').innerHTML = `<div class="head"><h1>Earnings</h1></div>
+    <div class="kpis"><div class="kpi"><span>On the way (order not delivered yet)</span><b>${money(e.pending, e.currency)}</b></div>
+      <div class="kpi"><span>Available to pay out</span><b class="ok">${money(e.payable, e.currency)}</b></div>
+      <div class="kpi"><span>Paid out</span><b>${money(e.paid, e.currency)}</b></div></div>
+    <section class="panel"><h2 style="margin-bottom:8px">History</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Order</th><th>Sales</th><th>Kinan commission</th><th>You earn</th><th>Status</th></tr></thead><tbody>
+      ${e.entries.map((x) => `<tr><td class="muted">${date(x.created_at, false)}</td><td><code>${esc(String(x.order_id).slice(-8).toUpperCase())}</code></td><td>${money(x.gross, x.currency)}</td><td class="muted">−${money(x.commission, x.currency)}</td><td><b>${money(x.net, x.currency)}</b></td><td>${pill(...(ST[x.status] || [x.status, '']))}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No earnings yet.</td></tr>'}
+    </tbody></table></div></section>
+    <p class="muted">Earnings become available when the buyer receives the order. You pay Taobao for the goods from your own account; your earnings are your sale price minus Kinan’s ${esc(shop.commission_pct)}% commission.</p>`;
+}
+
+// ---------- settings ----------
+function settings() {
+  $('#view').innerHTML = `<div class="head"><h1>Settings</h1></div>
+    <form class="panel stack" id="stf" style="max-width:640px"><h2>Shop</h2>
+      <label class="field">Shop name<input name="shop_name" required maxlength="80" value="${esc(shop.shop_name)}"></label>
+      <label class="field">Default markup on Taobao cost (%)<input name="default_markup_pct" type="number" min="0" max="500" value="${esc(shop.default_markup_pct)}"></label>
+      <label class="check"><input type="checkbox" name="auto_pay" ${shop.auto_pay ? 'checked' : ''}><span><b>Pay Taobao automatically</b><br><span class="muted">Each purchase order is paid from your Distribution account balance as soon as it’s created, so you never miss a deadline.</span></span></label>
+      <div class="row"><button class="btn">Save</button><span class="muted">Commission: ${esc(shop.commission_pct)}% · Status: ${esc(shop.status)}</span></div>
+    </form>
+    <section class="stack" style="max-width:640px">${taobaoCard()}</section>
+    <section class="panel stack" style="max-width:640px"><h2>Install the app</h2>
+      <p class="muted">Add the Seller Center to your phone’s home screen. On iPhone: Share, then “Add to Home Screen”. On Android: menu, then “Install app”.</p>
+      <div class="row"><button class="btn quiet" id="installbtn" style="display:none">Install Seller Center</button><button class="btn danger" data-out>Sign out</button></div></section>`;
+  wireConnect(); wireInstall();
+  $$('[data-out]').forEach((b) => b.onclick = signOut);
+  $('#stf').onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target;
+    try { shop = await api('/api/seller/me', 'PATCH', { shop_name: f.shop_name.value.trim(), default_markup_pct: Number(f.default_markup_pct.value), auto_pay: f.auto_pay.checked }); toast('Settings saved'); route(); }
+    catch (err) { toast(err.message); }
+  };
+}
+
+// ---------- auth ----------
+function authScreen(mode = 'in', msg = '') {
+  document.body.classList.remove('has-tabbar');
+  $('#app').innerHTML = `<div class="auth"><form class="panel stack" id="af">
+      <div>${K.brand('Seller Center')}</div>
+      <h2>${mode === 'in' ? 'Sign in to sell on Kinan' : 'Open your Kinan shop'}</h2>
+      <div class="seg"><button type="button" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button type="button" data-m="up" class="${mode === 'up' ? 'on' : ''}">Open a shop</button></div>
+      ${mode === 'up' ? '<label class="field">Shop name<input name="shop_name" required maxlength="80"></label><label class="field">Your name<input name="name" required autocomplete="name"></label>' : ''}
+      <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
+      <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
+      ${mode === 'up' ? '<span class="muted">At least 8 characters. Kinan reviews new shops before they can publish.</span>' : ''}
+      <div class="error">${esc(msg)}</div>
+      <button class="btn">${mode === 'in' ? 'Sign in' : 'Open shop'}</button>
+      <a class="muted" href="/">Go to the Kinan store</a>
+    </form></div>`;
+  $$('.seg button').forEach((b) => b.onclick = () => authScreen(b.dataset.m));
+  $('#af').onsubmit = async (e) => {
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+    try {
+      if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'seller' });
+      const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password });
+      if (r.user.role !== 'seller') { await api('/api/auth/logout', 'POST'); return authScreen(mode, 'This is not a seller account. Customers shop at the Kinan store.'); }
+      me = r.user; await refreshShop(); route();
+    } catch (err) { authScreen(mode, err.message); }
+  };
+}
+K.onUnauthorized = () => { me = null; authScreen('in', 'Your session ended. Please sign in again.'); };
+
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; wireInstall(); });
+function wireInstall() {
+  const b = $('#installbtn'); if (!b) return;
+  b.style.display = deferredInstall ? 'inline-flex' : 'none';
+  b.onclick = async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; b.style.display = 'none'; };
+}
+
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const connected = params.get('taobao') === 'connected';
+  if (params.toString()) history.replaceState(null, '', '/seller' + location.hash);
+  cfg = await api('/api/config/public').catch(() => cfg);
+  try { const u = await api('/api/me'); if (u.role === 'seller') { me = u; await refreshShop(); } } catch {}
+  if (!me) authScreen(); else { route(); if (connected) toast('Taobao account connected'); }
+  K.registerSW();
+})();
+</script>
+</body>
+</html>

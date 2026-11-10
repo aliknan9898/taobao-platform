@@ -36,12 +36,37 @@ async function readJson(req) {
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
 }
-function page(res, file) {
+const FONTS_CSS = 'https://fonts.googleapis.com';
+const FONTS_FILES = 'https://fonts.gstatic.com';
+function page(res, file, { stripe: withStripe = false } = {}) {
+  const stripeSrc = withStripe ? ' https://js.stripe.com' : '';
   res.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
+    'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
+    'Content-Security-Policy': `default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' ${FONTS_CSS}; font-src 'self' ${FONTS_FILES}; ` +
+      `script-src 'self' 'unsafe-inline'${stripeSrc}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}; ` +
+      `frame-src ${withStripe ? 'https://js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
   });
   fs.createReadStream(path.join(PUBLIC, file)).pipe(res);
+}
+
+// Static assets (CSS, JS, icons, manifests) — flat folder, no traversal
+const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+function asset(res, rel, cache = 'public, max-age=3600') {
+  const name = path.basename(rel);
+  const type = MIME[path.extname(name)];
+  const file = path.join(PUBLIC, 'assets', name);
+  if (name !== rel || !type || !fs.existsSync(file)) return send(res, 404, { error: 'Not found' });
+  res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache, 'X-Content-Type-Options': 'nosniff' });
+  fs.createReadStream(file).pipe(res);
+}
+
+/** Where to send a seller after Taobao authorization: our own site, or a native app's custom scheme. */
+function safeReturnTo(v) {
+  if (!v) return null;
+  let u; try { u = new URL(v); } catch { return null; }
+  if (/^(javascript|data|vbscript|file):$/i.test(u.protocol)) return null;
+  if (/^https?:$/.test(u.protocol)) return u.origin === new URL(config.publicBaseUrl).origin ? u.toString() : null;
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : null;
 }
 
 // Simple login throttling (per IP)
@@ -81,7 +106,7 @@ r('GET', '/api/me', ['admin', 'seller', 'buyer', 'warehouse'], async ({ user }) 
 // Catalog (public for browsing)
 r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntries(url.searchParams)));
 r('GET', '/api/catalog/:id', null, async ({ params }) => catalog.buyerListing(params.id));
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe' }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, brand: 'Kinan' }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -110,7 +135,12 @@ r('PATCH', '/api/seller/me', SELLER, async ({ req, seller }) => {
   if (b.auto_pay !== undefined) patch.auto_pay = Boolean(b.auto_pay);
   return sellerSelf(db.sellers.update(seller.id, patch));
 });
-r('GET', '/api/seller/taobao/connect', SELLER, async ({ seller, url }) => ({ url: sellerAuth.buildAuthorizeUrl(seller.id, url.searchParams.get('return_to')) }));
+r('GET', '/api/seller/taobao/connect', SELLER, async ({ seller, url }) => {
+  const rt = url.searchParams.get('return_to');
+  if (!config.appKey) throw httpError(503, 'Taobao connection is not set up on Kinan yet. Please try again later.');
+  if (rt && !safeReturnTo(rt)) throw httpError(400, 'return_to must be this site or an app URL scheme');
+  return { url: sellerAuth.buildAuthorizeUrl(seller.id, rt) };
+});
 r('POST', '/api/seller/products/preview', SELLER, async ({ req, seller }) => catalog.preview(seller, (await readJson(req)).link));
 r('POST', '/api/seller/products', SELLER, async ({ req, seller }) => catalog.publish(seller, await readJson(req)));
 r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id));
@@ -172,9 +202,15 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
   try {
     if (p === '/healthz') return send(res, 200, 'ok');
-    if (p === '/' ) { res.writeHead(302, { Location: '/admin' }); return res.end(); }
-    if (p === '/admin' && req.method === 'GET') return page(res, 'admin.html');
-    if (p === '/warehouse' && req.method === 'GET') return page(res, 'warehouse.html');
+    if (req.method === 'GET') {
+      if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true });
+      if (p === '/seller') return page(res, 'seller.html');
+      if (p === '/admin') return page(res, 'admin.html');
+      if (p === '/warehouse') return page(res, 'warehouse.html');
+      if (p === '/sw.js') { res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); return fs.createReadStream(path.join(PUBLIC, 'sw.js')).pipe(res); }
+      if (p === '/favicon.ico' || p === '/apple-touch-icon.png') return asset(res, p === '/favicon.ico' ? 'icon-192.png' : 'apple-touch-icon.png');
+      if (p.startsWith('/assets/')) return asset(res, p.slice(8));
+    }
 
     if (p === '/webhooks/taobao') {
       if (req.method !== 'POST') return send(res, 200, 'ok');
@@ -193,7 +229,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const { return_to } = await sellerAuth.handleCallback(url.searchParams.get('code'), url.searchParams.get('state'));
         // Native seller app: deep link back (e.g. myapp://taobao-connected)
-        const back = return_to && /^[a-z][a-z0-9+.-]*:\/\//i.test(return_to) && !/^(javascript|data):/i.test(return_to) ? return_to : null;
+        const back = safeReturnTo(return_to);
         if (back) { res.writeHead(302, { Location: back }); return res.end(); }
         return send(res, 200, 'Distribution Platform account connected. You can return to the app.');
       } catch (e) { return send(res, e.status || 400, `Connection failed: ${e.message}`); }
@@ -232,10 +268,10 @@ if (require.main === module) {
   const problems = configProblems();
   if (problems.length) console.warn('[config]', problems.join(' | '));
   server.listen(config.port, '0.0.0.0', () => {
-    console.log(`Platform on :${config.port}  admin: /admin  warehouse: /warehouse`);
+    console.log(`Kinan on :${config.port}  store: /  seller: /seller  admin: /admin  warehouse: /warehouse`);
     console.log(`OAuth callback: ${config.redirectUri}`);
   });
   startJobs();
 }
 
-module.exports = { server };
+module.exports = { server, safeReturnTo };

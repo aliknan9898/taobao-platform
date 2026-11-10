@@ -1,13 +1,15 @@
-# Taobao multi-seller dropshipping marketplace
+# Kinan — multi-seller marketplace powered by Taobao
 
-One server powers four interfaces:
+One server powers four interfaces, all in English and installable on phones as apps (PWA):
 
 | Interface | User | Status |
 |---|---|---|
-| Admin dashboard `/admin` | You | Built and tested |
-| Warehouse site `/warehouse` | China warehouse staff | Built and tested |
-| Buyer app (Android/iOS) | Customers | API ready — the app itself is not built yet |
-| Seller app (Android/iOS) | Merchants | API ready — the app itself is not built yet |
+| Store `/` | Customers: browse, cart, checkout, pay, track orders | Built |
+| Seller Center `/seller` | Merchants: connect Taobao, import and edit products, pay purchase orders, earnings | Built |
+| Admin dashboard `/admin` | You | Built |
+| Warehouse site `/warehouse` | China warehouse staff | Built |
+
+Each site is a responsive web app with its own manifest and icon, so it can be added to a phone's home screen and runs full-screen like a native app. Native store builds (App Store / Google Play) can be added later on the same API (`docs/API.md`).
 
 ```bash
 cp .env.example .env   # fill in the values
@@ -46,5 +48,8 @@ No dependencies. Node.js 18 or newer.
 - **Authorization policy:** your app type must allow multiple users to authorize it ("Allow logged-in users"); check the maximum number of sellers allowed.
 - **HTTPS certificate:** OV or EV for the Taobao message webhook URL.
 
-## Native apps
-API reference in `docs/API.md`. Suggested stack: React Native (Expo) with the Stripe React Native SDK, built with EAS Build.
+## Native store apps (optional)
+API reference in `docs/API.md`. Suggested stack: React Native (Expo) with the Stripe React Native SDK, built with EAS Build. The web apps already cover phones via "Add to Home Screen".
+
+## Card payments on the store
+Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `STRIPE_PUBLISHABLE_KEY`. Without them the store runs in test mode with a "Pay (test)" button.

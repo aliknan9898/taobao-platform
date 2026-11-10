@@ -22,6 +22,7 @@ const config = {
   // Stripe (no SDK — REST over fetch). Empty key = demo mode (test payments only)
   stripeSecretKey: e.STRIPE_SECRET_KEY || '',
   stripeWebhookSecret: e.STRIPE_WEBHOOK_SECRET || '',
+  stripePublishableKey: e.STRIPE_PUBLISHABLE_KEY || '', // pk_… for Stripe.js on the buyer website
   stripeApiUrl: e.STRIPE_API_URL || 'https://api.stripe.com/v1',
   currency: (e.SALE_CURRENCY || 'usd').toLowerCase(),
   cnyRate: Number(e.CNY_PER_SALE_UNIT || 7.2), // 1 USD ≈ 7.2 CNY, for margin display
@@ -52,6 +53,7 @@ function configProblems() {
   if (!config.appKey || !config.appSecret) p.push('TAOBAO_APP_KEY / TAOBAO_APP_SECRET');
   if (!config.stripeSecretKey) p.push('STRIPE_SECRET_KEY (demo mode)');
   if (config.stripeSecretKey && !config.stripeWebhookSecret) p.push('STRIPE_WEBHOOK_SECRET');
+  if (config.stripeSecretKey && !config.stripePublishableKey) p.push('STRIPE_PUBLISHABLE_KEY (buyer website card payments)');
   const w = config.warehouse;
   if (!w.name || !w.mobile || !w.city || !w.detail_address) p.push('WAREHOUSE_*');
   return p;

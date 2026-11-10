@@ -121,6 +121,14 @@ test('full marketplace flow: seller → buyer → Taobao → warehouse → deliv
   assert.strictEqual(retitled.body.status, 'pending_review');
   assert.strictEqual((await api('GET', '/api/catalog')).body.total, 1);
   await api('POST', `/api/admin/listings/${pub2.body.id}/approve`, null, aTok);
+  // Seller's own description (HTML stripped) also goes back to review, and is kept on later price edits
+  const described = await api('POST', '/api/seller/products', { link: '723456789012', description: '<b>Waterproof</b> 30L backpack', prices: { S1: 19.99 } }, sTok);
+  assert.strictEqual(described.body.status, 'pending_review');
+  assert.strictEqual(described.body.description, 'Waterproof 30L backpack');
+  await api('POST', `/api/admin/listings/${pub.body.id}/approve`, null, aTok);
+  const repriced = await api('POST', '/api/seller/products', { link: '723456789012', prices: { S1: 19.99 } }, sTok);
+  assert.strictEqual(repriced.body.status, 'active', 'unchanged description keeps approval');
+  assert.strictEqual(repriced.body.description, 'Waterproof 30L backpack');
 
   // Buyer browses (cost never exposed) and checks out
   const cat = await api('GET', '/api/catalog');

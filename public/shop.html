@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kinan — Shop from China</title>
+<meta name="description" content="Products from China's biggest marketplace, checked at our warehouse and shipped to your door with tracking.">
+<meta name="theme-color" content="#0e7c66">
+<link rel="manifest" href="/assets/shop.webmanifest">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kinan">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..700&display=swap">
+<link rel="stylesheet" href="/assets/kinan.css">
+<style>
+  .search { display: flex; align-items: center; gap: 8px; background: var(--chip); border-radius: 99px; padding: 0 14px; }
+  .search svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
+  .search input { border: 0; background: transparent; min-height: 40px; padding: 0; box-shadow: none !important; }
+  .iconbtn { position: relative; display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: var(--ink); text-decoration: none; }
+  .iconbtn:hover { background: var(--chip); }
+  .iconbtn svg { width: 22px; height: 22px; }
+  .iconbtn .badge { position: absolute; top: 2px; right: 0; }
+
+  .hero { padding: 36px 0 22px; display: grid; gap: 14px; max-width: 760px; }
+  .hero h1 { font-size: clamp(30px, 6vw, 54px); font-weight: 750; letter-spacing: -.035em; }
+  .hero p { color: var(--ink-2); font-size: 17px; max-width: 60ch; }
+  .route { display: flex; flex-wrap: wrap; gap: 6px 0; margin-top: 4px; font-size: 13px; color: var(--ink-2); }
+  .route span { display: inline-flex; align-items: center; }
+  .route span + span::before { content: ""; width: 22px; height: 1px; background: var(--line); margin: 0 8px; }
+  .route b { font-weight: 600; color: var(--ink); }
+  @media (max-width: 560px) { .route { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; } .route span + span::before { display: none; } }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; padding-bottom: 32px; }
+  @media (max-width: 520px) { .grid { grid-template-columns: 1fr 1fr; gap: 10px; } }
+  .card { display: grid; grid-template-rows: auto 1fr; background: var(--surface); border-radius: var(--r-lg); overflow: hidden; text-decoration: none; color: inherit; border: 1px solid var(--line); }
+  .card:hover { border-color: color-mix(in srgb, var(--jade) 45%, var(--line)); }
+  .card .ph { aspect-ratio: 1; background: var(--chip); position: relative; }
+  .card .ph img { width: 100%; height: 100%; object-fit: cover; }
+  .card .ph .tag { position: absolute; left: 10px; bottom: 10px; }
+  .card .body { padding: 10px 12px 14px; display: grid; gap: 4px; align-content: start; }
+  .card .t { font-size: 14px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .noimg { width: 100%; height: 100%; display: grid; place-items: center; color: var(--muted); }
+  .noimg svg { width: 40px; height: 40px; opacity: .5; }
+
+  .pdp { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; padding: 20px 0 40px; }
+  @media (max-width: 820px) { .pdp { grid-template-columns: 1fr; gap: 18px; padding-top: 8px; } }
+  .gallery { display: grid; gap: 10px; }
+  .gallery .main { aspect-ratio: 1; background: var(--chip); border-radius: var(--r-lg); overflow: hidden; }
+  .gallery .main img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+  .thumbs { display: flex; gap: 8px; overflow-x: auto; }
+  .thumbs button { flex: none; width: 64px; height: 64px; padding: 0; border: 2px solid transparent; border-radius: var(--r-md); overflow: hidden; background: var(--chip); cursor: pointer; }
+  .thumbs button.on { border-color: var(--jade); }
+  .thumbs img { width: 100%; height: 100%; object-fit: cover; }
+  .variants { display: flex; flex-wrap: wrap; gap: 8px; }
+  .variants button { font: 500 14px var(--font-body); padding: 8px 14px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .variants button.on { border-color: var(--jade); background: var(--jade-soft); font-weight: 600; }
+  .variants button:disabled { opacity: .45; text-decoration: line-through; cursor: not-allowed; }
+  .qty { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: var(--r-md); }
+  .qty button { width: 40px; height: 40px; border: 0; background: transparent; font-size: 18px; color: var(--ink); cursor: pointer; }
+  .qty input { width: 52px; border: 0; text-align: center; min-height: 40px; padding: 0; box-shadow: none !important; }
+  .desc { color: var(--ink-2); white-space: pre-line; max-width: 70ch; }
+  .back { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; color: var(--muted); font-size: 14px; padding: 14px 0 0; }
+
+  .line { display: grid; grid-template-columns: 72px 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .line:last-child { border-bottom: 0; }
+  .line img, .line .thumb { width: 72px; height: 72px; border-radius: var(--r-md); object-fit: cover; background: var(--chip); }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; padding: 20px 0 40px; }
+  @media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+  .sum { display: grid; gap: 8px; }
+  .sum div { display: flex; justify-content: space-between; }
+  .sum .total { font-weight: 700; font-size: 18px; padding-top: 8px; border-top: 1px solid var(--line); }
+
+  .track { display: grid; gap: 0; }
+  .track li { list-style: none; display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding-bottom: 14px; position: relative; }
+  .track li::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); background: var(--surface); margin-top: 4px; z-index: 1; }
+  .track li::after { content: ""; position: absolute; left: 6px; top: 16px; bottom: -2px; width: 2px; background: var(--line); }
+  .track li:last-child::after { display: none; }
+  .track li.done::before { background: var(--jade); border-color: var(--jade); }
+  .track li.done::after { background: var(--jade); }
+  .track li.now::before { border-color: var(--jade); box-shadow: 0 0 0 4px var(--jade-soft); }
+  .track ul { margin: 0; padding: 0; }
+  .orderrow { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 14px 0; border-bottom: 1px solid var(--line); text-decoration: none; color: inherit; }
+  .orderrow:last-child { border-bottom: 0; }
+  .pagehead { padding: 22px 0 12px; display: flex; align-items: end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .install { display: none; }
+  footer { border-top: 1px solid var(--line); padding: 22px 0 30px; margin-top: 12px; }
+  #pay-element { min-height: 40px; }
+</style>
+</head>
+<body class="has-tabbar">
+<header class="topbar">
+  <div class="wrap">
+    <span id="brand"></span>
+    <form class="search grow desk-only" id="sf" role="search">
+      <span id="sicon"></span><input name="q" type="search" placeholder="Search products" aria-label="Search products" autocomplete="off">
+    </form>
+    <div class="grow mob-only"></div>
+    <a class="iconbtn desk-only" href="#/orders" aria-label="Orders" id="nav-orders"></a>
+    <a class="iconbtn desk-only" href="#/account" aria-label="Account" id="nav-account"></a>
+    <a class="iconbtn" href="#/cart" aria-label="Cart" id="nav-cart"></a>
+  </div>
+</header>
+<main id="view" class="wrap"></main>
+<nav class="tabbar" id="tabbar"></nav>
+
+<script src="/assets/common.js"></script>
+<script>
+const { $, $$, esc, money, date, plain, api, toast, ICONS, ORDER_STATUS, pill } = K;
+let me = null, cfg = { currency: 'usd', shipping_flat: 0, payments: 'demo' };
+
+// ---------- cart (kept on this device) ----------
+const Cart = {
+  get() { try { return JSON.parse(localStorage.getItem('kinan_cart') || '[]'); } catch { return []; } },
+  set(items) { try { localStorage.setItem('kinan_cart', JSON.stringify(items)); } catch {} updateBadge(); },
+  add(item) {
+    const c = Cart.get(); const ex = c.find((x) => x.listing_id === item.listing_id && x.mp_sku_id === item.mp_sku_id);
+    if (ex) ex.qty = Math.min(999, ex.qty + item.qty); else c.push(item);
+    Cart.set(c);
+  },
+  count() { return Cart.get().reduce((a, x) => a + x.qty, 0); }
+};
+const savedAddress = () => { try { return JSON.parse(localStorage.getItem('kinan_addr') || '{}'); } catch { return {}; } };
+
+function variantLabel(props, fallback = 'Standard') {
+  if (!props) return fallback;
+  try {
+    const j = JSON.parse(props);
+    if (Array.isArray(j)) return j.map((x) => (typeof x === 'object' ? (x.value_name || x.value || Object.values(x).join(' ')) : x)).join(' / ') || fallback;
+    if (j && typeof j === 'object') return Object.values(j).join(' / ') || fallback;
+  } catch {}
+  return String(props).split(/[;,]/).map((p) => p.split(':').pop()).filter(Boolean).join(' / ') || fallback;
+}
+const noImg = `<div class="noimg">${ICONS.box}</div>`;
+
+// ---------- shell ----------
+$('#brand').innerHTML = K.brand();
+$('#sicon').innerHTML = ICONS.search;
+$('#nav-orders').innerHTML = ICONS.box;
+$('#nav-account').innerHTML = ICONS.user;
+function updateBadge() {
+  const n = Cart.count();
+  $('#nav-cart').innerHTML = ICONS.cart + (n ? `<span class="badge">${n}</span>` : '');
+  renderTabbar();
+}
+function renderTabbar() {
+  const h = location.hash || '#/'; const n = Cart.count();
+  const tabs = [['#/', 'Shop', ICONS.shop], ['#/cart', 'Cart', ICONS.cart], ['#/orders', 'Orders', ICONS.box], ['#/account', 'Account', ICONS.user]];
+  $('#tabbar').innerHTML = tabs.map(([href, t, ic]) => {
+    const on = href === '#/' ? (h === '#/' || h.startsWith('#/p/') || h.startsWith('#/s/') || h.startsWith('#/search')) : h.startsWith(href);
+    return `<a href="${href}" class="${on ? 'on' : ''}">${ic}${t}${href === '#/cart' && n ? `<span class="badge">${n}</span>` : ''}</a>`;
+  }).join('');
+}
+$('#sf').onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); location.hash = q ? `#/search/${encodeURIComponent(q)}` : '#/'; };
+
+K.onUnauthorized = () => { me = null; };
+
+// ---------- router ----------
+const routes = [
+  [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
+  [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
+  [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
+];
+async function route() {
+  renderTabbar();
+  const h = location.hash || '#/';
+  const v = $('#view');
+  for (const [re, fn] of routes) {
+    const m = h.match(re);
+    if (m) {
+      try { await fn(...m.slice(1)); } catch (e) { v.innerHTML = `<div class="empty"><h3>Something went wrong</h3><p>${esc(e.message)}</p><a class="btn ghost" href="#/">Back to shop</a></div>`; }
+      window.scrollTo(0, 0); return;
+    }
+  }
+  location.hash = '#/';
+}
+window.addEventListener('hashchange', route);
+
+function requireBuyer(next) {
+  if (me && me.role === 'buyer') return true;
+  location.hash = `#/signin/${encodeURIComponent(next || location.hash.slice(1))}`;
+  return false;
+}
+
+// ---------- views ----------
+function productCard(p) {
+  const img = p.images[0];
+  return `<a class="card" href="#/p/${esc(p.id)}">
+    <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}<span class="tag">${money(p.min_price, p.currency)}</span></div>
+    <div class="body"><div class="t">${esc(p.title)}</div>${p.shop ? `<div class="muted">${esc(p.shop.name)}</div>` : ''}</div></a>`;
+}
+const skeletonGrid = () => `<div class="grid">${Array.from({ length: 8 }, () => '<div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="height:14px;margin-top:10px;width:80%"></div></div>').join('')}</div>`;
+
+async function home(q = '') {
+  const v = $('#view');
+  v.innerHTML = `${q ? `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a><h2 style="margin-top:6px">Results for “${esc(q)}”</h2></div></div>` : `
+    <section class="hero">
+      <h1>Products from China’s biggest marketplace, shipped to your door.</h1>
+      <p>Kinan sellers pick items from Taobao. We buy them, check every parcel at our warehouse in China, and ship your order with tracking.</p>
+      <div class="route"><span><b>You order</b></span><span>Seller’s supplier ships</span><span>Checked in our China warehouse</span><span><b>Delivered to you</b></span></div>
+    </section>`}
+    <form class="search mob-only" id="msf" role="search" style="margin:4px 0 16px">${ICONS.search}<input name="q" type="search" value="${esc(q)}" placeholder="Search products" aria-label="Search products"></form>
+    <div id="results">${skeletonGrid()}</div>`;
+  const msf = $('#msf'); if (msf) msf.onsubmit = (e) => { e.preventDefault(); const x = e.target.q.value.trim(); location.hash = x ? `#/search/${encodeURIComponent(x)}` : '#/'; };
+  const d = await api(`/api/catalog?limit=100&q=${encodeURIComponent(q)}`);
+  $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>`
+    : `<div class="empty"><h3>${q ? 'No products match your search' : 'New products are on the way'}</h3><p>${q ? 'Try a shorter or different word.' : 'Sellers are adding their first items. Check back soon.'}</p></div>`;
+}
+
+async function shopPage(sellerId) {
+  const v = $('#view'); v.innerHTML = skeletonGrid();
+  const d = await api(`/api/catalog?limit=100&seller_id=${encodeURIComponent(sellerId)}`);
+  const name = d.items[0]?.shop?.name || 'Shop';
+  v.innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a><h1 style="margin-top:6px">${esc(name)}</h1><p class="muted">${d.total} product${d.total === 1 ? '' : 's'}</p></div></div>
+    ${d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>This shop has no products right now</h3></div>'}`;
+}
+
+async function product(id) {
+  const v = $('#view'); v.innerHTML = `<div class="pdp"><div class="skeleton" style="aspect-ratio:1"></div><div class="stack"><div class="skeleton" style="height:32px"></div><div class="skeleton" style="height:120px"></div></div></div>`;
+  const p = await api(`/api/catalog/${encodeURIComponent(id)}`);
+  let sku = p.skus.find((s) => s.in_stock) || p.skus[0]; let qty = 1; let imgIdx = 0;
+  const desc = plain(p.description);
+  v.innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
+    <div class="pdp">
+      <div class="gallery">
+        <div class="main" id="mainimg"></div>
+        ${p.images.length > 1 ? `<div class="thumbs">${p.images.map((u, i) => `<button data-i="${i}" aria-label="Photo ${i + 1}"><img src="${esc(u)}" alt="" referrerpolicy="no-referrer" loading="lazy"></button>`).join('')}</div>` : ''}
+      </div>
+      <div class="stack-lg" style="align-content:start">
+        <div class="stack">
+          ${p.shop ? `<a href="#/s/${esc(p.shop.id)}" class="muted" style="text-decoration:none">Sold by <b>${esc(p.shop.name)}</b></a>` : ''}
+          <h1 style="font-size:clamp(22px,3.4vw,30px)">${esc(p.title)}</h1>
+          <div id="price"></div>
+        </div>
+        ${p.skus.length > 1 ? `<div class="stack"><h3>Option</h3><div class="variants" id="variants">${p.skus.map((s) => `<button data-sku="${esc(s.mp_sku_id)}" ${s.in_stock ? '' : 'disabled'}>${esc(variantLabel(s.props))}</button>`).join('')}</div></div>` : ''}
+        <div class="row"><div class="qty"><button type="button" id="qm" aria-label="Less">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="More">+</button></div><span class="muted" id="stock"></span></div>
+        <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
+        <div class="panel flat stack small">
+          <div><b>Shipping:</b> ${cfg.shipping_flat ? `${money(cfg.shipping_flat, cfg.currency)} per order, worldwide` : 'Calculated at checkout'}</div>
+          <div class="muted">Every item is inspected at our China warehouse before it ships to you. You get a tracking number as soon as your parcel leaves.</div>
+        </div>
+        ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc">${esc(desc)}</p></div>` : ''}
+      </div>
+    </div>`;
+  const paint = () => {
+    const img = p.images[imgIdx];
+    $('#mainimg').innerHTML = img ? `<img src="${esc(img)}" alt="${esc(p.title)}" referrerpolicy="no-referrer">` : noImg;
+    $$('.thumbs button').forEach((b) => b.classList.toggle('on', Number(b.dataset.i) === imgIdx));
+    $('#price').innerHTML = `<span class="tag lg">${money(sku.price, p.currency)}</span>`;
+    $$('#variants button').forEach((b) => b.classList.toggle('on', b.dataset.sku === sku.mp_sku_id));
+    $('#stock').textContent = sku.in_stock ? (sku.stock < 20 ? `Only ${sku.stock} left` : 'In stock') : 'Out of stock';
+    $('#add').disabled = $('#buy').disabled = !sku.in_stock;
+    $('#qv').value = qty;
+  };
+  $$('.thumbs button').forEach((b) => b.onclick = () => { imgIdx = Number(b.dataset.i); paint(); });
+  $$('#variants button').forEach((b) => b.onclick = () => { sku = p.skus.find((s) => s.mp_sku_id === b.dataset.sku); qty = Math.min(qty, Math.max(1, sku.stock)); paint(); });
+  const setQty = (n) => { qty = Math.max(1, Math.min(Number(n) || 1, sku.stock || 1, 999)); paint(); };
+  $('#qm').onclick = () => setQty(qty - 1); $('#qp').onclick = () => setQty(qty + 1); $('#qv').onchange = (e) => setQty(e.target.value);
+  const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });
+  $('#add').onclick = () => { add(); toast('Added to cart'); };
+  $('#buy').onclick = () => { add(); location.hash = '#/cart'; };
+  paint();
+}
+
+async function cart() {
+  const v = $('#view'); let items = Cart.get();
+  if (!items.length) { v.innerHTML = `<div class="empty"><h3>Your cart is empty</h3><p>Find something you like and add it here.</p><a class="btn" href="#/">Browse products</a></div>`; return; }
+  v.innerHTML = '<div class="pagehead"><h1>Cart</h1></div><div class="skeleton" style="height:200px"></div>';
+  // Refresh prices and availability
+  const fresh = await Promise.all([...new Set(items.map((x) => x.listing_id))].map((id) => api(`/api/catalog/${id}`).catch(() => null)));
+  const byId = new Map(fresh.filter(Boolean).map((p) => [p.id, p]));
+  const notes = [];
+  items = items.map((x) => {
+    const p = byId.get(x.listing_id); const s = p?.skus.find((k) => k.mp_sku_id === x.mp_sku_id);
+    if (!p || !s || !s.in_stock) { notes.push(`${x.title} is no longer available and was removed.`); return null; }
+    if (s.price !== x.price) notes.push(`The price of ${x.title} changed to ${money(s.price, p.currency)}.`);
+    return { ...x, price: s.price, qty: Math.min(x.qty, s.stock), max: s.stock };
+  }).filter(Boolean);
+  Cart.set(items.map(({ max, ...x }) => x));
+  const cur = items[0]?.currency || cfg.currency;
+  const sub = items.reduce((a, x) => a + x.price * x.qty, 0);
+  v.innerHTML = `<div class="pagehead"><h1>Cart</h1><span class="muted">${Cart.count()} item${Cart.count() === 1 ? '' : 's'}</span></div>
+    ${notes.length ? `<div class="panel flat warn small" style="margin-bottom:12px">${notes.map(esc).join('<br>')}</div>` : ''}
+    <div class="two">
+      <div class="panel">${items.length ? items.map((x, i) => `<div class="line">
+          ${x.image ? `<img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer">` : `<div class="thumb"></div>`}
+          <div class="stack" style="gap:4px"><a href="#/p/${esc(x.listing_id)}" style="text-decoration:none;font-weight:600">${esc(x.title)}</a>${x.props ? `<span class="muted">${esc(x.props)}</span>` : ''}
+            <div class="row"><div class="qty"><button data-dec="${i}" aria-label="Less">−</button><input value="${x.qty}" data-q="${i}" inputmode="numeric" aria-label="Quantity"><button data-inc="${i}" aria-label="More">+</button></div><button class="btn sm ghost" data-rm="${i}">Remove</button></div></div>
+          <b>${money(x.price * x.qty, x.currency)}</b></div>`).join('') : '<div class="empty"><h3>Nothing left in your cart</h3></div>'}</div>
+      <aside class="panel sum">
+        <div><span>Subtotal</span><span>${money(sub, cur)}</span></div>
+        <div><span>Shipping</span><span>${money(cfg.shipping_flat, cur)}</span></div>
+        <div class="total"><span>Total</span><span>${money(sub + Number(cfg.shipping_flat || 0), cur)}</span></div>
+        <a class="btn block" href="#/checkout" ${items.length ? '' : 'style="pointer-events:none;opacity:.5"'}>Check out</a>
+        <a class="btn block ghost" href="#/">Keep shopping</a>
+      </aside>
+    </div>`;
+  const upd = (i, q) => { const c = Cart.get(); if (q <= 0) c.splice(i, 1); else c[i].qty = Math.min(q, items[i].max || 999); Cart.set(c); cart(); };
+  $$('[data-dec]').forEach((b) => b.onclick = () => upd(+b.dataset.dec, items[+b.dataset.dec].qty - 1));
+  $$('[data-inc]').forEach((b) => b.onclick = () => upd(+b.dataset.inc, items[+b.dataset.inc].qty + 1));
+  $$('[data-q]').forEach((inp) => inp.onchange = () => upd(+inp.dataset.q, Math.floor(Number(inp.value)) || 0));
+  $$('[data-rm]').forEach((b) => b.onclick = () => upd(+b.dataset.rm, 0));
+}
+
+async function checkout() {
+  if (!requireBuyer('/checkout')) return;
+  const items = Cart.get(); if (!items.length) { location.hash = '#/cart'; return; }
+  const a = { name: me.name || '', ...savedAddress() };
+  const cur = items[0].currency || cfg.currency;
+  const sub = items.reduce((s, x) => s + x.price * x.qty, 0);
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/cart">${ICONS.back} Cart</a><h1 style="margin-top:6px">Delivery address</h1></div></div>
+    <div class="two"><form class="panel stack" id="af">
+      <div class="grid-2"><label class="field">Full name<input name="name" required autocomplete="name" value="${esc(a.name)}"></label>
+      <label class="field">Phone<input name="phone" type="tel" required autocomplete="tel" value="${esc(a.phone)}"></label></div>
+      <label class="field">Address<input name="line1" required autocomplete="address-line1" placeholder="Street and number" value="${esc(a.line1)}"></label>
+      <label class="field">Apartment, building (optional)<input name="line2" autocomplete="address-line2" value="${esc(a.line2)}"></label>
+      <div class="grid-2"><label class="field">City<input name="city" required autocomplete="address-level2" value="${esc(a.city)}"></label>
+      <label class="field">Postal code<input name="postal_code" autocomplete="postal-code" value="${esc(a.postal_code)}"></label></div>
+      <label class="field">Country<input name="country" required autocomplete="country-name" value="${esc(a.country)}"></label>
+      <div class="error" id="ce"></div>
+      <button class="btn" id="go">Continue to payment</button>
+      <p class="muted">Your address is only shared with Kinan’s shipping team. Sellers and suppliers never see it.</p>
+    </form>
+    <aside class="panel sum">${items.map((x) => `<div class="small"><span>${x.qty} × ${esc(x.title.slice(0, 40))}${x.title.length > 40 ? '…' : ''}</span><span>${money(x.price * x.qty, cur)}</span></div>`).join('')}
+      <div><span>Shipping</span><span>${money(cfg.shipping_flat, cur)}</span></div>
+      <div class="total"><span>Total</span><span>${money(sub + Number(cfg.shipping_flat || 0), cur)}</span></div></aside></div>`;
+  $('#af').onsubmit = async (e) => {
+    e.preventDefault(); const addr = Object.fromEntries(new FormData(e.target));
+    try { localStorage.setItem('kinan_addr', JSON.stringify(addr)); } catch {}
+    $('#go').disabled = true; $('#go').textContent = 'Placing order…';
+    try {
+      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr });
+      Cart.set([]);
+      location.hash = `#/pay/${o.id}`;
+    } catch (err) { $('#ce').textContent = err.message; $('#go').disabled = false; $('#go').textContent = 'Continue to payment'; }
+  };
+}
+
+function loadStripe() {
+  return new Promise((res, rej) => {
+    if (window.Stripe) return res(window.Stripe);
+    const s = document.createElement('script'); s.src = 'https://js.stripe.com/v3/'; s.onload = () => res(window.Stripe); s.onerror = () => rej(new Error('Could not load the payment form. Check your connection.'));
+    document.head.append(s);
+  });
+}
+
+async function pay(id) {
+  if (!requireBuyer(`/pay/${id}`)) return;
+  const o = await api(`/api/buyer/orders/${id}`);
+  if (o.status !== 'pending_payment') { location.hash = `#/orders/${id}`; return; }
+  const demo = cfg.payments === 'demo' || o.payment?.provider === 'demo';
+  $('#view').innerHTML = `<div class="pagehead"><h1>Payment</h1></div>
+    <div class="two"><div class="panel stack">
+      ${demo ? `<div class="pill warn" style="justify-self:start">Test mode</div><p>Card payments are not switched on yet. Use the test payment to try the full order flow — no money is charged.</p><button class="btn" id="demo">Pay ${money(o.total, o.currency)} (test)</button>`
+        : `<div id="pay-element"></div><button class="btn" id="paybtn" disabled>Pay ${money(o.total, o.currency)}</button>`}
+      <div class="error" id="pe"></div>
+      <a class="muted" href="#/orders/${esc(id)}">Pay later — the order stays in your orders</a>
+    </div>
+    <aside class="panel sum">${o.lines.map((l) => `<div class="small"><span>${l.qty} × ${esc(l.title.slice(0, 40))}</span><span>${money(l.price * l.qty, o.currency)}</span></div>`).join('')}
+      <div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div><div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div></aside></div>`;
+  if (demo) {
+    $('#demo').onclick = async () => { $('#demo').disabled = true; try { await api(`/api/buyer/orders/${id}/demo-pay`, 'POST'); toast('Payment received'); location.hash = `#/orders/${id}`; } catch (e) { $('#pe').textContent = e.message; $('#demo').disabled = false; } };
+    return;
+  }
+  try {
+    if (!cfg.stripe_publishable_key || !o.payment?.client_secret) throw new Error('Card payments are not configured yet. Please try again later.');
+    const Stripe = await loadStripe();
+    const stripe = Stripe(cfg.stripe_publishable_key);
+    const elements = stripe.elements({ clientSecret: o.payment.client_secret, appearance: { theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+    elements.create('payment').mount('#pay-element');
+    $('#paybtn').disabled = false;
+    $('#paybtn').onclick = async () => {
+      $('#paybtn').disabled = true; $('#pe').textContent = '';
+      const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/?order=${encodeURIComponent(id)}` } });
+      if (error) { $('#pe').textContent = error.message; $('#paybtn').disabled = false; return; }
+      toast('Payment received'); location.hash = `#/orders/${id}`;
+    };
+  } catch (e) { $('#pe').textContent = e.message; }
+}
+
+async function ordersList() {
+  if (!requireBuyer('/orders')) return;
+  const v = $('#view'); v.innerHTML = '<div class="pagehead"><h1>Your orders</h1></div><div class="skeleton" style="height:160px"></div>';
+  const list = await api('/api/buyer/orders');
+  v.innerHTML = `<div class="pagehead"><h1>Your orders</h1></div>${list.length ? `<div class="panel">${list.map((o) => {
+    const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
+    return `<a class="orderrow" href="#/orders/${esc(o.id)}"><div><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><div class="muted">${date(o.created_at, false)} · ${o.lines.reduce((a, l) => a + l.qty, 0)} item(s)</div></div>
+      <div style="text-align:right"><b>${money(o.total, o.currency)}</b><div>${pill(label, cls)}</div></div></a>`; }).join('')}</div>`
+    : `<div class="empty"><h3>No orders yet</h3><p>When you place an order, you can follow it here.</p><a class="btn" href="#/">Start shopping</a></div>`}`;
+}
+
+const STEPS = [['paid', 'Order confirmed'], ['procuring', 'Bought from supplier'], ['awaiting_parcels', 'Arriving at our China warehouse'], ['ready_to_ship', 'Checked and packed'], ['shipped', 'Shipped to you'], ['delivered', 'Delivered']];
+async function orderDetail(id) {
+  if (!requireBuyer(`/orders/${id}`)) return;
+  const o = await api(`/api/buyer/orders/${id}`);
+  const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
+  const idx = STEPS.findIndex(([k]) => k === o.status);
+  const ended = ['cancelled', 'refunded'].includes(o.status);
+  const a = o.shipping_address;
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/orders">${ICONS.back} Orders</a><h1 style="margin-top:6px">Order ${esc(o.id.slice(-8).toUpperCase())}</h1><p class="muted">Placed ${date(o.created_at)}</p></div>${pill(label, cls)}</div>
+    <div class="two"><div class="stack-lg">
+      ${o.status === 'pending_payment' ? `<div class="panel row between"><span>This order is waiting for payment.</span><a class="btn" href="#/pay/${esc(o.id)}">Pay now</a></div>` : ''}
+      ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div></div>` : ''}
+      ${!ended && o.status !== 'pending_payment' ? `<div class="panel"><h3 style="margin-bottom:14px">Progress</h3><div class="track"><ul>${STEPS.map(([k, t], i) => `<li class="${idx > i || o.status === 'delivered' ? 'done' : idx === i ? 'now done' : ''}"><span>${t}</span></li>`).join('')}</ul></div></div>` : ''}
+      <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `<img src="${esc(l.image)}" alt="" referrerpolicy="no-referrer">` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
+    </div>
+    <aside class="stack">
+      <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div><div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div></div>
+      <div class="panel stack small"><h3>Delivery address</h3><div>${esc(a.name)}<br>${esc(a.line1)}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city)} ${esc(a.postal_code)}<br>${esc(a.country)}<br>${esc(a.phone)}</div></div>
+      ${['pending_payment', 'paid'].includes(o.status) ? '<button class="btn danger" id="cancel">Cancel order</button>' : ''}
+      <div class="error" id="oe"></div>
+    </aside></div>`;
+  const c = $('#cancel');
+  if (c) c.onclick = async () => { if (!confirm('Cancel this order? If you already paid, you will be refunded.')) return; c.disabled = true; try { await api(`/api/buyer/orders/${id}/cancel`, 'POST'); toast('Order cancelled'); orderDetail(id); } catch (e) { $('#oe').textContent = e.message; c.disabled = false; } };
+}
+
+function account() {
+  if (!me || me.role !== 'buyer') { signin('/account'); return; }
+  $('#view').innerHTML = `<div class="pagehead"><h1>Account</h1></div>
+    <div class="stack" style="max-width:520px">
+      <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
+        <a class="btn ghost" href="#/orders">Your orders</a><button class="btn danger" id="out">Sign out</button></div>
+      <div class="panel stack small" id="installbox"><h3>Get the Kinan app</h3>
+        <p class="muted">Install Kinan on your phone’s home screen. On iPhone: tap Share, then “Add to Home Screen”. On Android: tap the menu, then “Install app”.</p>
+        <button class="btn quiet install" id="installbtn">Install Kinan</button></div>
+      <p class="muted">Want to sell on Kinan? <a href="/seller">Open the Seller Center</a></p>
+    </div>`;
+  $('#out').onclick = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; toast('Signed out'); location.hash = '#/'; };
+  wireInstall();
+}
+
+function signin(next, mode = 'in', msg = '') {
+  next = next ? decodeURIComponent(next) : '/';
+  const other = me && me.role !== 'buyer';
+  $('#view').innerHTML = `<div class="auth" style="min-height:70vh"><form class="panel stack" id="lf">
+      <h2>${mode === 'in' ? 'Sign in to Kinan' : 'Create your Kinan account'}</h2>
+      <div class="seg"><button type="button" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button type="button" data-m="up" class="${mode === 'up' ? 'on' : ''}">Create account</button></div>
+      ${other ? `<p class="muted">You’re signed in as a ${esc(me.role)}. Sign in with a customer account to shop.</p>` : ''}
+      ${mode === 'up' ? '<label class="field">Name<input name="name" required autocomplete="name"></label>' : ''}
+      <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
+      <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
+      ${mode === 'up' ? '<span class="muted">At least 8 characters.</span>' : ''}
+      <div class="error">${esc(msg)}</div>
+      <button class="btn">${mode === 'in' ? 'Sign in' : 'Create account'}</button>
+    </form></div>`;
+  $$('.seg button').forEach((b) => b.onclick = () => signin(encodeURIComponent(next), b.dataset.m));
+  $('#lf').onsubmit = async (e) => {
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+    try {
+      if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'buyer' });
+      const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password });
+      if (r.user.role !== 'buyer') { await api('/api/auth/logout', 'POST'); return signin(encodeURIComponent(next), mode, 'This is not a customer account. Sellers sign in at the Seller Center.'); }
+      me = r.user; toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in');
+      location.hash = '#' + next; if (location.hash === '#' + next) route();
+    } catch (err) { signin(encodeURIComponent(next), mode, err.message); }
+  };
+}
+
+// ---------- install prompt ----------
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; wireInstall(); });
+function wireInstall() {
+  const b = $('#installbtn'); if (!b) return;
+  b.style.display = deferredInstall ? 'inline-flex' : 'none';
+  b.onclick = async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; b.style.display = 'none'; };
+}
+
+// ---------- boot ----------
+(async () => {
+  updateBadge();
+  const params = new URLSearchParams(location.search);
+  if (params.get('order')) { history.replaceState(null, '', `/#/orders/${params.get('order')}`); }
+  [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').catch(() => null)]);
+  route();
+  K.registerSW();
+})();
+</script>
+</body>
+</html>
