@@ -9,7 +9,14 @@
 const db = require('./db');
 const { config } = require('./config');
 
-const enabled = () => Boolean(config.mail.brevoKey && config.mail.from);
+const DOMAIN_ID = 'mail_domain';
+/** Once the site's own domain is authenticated in Brevo, mail goes out as noreply@<domain>; until then from MAIL_FROM. */
+function sender() {
+  const d = db.settings.get(DOMAIN_ID);
+  if (d && d.authenticated && d.domain) return { email: `${config.mail.domainSender}@${d.domain}`, name: config.mail.fromName };
+  return { email: config.mail.from, name: config.mail.fromName };
+}
+const enabled = () => Boolean(config.mail.brevoKey && sender().email);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /** Simple branded layout. `lines` are plain-text paragraphs; `button` is { text, url }. */
@@ -35,7 +42,7 @@ async function send({ to, subject, title, lines, button, key, kind = 'general' }
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST', signal: AbortSignal.timeout(15000),
       headers: { 'api-key': config.mail.brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ sender: { email: config.mail.from, name: config.mail.fromName }, to: [{ email: to }], subject, htmlContent: layout({ title: title || subject, lines, button }) })
+      body: JSON.stringify({ sender: sender(), ...(config.mail.replyTo ? { replyTo: { email: config.mail.replyTo } } : {}), to: [{ email: to }], subject, htmlContent: layout({ title: title || subject, lines, button }) })
     });
     if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
     return db.mail.update(rec.id, { status: 'sent', sent_at: Date.now() });
@@ -45,9 +52,64 @@ async function send({ to, subject, title, lines, button, key, kind = 'general' }
   }
 }
 
+// ---------- domain authentication in Brevo (DKIM / Brevo code records in DNS) ----------
+async function brevo(path, method = 'GET', body) {
+  const r = await fetch(`https://api.brevo.com/v3${path}`, {
+    method, signal: AbortSignal.timeout(15000),
+    headers: { 'api-key': config.mail.brevoKey, accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await r.text(); let j = {}; try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+  return { ok: r.ok, status: r.status, body: j };
+}
+
+/**
+ * Add the site's domain to Brevo (once), ask Brevo to check its DNS, and remember the result.
+ * Logs the DNS records to add while the domain is not yet authenticated. Safe to call repeatedly.
+ */
+async function setupDomain() {
+  if (!config.mail.brevoKey) return { skipped: 'no BREVO_API_KEY' };
+  let host; try { host = new URL(config.publicBaseUrl).hostname; } catch { return { skipped: 'no PUBLIC_BASE_URL' }; }
+  if (!/^https:/.test(config.publicBaseUrl) || /onrender\.com$|localhost/.test(host)) return { skipped: 'no custom domain' };
+  const domain = host.replace(/^www\./, '');
+  const saved = db.settings.get(DOMAIN_ID);
+  if (saved && saved.domain === domain && saved.authenticated && saved.sender_ready) return saved;
+
+  let info = await brevo(`/senders/domains/${encodeURIComponent(domain)}`);
+  if (info.status === 404) {
+    const created = await brevo('/senders/domains', 'POST', { name: domain });
+    if (!created.ok) throw new Error(`Brevo: could not add ${domain}: ${JSON.stringify(created.body).slice(0, 200)}`);
+    console.log(`[mail] domain ${domain} added to Brevo`);
+    info = await brevo(`/senders/domains/${encodeURIComponent(domain)}`);
+  }
+  if (!info.ok) throw new Error(`Brevo: ${info.status} ${JSON.stringify(info.body).slice(0, 200)}`);
+  if (!info.body.authenticated) {
+    await brevo(`/senders/domains/${encodeURIComponent(domain)}/authenticate`, 'PUT');
+    info = await brevo(`/senders/domains/${encodeURIComponent(domain)}`);
+  }
+  const authenticated = Boolean(info.body.authenticated);
+  const doc = { domain, authenticated, verified: Boolean(info.body.verified), dns_records: info.body.dns_records || null, checked_at: Date.now(), sender_ready: Boolean(saved && saved.domain === domain && saved.sender_ready) };
+  if (authenticated && !doc.sender_ready) {
+    const email = `${config.mail.domainSender}@${domain}`;
+    const list = await brevo('/senders');
+    if (!(list.body.senders || []).some((s) => String(s.email).toLowerCase() === email)) {
+      const add = await brevo('/senders', 'POST', { name: config.mail.fromName, email });
+      if (!add.ok) console.warn('[mail] could not add sender', email, JSON.stringify(add.body).slice(0, 200));
+    }
+    doc.sender_ready = true;
+    console.log(`[mail] ${domain} authenticated — emails now go out from ${email}`);
+  } else if (!authenticated) {
+    console.log(`[mail] ${domain} not authenticated yet — DNS records to add: ${JSON.stringify(doc.dns_records)}`);
+  }
+  if (saved) db.settings.update(DOMAIN_ID, doc); else db.settings.insert({ id: DOMAIN_ID, ...doc });
+  return doc;
+}
+
+function domainStatus() { return db.settings.get(DOMAIN_ID) || null; }
+
 function pruneLog() {
   const all = db.mail.all();
   if (all.length > 500) for (const m of all.slice(0, all.length - 500)) db.mail.remove(m.id);
 }
 
-module.exports = { send, enabled, layout };
+module.exports = { send, enabled, layout, sender, setupDomain, domainStatus };

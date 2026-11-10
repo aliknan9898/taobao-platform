@@ -38,7 +38,7 @@ const config = {
   // PostgreSQL connection (Render: the database's Internal Database URL). Without it data lives in JSON files.
   databaseUrl: e.DATABASE_URL || '',
   // Email (Brevo transactional API — free tier; a verified sender address is enough, no domain needed)
-  mail: { brevoKey: e.BREVO_API_KEY || '', from: e.MAIL_FROM || e.CONTACT_EMAIL || '', fromName: e.MAIL_FROM_NAME || 'Kinan' },
+  mail: { brevoKey: e.BREVO_API_KEY || '', from: e.MAIL_FROM || e.CONTACT_EMAIL || '', fromName: e.MAIL_FROM_NAME || 'Kinan', replyTo: e.MAIL_REPLY_TO || e.CONTACT_EMAIL || '', domainSender: e.MAIL_DOMAIN_SENDER || 'noreply' },
   orderSyncMinutes: Number(e.ORDER_SYNC_MINUTES || 15),
   defaultCommissionPct: Number(e.PLATFORM_COMMISSION_PCT || 10),
 

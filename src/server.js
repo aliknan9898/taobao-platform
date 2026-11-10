@@ -21,6 +21,7 @@ const google = require('./googleAuth');
 const aliexpress = require('./services/aliexpress');
 const { COUNTRIES } = require('./countries');
 const stripe = require('./payments/stripe');
+const mailer = require('./mailer');
 const webhooks = require('./webhooks');
 const legal = require('./legal');
 
@@ -326,7 +327,16 @@ r('POST', '/api/admin/users/:id/reset-link', ['admin', 'support'], async ({ para
   if (user.role !== 'admin' && !['buyer', 'seller'].includes(u.role)) throw httpError(403, 'Only an admin can reset a staff password');
   return { url: resetUrl(auth.createResetToken(u)), expires_in_minutes: 60 };
 });
-r('GET', '/api/admin/mail', ADMIN, async () => ({ enabled: require('./mailer').enabled(), recent: db.mail.all().slice(-50).reverse() }));
+r('GET', '/api/admin/mail', ADMIN, async () => ({ enabled: mailer.enabled(), sender: mailer.sender().email, reply_to: config.mail.replyTo || null, domain: mailer.domainStatus(), recent: db.mail.all().slice(-50).reverse() }));
+// Send a test email (to the admin, or to one of the site's own addresses) to check sending and forwarding
+r('POST', '/api/admin/mail/test', ADMIN, async ({ req, user }) => {
+  const { to } = await readJson(req);
+  const target = String(to || user.email).trim().toLowerCase();
+  const own = target === user.email || (mailer.domainStatus()?.domain && target.endsWith(`@${mailer.domainStatus().domain}`));
+  if (!own) throw httpError(400, 'Test emails go to your own address or one of the site addresses');
+  const rec = await mailer.send({ to: target, subject: 'Kinan test email', title: 'Email is working', lines: [`This test was sent from ${mailer.sender().email} to ${target}.`, 'If you can read this, sending works.'], kind: 'test' });
+  return { status: rec.status, error: rec.error || null, from: mailer.sender().email };
+});
 r('GET', '/api/admin/wallet/:id', FIN, async ({ params }) => shopSvc.walletOf(params.id));
 r('POST', '/api/admin/wallet/:id', FIN, async ({ req, params, user }) => shopSvc.adminAdjust(params.id, await readJson(req), user));
 r('GET', '/api/admin/settings/shipping', STAFF, async () => ({ ...shipping.settings(), zones: shipping.ZONES.map(([id, name, countries]) => ({ id, name, countries })) }));
@@ -513,6 +523,9 @@ if (require.main === module) (async () => {
     console.log(`OAuth callback: ${config.redirectUri}`);
   });
   startJobs();
+  // Brevo: add/check the site's domain now, then every 30 minutes until it is authenticated
+  const mailDomain = () => mailer.setupDomain().catch((e) => console.error('[mail] domain setup:', e.message));
+  mailDomain(); setInterval(() => { const d = mailer.domainStatus(); if (!d || !d.authenticated || !d.sender_ready) mailDomain(); }, 30 * 60e3).unref();
   stripe.setup().then((r) => { if (r.ok) console.log(`[stripe] ready (${r.mode} mode)`); }).catch((e) => console.error('[stripe] setup failed:', e.message));
   // Render stops the instance with SIGTERM: write pending changes first
   const stop = async () => { try { await db.close(); } catch { /* exiting */ } process.exit(0); };
