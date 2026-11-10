@@ -5,7 +5,7 @@
  * "Continue with Google" for Kinan Shop (customers) and the Seller Center (sellers).
  * OAuth 2.0 authorization-code flow with state + nonce. The ID token comes straight from
  * Google's token endpoint over TLS, so its claims are trusted after checking iss/aud/exp/nonce.
- * Admin and warehouse accounts can never sign in with Google.
+ * Admin: only addresses on the allowlist (ADMIN_EMAIL / ADMIN_GOOGLE_EMAILS). Warehouse staff use passwords.
  */
 const crypto = require('crypto');
 const db = require('./db');
@@ -15,7 +15,7 @@ const { httpError, createSession } = require('./auth');
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const STATE_TTL = 10 * 60e3;
-const APPS = { shop: { role: 'buyer', home: '/' }, seller: { role: 'seller', home: '/seller' } };
+const APPS = { shop: { role: 'buyer', home: '/' }, seller: { role: 'seller', home: '/seller' }, admin: { role: 'admin', home: '/admin' } };
 
 const enabled = () => Boolean(config.googleClientId && config.googleClientSecret);
 
@@ -41,8 +41,21 @@ function decodeIdToken(jwt) {
   return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
 }
 
+/** Admin dashboard: the Google email must be on the allowlist. Links to (or creates) that admin account. */
+function adminUser(claims) {
+  const email = String(claims.email || '').toLowerCase();
+  if (!config.adminGoogleEmails.includes(email)) throw httpError(403, 'This Google account is not allowed to open the admin dashboard');
+  let u = db.users.find((x) => x.email === email);
+  if (u && u.role !== 'admin') throw httpError(409, `${email} is already a ${u.role} account — use another Gmail for the admin dashboard`);
+  if (u && u.google_sub && u.google_sub !== claims.sub) throw httpError(403, 'Google account mismatch');
+  if (!u) u = db.users.insert({ email, name: String(claims.name || 'Admin').slice(0, 80), role: 'admin', status: 'active', pass: null, google_sub: claims.sub });
+  else if (!u.google_sub) u = db.users.update(u.id, { google_sub: claims.sub });
+  return u;
+}
+
 /** Find or create the Kinan account for a verified Google identity. */
 function upsertUser(claims, app) {
+  if (app === 'admin') return adminUser(claims);
   const email = String(claims.email || '').toLowerCase();
   const role = APPS[app].role;
   let u = db.users.find((x) => x.google_sub === claims.sub) || db.users.find((x) => x.email === email);
@@ -70,7 +83,7 @@ async function callback({ code, state, error }) {
   if (state) db.oauthStates.remove(`gg_${state}`);
   if (!st || st.kind !== 'google' || st.expires_at < Date.now()) throw httpError(400, 'Sign-in link expired. Please try again.');
   const home = APPS[st.app].home;
-  if (error || !code) return { redirect: st.app === 'shop' ? '/#/signin' : '/seller' };
+  if (error || !code) return { redirect: st.app === 'shop' ? '/#/signin' : home };
   try { return await finish(code, st, home); } catch (e) { e.home = home; throw e; }
 }
 
@@ -90,7 +103,7 @@ async function finish(code, st, home) {
 
   const u = upsertUser(c, st.app);
   const { token } = createSession(u);
-  return { token, redirect: `${home}${st.next || (st.app === 'shop' ? '#/' : '')}` };
+  return { token, redirect: `${home}${st.app === 'admin' ? '' : st.next || (st.app === 'shop' ? '#/' : '')}` };
 }
 
 module.exports = { enabled, authorizeUrl, callback, safeNext };

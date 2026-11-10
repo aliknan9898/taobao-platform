@@ -269,9 +269,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, out.status, out.body);
     }
     if (p === '/auth/google' && req.method === 'GET') {
-      const app = url.searchParams.get('app') === 'seller' ? 'seller' : 'shop';
+      const app = ['seller', 'admin'].includes(url.searchParams.get('app')) ? url.searchParams.get('app') : 'shop';
       try { res.writeHead(302, { Location: google.authorizeUrl(app, url.searchParams.get('next')), 'Cache-Control': 'no-store' }); }
-      catch (e) { res.writeHead(302, { Location: `${app === 'seller' ? '/seller' : '/'}?login_error=${encodeURIComponent(e.message)}` }); }
+      catch (e) { res.writeHead(302, { Location: `${app === 'shop' ? '/' : `/${app}`}?login_error=${encodeURIComponent(e.message)}` }); }
       return res.end();
     }
     if (p === '/auth/google/callback' && req.method === 'GET') {

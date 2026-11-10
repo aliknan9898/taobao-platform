@@ -52,6 +52,9 @@
   .login input { width:100%; }
   .err { color:var(--bad); white-space:pre-wrap; font-size:14px; }
   dialog { border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--ink); width:min(720px,94vw); padding:0; }
+  .gbtn { display:flex; align-items:center; justify-content:center; gap:10px; padding:10px; border-radius:8px; border:1px solid #dadce0; background:#fff; color:#1f1f1f; font-weight:600; text-decoration:none; }
+  .ordiv { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; }
+  .ordiv::before, .ordiv::after { content:""; flex:1; height:1px; background:var(--line); }
   dialog::backdrop { background:rgba(0,0,0,.35); }
   .dlg { padding:16px; display:grid; gap:12px; }
   .sub { border:1px solid var(--line); border-radius:10px; padding:10px; display:grid; gap:4px; }
@@ -82,6 +85,7 @@ async function api(path, method = 'GET', body) {
 
 function showLogin(msg = '') {
   $('#app').innerHTML = `<form class="card login" id="lf"><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>Admin</small></a><h2>Sign in to the admin dashboard</h2>
+    ${googleSignin ? `<a class="gbtn" href="/auth/google?app=admin"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.2-8.5 2.2-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>Continue with Google</a><div class="ordiv"><span>or with email</span></div>` : ''}
     <input name="email" type="email" placeholder="Email" required autocomplete="username">
     <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
     <button class="btn">Sign in</button><div class="err">${esc(msg)}</div></form>`;
@@ -95,6 +99,7 @@ function showLogin(msg = '') {
   };
 }
 
+let googleSignin = false;
 const TABS = [['overview','Overview'],['orders','Orders'],['sellers','Sellers'],['listings','Products'],['requests','Item requests'],['users','Users']];
 let tab = 'overview', me;
 
@@ -300,7 +305,12 @@ async function openOrder(id) {
   });
 }
 
-api('/api/me').then((u) => (u.role === 'admin' ? boot(u) : showLogin('This account is not an admin account'))).catch(() => showLogin());
+(async () => {
+  const q = new URLSearchParams(location.search); const loginError = q.get('login_error') || '';
+  if (loginError) history.replaceState(null, '', '/admin');
+  googleSignin = await fetch('/api/config/public').then((r) => r.json()).then((c) => Boolean(c.google_signin)).catch(() => false);
+  api('/api/me').then((u) => (u.role === 'admin' ? boot(u) : showLogin('This account is not an admin account'))).catch(() => showLogin(loginError));
+})();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>
 </body>

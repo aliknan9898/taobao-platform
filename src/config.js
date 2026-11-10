@@ -52,6 +52,9 @@ const config = {
   // First admin is created on startup if no admin exists
   bootstrapAdminEmail: e.ADMIN_EMAIL || '',
   bootstrapAdminPassword: e.ADMIN_PASSWORD || '',
+  // Gmail addresses allowed to open the admin dashboard with "Continue with Google" (comma-separated).
+  // ADMIN_EMAIL is always allowed too. Nobody else can ever become admin through Google.
+  adminGoogleEmails: [...new Set([e.ADMIN_EMAIL, ...(e.ADMIN_GOOGLE_EMAILS || '').split(',')].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean))],
 
   // Your China warehouse — every Taobao purchase order ships here
   warehouse: {

@@ -11,7 +11,7 @@ const crypto = require('crypto');
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'plat-'));
 Object.assign(process.env, {
   TAOBAO_APP_KEY: 'appk', TAOBAO_APP_SECRET: 'apps', TAOBAO_API_URL: 'http://taobao.mock/rest',
-  GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'gsecret',
+  GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com', ADMIN_GOOGLE_EMAILS: 'Boss@Gmail.com', GOOGLE_CLIENT_SECRET: 'gsecret',
   ADMIN_EMAIL: 'admin@x.com', ADMIN_PASSWORD: 'adminpass1', SHIPPING_FLAT_FEE: '8',
   WAREHOUSE_NAME: 'WH', WAREHOUSE_MOBILE: '138', WAREHOUSE_CITY: 'Guangzhou', WAREHOUSE_DETAIL: 'road 1'
 });
@@ -378,4 +378,30 @@ test('manual product: seller types it in, Kinan buys it by hand, warehouse recei
   const rc = await api('POST', '/api/warehouse/receive', { tracking: 'YT123456789CN', weight_g: 900 }, aTok);
   assert.strictEqual(rc.body.matched, true);
   assert.strictEqual((await api('GET', `/api/buyer/orders/${o.id}`, null, bTok)).body.status, 'ready_to_ship');
+});
+
+test('Continue with Google: admin dashboard only for allowlisted Gmail', async () => {
+  const start = async () => {
+    const r = await realFetch(`${base}/auth/google?app=admin`, { redirect: 'manual' });
+    const loc = new URL(r.headers.get('location')); googleNonce = loc.searchParams.get('nonce'); return loc.searchParams.get('state');
+  };
+  const back = async (code) => realFetch(`${base}/auth/google/callback?code=${code}&state=${await start()}`, { redirect: 'manual' });
+  const sid = (r) => decodeURIComponent((r.headers.get('set-cookie') || '').match(/sid=([^;]+)/)?.[1] || '');
+  // ADMIN_EMAIL links to the existing admin
+  googleUsers.a1 = { sub: 'g-admin', email: 'admin@x.com' };
+  let r = await back('a1');
+  assert.strictEqual(r.headers.get('location'), '/admin');
+  assert.strictEqual((await api('GET', '/api/me', null, sid(r))).body.role, 'admin');
+  // An extra allowlisted Gmail gets an admin account
+  googleUsers.boss = { sub: 'g-boss', email: 'boss@gmail.com', name: 'Boss' };
+  r = await back('boss');
+  assert.strictEqual((await api('GET', '/api/admin/overview', null, sid(r))).status, 200);
+  // Anyone else is refused and sent back to /admin with the reason
+  googleUsers.rnd = { sub: 'g-rnd', email: 'random@gmail.com' };
+  r = await back('rnd');
+  assert.match(decodeURIComponent(r.headers.get('location')), /^\/admin\?login_error=.*not allowed/);
+  // A customer Google account can't open the admin either, even if someone allowlists it later
+  googleUsers.c1b = { sub: 'g-111', email: 'gina@gmail.com' };
+  r = await back('c1b');
+  assert.match(decodeURIComponent(r.headers.get('location')), /not allowed/);
 });

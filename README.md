@@ -48,7 +48,7 @@ Customers (Kinan Shop) and sellers (Seller Center) can tap **Continue with Googl
 2. **Credentials → Create credentials → OAuth client ID → Web application**. Authorized redirect URI: `PUBLIC_BASE_URL/auth/google/callback` (e.g. `https://kinan-17ma.onrender.com/auth/google/callback`).
 3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the server.
 
-A Google account with the same email as an existing customer or seller is linked to it. New Google sellers start as *pending* until you approve them. Admin and warehouse accounts can only use email and password.
+A Google account with the same email as an existing customer or seller is linked to it. New Google sellers start as *pending* until you approve them. The admin dashboard accepts Google only for addresses in `ADMIN_EMAIL` or `ADMIN_GOOGLE_EMAILS` (comma-separated); everyone else is refused. Warehouse staff use email and password.
 
 ## Kinan Shop ↔ Seller Center ↔ Admin
 - **Seller Center → Shop:** the seller's logo, description and return policy (Settings) appear on their shop page and products. Only products the admin approved are shown.
