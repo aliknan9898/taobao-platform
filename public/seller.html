@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Kinan Seller Center</title>
 <meta name="theme-color" content="#ffffff">
+<script src="/assets/theme.js"></script>
 <link rel="manifest" href="/assets/seller.webmanifest">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon-seller.png">
@@ -86,9 +87,9 @@ function shell() {
   $('#app').innerHTML = `<div class="shell">
     <aside class="side desk-only">${K.brand('Seller Center')}
       <nav>${NAV.map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t}</a>`).join('')}</nav>
-      <div class="foot"><div class="small"><b>${esc(shop?.shop_name || '')}</b><div class="muted">${esc(me.email)}</div></div><button class="btn ghost sm" data-out>Sign out</button></div>
+      <div class="foot"><div class="small"><b>${esc(shop?.shop_name || '')}</b><div class="muted">${esc(me.email)}</div></div><div class="row">${KinanTheme.button('btn ghost sm')}<button class="btn ghost sm" data-out>Sign out</button></div></div>
     </aside>
-    <div><div class="mtop mob-only">${K.brand('Seller')}<a class="btn sm quiet" href="#/settings">${esc((shop?.shop_name || '').slice(0, 18))}</a></div>
+    <div><div class="mtop mob-only">${K.brand('Seller')}<span class="row" style="gap:6px">${KinanTheme.button('btn sm ghost')}<a class="btn sm quiet" href="#/settings">${esc((shop?.shop_name || '').slice(0, 18))}</a></span></div>
     <main class="content" id="view"></main>${K.footer(cfg.operator?.name)}</div></div>
     <nav class="tabbar">${NAV.filter(([h]) => h !== '#/settings').map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t === 'Add product' ? 'Add' : t}</a>`).join('')}</nav>`;
   document.body.classList.add('has-tabbar');
@@ -357,7 +358,7 @@ function settings() {
     <section class="stack" style="max-width:640px">${taobaoCard()}</section>
     <section class="panel stack" style="max-width:640px"><h2>Install the app</h2>
       <p class="muted">Add the Seller Center to your phone’s home screen. On iPhone: Share, then “Add to Home Screen”. On Android: menu, then “Install app”.</p>
-      <div class="row"><button class="btn quiet" id="installbtn" style="display:none">Install Seller Center</button><button class="btn danger" data-out>Sign out</button></div></section>`;
+      <div class="row">${KinanTheme.button('btn ghost', true)}<button class="btn quiet" id="installbtn" style="display:none">Install Seller Center</button><button class="btn danger" data-out>Sign out</button></div></section>`;
   wireConnect(); wireInstall();
   $$('[data-out]').forEach((b) => b.onclick = signOut);
   let logo = shop.logo || null;

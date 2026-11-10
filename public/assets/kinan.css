@@ -1,6 +1,6 @@
 /* Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. */
 /* Kinan design system — shared by the buyer store, seller center, admin and warehouse.
-   Jade for actions, marigold for prices, navy ink on white. Always light, whatever the phone's theme. */
+   Jade for actions, marigold for prices, navy ink on white. Light by default; the in-app switch (theme.js) sets data-theme="dark". */
 :root {
   --paper: #ffffff;
   --surface: #ffffff;
@@ -22,6 +22,13 @@
   --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --font-body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
   color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --paper: #0f1428; --surface: #171d36; --ink: #eef0f7; --ink-2: #c1c6da; --muted: #9097b3;
+  --line: #2a3150; --jade: #2fb293; --jade-ink: #04221b; --jade-soft: #123a33; --chip: #222a47;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -138,3 +145,8 @@ body.has-tabbar .sitefoot { padding-bottom: 12px; }
 .btn.gbtn:hover { background: #f8f9fa; }
 .ordiv { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .ordiv::before, .ordiv::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* Dark-mode switch */
+[data-theme-toggle] { display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
+button.iconbtn { border: 0; background: transparent; padding: 0; font: inherit; }
+:root[data-theme="dark"] .btn.gbtn { background: #fff; color: #1f1f1f; }
