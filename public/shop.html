@@ -17,9 +17,37 @@
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/kinan.css">
 <style>
-  .search { display: flex; align-items: center; gap: 8px; background: var(--chip); border-radius: 99px; padding: 0 14px; }
-  .search svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
-  .search input { border: 0; background: transparent; min-height: 40px; padding: 0; box-shadow: none !important; }
+  .search { position: relative; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 99px; padding: 4px 4px 4px 16px; max-width: 620px; transition: border-color .15s, box-shadow .15s; }
+  html[dir=rtl] .search { padding: 4px 16px 4px 4px; }
+  .search:focus-within { border-color: var(--jade); box-shadow: 0 0 0 4px var(--jade-soft); }
+  .search > .sico svg { width: 19px; height: 19px; color: var(--muted); display: block; }
+  .search:focus-within > .sico svg { color: var(--jade); }
+  .search input { flex: 1; min-width: 0; border: 0; background: transparent; min-height: 38px; padding: 0; font-size: 15px; box-shadow: none !important; outline: none; }
+  .search input::-webkit-search-cancel-button { display: none; }
+  .search .sclear { display: none; flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--chip); color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+  .search.has-text .sclear { display: inline-grid; place-items: center; }
+  .search .sgo { flex: none; display: inline-grid; place-items: center; height: 38px; padding: 0 18px; border: 0; border-radius: 99px; background: var(--jade); color: var(--jade-ink, #fff); font: 600 14px/1 var(--font-body); cursor: pointer; }
+  .search .sgo svg { width: 18px; height: 18px; }
+  .ssug { position: absolute; top: calc(100% + 8px); inset-inline: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 14px 36px rgba(0,0,0,.14); padding: 6px; z-index: 40; display: none; max-height: 70vh; overflow-y: auto; }
+  .ssug.open { display: block; }
+  .ssug .sh { font-size: 12px; color: var(--muted); padding: 8px 10px 4px; display: flex; justify-content: space-between; }
+  .ssug .sh button { border: 0; background: none; color: var(--jade); font: 600 12px var(--font-body); cursor: pointer; }
+  .ssug a { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 12px; text-decoration: none; color: inherit; font-size: 14px; }
+  .ssug a:hover, .ssug a.on { background: var(--chip); }
+  .ssug a .si { width: 40px; height: 40px; border-radius: 10px; background: var(--chip); object-fit: cover; display: grid; place-items: center; color: var(--muted); overflow: hidden; }
+  .ssug a .si svg { width: 18px; height: 18px; }
+  .ssug a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ssug a small { color: var(--muted); }
+  @media (max-width: 760px) {
+    .topbar .wrap { flex-wrap: wrap; row-gap: 0; column-gap: 2px; }
+    .topbar .iconbtn { width: 38px; height: 38px; }
+    .topbar .langbtn { padding: 4px 8px; }
+    #sf { order: 10; flex: 1 0 100%; max-width: none; margin: 0 0 10px; }
+    #sf .sgo { padding: 0 12px; }
+    #sf .sgo b { display: none; }
+  }
+  @media (min-width: 761px) { #sf .sgo svg { display: none; } }
+  .sellbtn { color: var(--jade); }
   .iconbtn { position: relative; display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: var(--ink); text-decoration: none; }
   .iconbtn:hover { background: var(--chip); }
   .iconbtn svg { width: 22px; height: 22px; }
@@ -125,12 +153,17 @@
 <header class="topbar">
   <div class="wrap">
     <span id="brand"></span>
-    <form class="search grow desk-only" id="sf" role="search">
-      <span id="sicon"></span><input name="q" type="search" placeholder="Search products" aria-label="Search products" autocomplete="off">
+    <form class="search grow" id="sf" role="search" autocomplete="off">
+      <span class="sico" id="sicon"></span>
+      <input name="q" type="search" enterkeyhint="search" placeholder="Search products or shops" aria-label="Search products" autocomplete="off">
+      <button type="button" class="sclear" aria-label="Clear">×</button>
+      <button class="sgo" aria-label="Search"><span id="sgoicon"></span><b>Search</b></button>
+      <div class="ssug" id="ssug" role="listbox"></div>
     </form>
     <div class="grow mob-only"></div>
     <a class="iconbtn desk-only" href="#/orders" aria-label="Orders" id="nav-orders"></a>
     <a class="iconbtn desk-only" href="#/account" aria-label="Account" id="nav-account"></a>
+    <a class="iconbtn sellbtn" href="/seller" aria-label="Seller Center" title="Seller Center" id="nav-sell"></a>
     <span id="langbtn"></span>
     <button class="iconbtn" data-theme-toggle aria-label="Dark mode"></button>
     <a class="iconbtn" href="#/cart" aria-label="Cart" id="nav-cart"></a>
@@ -174,6 +207,8 @@ const noImg = `<div class="noimg">${ICONS.box}</div>`;
 $('#brand').innerHTML = K.brand('Shop');
 $('#langbtn').innerHTML = KinanLang.button('btn sm quiet langbtn');
 $('#sicon').innerHTML = ICONS.search;
+$('#sgoicon').innerHTML = ICONS.search;
+$('#nav-sell').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.5 5 4.5h14l1.5 5"/><path d="M3.5 9.5a2.8 2.8 0 0 0 5.6 0 2.9 2.9 0 0 0 5.8 0 2.8 2.8 0 0 0 5.6 0"/><path d="M5 12v7.5h14V12"/><path d="M10 19.5v-4.5h4v4.5"/></svg>';
 $('#nav-orders').innerHTML = ICONS.box;
 $('#nav-account').innerHTML = ICONS.user;
 function updateBadge() {
@@ -189,7 +224,59 @@ function renderTabbar() {
     return `<a href="${href}" class="${on ? 'on' : ''}">${ic}${t}${href === '#/cart' && n ? `<span class="badge">${n}</span>` : ''}</a>`;
   }).join('');
 }
-$('#sf').onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); location.hash = q ? `#/search/${encodeURIComponent(q)}` : '#/'; };
+// ---------- search bar with suggestions ----------
+const Search = (() => {
+  const f = $('#sf'), input = f.q, box = $('#ssug');
+  const KEY = 'kinan_recent_q';
+  const recent = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; } };
+  const remember = (q) => { try { localStorage.setItem(KEY, JSON.stringify([q, ...recent().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 6))); } catch {} };
+  let timer = null, seq = 0, idx = -1;
+  const close = () => { box.classList.remove('open'); idx = -1; };
+  const sync = () => f.classList.toggle('has-text', input.value.length > 0);
+  const go = (q) => { q = q.trim(); close(); input.blur(); if (q) remember(q); location.hash = q ? `#/search/${encodeURIComponent(q)}` : '#/'; };
+  const open = (html) => { box.innerHTML = html; box.classList.toggle('open', Boolean(html)); idx = -1; };
+  function showRecent() {
+    const r = recent();
+    open(r.length ? `<div class="sh"><span>Recent searches</span><button type="button" data-clear>Clear</button></div>${r.map((q) => `<a href="#/search/${encodeURIComponent(q)}" data-q="${esc(q)}"><span class="si">${ICONS.search}</span><span>${esc(q)}</span></a>`).join('')}` : '');
+  }
+  async function suggest(q) {
+    const my = ++seq;
+    try {
+      const d = await api(`/api/catalog?${new URLSearchParams({ q, limit: 6 })}`);
+      if (my !== seq || input.value.trim() !== q) return;
+      open(`<a href="#/search/${encodeURIComponent(q)}" data-q="${esc(q)}"><span class="si">${ICONS.search}</span><span>Search for “${esc(q)}”</span></a>` +
+        d.items.map((p) => `<a href="#/p/${esc(p.id)}">${p.images[0] ? `<img class="si" src="${esc(p.images[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="si">${ICONS.box}</span>`}<span>${esc(p.title)}</span><small>${money(p.min_price, p.currency)}</small></a>`).join(''));
+    } catch {}
+  }
+  input.addEventListener('input', () => {
+    sync(); clearTimeout(timer); const q = input.value.trim();
+    if (!q) return showRecent();
+    timer = setTimeout(() => suggest(q), 220);
+  });
+  input.addEventListener('focus', () => { if (!input.value.trim()) showRecent(); else suggest(input.value.trim()); });
+  input.addEventListener('keydown', (e) => {
+    const items = [...box.querySelectorAll('a')];
+    if (e.key === 'Escape') return close();
+    if (!items.length || !['ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault(); idx = (idx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items.forEach((a, i) => a.classList.toggle('on', i === idx));
+  });
+  box.addEventListener('mousedown', (e) => e.preventDefault());
+  box.addEventListener('click', (e) => {
+    if (e.target.closest('[data-clear]')) { try { localStorage.removeItem(KEY); } catch {} return close(); }
+    const a = e.target.closest('a'); if (!a) return;
+    if (a.dataset.q) { e.preventDefault(); input.value = a.dataset.q; sync(); go(a.dataset.q); } else close();
+  });
+  input.addEventListener('blur', () => setTimeout(close, 120));
+  f.querySelector('.sclear').onclick = () => { input.value = ''; sync(); input.focus(); showRecent(); };
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const sel = idx >= 0 ? box.querySelectorAll('a')[idx] : null;
+    if (sel) { if (sel.dataset.q) return go(sel.dataset.q); close(); location.hash = sel.getAttribute('href'); return; }
+    go(input.value);
+  };
+  return { set(q) { input.value = q || ''; sync(); } };
+})();
 
 K.onUnauthorized = () => { me = null; };
 
@@ -256,12 +343,11 @@ async function home(q = '', category = '') {
       <div class="route"><span><b>You order</b></span><span>We buy on Taobao</span><span>Checked in our China warehouse</span><span><b>Delivered to you</b></span></div>
     </section>
     <div id="shopstrip"></div>`}
-    <form class="search mob-only" id="msf" role="search" style="margin:4px 0 12px">${ICONS.search}<input name="q" type="search" value="${esc(q)}" placeholder="Search products or shops" aria-label="Search products"></form>
     <div class="cats" id="cats"></div>
     <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2><a href="#/request">Can’t find it? Request an item</a></div>
     ${toolbar()}
     <div id="results">${skeletonGrid()}</div>`;
-  const msf = $('#msf'); if (msf) msf.onsubmit = (e) => { e.preventDefault(); const x = e.target.q.value.trim(); location.hash = x ? `#/search/${encodeURIComponent(x)}` : '#/'; };
+  Search.set(q);
   const load = async () => {
     $('#results').innerHTML = skeletonGrid();
     const d = await api(`/api/catalog?${catalogQuery({ q, ...(category ? { category } : {}) })}`);

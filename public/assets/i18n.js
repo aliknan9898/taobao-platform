@@ -19,7 +19,7 @@
 
   var AR = {
     // ---- shell / common ----
-    'Shop': 'المتجر', 'Cart': 'السلة', 'Orders': 'الطلبات', 'Account': 'حسابي', 'Search products': 'ابحث عن منتجات', 'Search products or shops': 'ابحث عن منتجات أو متاجر',
+    'Shop': 'المتجر', 'Cart': 'السلة', 'Orders': 'الطلبات', 'Account': 'حسابي', 'Search products': 'ابحث عن منتجات', 'Search products or shops': 'ابحث عن منتجات أو متاجر', 'Search': 'بحث', 'Recent searches': 'عمليات البحث الأخيرة', 'Clear': 'مسح',
     'Dark mode': 'الوضع الليلي', 'Light mode': 'الوضع النهاري', 'Switch to dark mode': 'التبديل إلى الوضع الليلي', 'Switch to light mode': 'التبديل إلى الوضع النهاري',
     'Terms': 'الشروط', 'Seller Terms': 'شروط البائعين', 'Privacy': 'الخصوصية', 'Legal notice': 'إشعار قانوني', 'Legal': 'قانوني',
     'Something went wrong': 'حدث خطأ ما', 'Back to shop': 'العودة إلى المتجر', 'Back': 'رجوع', 'Try again': 'حاول مرة أخرى', 'Couldn’t load this page': 'تعذّر تحميل هذه الصفحة',
@@ -242,7 +242,7 @@
   // Text with numbers or names inside
   var PATTERNS = [
     [/^(\d+) products?$/, '$1 منتج'], [/^(\d+) items?$/, '$1 منتج'], [/^(\d+) item\(s\)$/, '$1 منتج'], [/^(\d+) options?$/, '$1 خيار'],
-    [/^Only (\d+) left$/, 'بقي $1 فقط'], [/^Hello, (.+)$/, 'مرحباً، $1'], [/^Results for “(.+)”$/, 'نتائج البحث عن "$1"'],
+    [/^Only (\d+) left$/, 'بقي $1 فقط'], [/^Hello, (.+)$/, 'مرحباً، $1'], [/^Results for “(.+)”$/, 'نتائج البحث عن "$1"'], [/^Search for “(.+)”$/, 'ابحث عن "$1"'],
     [/^Order ([A-Z0-9]{8})$/, 'الطلب $1'], [/^Placed (.+)$/, 'تاريخ الطلب $1'], [/^Qty (\d+)$/, 'الكمية $1'], [/^· Qty (\d+)$/, '· الكمية $1'],
     [/^Pay (.+) \(test\)$/, 'ادفع $1 (تجريبي)'], [/^Pay (\S+)$/, 'ادفع $1'], [/^Shipping to (.+)$/, 'الشحن إلى $1'],
     [/^(.+) · On Kinan since (.+)$/, '$1 · على كنان منذ $2'], [/^(\d+) products? · On Kinan since (.+)$/, '$1 منتج · على كنان منذ $2'],
