@@ -178,6 +178,7 @@
 // The platform owner has full access to every app: act as this app's role
 const asMe = (u) => (u && u.owner ? { ...u, role: 'buyer' } : u);
 const { $, $$, esc, money, date, plain, api, toast, ICONS, ORDER_STATUS, pill } = K;
+K.offerInstall({ name: 'Kinan Shop', icon: '/assets/icon-192.png' });
 let me = null, cfg = { currency: 'usd', shipping_flat: 0, payments: 'demo' };
 
 // ---------- cart (kept on this device) ----------

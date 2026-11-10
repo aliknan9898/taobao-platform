@@ -162,3 +162,21 @@ html[dir="rtl"] .flip-rtl, html[dir="rtl"] .back svg { transform: scaleX(-1); }
 html[dir="rtl"] input[type="email"], html[dir="rtl"] input[type="url"], html[dir="rtl"] input[type="tel"], html[dir="rtl"] input[inputmode="url"],
 html[dir="rtl"] input[name="iban"], html[dir="rtl"] input[name="bic"], html[dir="rtl"] input[name="link"], html[dir="rtl"] input[name="source_link"], html[dir="rtl"] code { direction: ltr; text-align: right; unicode-bidi: plaintext; }
 [data-lang-toggle] { font-family: "Segoe UI", Tahoma, system-ui, sans-serif; }
+
+/* ---------- install sheet ---------- */
+.isheet-wrap { position: fixed; inset: 0; z-index: 100; background: rgba(10, 14, 30, .45); display: flex; align-items: flex-end; justify-content: center; }
+.isheet { position: relative; width: min(480px, 100%); background: var(--surface); color: var(--ink); border-radius: 22px 22px 0 0; padding: 22px 20px calc(22px + env(safe-area-inset-bottom)); display: grid; gap: 14px; box-shadow: 0 -10px 40px rgba(0,0,0,.2); animation: isheet-up .22s ease-out; }
+@media (min-width: 600px) { .isheet-wrap { align-items: center; } .isheet { border-radius: 22px; } }
+@keyframes isheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+.isheet .iclose { position: absolute; top: 10px; inset-inline-end: 10px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--chip); color: var(--muted); font-size: 20px; cursor: pointer; }
+.isheet .ihead { display: flex; gap: 12px; align-items: center; }
+.isheet .ihead img { width: 56px; height: 56px; border-radius: 14px; box-shadow: var(--shadow); }
+.isheet .ihead b { display: block; font-size: 18px; }
+.isheet p { margin: 0; color: var(--ink-2); }
+.isteps { margin: 0; padding: 0; display: grid; gap: 12px; counter-reset: s; }
+.isteps li { list-style: none; display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: center; }
+.isteps li::before { counter-increment: s; content: counter(s); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--jade); color: var(--jade-ink); font-weight: 700; }
+.isteps .ic { display: inline-flex; align-items: center; justify-content: center; vertical-align: -5px; width: 24px; height: 24px; border-radius: 6px; background: var(--chip); }
+.isteps .ic svg { width: 16px; height: 16px; }
+.iarrow { text-align: center; font-size: 28px; color: var(--jade); animation: ibounce 1s infinite; }
+@keyframes ibounce { 50% { transform: translateY(6px); } }

@@ -73,6 +73,7 @@
 // The platform owner has full access to every app: act as this app's role
 const asMe = (u) => (u && u.owner ? { ...u, role: 'seller' } : u);
 const { $, $$, esc, money, num, date, plain, api, toast, ICONS, pill } = K;
+K.offerInstall({ name: 'Kinan Seller', icon: '/assets/icon-seller-192.png' });
 let me = null, shop = null, cfg = { currency: 'usd', cny_rate: 7.2 };
 let draft = null; // product being imported or edited
 

@@ -78,5 +78,53 @@ const K = (() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
-  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, set onUnauthorized(f) { onUnauthorized = f; } };
+  // ---------- one-tap install (opened from the download page with ?install=1) ----------
+  let installEvent = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvent = e; document.dispatchEvent(new Event('kinan:installable')); });
+  const wantInstall = new URLSearchParams(location.search).get('install') === '1';
+  if (wantInstall) {
+    const q = new URLSearchParams(location.search); q.delete('install');
+    history.replaceState(null, '', location.pathname + (q.toString() ? `?${q}` : '') + location.hash);
+  }
+  const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const SHARE_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+  const DOTS_IC = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
+
+  /** Bottom sheet that installs this app: one tap on Android (Chrome, Edge, Samsung), guided two steps on iPhone. */
+  function installSheet({ name, icon }) {
+    if (document.getElementById('kinan-install')) return;
+    const el = document.createElement('div'); el.id = 'kinan-install'; el.className = 'isheet-wrap';
+    const close = () => el.remove();
+    const body = () => {
+      if (isStandalone()) return `<p>${esc(name)} is installed. Open it from your home screen.</p><button class="btn block" data-x>OK</button>`;
+      if (installEvent) return `<p>Add ${esc(name)} to your phone. It opens full screen like any other app and updates itself.</p><button class="btn block" data-go>Install</button>`;
+      if (isIOS()) {
+        const safari = /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);
+        if (!safari) return `<p>On iPhone, apps are added from <b>Safari</b>. Copy the link and open it in Safari.</p><button class="btn block" data-copy>Copy link</button>`;
+        return `<ol class="isteps"><li><span>Tap <b>Share</b> <span class="ic">${SHARE_IC}</span> at the bottom of Safari.</span></li><li><span>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</span></li></ol><div class="iarrow" aria-hidden="true">↓</div>`;
+      }
+      return `<ol class="isteps"><li><span>Tap the menu <span class="ic">${DOTS_IC}</span> at the top right of Chrome.</span></li><li><span>Tap <b>Install app</b> or <b>Add to Home screen</b>, then <b>Install</b>.</span></li></ol><p class="muted small">Waiting for your phone to allow one-tap install…</p>`;
+    };
+    const render = () => {
+      el.innerHTML = `<div class="isheet" role="dialog" aria-modal="true" aria-label="Install ${esc(name)}"><button class="iclose" data-x aria-label="Close">×</button>
+        <div class="ihead"><img src="${esc(icon)}" alt=""><div><b>${esc(name)}</b><span class="muted small">kinan.shop · Free</span></div></div>${body()}</div>`;
+      el.querySelectorAll('[data-x]').forEach((b) => { b.onclick = close; });
+      const go = el.querySelector('[data-go]');
+      if (go) go.onclick = async () => { const ev = installEvent; installEvent = null; ev.prompt(); const r = await ev.userChoice.catch(() => ({})); if (r.outcome === 'accepted') { close(); toast(`${name} installed`); } else render(); };
+      const cp = el.querySelector('[data-copy]');
+      if (cp) cp.onclick = () => { const u = location.origin + location.pathname + '?install=1'; (navigator.clipboard ? navigator.clipboard.writeText(u) : Promise.reject()).then(() => toast('Link copied — paste it in Safari'), () => prompt('Copy this link', u)); };
+    };
+    el.addEventListener('click', (e) => { if (e.target === el) close(); });
+    document.addEventListener('kinan:installable', () => { if (document.body.contains(el)) render(); });
+    render(); document.body.append(el);
+  }
+  /** Call once on each app page: shows the install sheet when the page was opened with ?install=1. */
+  function offerInstall(app) {
+    if (!wantInstall) return;
+    const show = () => installSheet(app);
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show); else setTimeout(show, 50);
+  }
+
+  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, offerInstall, installSheet, isIOS, isStandalone, set onUnauthorized(f) { onUnauthorized = f; } };
 })();
