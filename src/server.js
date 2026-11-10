@@ -507,6 +507,7 @@ if (require.main === module) (async () => {
     console.log(`OAuth callback: ${config.redirectUri}`);
   });
   startJobs();
+  stripe.setup().then((r) => { if (r.ok) console.log(`[stripe] ready (${r.mode} mode)`); }).catch((e) => console.error('[stripe] setup failed:', e.message));
   // Render stops the instance with SIGTERM: write pending changes first
   const stop = async () => { try { await db.close(); } catch { /* exiting */ } process.exit(0); };
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
