@@ -249,7 +249,7 @@ function visibleImages(l) { const own = l.own_images || []; return [...own.map((
 function imageData(kind, id, n) {
   let u = null;
   // Not for unreviewed or rejected uploads
-  if (kind === 'l') { const l = db.listings.get(id); if (l && ['active', 'paused', 'unavailable'].includes(l.status)) u = (l.own_images || [])[Number(n) || 0]; }
+  if (kind === 'l') { const l = db.listings.get(id); if (l && ['active', 'paused', 'unavailable', 'private'].includes(l.status)) u = (l.own_images || [])[Number(n) || 0]; }
   if (kind === 's') u = db.sellers.get(id)?.logo;
   const m = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(u || '');
   return m ? { type: m[1], body: Buffer.from(m[2], 'base64') } : null;
@@ -284,7 +284,7 @@ function toBuyerView(l, seller) {
 function buyerListing(id) {
   const l = db.listings.get(id);
   const s = l && db.sellers.get(l.seller_id);
-  if (!l || l.status !== 'active' || !s || s.status !== 'active') throw httpError(404, 'Product not available');
+  if (!l || !['active', 'private'].includes(l.status) || !s || s.status !== 'active') throw httpError(404, 'Product not available');
   return { ...toBuyerView(l, s), return_policy: s.return_policy || null };
 }
 

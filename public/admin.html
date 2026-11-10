@@ -269,14 +269,20 @@ VIEWS.requests = async (v) => {
   const filter = v.dataset.rf || 'new';
   const all = await api('/api/admin/requests');
   const list = filter === 'all' ? all : all.filter((r) => r.status === filter);
-  const RS = { new: ['New', 'warn'], quoted: ['Price offered', 'ok'], listed: ['Listed in shop', 'ok'], declined: ['Declined', 'bad'] };
+  const RS = { new: ['New', 'warn'], quoted: ['Price offered', 'ok'], listed: ['Listed in shop', 'ok'], declined: ['Declined', 'bad'], accepted: ['Accepted — in cart', 'ok'] };
   v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Item requests</h2>
-      <div class="row">${[['new','New'],['quoted','Quoted'],['listed','Listed'],['declined','Declined'],['all','All']].map(([k, t]) => `<button class="btn ${k === filter ? '' : 'ghost'}" data-rf="${k}">${t} (${k === 'all' ? all.length : all.filter((r) => r.status === k).length})</button>`).join('')}</div></div>
-      <p class="muted">Customers ask for Taobao items that aren’t in Kinan Shop. Reply with a price, or ask a seller to list it and link the product here so the customer can buy it.</p></div>
+      <div class="row">${[['new','New'],['quoted','Quoted'],['accepted','Accepted'],['listed','Listed'],['declined','Declined'],['all','All']].map(([k, t]) => `<button class="btn ${k === filter ? '' : 'ghost'}" data-rf="${k}">${t} (${k === 'all' ? all.length : all.filter((r) => r.status === k).length})</button>`).join('')}</div></div>
+      <p class="muted">Buy for me: customers paste a Taobao, Tmall, 1688, AliExpress or JD link. Check the item, then send the final price per item (shipping is added at checkout). When the customer accepts, it becomes a private product of the Kinan shop and goes through checkout, procurement and the warehouse like any order.</p></div>
     ${list.map((r) => `<div class="card" style="display:grid;gap:8px">
       <div class="row" style="justify-content:space-between"><div><b>${esc(r.buyer)}</b> <span class="muted">· ${date(r.created_at)} · Qty ${r.qty}</span></div><span class="pill ${RS[r.status][1]}">${RS[r.status][0]}</span></div>
       ${r.link ? `<a href="${esc(/^https?:/i.test(r.link) ? r.link : 'https://item.taobao.com/item.htm?id=' + r.link)}" target="_blank" rel="noopener noreferrer" style="word-break:break-all">${esc(r.link)}</a>` : ''}
+      ${r.title ? `<div><b>${esc(r.title)}</b>${r.platform_name ? ` <span class="pill">${esc(r.platform_name)}</span>` : ''}</div>` : r.platform_name ? `<div><span class="pill">${esc(r.platform_name)}</span></div>` : ''}
+      ${r.variant ? `<div>Option: ${esc(r.variant)}</div>` : ''}
       ${r.note ? `<div>${esc(r.note)}</div>` : ''}
+      ${r.price_cny ? `<div class="muted">Customer saw ¥${r.price_cny}${r.estimate ? ` · estimate ${fmt(r.estimate.per_item, r.estimate.currency)} per item before shipping (${fmt(r.estimate.total, r.estimate.currency)} delivered)` : ''}</div>` : ''}
+      <div class="row"><input data-title="${esc(r.id)}" placeholder="Product name for the customer" value="${esc(r.title || '')}" style="flex:1;min-width:200px">
+        <input data-cny="${esc(r.id)}" type="number" min="0" step="0.01" placeholder="Cost ¥ per item" value="${r.price_cny ?? ''}" style="width:130px">
+        <input data-kg="${esc(r.id)}" type="number" min="0" step="0.01" placeholder="Weight kg" value="${r.weight_kg ?? ''}" style="width:110px"></div>
       <div class="row"><input data-reply="${esc(r.id)}" placeholder="Reply to the customer" value="${esc(r.reply)}" style="flex:1;min-width:220px">
         <input data-quote="${esc(r.id)}" type="number" min="0" step="0.01" placeholder="Price per item" value="${r.quote ?? ''}" style="width:130px">
         <input data-lst="${esc(r.id)}" placeholder="Product ID (lst_…)" value="${esc(r.listing_id || '')}" style="width:170px"></div>
@@ -286,7 +292,7 @@ VIEWS.requests = async (v) => {
   v.querySelectorAll('[data-ans]').forEach((b) => b.onclick = async () => {
     const id = b.dataset.id; const q = (sel) => v.querySelector(`[${sel}="${id}"]`).value.trim();
     b.disabled = true;
-    try { await api(`/api/admin/requests/${id}`, 'PATCH', { status: b.dataset.ans, reply: q('data-reply'), quote: q('data-quote') || null, listing_id: q('data-lst') || null }); render(); }
+    try { await api(`/api/admin/requests/${id}`, 'PATCH', { status: b.dataset.ans, reply: q('data-reply'), quote: q('data-quote') || null, listing_id: q('data-lst') || null, title: q('data-title') || null, price_cny: q('data-cny') || null, weight_kg: q('data-kg') || null }); render(); }
     catch (e) { alert(e.message); b.disabled = false; }
   });
 };

@@ -146,6 +146,15 @@ function recordFailure(ip) {
   a.n += 1; attempts.set(ip, a);
 }
 
+/** Light per-IP limit for public helpers (link reading, estimates): 120 calls per 10 minutes. */
+const light = new Map();
+function throttleLight(req) {
+  const ip = clientIp(req); const now = Date.now(); let a = light.get(ip);
+  if (!a || now - a.t > 10 * 60e3) { a = { n: 0, t: now }; light.set(ip, a); }
+  if (++a.n > 120) throw httpError(429, 'Too many requests, try again in a few minutes');
+  if (light.size > 5000) for (const [k, v] of light) if (now - v.t > 10 * 60e3) light.delete(k);
+}
+
 // ---------- routes ----------
 // [method, pattern, roles (null = public), handler({req,res,params,url,user,seller,body})]
 const routes = [];
@@ -250,6 +259,9 @@ r('POST', '/api/buyer/orders/:id/pay-shipping-due', BUYER, async ({ user, params
   return orders.buyerView(shipping.payShippingDue(o, user));
 });
 r('GET', '/api/buyer/wallet', BUYER, async ({ user }) => shopSvc.walletOf(user.id));
+r('POST', '/api/buyforme/parse', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return require('./services/buyforme').parse(b.text || b.link); });
+r('POST', '/api/buyforme/estimate', null, async ({ req }) => { throttleLight(req); return require('./services/buyforme').estimate(await readJson(req)); });
+r('POST', '/api/buyer/requests/:id/accept', BUYER, async ({ user, params }) => require('./services/buyforme').accept(user, params.id));
 r('GET', '/api/buyer/requests', BUYER, async ({ user }) => db.requests.all((x) => x.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(shopSvc.buyerRequestView));
 r('POST', '/api/buyer/requests', BUYER, async ({ req, user }) => shopSvc.buyerRequestView(shopSvc.createRequest(user, await readJson(req))));
 

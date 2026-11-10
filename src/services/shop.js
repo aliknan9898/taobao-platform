@@ -51,6 +51,7 @@ function listShops() {
 
 function getShop(id) {
   const s = db.sellers.get(id);
+  if (s && s.system) throw httpError(404, 'Shop not found');
   if (!s || s.status !== 'active') throw httpError(404, 'Shop not found');
   return publicShop(s, { full: true });
 }
@@ -83,21 +84,31 @@ function adminAdjust(userId, { amount, reason }, admin) {
 
 // ---------------- Custom item requests ----------------
 
-const REQ_STATUS = ['new', 'quoted', 'listed', 'declined'];
+const REQ_STATUS = ['new', 'quoted', 'listed', 'declined', 'accepted'];
 
 function createRequest(buyer, b) {
-  const link = str(b.link, 500);
   const note = str(b.note, 1000);
-  if (!link && !note) throw httpError(400, 'Paste a Taobao link or describe the item');
-  if (link && !/^(https?:\/\/)?([\w-]+\.)*(taobao|tmall|tb)\.(com|cn)\b|^\d{6,15}$/i.test(link)) throw httpError(400, 'That does not look like a Taobao or Tmall link');
+  const rawLink = str(b.link, 2000);
+  if (!rawLink && !note) throw httpError(400, 'Paste a product link or describe the item');
+  const bfm = require('./buyforme');
+  const parsed = rawLink ? bfm.parse(rawLink) : null;
+  const link = parsed ? parsed.url : '';
   const qty = Math.floor(Number(b.qty) || 1);
   if (!(qty >= 1 && qty <= 999)) throw httpError(400, 'Invalid quantity');
   const open = db.requests.all((r) => r.buyer_id === buyer.id && r.status === 'new').length;
   if (open >= 10) throw httpError(429, 'You have 10 open requests — please wait for answers first');
-  return db.requests.insert({ buyer_id: buyer.id, link, note, qty, status: 'new', reply: '', quote: null, listing_id: null });
+  const priceCny = b.price_cny === '' || b.price_cny === undefined || b.price_cny === null ? null : money(b.price_cny);
+  if (priceCny !== null && !(priceCny > 0 && priceCny < 1e6)) throw httpError(400, 'Invalid price');
+  let est = null;
+  if (priceCny) { try { est = bfm.estimate({ price_cny: priceCny, qty, country_code: str(b.country_code, 2).toUpperCase() }); } catch { est = null; } }
+  return db.requests.insert({
+    buyer_id: buyer.id, link, note, qty, status: 'new', reply: '', quote: null, listing_id: null,
+    platform: parsed?.platform || null, platform_name: parsed?.platform_name || null, item_id: parsed?.item_id || null,
+    title: str(b.title, 200) || parsed?.title || '', variant: str(b.variant, 200), price_cny: priceCny, estimate: est
+  });
 }
 
-const buyerRequestView = ({ id, link, note, qty, status, reply, quote, listing_id, created_at, updated_at }) => ({ id, link, note, qty, status, reply, quote, listing_id, created_at, updated_at, currency: config.currency });
+const buyerRequestView = ({ id, link, note, qty, status, reply, quote, listing_id, created_at, updated_at, platform_name, title, variant, price_cny, estimate }) => ({ id, link, note, qty, status, reply, quote, listing_id, created_at, updated_at, platform_name, title, variant, price_cny, estimate, currency: config.currency });
 
 function adminRequests() {
   return db.requests.all().sort((a, b) => b.created_at - a.created_at).map((r) => ({ ...r, buyer: db.users.get(r.buyer_id)?.email || '—' }));
@@ -106,9 +117,13 @@ function adminRequests() {
 function answerRequest(id, b) {
   const r = db.requests.get(id);
   if (!r) throw httpError(404, 'Request not found');
+  if (r.status === 'accepted') throw httpError(409, 'The customer already accepted this price');
   const patch = {};
   if (b.status !== undefined) { if (!REQ_STATUS.includes(b.status)) throw httpError(400, 'Invalid status'); patch.status = b.status; }
   if (b.reply !== undefined) patch.reply = str(b.reply, 1000);
+  if (b.title !== undefined && b.title !== null && String(b.title).trim()) patch.title = str(b.title, 200);
+  if (b.weight_kg !== undefined && b.weight_kg !== null && b.weight_kg !== '') { const w = Number(b.weight_kg); if (!(w > 0 && w < 100)) throw httpError(400, 'Invalid weight'); patch.weight_kg = w; }
+  if (b.price_cny !== undefined && b.price_cny !== null && b.price_cny !== '') { const c = money(b.price_cny); if (!(c > 0)) throw httpError(400, 'Invalid cost'); patch.price_cny = c; }
   if (b.quote !== undefined) { const q = b.quote === null || b.quote === '' ? null : money(b.quote); if (q !== null && !(q > 0)) throw httpError(400, 'Invalid price'); patch.quote = q; }
   if (b.listing_id !== undefined) {
     if (b.listing_id) { const l = db.listings.get(String(b.listing_id)); if (!l || l.status !== 'active') throw httpError(400, 'That product is not live in the shop'); patch.listing_id = l.id; }

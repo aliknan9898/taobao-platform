@@ -53,6 +53,8 @@
   .locchip b { color: var(--ink); font-weight: 600; text-decoration: underline dotted; text-underline-offset: 3px; }
   .lp { color: var(--muted); font-size: 13px; }
   .card .lp { font-size: 12px; }
+  .bfm { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px 16px; border-radius: var(--r-lg); background: var(--jade-soft); text-decoration: none; color: inherit; margin: 6px 0 14px; }
+  .bfm b { display: block; font-size: 16px; }
   .landed { display: grid; gap: 6px; padding: 12px 14px; border-radius: var(--r-md); background: var(--jade-soft); }
   .landed .big { font-size: 18px; font-weight: 700; color: var(--ink); }
   .iconbtn { position: relative; display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: var(--ink); text-decoration: none; }
@@ -391,10 +393,11 @@ async function home(q = '', category = '') {
       <p>Shop many Kinan sellers in one cart. We buy every item on Taobao, check it at our warehouse in China, pack your order into one parcel and ship it with tracking.</p>
       <div class="route"><span><b>You order</b></span><span>We buy on Taobao</span><span>Checked in our China warehouse</span><span><b>Delivered to you</b></span></div>
     </section>
+    <a class="bfm" href="#/request"><span class="acticon">${ICONS.plus}</span><span><b>Buy for me</b><span class="muted small">Paste any Taobao, Tmall, 1688 or AliExpress link — we buy it, check it and ship it to you.</span></span><span class="flip-rtl muted">›</span></a>
     <div id="shopstrip"></div>`}
     <button class="locchip" type="button"></button>
     <div class="cats" id="cats"></div>
-    <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2><a href="#/request">Can’t find it? Request an item</a></div>
+    <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2><a href="#/request">Buy from any Taobao link</a></div>
     ${toolbar()}
     <div id="results">${skeletonGrid()}</div>`;
   Search.set(q);
@@ -742,7 +745,7 @@ async function account() {
       <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
         <a class="btn ghost" href="#/orders">Your orders</a>${KinanTheme.button('btn ghost', true)}${KinanLang.button('btn ghost')}</div>
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
-      <a class="panel acrow" href="#/request"><span class="acticon">${ICONS.plus}</span><span><b>Request an item</b><div class="muted small">Ask us for a Taobao product that isn’t in the shop</div></span><span class="muted flip-rtl">›</span></a>
+      <a class="panel acrow" href="#/request"><span class="acticon">${ICONS.plus}</span><span><b>Buy for me</b><div class="muted small">Paste any Taobao, 1688 or AliExpress link — we buy it for you</div></span><span class="muted flip-rtl">›</span></a>
       <div class="panel stack small" id="installbox"><h3>Get the Kinan Shop app</h3>
         <p class="muted">Install Kinan Shop on your phone’s home screen. On iPhone: tap Share, then “Add to Home Screen”. On Android: tap the menu, then “Install app”.</p>
         <button class="btn quiet install" id="installbtn">Install Kinan Shop</button><a class="muted" href="/download">Step-by-step guide for Android and iPhone</a></div>
@@ -764,31 +767,69 @@ async function walletPage() {
     </div>`;
 }
 
-const REQ = { new: ['Waiting for reply', 'warn'], quoted: ['Price offered', 'ok'], listed: ['Now in the shop', 'ok'], declined: ['Not available', 'bad'] };
+const REQ = { new: ['Waiting for Kinan’s price', 'warn'], quoted: ['Price ready', 'ok'], listed: ['Now in the shop', 'ok'], declined: ['Not available', 'bad'], accepted: ['Added to your cart', 'ok'] };
 async function requestPage() {
   if (!requireBuyer('/request')) return;
   const list = await api('/api/buyer/requests');
-  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} Shop</a><h1 style="margin-top:6px">Request an item</h1><p class="muted">Found something on Taobao or Tmall that isn’t in Kinan Shop? Send us the link and we’ll get back to you with a price.</p></div></div>
-    <div class="two"><form class="panel stack" id="rf">
-      <label class="field">Taobao or Tmall link<input name="link" inputmode="url" placeholder="https://item.taobao.com/item.htm?id=…"></label>
-      <label class="field">Details (size, colour, anything we should know)<textarea name="note" rows="4" maxlength="1000"></textarea></label>
-      <label class="field">Quantity<input name="qty" type="number" min="1" max="999" value="1" style="max-width:120px"></label>
+  const loc = Locale.get();
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} Shop</a><h1 style="margin-top:6px">Buy for me</h1><p class="muted">Paste any product link from Taobao, Tmall, 1688, AliExpress or JD. We buy it, check it at our China warehouse and ship it to you.</p></div></div>
+    <div class="two"><form class="panel stack" id="rf" autocomplete="off">
+      <label class="field">Product link<textarea name="link" rows="3" placeholder="Paste the link, or the whole text the Taobao app copies when you tap Share" required></textarea></label>
+      <div id="plat" class="small"></div>
+      <label class="field">Product name <span class="muted">(optional)</span><input name="title" maxlength="200"></label>
+      <div class="row" style="gap:10px;align-items:end">
+        <label class="field" style="flex:1">Price on the page (¥)<input name="price_cny" type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 129"></label>
+        <label class="field" style="width:110px">Quantity<input name="qty" type="number" min="1" max="999" value="1"></label>
+      </div>
+      <label class="field">Size, colour or option<input name="variant" maxlength="200" placeholder="e.g. Black, XL"></label>
+      <label class="field">Notes for Kinan <span class="muted">(optional)</span><textarea name="note" rows="2" maxlength="1000"></textarea></label>
+      <div id="est"></div>
       <div class="error" id="re"></div>
-      <button class="btn" id="rgo">Send request</button>
+      <button class="btn" id="rgo">Send to Kinan</button>
+      <p class="muted small">Kinan checks the item and confirms the final price, usually within a day. You pay only after you accept it.</p>
     </form>
     <aside class="panel"><h3 style="margin-bottom:6px">Your requests</h3>${list.length ? list.map((r) => { const [t, c] = REQ[r.status] || [r.status, '']; return `<div class="stack" style="gap:4px;padding:12px 0;border-bottom:1px solid var(--line)">
-        <div class="row between"><span class="muted small">${date(r.created_at, false)} · Qty ${r.qty}</span>${pill(t, c)}</div>
-        ${r.link ? `<a class="small" href="${esc(/^https?:/i.test(r.link) ? r.link : 'https://item.taobao.com/item.htm?id=' + r.link)}" target="_blank" rel="noopener noreferrer" style="word-break:break-all">${esc(r.link)}</a>` : ''}
-        ${r.note ? `<span class="small">${esc(r.note)}</span>` : ''}
-        ${r.quote ? `<span><b>${money(r.quote, r.currency)}</b> <span class="muted small">per item, shipping not included</span></span>` : ''}
+        <div class="row between"><span class="muted small">${date(r.created_at, false)}${r.platform_name ? ` · ${esc(r.platform_name)}` : ''} · Qty ${r.qty}</span>${pill(t, c)}</div>
+        ${r.title ? `<b class="small">${esc(r.title)}</b>` : ''}
+        ${r.link ? `<a class="small" href="${esc(/^https?:/i.test(r.link) ? r.link : 'https://item.taobao.com/item.htm?id=' + r.link)}" target="_blank" rel="noopener noreferrer" style="word-break:break-all">${esc(r.link.length > 70 ? r.link.slice(0, 70) + '…' : r.link)}</a>` : ''}
+        ${r.variant ? `<span class="small">${esc(r.variant)}</span>` : ''}${r.note ? `<span class="small muted">${esc(r.note)}</span>` : ''}
+        ${r.estimate && r.status === 'new' ? `<span class="small muted">Estimate: ${money(r.estimate.total, r.currency)} delivered</span>` : ''}
+        ${r.quote ? `<span><b>${money(r.quote, r.currency)}</b> <span class="muted small">per item · shipping added at checkout</span>${localPrice(r.quote) ? ` <span class="lp">${localPrice(r.quote)}</span>` : ''}</span>` : ''}
         ${r.reply ? `<span class="small" style="background:var(--chip);padding:8px 10px;border-radius:var(--r-md)"><b>Kinan:</b> ${esc(r.reply)}</span>` : ''}
-        ${r.listing_id ? `<a class="btn sm" href="#/p/${esc(r.listing_id)}" style="justify-self:start">View product</a>` : ''}</div>`; }).join('') : '<p class="muted">No requests yet.</p>'}</aside></div>`;
-  $('#rf').onsubmit = async (e) => {
-    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
-    $('#rgo').disabled = true;
-    try { await api('/api/buyer/requests', 'POST', { ...f, qty: Number(f.qty) }); toast('Request sent'); requestPage(); }
+        ${r.status === 'quoted' ? `<button class="btn sm" data-accept="${esc(r.id)}" style="justify-self:start">Buy now</button>` : ''}
+        ${r.listing_id && r.status === 'listed' ? `<a class="btn sm" href="#/p/${esc(r.listing_id)}" style="justify-self:start">View product</a>` : ''}</div>`; }).join('') : '<p class="muted">No requests yet.</p>'}</aside></div>`;
+  const f = $('#rf'); let pt = null; let et = null;
+  const showEstimate = async () => {
+    const box = $('#est'); const cny = Number(f.price_cny.value);
+    if (!(cny > 0)) { box.innerHTML = ''; return; }
+    const e = await api('/api/buyforme/estimate', 'POST', { price_cny: cny, qty: Number(f.qty.value) || 1, country_code: loc.country }).catch(() => null);
+    if (!e) return;
+    box.innerHTML = `<div class="landed small"><button class="locchip" type="button"></button>
+      <div class="sum"><div><span>Item${e.qty > 1 ? `s × ${e.qty}` : ''}</span><span>${money(e.items, e.currency)}</span></div>
+      <div><span>Delivery to our China warehouse</span><span>${money(e.china_shipping, e.currency)}</span></div>
+      <div><span>Kinan service (${e.fee_pct}%)</span><span>${money(e.service_fee, e.currency)}</span></div>
+      <div><span>International shipping (estimate)</span><span>${money(e.international_shipping, e.currency)}</span></div>
+      <div class="total"><span>Estimated total</span><span>${money(e.total, e.currency)}${localPrice(e.total) ? `<div class="lp" style="font-weight:400">${localPrice(e.total)}</div>` : ''}</span></div></div>
+      <div class="muted">Arrives in about ${esc(e.days || '10–20')} days after we buy it. Shipping is confirmed by the real weight.</div></div>`;
+    renderLocaleChip(); box.querySelector('.locchip').onclick = () => pickLocale(requestPage);
+  };
+  f.link.oninput = () => { clearTimeout(pt); pt = setTimeout(async () => {
+    const v = f.link.value.trim(); const el = $('#plat'); if (!v) { el.innerHTML = ''; return; }
+    try { const r = await api('/api/buyforme/parse', 'POST', { text: v }); el.innerHTML = `${pill(r.platform_name, 'ok')}${r.item_id ? ` <span class="muted">Item ${esc(r.item_id)}</span>` : ''}`; if (r.title && !f.title.value) f.title.value = r.title; }
+    catch (err) { el.innerHTML = `<span class="error">${esc(err.message)}</span>`; }
+  }, 350); };
+  f.price_cny.oninput = f.qty.oninput = () => { clearTimeout(et); et = setTimeout(showEstimate, 300); };
+  f.onsubmit = async (e) => {
+    e.preventDefault(); const d = Object.fromEntries(new FormData(f));
+    $('#rgo').disabled = true; $('#re').textContent = '';
+    try { await api('/api/buyer/requests', 'POST', { ...d, qty: Number(d.qty) || 1, country_code: loc.country }); toast('Sent — Kinan will confirm the price soon'); requestPage(); }
     catch (err) { $('#re').textContent = err.message; $('#rgo').disabled = false; }
   };
+  $$('[data-accept]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { const it = await api(`/api/buyer/requests/${b.dataset.accept}/accept`, 'POST'); Cart.add({ listing_id: it.listing_id, mp_sku_id: it.mp_sku_id, qty: it.qty, title: it.title, props: '', price: it.price, currency: cfg.currency, image: it.image }); location.hash = '#/cart'; }
+    catch (err) { toast(err.message); b.disabled = false; }
+  });
 }
 
 function signin(next, mode = 'in', msg = '') {

@@ -70,7 +70,7 @@ async function checkout(buyer, { items, shipping_address }) {
     const qty = Math.floor(Number(it.qty));
     if (!(qty >= 1 && qty <= 999)) throw httpError(400, 'Invalid quantity');
     let l = db.listings.get(it.listing_id);
-    if (!l || l.status !== 'active') throw httpError(409, 'An item in the cart is no longer available');
+    if (!l || !(l.status === 'active' || (l.status === 'private' && l.private_for === buyer.id))) throw httpError(409, 'An item in the cart is no longer available');
     const seller = db.sellers.get(l.seller_id);
     if (!seller || seller.status !== 'active') throw httpError(409, 'The shop of one of the items is unavailable');
     // Fresh stock/cost before taking money
@@ -113,6 +113,7 @@ async function markPaid(orderId, { provider, intent_id }) {
   const bySeller = groupBy(o.lines, 'seller_id');
   for (const [sellerId, lines] of Object.entries(bySeller)) {
     const s = db.sellers.get(sellerId);
+    if (s?.system) continue; // Kinan's own shop (buy-for-me): no seller to pay
     const gross = money(lines.reduce((a, l) => a + l.price * l.qty, 0));
     const commission = money(gross * (Number(s?.commission_pct ?? config.defaultCommissionPct) / 100));
     // Items Kinan buys itself (AliExpress, manual Taobao) — their purchase cost is deducted from the seller's earnings.
