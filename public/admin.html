@@ -169,7 +169,7 @@ const VIEWS = {
     v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Orders</h2>
       <select id="fs"><option value="">All statuses</option>${Object.entries(STATUS_LABEL).map(([k, t]) => `<option value="${k}" ${k === status ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="scroll"><table><thead><tr><th>Order</th><th>Buyer</th><th>Shops</th><th>Items</th><th>Total</th><th>Destination</th><th>Status</th><th>Date</th></tr></thead><tbody>
-      ${list.map((o) => `<tr data-id="${esc(o.id)}" style="cursor:pointer"><td><code>${esc(o.id.slice(-8))}</code></td><td>${esc(o.buyer)}</td><td>${esc(o.shops.join(', '))}</td><td>${o.items}</td><td>${fmt(o.total, o.currency)}</td><td>${esc(o.destination)}</td><td><span class="pill ${statusClass(o.status)}">${esc(o.status_label)}</span></td><td class="muted">${date(o.created_at)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No orders</td></tr>'}
+      ${list.map((o) => `<tr data-id="${esc(o.id)}" style="cursor:pointer"><td><code>${esc(o.id.slice(-8))}</code></td><td>${esc(o.buyer)}</td><td>${esc(o.shops.join(', '))}</td><td>${o.items}</td><td>${fmt(o.total, o.currency)}</td><td>${esc(o.destination)}</td><td><span class="pill ${statusClass(o.status)}">${esc(o.status_label)}</span>${o.test_payment ? ' <span class="pill bad" title="Paid with a test payment — no money was received">TEST</span>' : ''}</td><td class="muted">${date(o.created_at)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No orders</td></tr>'}
       </tbody></table></div></div>`;
     $('#fs').onchange = (e) => { v.dataset.status = e.target.value; render(); };
     v.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => openOrder(tr.dataset.id));
@@ -210,7 +210,7 @@ const VIEWS = {
             <span class="pill ${l.status === 'active' ? 'ok' : l.status === 'rejected' || l.status === 'unavailable' ? 'bad' : 'warn'}">${esc(LST[l.status] || l.status)}</span>
           </div>
           <div class="scroll"><table><thead><tr><th>Variant</th><th>Cost (CNY)</th><th>Sale price</th><th>Margin</th><th>Stock</th></tr></thead><tbody>
-            ${l.skus.map((s) => `<tr><td>${esc(s.props || s.mp_sku_id)}</td><td>${s.cost_cny === null || s.cost_cny === undefined ? '—' : fmt(s.cost_cny)}</td><td>${fmt(s.price, l.currency)}</td>
+            ${l.skus.map((s) => `<tr><td>${esc(s.props || 'Standard')}</td><td>${s.cost_cny === null || s.cost_cny === undefined ? '—' : fmt(s.cost_cny)}</td><td>${fmt(s.price, l.currency)}</td>
               <td class="${s.margin_pct === null ? 'muted' : s.margin_pct < 10 ? 'bad' : s.margin_pct < 25 ? 'warn' : 'ok'}">${s.margin_pct === null ? '—' : s.margin_pct + '%'}</td><td>${s.stock >= 200 ? '200+' : s.stock}</td></tr>`).join('')}
           </tbody></table></div>
           ${lowMargin ? '<div class="warn muted">Warning: very low margin on a variant — after your commission and shipping the seller may lose money.</div>' : ''}
@@ -373,7 +373,7 @@ async function openOrder(id) {
   const o = await api(`/api/admin/orders/${id}`);
   const a = o.shipping_address;
   b.innerHTML = `<div class="row" style="justify-content:space-between"><h2>Order <code>${esc(o.id)}</code></h2><span class="pill ${statusClass(o.status)}">${esc(o.status_label)}</span></div>
-    <div class="muted">${date(o.created_at)} · ${fmt(o.total, o.currency)} (Ship ${fmt(o.shipping_fee, o.currency)}) · Payment: ${esc(o.payment?.provider || '—')}</div>
+    <div class="muted">${date(o.created_at)} · ${fmt(o.total, o.currency)} (Ship ${fmt(o.shipping_fee, o.currency)}) · Payment: ${o.payment?.provider === 'demo' ? '<span class="pill bad">TEST — no money received</span>' : esc(o.payment?.provider || '—')}</div>
     <div class="muted">To: ${esc(a.name)}, ${esc(a.line1)}, ${esc(a.city)}, ${esc(a.country)} · ${esc(a.phone)}</div>
     <table><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Cost (CNY)</th></tr></thead><tbody>
       ${o.lines.map((l) => `<tr><td>${esc(l.title)}<div class="muted">${esc(l.props)}</div></td><td>${l.qty}</td><td>${fmt(l.price, o.currency)}</td><td>${fmt(l.cost_cny)}</td></tr>`).join('')}</tbody></table>

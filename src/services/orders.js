@@ -84,7 +84,8 @@ async function checkout(buyer, { items, shipping_address }) {
       mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: sku.props,
       ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
       ...(l.fulfillment === 'direct' ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
-      image: (l.own_images || [])[0] || (l.images || [])[0] || null,
+      image: (l.own_images || []).length ? catalog.photoUrl(l, 0, l.own_images[0]) : (l.images || [])[0] || null,
+      ...(l.source === 'manual' || (l.source === 'aliexpress' && !sku.ae_sku_id) ? { own_stock: true } : {}), // typed-in stock, not synced from an API
       qty, price: sku.price, cost_cny: sku.cost_cny
     });
   }
@@ -121,6 +122,7 @@ async function markPaid(orderId, { provider, intent_id }) {
   }
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));
   notify.orderPaid(db.orders.get(o.id));
+  adjustStock(o, -1);
   await procure(o.id);
   return db.orders.get(o.id);
 }
@@ -134,6 +136,13 @@ async function payWithWallet(orderId, buyer) {
   shop.walletEntry(buyer.id, -o.total, `Payment for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'payment' });
   db.orders.update(o.id, (x) => ({ ...x, payment: { ...x.payment, provider: 'wallet', intent_id: `wallet_${o.id}` } }));
   return markPaid(o.id, { provider: 'wallet', intent_id: `wallet_${o.id}` });
+}
+
+/** Products typed in by hand keep their own stock count: take it when paid, give it back on cancel. */
+function adjustStock(o, sign) {
+  for (const line of o.lines.filter((x) => x.own_stock)) {
+    db.listings.update(line.listing_id, (l) => ({ ...l, skus: l.skus.map((s) => (s.mp_sku_id === line.mp_sku_id ? { ...s, stock: Math.max(0, (Number(s.stock) || 0) + sign * line.qty) } : s)) }));
+  }
 }
 
 // ---------------- Procurement on Taobao (per seller) ----------------
@@ -366,6 +375,7 @@ async function cancelOrder(orderId, by) {
     else await stripe.refund(o);
   }
   for (const led of db.ledger.all((l) => l.order_id === o.id)) db.ledger.update(led.id, { status: 'void' });
+  if (o.status !== 'pending_payment') adjustStock(o, +1);
   return db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'pending_payment' ? 'cancelled' : 'refunded', timeline: log(x, 'cancelled', { by }) }));
 }
 

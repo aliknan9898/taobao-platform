@@ -11,7 +11,8 @@ const K = (() => {
     catch { return `${(Number(n) || 0).toFixed(2)} ${String(cur).toUpperCase()}`; }
   };
   const num = (n) => (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
-  const date = (t, withTime = true) => t ? new Date(Number(t)).toLocaleString('en-GB', withTime ? { dateStyle: 'medium', timeStyle: 'short' } : { dateStyle: 'medium' }) : '—';
+  const locale = () => (window.KinanLang && window.KinanLang.lang === 'ar' ? 'ar-u-nu-latn' : 'en-GB');
+  const date = (t, withTime = true) => t ? new Date(Number(t)).toLocaleString(locale(), withTime ? { dateStyle: 'medium', timeStyle: 'short' } : { dateStyle: 'medium' }) : '—';
   const plain = (html) => String(html || '').replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
   let onUnauthorized = null;

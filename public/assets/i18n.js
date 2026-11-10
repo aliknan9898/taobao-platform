@@ -130,6 +130,9 @@
     'Settings saved': 'تم حفظ الإعدادات', 'Your shop in Kinan Shop': 'متجرك في متجر كنان', 'See your store the way customers do.': 'شاهد متجرك كما يراه العملاء.', 'View shop': 'عرض المتجر', 'Install the app': 'ثبّت التطبيق', 'Install Seller Center': 'ثبّت مركز البائعين',
     'Add the Seller Center to your phone’s home screen. On iPhone: Share, then “Add to Home Screen”. On Android: menu, then “Install app”.': 'أضف مركز البائعين إلى الشاشة الرئيسية. في آيفون: مشاركة ثم "إضافة إلى الشاشة الرئيسية". في أندرويد: القائمة ثم "تثبيت التطبيق".',
     'Connect your Taobao account': 'اربط حساب تاوباو', 'Taobao account connected': 'تم ربط حساب تاوباو', 'Reconnect': 'إعادة الربط', 'Sign in to sell on Kinan': 'سجّل الدخول للبيع على كنان', 'Open your Kinan shop': 'افتح متجرك على كنان', 'Open a shop': 'افتح متجراً',
+    'Tap': 'اضغط', '), then': ')، ثم', 'Kinan buys AliExpress and manually added products for you.': 'تشتري كنان منتجات علي إكسبرس والمنتجات المضافة يدوياً نيابةً عنك.', 'Standard': 'عادي',
+    'For products imported from Taobao, Kinan creates a purchase order from your account.': 'للمنتجات المستوردة من تاوباو، تنشئ كنان أمر شراء من حسابك.', 'Pay each one before its deadline.': 'ادفع كلاً منها قبل موعده.', 'Automatic payment is on.': 'الدفع التلقائي مفعّل.',
+    'To buy by hand on Taobao': 'ستشتريه كنان من تاوباو', 'Bought — waiting for Taobao to ship': 'تم الشراء — بانتظار شحن تاوباو', 'Shipped to warehouse': 'شُحن إلى المستودع',
     'Your name': 'اسمك', 'Seller': 'البائع', 'Seller Center': 'مركز البائعين', 'Shop ': 'المتجر', 'Go to the Kinan store': 'اذهب إلى متجر كنان', 'Hello,': 'مرحباً،',
     // ---- more ----
     "Add the title, photos and price yourself; Kinan orders it on AliExpress when it sells.": "أدخل العنوان والصور والسعر بنفسك، وتطلبه كنان من علي إكسبرس عند بيعه.",
@@ -254,7 +257,14 @@
     [/^(.+) · (\d+) item\(s\)$/, '$1 · $2 منتج'], [/^Sold by (.+)$/, 'يبيعه $1'],
     [/^Your parcel weighed (.+) kg, less than estimated — we added (.+) to your$/, 'وزن طردك $1 كغ، أقل من المتوقع — أضفنا $2 إلى'],
     [/^You’re signed in as a (\w+)\. Sign in with a customer account to shop\.$/, 'أنت مسجّل كـ $1. سجّل الدخول بحساب عميل للتسوق.'],
-        [/^(\d+) × (.+)$/, '$1 × $2']
+        [/^(.+) \((\d+)\)$/, function (m, a, n) { return (AR[a] || a) + ' (' + n + ')'; }],
+    [/^(.+) · (\d+) options?$/, function (m, a, n) { return a + ' · ' + n + (n === '1' ? ' خيار' : ' خيارات'); }],
+    [/^cost ¥(.+)$/, 'التكلفة ¥$1'], [/^Shipped (.+)$/, 'شُحن في $1'],
+    [/^Commission: (.+)% · Status: (\w+)$/, function (m, c, st) { return 'العمولة: ' + c + '% · الحالة: ' + ({ active: 'نشط', pending: 'بانتظار الموافقة', suspended: 'موقوف' }[st] || st); }],
+    [/^(\d+) products · (.+)$/, '$1 منتج · $2'], [/^On Kinan since (.+)$/, 'على كنان منذ $1'], [/^· On Kinan since (.+)$/, '· على كنان منذ $1'],
+    [/^© (\d{4}) (.+)\. All rights reserved\. Kinan is a trading name of (.+)\.$/, '© $1 $2. جميع الحقوق محفوظة. كنان اسم تجاري لـ $3.'],
+    [/^(.+) · Qty (\d+)$/, '$1 · الكمية $2'],
+    [/^(\d+) × (.+)$/, '$1 × $2']
   ];
 
   var WS = /^(\s*)([\s\S]*?)(\s*)$/;
@@ -272,7 +282,9 @@
   function walk(node) {
     if (lang !== 'ar' || !node) return;
     if (node.nodeType === 3) { var t = tr(node.nodeValue); if (t !== node.nodeValue) node.nodeValue = t; return; }
-    if (node.nodeType !== 1 || SKIP[node.nodeName] || (node.closest && node.closest('[data-no-tr]'))) return;
+    if (node.nodeType !== 1 || (node.closest && node.closest('[data-no-tr]'))) return;
+    if (node.nodeName === 'TEXTAREA') { var tp = node.getAttribute('placeholder'); if (tp) { var ntp = tr(tp); if (ntp !== tp) node.setAttribute('placeholder', ntp); } return; }
+    if (SKIP[node.nodeName]) return;
     var attrs = ['placeholder', 'aria-label', 'title'];
     for (var a = 0; a < attrs.length; a++) { var v = node.getAttribute && node.getAttribute(attrs[a]); if (v) { var nv = tr(v); if (nv !== v) node.setAttribute(attrs[a], nv); } }
     if (node.nodeName === 'OPTION' || node.nodeName === 'INPUT' && (node.type === 'button' || node.type === 'submit')) { /* option text is a text node; buttons handled by value below */ }

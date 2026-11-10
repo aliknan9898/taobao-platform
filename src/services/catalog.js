@@ -230,7 +230,8 @@ function visibleImages(l) { const own = l.own_images || []; return [...own.map((
 /** Decode a stored photo for the /img routes. */
 function imageData(kind, id, n) {
   let u = null;
-  if (kind === 'l') { const l = db.listings.get(id); if (l && ['active', 'paused', 'pending_review'].includes(l.status)) u = (l.own_images || [])[Number(n) || 0]; }
+  // Not for unreviewed or rejected uploads
+  if (kind === 'l') { const l = db.listings.get(id); if (l && ['active', 'paused', 'unavailable'].includes(l.status)) u = (l.own_images || [])[Number(n) || 0]; }
   if (kind === 's') u = db.sellers.get(id)?.logo;
   const m = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(u || '');
   return m ? { type: m[1], body: Buffer.from(m[2], 'base64') } : null;
@@ -299,4 +300,4 @@ function sellerSetStatus(l, status) {
   return status;
 }
 
-module.exports = { imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };
+module.exports = { photoUrl, imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };

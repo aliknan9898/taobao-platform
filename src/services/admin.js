@@ -49,6 +49,8 @@ function overview() {
   if (payReq.length) alerts.push({ kind: 'payouts', text: `${payReq.length} seller withdrawal request(s) to pay` });
   const retReq = db.returns.all((r) => r.status === 'requested');
   if (retReq.length) alerts.push({ kind: 'returns', text: `${retReq.length} return request(s) to review` });
+  const demoPaid = all.filter((o) => o.payment?.provider === 'demo' && !['pending_payment', 'cancelled', 'refunded'].includes(o.status));
+  if (demoPaid.length) alerts.push({ kind: 'test_payments', text: `${demoPaid.length} order(s) were paid with TEST payments (card payments are not switched on) — don't buy their goods unless you know the customer` });
   const newRequests = db.requests.all((r) => r.status === 'new').length;
   if (newRequests) alerts.push({ kind: 'requests', text: `${newRequests} customer item request(s) waiting for a reply` });
   const pendingSellers = db.sellers.all((s) => s.status === 'pending').length;
@@ -113,7 +115,7 @@ function listOrders({ status } = {}) {
       id: o.id, status: o.status, status_label: orders.ORDER_STATUS_LABEL[o.status], total: o.total, currency: o.currency,
       created_at: o.created_at, buyer: db.users.get(o.buyer_id)?.email, items: o.lines.reduce((a, l) => a + l.qty, 0),
       shops: [...new Set(o.lines.map((l) => db.sellers.get(l.seller_id)?.shop_name))].filter(Boolean),
-      destination: `${o.shipping_address.city}, ${o.shipping_address.country}`
+      destination: `${o.shipping_address.city}, ${o.shipping_address.country}`, test_payment: o.payment?.provider === 'demo'
     }));
 }
 

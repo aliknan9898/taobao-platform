@@ -603,3 +603,36 @@ test('categories and shipping by weight and country', async () => {
   assert.strictEqual((await api('GET', '/api/buyer/wallet', null, bTok)).body.balance, 4);
   await api('PUT', '/api/admin/settings/shipping', st, aTok); // restore
 });
+
+test('review fixes: stock, photo access, test payments, cleanup, client IP', async () => {
+  const aTok = await login('admin@x.com', 'adminpass1');
+  const sTok = await login('s1@x.com', 'sellerpass');
+  const img = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+  const pub = (await api('POST', '/api/seller/products/manual', { title: 'Limited mug', images: [img], variants: [{ name: 'Blue', price: 9, stock: 3 }] }, sTok)).body;
+  assert.strictEqual((await realFetch(`${base}/img/l/${pub.id}/0`)).status, 404, 'photos hidden until approved');
+  await api('POST', `/api/admin/listings/${pub.id}/approve`, null, aTok);
+  assert.strictEqual((await realFetch(`${base}/img/l/${pub.id}/0`)).status, 200);
+  await api('POST', '/api/auth/register', { role: 'buyer', email: 'st1@x.com', password: 'buyerpass1', name: 'S' });
+  const bTok = await login('st1@x.com', 'buyerpass1');
+  const addr = { name: 'S', phone: '1', country_code: 'JO', city: 'Amman', line1: 'St 9' };
+  const o = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: pub.id, mp_sku_id: pub.skus[0].mp_sku_id, qty: 2 }], shipping_address: addr }, bTok)).body;
+  assert.match(o.lines[0].image, /^\/img\/l\//, 'orders keep a photo link, not the photo itself');
+  await api('POST', `/api/buyer/orders/${o.id}/demo-pay`, null, bTok);
+  let stock = (await api('GET', `/api/catalog/${pub.id}`)).body.skus[0].stock;
+  assert.strictEqual(stock, 1, 'typed-in stock goes down when paid');
+  assert.strictEqual((await api('POST', '/api/buyer/checkout', { items: [{ listing_id: pub.id, mp_sku_id: pub.skus[0].mp_sku_id, qty: 2 }], shipping_address: addr }, bTok)).status, 409, 'cannot oversell');
+  const list = (await api('GET', '/api/admin/orders', null, aTok)).body;
+  assert.strictEqual(list.find((x) => x.id === o.id).test_payment, true);
+  assert.ok((await api('GET', '/api/admin/overview', null, aTok)).body.alerts.some((a) => a.kind === 'test_payments'));
+  await api('POST', `/api/admin/orders/${o.id}/cancel`, null, aTok);
+  stock = (await api('GET', `/api/catalog/${pub.id}`)).body.skus[0].stock;
+  assert.strictEqual(stock, 3, 'stock comes back on cancel');
+
+  const { cleanup, clientIp } = require('../src/server');
+  db.sessions.insert({ token_hash: 'old', user_id: 'x', expires_at: Date.now() - 1000 });
+  assert.ok(cleanup() >= 1);
+  assert.ok(!db.sessions.find((x) => x.token_hash === 'old'));
+  assert.strictEqual(clientIp({ headers: { 'x-forwarded-for': '1.1.1.1, 9.9.9.9' }, socket: { remoteAddress: '10.0.0.1' } }), '9.9.9.9');
+  assert.strictEqual(clientIp({ headers: { 'cf-connecting-ip': '5.5.5.5', 'x-forwarded-for': '1.1.1.1' }, socket: {} }), '5.5.5.5');
+  assert.strictEqual(clientIp({ headers: {}, socket: { remoteAddress: '10.0.0.1' } }), '10.0.0.1');
+});

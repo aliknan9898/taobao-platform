@@ -423,7 +423,7 @@ function orderRow(o) {
     <div style="display:grid;gap:4px;min-width:0"><div class="row"><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><span class="muted">${date(o.created_at)}</span></div>
       <div class="small">${o.lines.map((l) => `${l.qty} × ${esc(l.title)}${l.props ? ` <span class="muted">(${esc(variantLabel(l.props))})</span>` : ''}`).join('<br>')}</div>
       <div class="row">${pill(o.status_label, ['delivered', 'shipped'].includes(o.status) ? 'ok' : ['cancelled', 'refunded'].includes(o.status) ? 'bad' : 'warn')}
-        ${p ? pill(`${p.direct ? 'AliExpress' : 'Taobao'}: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
+        ${p ? pill(p.manual ? p.status_label : `${p.direct ? 'AliExpress' : 'Taobao'}: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
         ${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
       ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
       ${(p?.logistics || []).length ? `<div class="small muted">${p.direct ? 'To the customer' : 'To warehouse'}: ${p.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}</div>
@@ -437,7 +437,7 @@ function wireOrderActions() {
 async function orders() {
   const v = $('#view'); v.innerHTML = '<div class="skeleton" style="height:240px"></div>';
   const list = await api('/api/seller/orders');
-  v.innerHTML = `<div class="head"><div><h1>Orders</h1><p class="muted">Kinan creates a Taobao purchase order from your account for every paid order. ${shop.auto_pay ? 'Automatic payment is on.' : 'Pay each one before its deadline.'}</p></div></div>
+  v.innerHTML = `<div class="head"><div><h1>Orders</h1><p class="muted">${shop.taobao?.connected ? `For products imported from Taobao, Kinan creates a purchase order from your account. ${shop.auto_pay ? 'Automatic payment is on.' : 'Pay each one before its deadline.'} ` : ''}Kinan buys AliExpress and manually added products for you.</p></div></div>
     <section class="panel">${list.map(orderRow).join('') || '<div class="empty"><h3>No orders yet</h3><p>Paid orders for your products appear here.</p></div>'}</section>
     <p class="muted">Buyer names and addresses stay private. Taobao ships to Kinan’s China warehouse, and we ship to the buyer.</p>`;
   wireOrderActions();

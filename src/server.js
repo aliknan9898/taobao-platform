@@ -89,6 +89,15 @@ function safeReturnTo(v) {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : null;
 }
 
+/** The visitor's IP. Render puts its proxy in front, so the socket address is the proxy for everyone. */
+function clientIp(req) {
+  const h = req.headers;
+  const cf = h['cf-connecting-ip'] || h['true-client-ip'];
+  if (cf) return String(cf).trim();
+  const xff = String(h['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+  return xff.length ? xff[xff.length - 1] : req.socket.remoteAddress;
+}
+
 // Login throttling per IP: only FAILED sign-ins count, so people who share a network can still sign in.
 const attempts = new Map();
 function throttle(ip) {
@@ -108,17 +117,26 @@ const r = (method, pattern, roles, handler) => routes.push({ method, re: new Reg
 const ADMIN = ['admin']; const SELLER = ['seller']; const BUYER = ['buyer']; const WH = ['warehouse', 'admin'];
 
 // Auth
-r('POST', '/api/auth/register', null, async ({ req }) => auth.register(await readJson(req)));
+// Sign-ups: at most 30 accounts per IP per hour (slows down spam without blocking families or offices)
+const signups = new Map();
+r('POST', '/api/auth/register', null, async ({ req }) => {
+  const ip = clientIp(req); const now = Date.now();
+  const list = (signups.get(ip) || []).filter((t) => now - t < 3600e3);
+  if (list.length >= 30) throw httpError(429, 'Too many new accounts from this network — try again later');
+  const out = auth.register(await readJson(req));
+  list.push(now); signups.set(ip, list);
+  return out;
+});
 // SameSite=Lax so the cookie is kept after the redirect back from Google; still not sent on cross-site POSTs.
 const setSession = (res, token) => {
   const secure = config.publicBaseUrl.startsWith('https') ? '; Secure' : '';
   res.setHeader('Set-Cookie', `sid=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}${secure}`);
 };
 r('POST', '/api/auth/login', null, async ({ req, res }) => {
-  throttle(req.socket.remoteAddress);
+  throttle(clientIp(req));
   const { email, password } = await readJson(req);
   let out;
-  try { out = auth.login(email, password); } catch (e) { if (e.status === 401) recordFailure(req.socket.remoteAddress); throw e; }
+  try { out = auth.login(email, password); } catch (e) { if (e.status === 401) recordFailure(clientIp(req)); throw e; }
   setSession(res, out.token);
   return out;
 });
@@ -132,17 +150,17 @@ r('POST', '/api/auth/logout', null, async ({ req, res }) => {
 // Forgot / reset password. Always answers OK so nobody can probe which emails have accounts.
 const resetUrl = (token) => `${config.publicBaseUrl}/reset#t=${token}`;
 r('POST', '/api/auth/forgot', null, async ({ req }) => {
-  throttle(req.socket.remoteAddress); recordFailure(req.socket.remoteAddress); // every request counts towards the limit
+  throttle(clientIp(req)); recordFailure(clientIp(req)); // every request counts towards the limit
   const { email } = await readJson(req);
   const u = db.users.find((x) => x.email === String(email || '').trim().toLowerCase() && x.status === 'active');
   if (u) await require('./notify').passwordReset(u, resetUrl(auth.createResetToken(u)));
   return { ok: true, email_enabled: require('./mailer').enabled() };
 });
 r('POST', '/api/auth/reset', null, async ({ req, res }) => {
-  throttle(req.socket.remoteAddress);
+  throttle(clientIp(req));
   const { token, password } = await readJson(req);
   let out;
-  try { out = auth.resetPassword(token, password); } catch (e) { recordFailure(req.socket.remoteAddress); throw e; }
+  try { out = auth.resetPassword(token, password); } catch (e) { recordFailure(clientIp(req)); throw e; }
   setSession(res, out.token);
   return out;
 });
@@ -333,13 +351,13 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     if (p === '/auth/google/callback' && req.method === 'GET') {
-      throttle(req.socket.remoteAddress);
+      throttle(clientIp(req));
       try {
         const out = await google.callback({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') });
         if (out.token) setSession(res, out.token);
         res.writeHead(302, { Location: out.redirect, 'Cache-Control': 'no-store' });
       } catch (e) {
-        recordFailure(req.socket.remoteAddress);
+        recordFailure(clientIp(req));
         if ((e.status || 500) >= 500) console.error('[google]', e.message);
         res.writeHead(302, { Location: `${e.home || '/'}?login_error=${encodeURIComponent(e.message)}` });
       }
@@ -380,12 +398,22 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+/** Remove expired sessions, sign-in states and reset links so the database doesn't grow forever. */
+function cleanup(now = Date.now()) {
+  let n = 0;
+  for (const x of db.sessions.all((s) => s.expires_at < now)) { db.sessions.remove(x.id); n++; }
+  for (const x of db.oauthStates.all((s) => (s.expires_at || 0) < now)) { db.oauthStates.remove(x.id); n++; }
+  for (const x of db.tokens.all((t) => t.expires_at < now)) { db.tokens.remove(x.id); n++; }
+  return n;
+}
+
 function startJobs() {
   const every = (ms, fn) => setInterval(() => fn().catch(() => {}), ms).unref();
   every(30e3, webhooks.processInbox);
   every(config.orderSyncMinutes * 60e3, orders.syncOpen);
   every(3600e3, catalog.resyncStale);
   every(6 * 3600e3, sellerAuth.refreshAllDue);
+  every(3600e3, async () => cleanup());
 }
 
 if (require.main === module) (async () => {
@@ -403,4 +431,4 @@ if (require.main === module) (async () => {
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
 })();
 
-module.exports = { server, safeReturnTo };
+module.exports = { server, safeReturnTo, cleanup, clientIp };
