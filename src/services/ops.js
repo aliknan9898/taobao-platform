@@ -56,20 +56,20 @@ function invoiceHtml(o) {
   const no = `KN-${new Date(o.paid_at || o.created_at).getFullYear()}-${o.id.slice(-8).toUpperCase()}`;
   const op = config.operator;
   const rows = o.lines.map((l) => `<tr><td>${esc(l.title)}${l.props ? `<div class="m">${esc(String(l.props).slice(0, 80))}</div>` : ''}</td><td class="r">${l.qty}</td><td class="r">${fmt(l.price)}</td><td class="r">${fmt(l.price * l.qty)}</td></tr>`).join('');
-  const line = (label, ar, v, cls = '') => `<tr class="${cls}"><td colspan="3">${label} <span class="ar">${ar}</span></td><td class="r">${v}</td></tr>`;
+  const line = (label, v, cls = '') => `<tr class="${cls}"><td colspan="3">${label}</td><td class="r">${v}</td></tr>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Invoice ${no}</title>
 <style>body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#141b3a;margin:0;background:#f4f6f9}.p{max-width:780px;margin:20px auto;background:#fff;padding:32px;border:1px solid #e1e5ee;border-radius:12px}
 h1{font-size:22px;margin:0}.top{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}.brand{color:#0e7c66;font-weight:800;font-size:26px}.m{color:#6b7290;font-size:12px}.ar{color:#6b7290;font-size:12px}
 table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px 6px;border-bottom:1px solid #eef0f5;text-align:start;vertical-align:top}th{font-size:12px;color:#6b7290;font-weight:600}.r{text-align:end;white-space:nowrap}.tot td{font-weight:700;font-size:16px;border-bottom:0}
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}.btn{display:inline-block;margin:0 0 12px;padding:8px 14px;border-radius:8px;background:#0e7c66;color:#fff;text-decoration:none;font-weight:600;border:0;cursor:pointer}
 @media print{body{background:#fff}.p{border:0;margin:0;max-width:none}.noprint{display:none}}</style></head><body><div class="p">
-<a class="btn noprint" href="/invoice/${o.id}.pdf">Download PDF · تحميل</a> <button class="btn noprint" onclick="print()" style="background:#141b3a">Print · طباعة</button>
+<a class="btn noprint" href="/invoice/${o.id}.pdf">Download PDF</a> <button class="btn noprint" onclick="print()" style="background:#141b3a">Print</button>
 <div class="top"><div><div class="brand">kinan</div><div class="m">${esc(op.tradingName || 'Kinan')}<br>${esc(op.email || 'support@kinan.shop')}${op.vatNumber ? `<br>VAT ${esc(op.vatNumber)}` : ''}${op.companyNumber ? `<br>Company ${esc(op.companyNumber)}` : ''}</div></div>
-<div style="text-align:end"><h1>Invoice <span class="ar">فاتورة</span></h1><div>${no}</div><div class="m">Date: ${day(o.paid_at || o.created_at)}<br>Order: ${o.id.slice(-8).toUpperCase()}</div></div></div>
-<div class="cols"><div><b>Bill to <span class="ar">إلى</span></b><div>${esc(a.name || buyer.name || '')}<br>${esc(buyer.email || '')}</div></div>
-<div><b>Ship to <span class="ar">عنوان الشحن</span></b><div>${esc(a.name || '')}<br>${esc(a.line1 || '')}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city || '')} ${esc(a.postal_code || '')}<br>${esc(a.country || '')}</div></div></div>
-<table><thead><tr><th>Item <span class="ar">المنتج</span></th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody>${rows}
-${line('Subtotal', 'المجموع الفرعي', fmt(o.subtotal))}${line('Shipping', 'الشحن', fmt(o.shipping_fee))}${o.packaging_fee ? line('Extra protection', 'حماية إضافية', fmt(o.packaging_fee)) : ''}${o.discount ? line(`Discount${o.coupon_code ? ` (${esc(o.coupon_code)})` : ''}`, 'الخصم', `−${fmt(o.discount)}`) : ''}${line('Total', 'الإجمالي', fmt(o.total), 'tot')}</tbody></table>
+<div style="text-align:end"><h1>Invoice</h1><div>${no}</div><div class="m">Date: ${day(o.paid_at || o.created_at)}<br>Order: ${o.id.slice(-8).toUpperCase()}</div></div></div>
+<div class="cols"><div><b>Bill to</b><div>${esc(a.name || buyer.name || '')}<br>${esc(buyer.email || '')}</div></div>
+<div><b>Ship to</b><div>${esc(a.name || '')}<br>${esc(a.line1 || '')}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city || '')} ${esc(a.postal_code || '')}<br>${esc(a.country || '')}</div></div></div>
+<table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody>${rows}
+${line('Subtotal', fmt(o.subtotal))}${line('Shipping', fmt(o.shipping_fee))}${o.packaging_fee ? line('Extra protection', fmt(o.packaging_fee)) : ''}${o.discount ? line(`Discount${o.coupon_code ? ` (${esc(o.coupon_code)})` : ''}`, `−${fmt(o.discount)}`) : ''}${line('Total', fmt(o.total), 'tot')}</tbody></table>
 <p class="m">${o.paid_at ? `Paid ${day(o.paid_at)} · ${esc({ stripe: 'card', wallet: 'Kinan wallet', demo: 'TEST payment — no money received' }[o.payment?.provider] || o.payment?.provider || '')}` : 'Not paid yet'}. Import duties or VAT charged by the destination country on delivery are not included.</p>
 </div></body></html>`;
 }
@@ -95,8 +95,7 @@ function invoicePdf(o) {
     doc.path('M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z', L, 40, 46 / 64, { fill: '#ffffff' });
     doc.circle(L + 49 * 46 / 64, 40 + 15 * 46 / 64, 6 * 46 / 64, { fill: '#f4b400' });
     doc.text('kinan', L + 58, 72, { size: 26, bold: true, color: INK });
-    doc.text('INVOICE', R, 60, { size: 20, bold: true, color: INK, align: 'right' });
-    doc.text('فاتورة', R, 80, { size: 11, color: MUTED, align: 'right' });
+    doc.text('INVOICE', R, 70, { size: 20, bold: true, color: INK, align: 'right' });
     if (!first) { doc.text(no, R, 96, { size: 9, color: MUTED, align: 'right' }); return 120; }
     let yy = 108;
     // The owner's personal name and home address are not printed on customer invoices
@@ -108,20 +107,20 @@ function invoicePdf(o) {
   y = header(true);
 
   // Bill to / Ship to
-  const col = (x, label, ar, rows) => {
-    doc.text(label, x, y, { size: 9, bold: true, color: JADE }); doc.text(ar, x + doc.width(label, 9, true) + 6, y, { size: 8, color: MUTED });
+  const col = (x, label, rows) => {
+    doc.text(label, x, y, { size: 9, bold: true, color: JADE });
     let yy = y + 15;
     for (const r of rows.filter(Boolean)) for (const ln of doc.wrap(r, 220, 9.5)) { doc.text(ln, x, yy, { size: 9.5 }); yy += 13; }
     return yy;
   };
-  const yb = col(L, 'BILL TO', 'إلى', [a.name || buyer.name, buyer.email]);
-  const ys = col(L + 260, 'SHIP TO', 'عنوان الشحن', [a.name, [a.line1, a.line2].filter(Boolean).join(', '), [a.city, a.state, a.postal_code].filter(Boolean).join(' '), a.country || a.country_code, a.phone]);
+  const yb = col(L, 'BILL TO', [a.name || buyer.name, buyer.email]);
+  const ys = col(L + 260, 'SHIP TO', [a.name, [a.line1, a.line2].filter(Boolean).join(', '), [a.city, a.state, a.postal_code].filter(Boolean).join(' '), a.country || a.country_code, a.phone]);
   y = Math.max(yb, ys) + 16;
 
   // Items table
   const cQty = R - 170; const cPrice = R - 95; const tableHead = () => {
     doc.rect(L, y, R - L, 24, { fill: '#e3f2ee', radius: 6 });
-    doc.text('Item', L + 10, y + 16, { size: 9, bold: true }); doc.text('المنتج', L + 40, y + 16, { size: 8, color: MUTED });
+    doc.text('Item', L + 10, y + 16, { size: 9, bold: true });
     doc.text('Qty', cQty, y + 16, { size: 9, bold: true, align: 'right' }); doc.text('Price', cPrice, y + 16, { size: 9, bold: true, align: 'right' }); doc.text('Amount', R - 10, y + 16, { size: 9, bold: true, align: 'right' });
     y += 36;
   };
@@ -139,16 +138,16 @@ function invoicePdf(o) {
   // Totals
   if (y > doc.h - 200) { doc.addPage(); y = header(false); }
   y += 6; const tx = R - 230;
-  const sum = (label, ar, v, strong) => {
-    doc.text(label, tx, y, { size: strong ? 11 : 9.5, bold: strong, color: strong ? INK : MUTED }); doc.text(ar, tx + doc.width(label, strong ? 11 : 9.5, strong) + 6, y, { size: 8, color: MUTED });
+  const sum = (label, v, strong) => {
+    doc.text(label, tx, y, { size: strong ? 11 : 9.5, bold: strong, color: strong ? INK : MUTED });
     doc.text(v, R - 10, y, { size: strong ? 12 : 9.5, bold: strong, align: 'right', color: strong ? JADE : INK }); y += strong ? 20 : 16;
   };
-  sum('Subtotal', 'المجموع الفرعي', fmt(o.subtotal));
-  sum('Shipping', 'الشحن', fmt(o.shipping_fee));
-  if (o.packaging_fee) sum('Extra protection', 'حماية إضافية', fmt(o.packaging_fee));
-  if (o.discount) sum(`Discount${o.coupon_code ? ` (${o.coupon_code})` : ''}`, 'الخصم', `−${fmt(o.discount)}`);
+  sum('Subtotal', fmt(o.subtotal));
+  sum('Shipping', fmt(o.shipping_fee));
+  if (o.packaging_fee) sum('Extra protection', fmt(o.packaging_fee));
+  if (o.discount) sum(`Discount${o.coupon_code ? ` (${o.coupon_code})` : ''}`, `−${fmt(o.discount)}`);
   doc.line(tx, y - 8, R, y - 8, { color: LINE, width: 0.8 }); y += 6;
-  sum('Total', 'الإجمالي', fmt(o.total), true);
+  sum('Total', fmt(o.total), true);
 
   // Payment status + footer
   y += 10;
@@ -156,13 +155,11 @@ function invoicePdf(o) {
   const paidLine = o.paid_at ? `Paid ${day(o.paid_at)}${method ? ` · ${method}` : ''}${o.payment?.mode === 'test' ? ' (test mode)' : ''}` : 'Not paid yet';
   doc.rect(L, y, R - L, 28, { fill: o.paid_at ? '#e8f5ee' : '#fff4e0', radius: 6 });
   doc.text(paidLine, L + 12, y + 18, { size: 9.5, bold: true, color: o.paid_at ? '#1f7a4d' : '#9a6400' });
-  if (o.paid_at) doc.text('مدفوعة', R - 12, y + 18, { size: 9, color: '#1f7a4d', align: 'right' });
   y += 44;
   for (const t of doc.wrap('Import duties or VAT charged by the destination country on delivery are not included.', R - L, 8)) { doc.text(t, L, y, { size: 8, color: MUTED }); y += 11; }
   const fy = doc.h - 54;
   doc.line(L, fy - 16, R, fy - 16, { color: LINE, width: 0.6 });
   doc.text('Thank you for shopping with Kinan', L, fy, { size: 9.5, bold: true, color: JADE });
-  doc.text('شكراً لتسوقك من كنان', R, fy, { size: 9.5, bold: true, color: JADE, align: 'right' });
   doc.text(`Questions? ${op.email || 'support@kinan.shop'} · kinan.shop`, L, fy + 14, { size: 8, color: MUTED });
   return { name: `Kinan-invoice-${no}.pdf`, body: doc.toBuffer() };
 }
