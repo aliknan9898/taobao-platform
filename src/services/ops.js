@@ -64,7 +64,7 @@ table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px 6px;
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}.btn{display:inline-block;margin:0 0 12px;padding:8px 14px;border-radius:8px;background:#0e7c66;color:#fff;text-decoration:none;font-weight:600;border:0;cursor:pointer}
 @media print{body{background:#fff}.p{border:0;margin:0;max-width:none}.noprint{display:none}}</style></head><body><div class="p">
 <a class="btn noprint" href="/invoice/${o.id}.pdf">Download PDF · تحميل</a> <button class="btn noprint" onclick="print()" style="background:#141b3a">Print · طباعة</button>
-<div class="top"><div><div class="brand">kinan</div><div class="m">${esc(op.tradingName)} — ${esc(op.name)}${op.address ? `<br>${esc(op.address)}` : ''}${op.email ? `<br>${esc(op.email)}` : ''}${op.vatNumber ? `<br>VAT ${esc(op.vatNumber)}` : ''}${op.companyNumber ? `<br>Company ${esc(op.companyNumber)}` : ''}</div></div>
+<div class="top"><div><div class="brand">kinan</div><div class="m">${esc(op.tradingName || 'Kinan')}<br>${esc(op.email || 'support@kinan.shop')}${op.vatNumber ? `<br>VAT ${esc(op.vatNumber)}` : ''}${op.companyNumber ? `<br>Company ${esc(op.companyNumber)}` : ''}</div></div>
 <div style="text-align:end"><h1>Invoice <span class="ar">فاتورة</span></h1><div>${no}</div><div class="m">Date: ${day(o.paid_at || o.created_at)}<br>Order: ${o.id.slice(-8).toUpperCase()}</div></div></div>
 <div class="cols"><div><b>Bill to <span class="ar">إلى</span></b><div>${esc(a.name || buyer.name || '')}<br>${esc(buyer.email || '')}</div></div>
 <div><b>Ship to <span class="ar">عنوان الشحن</span></b><div>${esc(a.name || '')}<br>${esc(a.line1 || '')}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city || '')} ${esc(a.postal_code || '')}<br>${esc(a.country || '')}</div></div></div>
@@ -86,7 +86,7 @@ function invoicePdf(o) {
   const fmt = (n) => { const v = Math.round(Number(n) * rate * 100) / 100; try { return v.toLocaleString('en-US', { style: 'currency', currency: cur }); } catch { return `${v.toFixed(2)} ${cur}`; } };
   const no = invoiceNo(o); const op = config.operator;
   const INK = '#141b3a'; const MUTED = '#6b7290'; const JADE = '#0e7c66'; const LINE = '#e1e5ee';
-  const doc = new PDF({ title: `Kinan invoice ${no}`, author: op.tradingName || 'Kinan' });
+  const doc = new PDF({ title: `Kinan invoice ${no}`, author: 'Kinan' });
   const L = 48; const R = doc.w - 48; let y;
 
   const header = (first) => {
@@ -99,7 +99,8 @@ function invoicePdf(o) {
     doc.text('فاتورة', R, 80, { size: 11, color: MUTED, align: 'right' });
     if (!first) { doc.text(no, R, 96, { size: 9, color: MUTED, align: 'right' }); return 120; }
     let yy = 108;
-    for (const t of [`${op.tradingName || 'Kinan'} — ${op.name}`, op.address, op.email, op.vatNumber ? `VAT ${op.vatNumber}` : '', op.companyNumber ? `Company ${op.companyNumber}` : '', 'kinan.shop'].filter(Boolean)) { doc.text(t, L, yy, { size: 8.5, color: MUTED }); yy += 12; }
+    // The owner's personal name and home address are not printed on customer invoices
+    for (const t of [op.tradingName || 'Kinan', op.email || 'support@kinan.shop', op.vatNumber ? `VAT ${op.vatNumber}` : '', op.companyNumber ? `Company ${op.companyNumber}` : '', 'kinan.shop'].filter(Boolean)) { doc.text(t, L, yy, { size: 8.5, color: MUTED }); yy += 12; }
     const meta = [['Invoice no.', no], ['Date', day(o.paid_at || o.created_at)], ['Order', o.id.slice(-8).toUpperCase()]];
     meta.forEach(([k, v], i) => { doc.text(k, R - 150, 108 + i * 14, { size: 9, color: MUTED }); doc.text(v, R, 108 + i * 14, { size: 9, bold: true, align: 'right' }); });
     return Math.max(yy, 108 + meta.length * 14) + 14;
