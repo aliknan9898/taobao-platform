@@ -25,5 +25,12 @@
    "type": "image/png",
    "purpose": "maskable"
   }
- ]
+ ],
+ "related_applications": [
+  {
+   "platform": "webapp",
+   "url": "https://kinan.shop/assets/seller.webmanifest"
+  }
+ ],
+ "prefer_related_applications": false
 }

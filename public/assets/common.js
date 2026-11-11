@@ -185,8 +185,16 @@ const K = (() => {
         if (!safari) return `<p>On iPhone, apps are added from <b>Safari</b>. Copy the link and open it in Safari.</p><button class="btn block" data-copy>Copy link</button>`;
         return `<ol class="isteps"><li><span>Tap <b>Share</b> <span class="ic">${SHARE_IC}</span> at the bottom of Safari.</span></li><li><span>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</span></li></ol><div class="iarrow" aria-hidden="true">↓</div>`;
       }
-      return `<ol class="isteps"><li><span>Tap the menu <span class="ic">${DOTS_IC}</span> at the top right of Chrome.</span></li><li><span>Tap <b>Install app</b> or <b>Add to Home screen</b>, then <b>Install</b>.</span></li></ol><p class="muted small">Waiting for your phone to allow one-tap install…</p>`;
+      if (installed) return `<p><b>${esc(name)}</b> <span>is already on your phone.</span> <span>Open it from your home screen or app list.</span></p><button class="btn block" data-x>OK</button>`;
+      return `${waited ? '<p>Install it in two taps:</p>' : ''}<ol class="isteps"><li><span>Tap the menu <span class="ic">${DOTS_IC}</span> at the top right of Chrome.</span></li><li><span>Tap <b>Install app</b> or <b>Add to Home screen</b>, then <b>Install</b>.</span></li></ol>${waited ? '<p class="muted small">No “Install app” in the menu? The app may already be installed — look on your home screen. In Samsung Internet, tap the install icon in the address bar.</p>' : '<p class="muted small">Waiting for your phone to allow one-tap install…</p>'}`;
     };
+    // Chrome only offers one-tap install when the app is not installed yet: after a moment, check and explain
+    let installed = false; let waited = false;
+    setTimeout(async () => {
+      waited = true;
+      try { if (!installEvent && navigator.getInstalledRelatedApps) installed = (await navigator.getInstalledRelatedApps()).length > 0; } catch { /* not supported */ }
+      if (document.body.contains(el) && !installEvent) render();
+    }, 2500);
     const render = () => {
       el.innerHTML = `<div class="isheet" role="dialog" aria-modal="true" aria-label="Install ${esc(name)}"><button class="iclose" data-x aria-label="Close">×</button>
         <div class="ihead"><img src="${esc(icon)}" alt=""><div><b>${esc(name)}</b><span class="muted small">kinan.shop · Free</span></div></div>${body()}</div>`;

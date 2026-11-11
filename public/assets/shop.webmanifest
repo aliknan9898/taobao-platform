@@ -5,7 +5,7 @@
  "start_url": "/",
  "scope": "/",
  "display": "standalone",
- "description": "Shop products from China, delivered to your door.",
+ "description": "Shop many sellers in one place, delivered to your door.",
  "background_color": "#ffffff",
  "theme_color": "#ffffff",
  "icons": [
@@ -25,5 +25,12 @@
    "type": "image/png",
    "purpose": "maskable"
   }
- ]
+ ],
+ "related_applications": [
+  {
+   "platform": "webapp",
+   "url": "https://kinan.shop/assets/shop.webmanifest"
+  }
+ ],
+ "prefer_related_applications": false
 }
