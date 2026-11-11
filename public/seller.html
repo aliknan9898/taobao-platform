@@ -93,7 +93,7 @@ let draft = null; // product being imported or edited
 
 const PRODUCT_STATUS = { pending_review: ['In review', 'warn'], active: ['Live', 'ok'], paused: ['Paused', ''], rejected: ['Needs changes', 'bad'], unavailable: ['Unavailable on Taobao', 'bad'] };
 const PO_STATUS_CLS = (s) => /WAIT_BUYER_P/.test(s) ? 'warn' : /CREATE_FAILED|TRADE_CLOSED/.test(s) ? 'bad' : 'ok';
-const NAV = [['#/', 'Dashboard', ICONS.home], ['#/products', 'Products', ICONS.shop], ['#/add', 'Add product', ICONS.plus], ['#/orders', 'Orders', ICONS.box], ['#/earnings', 'Earnings', ICONS.wallet], ['#/settings', 'Settings', ICONS.user]];
+const NAV = [['#/', 'Dashboard', ICONS.home], ['#/products', 'Products', ICONS.shop], ['#/add', 'Add product', ICONS.plus], ['#/orders', 'Orders', ICONS.box], ['#/earnings', 'Earnings', ICONS.wallet], ['#/settings', 'Account', ICONS.user]];
 
 function variantLabel(props) {
   if (!props) return 'Standard';
@@ -115,7 +115,7 @@ function shell() {
     </aside>
     <div><div class="mtop mob-only">${K.brand('Seller')}<span class="row" style="gap:6px">${KinanTheme.button('btn sm ghost')}<a class="btn sm quiet" href="#/settings">${esc((shop?.shop_name || '').slice(0, 18))}</a></span></div>
     <main class="content" id="view"></main>${K.footer(cfg.operator?.name)}</div></div>
-    <nav class="tabbar">${NAV.filter(([h]) => h !== '#/settings').map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t === 'Add product' ? 'Add' : t}</a>`).join('')}</nav>`;
+    <nav class="tabbar">${NAV.map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t === 'Add product' ? 'Add' : t}</a>`).join('')}</nav>`;
   document.body.classList.add('has-tabbar');
   $$('[data-out]').forEach((b) => b.onclick = signOut);
 }
@@ -687,7 +687,8 @@ async function earnings() {
 
 // ---------- settings ----------
 function settings() {
-  $('#view').innerHTML = `<div class="head"><h1>Settings</h1></div>
+  $('#view').innerHTML = `<div class="head"><h1>Account</h1></div>
+    <div style="max-width:640px;margin-bottom:16px">${KinanLang.folded('Language', 'The Seller Center and Kinan’s emails to you use this language.', 'panel')}</div>
     <form class="panel stack" id="stf" style="max-width:640px"><h2>Shop</h2>
       <label class="field">Shop name<input name="shop_name" required maxlength="80" value="${esc(shop.shop_name)}"></label>
       <div class="row" style="gap:14px"><div id="logoprev"></div><div class="stack" style="gap:6px"><b>Shop logo</b><span class="muted small">Square PNG, JPEG or WebP. Shown to customers in Kinan Shop.</span>
@@ -703,7 +704,7 @@ function settings() {
     <section class="panel stack" style="max-width:640px"><h2>Install the app</h2>
       <p class="muted">Add the Seller Center to your phone’s home screen. On iPhone: Share, then “Add to Home Screen”. On Android: menu, then “Install app”.</p>
       <div class="row">${KinanTheme.button('btn ghost', true)}<button class="btn quiet" id="installbtn" style="display:none">Install Seller Center</button><button class="btn danger" data-out>Sign out</button></div></section>
-    <div style="max-width:640px">${KinanLang.folded('Language', 'The Seller Center and Kinan’s emails to you use this language.', 'panel')}</div>`;
+`;
   wireConnect(); wireInstall();
   $$('[data-out]').forEach((b) => b.onclick = signOut);
   let logo = shop.logo || null;
