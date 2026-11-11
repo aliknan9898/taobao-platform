@@ -47,7 +47,7 @@ function merchantFeed() {
 <link>${xml(abs(`/p/${l.id}`))}</link><g:image_link>${xml(imgs[0])}</g:image_link>${imgs.slice(1, 10).map((u) => `<g:additional_image_link>${xml(u)}</g:additional_image_link>`).join('')}
 <g:price>${price.toFixed(2)} ${cur}</g:price><g:availability>${stock ? 'in_stock' : 'out_of_stock'}</g:availability><g:condition>new</g:condition><g:brand>${xml(s.shop_name)}</g:brand><g:identifier_exists>no</g:identifier_exists>${l.weight_kg ? `<g:shipping_weight>${l.weight_kg} kg</g:shipping_weight>` : ''}${r.reviews ? `<g:product_review_average>${r.rating}</g:product_review_average><g:product_review_count>${r.reviews}</g:product_review_count>` : ''}</item>`);
   }
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>Kinan Shop</title><link>${xml(config.publicBaseUrl)}</link><description>Products from China delivered to your door</description>\n${items.join('\n')}\n</channel></rss>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>Kinan Shop</title><link>${xml(config.publicBaseUrl)}</link><description>Products delivered to your door</description>\n${items.join('\n')}\n</channel></rss>\n`;
 }
 
 /** Product structured data for Google rich results (price, stock, stars). */

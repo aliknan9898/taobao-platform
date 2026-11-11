@@ -91,9 +91,9 @@ function customerWelcome(u) {
   const highlight = c ? { label: 'كود الترحيب · Welcome code', value: c.code } : undefined;
   fire(mailer.send({ to: u.email, key: `welcome:${u.id}`, kind: 'account', app: 'shop', highlight,
     subject: 'Welcome to Kinan 🎁',
-    ar: { subject: 'أهلاً بك في كنان 🎁', title: `أهلاً وسهلاً ${n}، يسعدنا انضمامك إلى كنان ✨`, lines: ['تم إنشاء حسابك بنجاح. صار بإمكانك الآن تسوّق آلاف المنتجات من الصين بأسعار ممتازة، مع شحن إلى باب بيتك وتتبّع لكل طلب.', ...(c ? [`هدية ترحيب منا: خصم ${c.value}% على طلبك الأول بكود ${c.code}.`] : []), 'هل وجدت منتجاً على تاوباو أو 1688؟ استخدم خدمة «اشترِ لي» ونشتريه لك.', 'نتمنى لك تجربة تسوّق رائعة، ولأي سؤال رد على هذه الرسالة وسنساعدك بكل سرور.'], button: { text: 'ابدأ التسوّق', url: `${base()}/` } },
+    ar: { subject: 'أهلاً بك في كنان 🎁', title: `أهلاً وسهلاً ${n}، يسعدنا انضمامك إلى كنان ✨`, lines: ['تم إنشاء حسابك بنجاح. صار بإمكانك الآن تسوّق آلاف المنتجات بأسعار ممتازة، مع شحن إلى باب بيتك وتتبّع لكل طلب.', ...(c ? [`هدية ترحيب منا: خصم ${c.value}% على طلبك الأول بكود ${c.code}.`] : []), 'نتمنى لك تجربة تسوّق رائعة، ولأي سؤال رد على هذه الرسالة وسنساعدك بكل سرور.'], button: { text: 'ابدأ التسوّق', url: `${base()}/` } },
     title: `Welcome to Kinan, ${n} ✨`,
-    lines: ['Your account is ready. Shop thousands of products from China at great prices, delivered to your door with tracking for every order.', ...(c ? [`A welcome gift from us: ${c.value}% off your first order with the code ${c.code}.`] : []), 'Found something on Taobao or 1688? Use “Buy for me” and we buy it for you.', 'Happy shopping! For any question, just reply to this email and we will gladly help.'],
+    lines: ['Your account is ready. Shop thousands of products at great prices, delivered to your door with tracking for every order.', ...(c ? [`A welcome gift from us: ${c.value}% off your first order with the code ${c.code}.`] : []), 'Happy shopping! For any question, just reply to this email and we will gladly help.'],
     button: { text: 'Start shopping', url: `${base()}/` } }));
 }
 

@@ -40,8 +40,8 @@ const TB_STATUS_LABEL = {
   TRADE_CLOSED: 'Closed', CREATE_FAILED: 'Creation failed'
 };
 const ORDER_STATUS_LABEL = {
-  pending_payment: 'Awaiting payment', paid: 'Paid', procuring: 'Buying from Taobao',
-  awaiting_parcels: 'Awaiting parcels at warehouse', ready_to_ship: 'Ready to ship',
+  pending_payment: 'Awaiting payment', paid: 'Paid', procuring: 'Preparing your order',
+  awaiting_parcels: 'Quality check', ready_to_ship: 'Ready to ship',
   shipped: 'Shipped', delivered: 'Delivered', cancelled: 'Cancelled', refunded: 'Refunded', attention: 'Needs attention'
 };
 
