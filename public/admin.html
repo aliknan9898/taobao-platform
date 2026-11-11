@@ -406,7 +406,9 @@ VIEWS.backup = async (v) => {
   v.innerHTML = `<div class="card" style="display:grid;gap:10px"><h2>Backup</h2>
     <p class="muted">Every night (around 2:00 UTC) a full copy of Kinan's data is emailed to the owner as a compressed file. Keep those emails — they are your copy if anything happens to the database. You can also download one now.</p>
     <div class="row"><a class="btn" href="/api/admin/backup">Download backup now</a><button class="btn ghost" id="bk">Email today's backup now</button><span class="muted" id="bkr"></span></div></div>
-    <div class="card"><h2>Invoices</h2><p class="muted">Customers can open and print an invoice for every paid order from their order page. Staff can open one at <code>/invoice/&lt;order id&gt;</code>.</p></div>`;
+    <div class="card" style="display:grid;gap:10px"><h2>Invoices</h2><p class="muted">After paying, customers get a PDF invoice with the Kinan logo attached to their confirmation email, and can download it from their order. Staff can open one at <code>/invoice/&lt;order id&gt;.pdf</code>.</p>
+      <div class="row"><button class="btn ghost" id="invs">Email me a sample invoice</button><span class="muted" id="invr"></span></div></div>`;
+  $('#invs').onclick = async () => { $('#invs').disabled = true; try { const r = await api('/api/admin/invoice/sample', 'POST'); $('#invr').textContent = r.status === 'sent' ? `Sent to ${r.to}${r.from_order ? ' (your latest paid order)' : ' (example items)'}` : r.error || r.status || 'Done'; } catch (e) { $('#invr').textContent = e.message; } $('#invs').disabled = false; };
   $('#bk').onclick = async () => { $('#bk').disabled = true; try { const r = await api('/api/admin/backup/email', 'POST'); $('#bkr').textContent = r.status === 'sent' ? `Sent to ${r.to}` : r.skipped || r.status || 'Done'; } catch (e) { $('#bkr').textContent = e.message; } $('#bk').disabled = false; };
 };
 

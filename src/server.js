@@ -479,6 +479,20 @@ r('POST', '/api/admin/users/:id/reset-link', ['admin', 'support'], async ({ para
   return { url: resetUrl(auth.createResetToken(u)), expires_in_minutes: 60 };
 });
 r('GET', '/api/admin/mail', ADMIN, async () => ({ enabled: mailer.enabled(), sender: mailer.sender().email, reply_to: config.mail.replyTo || null, domain: mailer.domainStatus(), recent: db.mail.all().slice(-50).reverse() }));
+// Email the admin a sample of the PDF invoice customers get after paying (the latest paid order, or example items)
+r('POST', '/api/admin/invoice/sample', ADMIN, async ({ user }) => {
+  const last = db.orders.all((o) => o.paid_at).sort((a, b) => b.paid_at - a.paid_at)[0];
+  const sample = last || { id: `ord_${require('crypto').randomBytes(8).toString('hex')}`, buyer_id: user.id, created_at: Date.now(), paid_at: Date.now(), currency: config.currency, charge: { currency: 'eur', rate: fx.chargeRate('EUR') || 0.92, total: 0 },
+    shipping_address: { name: user.name || 'Kinan customer', line1: 'Triq il-Kbira 10', city: 'Valletta', postal_code: 'VLT 1000', country: 'Malta', phone: '+356 7900 0000' },
+    lines: [{ title: 'Waterproof Fleece-Lined Hiking Jacket', props: 'Color: Black · Size: XL', qty: 1, price: 45.5 }, { title: 'Insulated Water Bottle 750 ml', props: 'Color: Sage green', qty: 2, price: 12 }],
+    subtotal: 69.5, shipping_fee: 8.5, discount: 6.95, coupon_code: 'WELCOME10', total: 71.05, payment: { provider: 'demo' } };
+  const f = ops.invoicePdf(sample);
+  const rec = await mailer.send({ to: user.email, kind: 'test', subject: `Sample invoice ${ops.invoiceNo(sample)}`, title: 'This is the invoice your customers receive',
+    lines: [last ? `Attached: the invoice of your latest paid order (${last.id.slice(-8).toUpperCase()}), exactly as the customer received it.` : 'Attached: a sample invoice with example items (no real order yet).', 'Customers get it automatically with their order confirmation after paying, and can download it from their order.'],
+    ar: { subject: `نموذج فاتورة ${ops.invoiceNo(sample)}`, title: 'هذه الفاتورة التي يستلمها زبائنك', lines: [last ? `مرفقة: فاتورة آخر طلب مدفوع (${last.id.slice(-8).toUpperCase()}) كما وصلت للزبون.` : 'مرفقة: فاتورة تجريبية بمنتجات مثال (لا يوجد طلب حقيقي بعد).', 'يستلمها الزبون تلقائياً مع تأكيد الطلب بعد الدفع، ويمكنه تحميلها من صفحة طلبه.'] },
+    attachments: [{ name: f.name, content: f.body.toString('base64') }] });
+  return { status: rec?.status, to: user.email, error: rec?.error || null, from_order: Boolean(last) };
+});
 // Send a test email (to the admin, or to one of the site's own addresses) to check sending and forwarding
 r('POST', '/api/admin/mail/test', ADMIN, async ({ req, user }) => {
   const { to } = await readJson(req);
