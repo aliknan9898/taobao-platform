@@ -143,6 +143,8 @@ function approvalBanner() {
 }
 function taobaoCard() {
   const t = shop.taobao || {};
+  // Connected: nothing to show, unless the authorization is about to expire
+  if (t.connected && !t.needs_reauth_soon) return '';
   if (t.connected) return `<div class="banner ok"><div><b>Taobao account connected</b><div class="small">${t.account ? esc(t.account) + ' · ' : ''}Orders are bought from this account.${t.needs_reauth_soon ? ' <span class="warn">Authorization expires soon — reconnect to keep orders flowing.</span>' : ''}</div></div>${t.needs_reauth_soon ? '<button class="btn sm" data-connect>Reconnect</button>' : ''}</div>`;
   return `<div class="banner"><div><b>Connect your Taobao account</b><div class="small">You need a Taobao Distribution Platform account to import products. Kinan buys each order from your account and ships it to our China warehouse.</div></div><button class="btn" data-connect>Connect Taobao</button></div>`;
 }
