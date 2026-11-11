@@ -651,7 +651,7 @@ async function verifyScreen() {
     return;
   }
   const d = k.details || {};
-  const cs = cfg.countries || [];
+  const cs = KinanLang.sortCountries(cfg.countries || []);
   const cSel = (name, cur) => `<select name="${name}" required><option value="">Choose…</option>${cs.map(([c, n]) => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
   const photos = { id_front: null, id_back: null, selfie: null };
   $('#app').innerHTML = `<div class="kyc">${top}

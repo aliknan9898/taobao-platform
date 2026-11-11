@@ -258,7 +258,7 @@ function imageData(kind, id, n) {
 }
 
 /** Buyer catalog: only active listings of active sellers. Cost is never exposed to buyers. */
-function browse({ q = '', seller_id, category, sort = 'new', min_price, max_price, limit = 40, offset = 0 } = {}) {
+function browse({ q = '', seller_id, category, sort = 'new', min_price, max_price, limit = 40, offset = 0, country } = {}) {
   const activeSellers = new Map(db.sellers.all((s) => s.status === 'active').map((s) => [s.id, s]));
   const needle = String(q).toLowerCase().trim();
   const lo = Number(min_price) || 0; const hi = Number(max_price) || Infinity;
@@ -270,7 +270,21 @@ function browse({ q = '', seller_id, category, sort = 'new', min_price, max_pric
     .filter((p) => p.min_price >= lo && p.min_price <= hi);
   const order = { price_asc: (a, b) => a.min_price - b.min_price, price_desc: (a, b) => b.min_price - a.min_price, new: (a, b) => b.listed_at - a.listed_at }[sort] || ((a, b) => b.listed_at - a.listed_at);
   items = items.sort(order);
-  return { total: items.length, items: items.slice(Number(offset) || 0, (Number(offset) || 0) + (limit === 100000 ? items.length : Math.min(Number(limit) || 40, 100))) };
+  const page = items.slice(Number(offset) || 0, (Number(offset) || 0) + (limit === 100000 ? items.length : Math.min(Number(limit) || 40, 100)));
+  // With the customer's country: the price of one piece delivered to them (shipping included)
+  const cc = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
+  if (cc) {
+    const shipping = require('./shipping'); const cj = require('./cj');
+    for (const p of page) {
+      const l = db.listings.get(p.id); let fee = null;
+      try {
+        if (l.source === 'cj') fee = cj.cachedFee(l, cc);
+        else { const cheapest = [...l.skus].sort((a, b) => a.price - b.price)[0]; fee = shipping.quote([{ listing_id: l.id, mp_sku_id: cheapest?.mp_sku_id, qty: 1 }], cc).fee; }
+      } catch { fee = null; }
+      if (fee !== null && fee !== undefined) { p.ship_fee = Math.round(fee * 100) / 100; p.delivered_price = Math.round((p.min_price + fee) * 100) / 100; }
+    }
+  }
+  return { total: items.length, items: page };
 }
 
 /**

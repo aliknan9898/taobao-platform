@@ -217,6 +217,21 @@ async function freightOptions(countryCode, items) {
   return v;
 }
 
+/** Shipping for one piece of this product to a country, if CJ's price is already known; otherwise asks CJ in the background. */
+const warm = new Set(); let warming = false;
+function cachedFee(l, countryCode) {
+  const s = [...(l.skus || [])].filter((x) => x.cj_vid).sort((a, b) => a.price - b.price)[0];
+  if (!s || !countryCode) return null;
+  const c = fcache.get(`${countryCode}|${s.cj_vid}x1`);
+  if (c && now() - c.at < 6 * 3600e3) { const o = choose(c.v); return o ? o.fee : null; }
+  if (cj.enabled() && warm.size < 300) { warm.add(`${countryCode}|${s.cj_vid}`); if (!warming) warmUp(); }
+  return null;
+}
+async function warmUp() {
+  warming = true;
+  try { while (warm.size) { const k = warm.values().next().value; warm.delete(k); const [cc, vid] = k.split('|'); try { await freightOptions(cc, [{ vid, qty: 1 }]); } catch { /* skip */ } } } finally { warming = false; }
+}
+
 function choose(options) {
   if (!options.length) return null;
   const p = prefs();
@@ -497,5 +512,5 @@ async function registerWebhooks() {
 
 module.exports = {
   prefs, savePrefs, status, balance, parseRef, normalize, fetchProduct, preview, search, categories, publish, resync, resyncStale,
-  freightOptions, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
+  freightOptions, cachedFee, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
 };
