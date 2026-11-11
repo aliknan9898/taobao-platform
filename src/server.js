@@ -54,7 +54,7 @@ async function readJson(req) {
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
 }
-function page(res, file, { stripe: withStripe = false, head = '' } = {}) {
+function page(res, file, { stripe: withStripe = false, head = '', title = '', body = '' } = {}) {
   // Customer pages may load analytics tools (only after the visitor accepts cookies)
   const an = ['shop.html', 'download.html'].includes(file) ? seo.analyticsCsp() : { script: '', connect: '' };
   // Stripe.js loads from js.stripe.com and its *.js.stripe.com subdomains (see Stripe's CSP guide)
@@ -67,7 +67,11 @@ function page(res, file, { stripe: withStripe = false, head = '' } = {}) {
   });
   let html = versionAssets(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
   const meta = ['shop.html', 'download.html'].includes(file) ? seo.verificationMeta() : '';
+  if (title) html = html.replace(/<title>[^<]*<\/title>/, `<title>${attr(title)}</title>`);
+  if (/name="description"/.test(head)) html = html.replace(/<meta name="description"[^>]*>\n?/, '');
   if (head || meta) html = html.replace('</head>', `${meta}${head}\n</head>`);
+  // Readable content for search engines and AI crawlers; the app replaces it as soon as it starts
+  if (body) html = html.replace('<main id="view" class="wrap"></main>', `<main id="view" class="wrap">${body}</main>`);
   res.end(html);
 }
 
@@ -94,10 +98,10 @@ function sharePage(res, kind, id) {
       const p = catalog.buyerListing(id);
       const raw = db.listings.get(id);
       const price = `${p.min_price.toFixed(2)} ${String(p.currency).toUpperCase()}`;
-      return page(res, 'shop.html', { stripe: true, head: shareHead({ title: `${p.title} — ${price}`, description: `${p.shop ? `Sold by ${p.shop.name} on Kinan Shop. ` : ''}${(p.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || 'Delivered to your door with tracking.'}`, image: p.images[0], url: `/p/${p.id}`, type: 'product', price: p.min_price.toFixed(2), currency: p.currency, hash: `#/p/${p.id}` }) + (raw && raw.status === 'active' ? seo.productJsonLd(raw, db.sellers.get(raw.seller_id)) : '<meta name="robots" content="noindex">') });
+      return page(res, 'shop.html', { stripe: true, title: `${p.title} — ${price} | Kinan Shop`, body: raw && raw.status === 'active' ? seo.ssrProduct(raw, db.sellers.get(raw.seller_id)) : '', head: shareHead({ title: `${p.title} — ${price}`, description: `${p.shop ? `Sold by ${p.shop.name} on Kinan Shop. ` : ''}${(p.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || 'Delivered to your door with tracking.'}`, image: p.images[0], url: `/p/${p.id}`, type: 'product', price: p.min_price.toFixed(2), currency: p.currency, hash: `#/p/${p.id}` }) + (raw && raw.status === 'active' ? seo.productJsonLd(raw, db.sellers.get(raw.seller_id)) : '<meta name="robots" content="noindex">') });
     }
     const s = shopSvc.getShop(id);
-    return page(res, 'shop.html', { stripe: true, head: shareHead({ title: `${s.name} on Kinan Shop`, description: s.description || `${s.products} products, delivered to your door with tracking.`, image: s.logo, url: `/s/${s.id}`, hash: `#/s/${s.id}` }) });
+    return page(res, 'shop.html', { stripe: true, title: `${s.name} — Kinan Shop`, body: seo.ssrList({ title: s.name, intro: s.description, seller_id: s.id }), head: shareHead({ title: `${s.name} on Kinan Shop`, description: s.description || `${s.products} products, delivered to your door with tracking.`, image: s.logo, url: `/s/${s.id}`, hash: `#/s/${s.id}` }) });
   } catch { return page(res, 'shop.html', { stripe: true }); }
 }
 
@@ -613,7 +617,15 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     if (req.method === 'GET') {
-      if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true });
+      if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true, head: seo.siteJsonLd() + `<link rel="canonical" href="${attr(config.publicBaseUrl)}/">`, body: seo.ssrList({ title: 'Kinan Shop — delivered to your door', intro: 'Shop home and kitchen, fashion, electronics, beauty, toys and gifts from independent sellers and Kinan. Delivered to Europe, the UK and worldwide with tracking.', limit: 60 }) });
+      const catPage = p.match(/^\/c\/([a-z_]{2,20})$/);
+      if (catPage) {
+        const cat = shipping.CATEGORIES.find(([id]) => id === catPage[1]);
+        if (cat) return page(res, 'shop.html', { stripe: true, title: `${cat[1]} — Kinan Shop`, body: seo.ssrList({ title: cat[1], intro: `${cat[1]} delivered to your door with tracking — ${cat[2]}.`, category: cat[0] }), head: seo.listJsonLd(cat[1], seo.liveProducts().filter(({ l }) => (l.category || 'other') === cat[0]), `/c/${cat[0]}`) + shareHead({ title: `${cat[1]} — Kinan Shop`, description: `Shop ${cat[1].toLowerCase()} on Kinan, delivered with tracking.`, url: `/c/${cat[0]}`, hash: `#/c/${cat[0]}` }) });
+      }
+      if (p === '/llms.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(seo.llmsTxt()); }
+      if (p === '/feeds/openai.jsonl') { res.writeHead(200, { 'Content-Type': 'application/jsonl; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.openaiFeed()); }
+      if (p === `/${seo.indexNowKey()}.txt`) { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(seo.indexNowKey()); }
       const inv = p.match(/^\/invoice\/(ord_[a-f0-9]{8,40})(\.pdf)?$/);
       if (inv) {
         let user = null; try { user = auth.authenticate(req); } catch { user = null; }
@@ -626,7 +638,7 @@ const server = http.createServer(async (req, res) => {
       }
       const sh = p.match(/^\/(p|s)\/([\w-]{1,80})$/);
       if (sh) return sharePage(res, sh[1], sh[2]);
-      if (p === '/christmas' || p === '/xmas') return page(res, 'shop.html', { stripe: true, head: shareHead({ title: 'Kinan Christmas Shop 🎄 — decorations, lights & gifts', description: 'Christmas decorations, lights, jumpers and gifts — shipped from European warehouses so they arrive before Christmas. Use code XMAS10 for 10% off.', image: '/assets/xmas-og.png', url: '/christmas', hash: '#/x/christmas' }) });
+      if (p === '/christmas' || p === '/xmas') return page(res, 'shop.html', { stripe: true, title: 'Christmas Shop — decorations, lights & gifts | Kinan', body: seo.ssrList({ title: 'Kinan Christmas Shop', intro: 'Christmas decorations, fairy lights, Christmas jumpers, gifts and baking tools — shipped from European warehouses so they arrive before Christmas. Code XMAS10 gives 10% off.', collection: 'christmas' }), head: seo.listJsonLd('Kinan Christmas Shop', seo.liveProducts().filter(({ l }) => (l.collections || []).includes('christmas')), '/christmas') + shareHead({ title: 'Kinan Christmas Shop 🎄 — decorations, lights & gifts', description: 'Christmas decorations, lights, jumpers and gifts — shipped from European warehouses so they arrive before Christmas. Use code XMAS10 for 10% off.', image: '/assets/xmas-og.png', url: '/christmas', hash: '#/x/christmas' }) });
       if (p === '/seller') return page(res, 'seller.html');
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
@@ -767,6 +779,8 @@ function startJobs() {
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
   every(30 * 60e3, () => require('./services/nss').tick());
   every(3600e3, () => require('./services/seasonal').polish('christmas', 40));
+  every(3 * 3600e3, () => seo.indexNowTick().catch((e) => console.warn('[seo] IndexNow:', e.message)));
+  setTimeout(() => seo.indexNowTick().catch((e) => console.warn('[seo] IndexNow:', e.message)), 5 * 60e3).unref();
   setTimeout(() => require('./cj/client').background(() => cjs.autoTick()).catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }

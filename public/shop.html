@@ -191,6 +191,11 @@
   .eta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .eta div { background: var(--chip); border-radius: var(--r-md); padding: 8px 10px; }
   .eta b { display: block; }
+  /* server-rendered content (shown until the app starts; read by search engines) */
+  .ssr-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .ssr-list a { display: grid; gap: 4px; text-decoration: none; color: inherit; }
+  .ssr-list img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 12px; background: var(--chip); }
+  #view > article img { width: 48%; height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 12px; margin: 0 1% 8px 0; }
   /* ---- Christmas Shop ---- */
   .xmas-band { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 14px 0 6px; padding: 16px 18px; border-radius: 18px; color: #fff8ec; text-decoration: none; overflow: hidden;
     background: radial-gradient(circle at 12% 20%, rgba(255,255,255,.18) 0 2px, transparent 3px) 0 0/34px 34px, radial-gradient(circle at 70% 60%, rgba(255,255,255,.12) 0 1.5px, transparent 2.5px) 0 0/22px 22px, linear-gradient(120deg, #8e1022, #c21d33 55%, #0f5a3c); }

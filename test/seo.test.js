@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-'));
-Object.assign(process.env, { ADMIN_EMAIL: 'boss@x.com', ADMIN_PASSWORD: 'adminpass1', PUBLIC_BASE_URL: 'https://kinan.example', GA_MEASUREMENT_ID: 'G-ABC123', CLARITY_PROJECT_ID: 'abcd1234', GOOGLE_SITE_VERIFICATION: 'verify-me_1' });
+Object.assign(process.env, { ADMIN_EMAIL: 'boss@x.com', ADMIN_PASSWORD: 'adminpass1', PUBLIC_BASE_URL: 'https://kinan.example', GA_MEASUREMENT_ID: 'G-ABC123', CLARITY_PROJECT_ID: 'abcd1234', GOOGLE_SITE_VERIFICATION: 'verify-me_1', BING_SITE_VERIFICATION: 'BING123', INDEXNOW_KEY: 'abcdef1234567890' });
 
 const auth = require('../src/auth');
 const { server } = require('../src/server');
@@ -38,6 +38,25 @@ test('seo and analytics', async () => {
   const csp = page.headers.get('content-security-policy');
   assert.match(csp, /googletagmanager\.com/); assert.match(csp, /clarity\.ms/);
   assert.doesNotMatch((await fetch(base + '/admin')).headers.get('content-security-policy'), /googletagmanager/, 'no analytics on admin');
+  // Readable without JavaScript (Bing / ChatGPT / Perplexity crawlers), titles, AI files and feeds
+  assert.match(page.text, /<main id="view" class="wrap"><nav aria-label="Breadcrumb">/); assert.match(page.text, /<h1>Jacket warm<\/h1>|<h1>Jacket &lt;b&gt;warm/);
+  assert.match(page.text, /<title>Jacket.*\| Kinan Shop<\/title>/); assert.strictEqual((page.text.match(/name="description"/g) || []).length, 1);
+  assert.match(page.text, /msvalidate\.01" content="BING123"/);
+  assert.match(rb.text, /User-agent: OAI-SearchBot\nAllow: \//);
+  assert.match(sm.text, /\/c\/men/);
+  const home = await get('/'); assert.match(home.text, new RegExp(`href="/p/${p.id}"`)); assert.match(home.text, /"@type":"Organization"/);
+  const cat = await get('/c/men'); assert.strictEqual(cat.status, 200); assert.match(cat.text, /<h1>Men’s fashion<\/h1>/); assert.match(cat.text, /"ItemList"/);
+  const llms = await get('/llms.txt'); assert.match(llms.text, /^# Kinan Shop/); assert.match(llms.text, new RegExp(`/p/${p.id}\\): from 39\\.00 USD`));
+  const oa = (await get('/feeds/openai.jsonl')).text.trim().split('\n').map((x) => JSON.parse(x));
+  assert.strictEqual(oa.length, 2); assert.strictEqual(oa[0].group_id, p.id); assert.strictEqual(oa[0].price, '39.00 USD'); assert.strictEqual(oa[1].availability, 'out_of_stock');
+  for (const k of ['item_id', 'title', 'description', 'url', 'brand', 'seller_name', 'image_url', 'availability', 'price']) assert.ok(oa[0][k], k);
+  assert.strictEqual((await get('/abcdef1234567890.txt')).text, 'abcdef1234567890');
+  const realFetch = global.fetch; let sentTo = null;
+  global.fetch = async (u, o) => { if (String(u).includes('indexnow')) { sentTo = JSON.parse(o.body); return { status: 200 }; } return realFetch(u, o); };
+  const seo = require('../src/seo');
+  assert.strictEqual(await seo.indexNowTick(), 1); assert.strictEqual(sentTo.key, 'abcdef1234567890'); assert.ok(sentTo.urlList.includes(`https://kinan.example/p/${p.id}`));
+  assert.strictEqual(await seo.indexNowTick(), 0, 'unchanged pages are not sent again');
+  global.fetch = realFetch;
   const cfg = await api('GET', '/api/config/public');
   assert.deepStrictEqual(cfg.analytics, { ga: 'G-ABC123', clarity: 'abcd1234', meta: null, tiktok: null });
 });
