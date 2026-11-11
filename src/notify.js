@@ -57,6 +57,12 @@ function sellerApproved(s) {
     lines: ['Your shop is approved. You can now add products — Kinan reviews each product before customers see it.'], button: { text: 'Add your first product', url: `${base()}/seller#/add` } }));
 }
 
+function sellerKycRejected(s, reason) {
+  push.toUser(s.user_id, { title: 'Please correct your verification', body: reason, url: '/seller' });
+  fire(mailer.send({ to: emailOf(s.user_id), key: `seller-kyc-rejected:${s.id}:${s.kyc?.decided_at}`, kind: 'seller', subject: 'Your Kinan seller verification needs a correction', title: 'Please correct your verification',
+    lines: ['Kinan could not approve your seller application yet.', `What to correct: ${reason}`, 'Open the Seller Center, fix it and send it again.'], button: { text: 'Open Seller Center', url: `${base()}/seller` } }));
+}
+
 function listingDecision(l, approved, reason) {
   push.toUser(sellerUser(l.seller_id), { title: approved ? 'Product approved' : 'Product needs changes', body: l.title, url: '/seller#/products' });
   fire(mailer.send({ to: sellerEmail(l.seller_id), key: `listing:${l.id}:${l.review?.submitted_at || l.updated_at}:${approved ? 'ok' : 'no'}`, kind: 'seller',
@@ -101,4 +107,4 @@ function returnUpdate(r) {
     button: { text: 'View order', url: `${base()}/#/orders/${r.order_id}` } }));
 }
 
-module.exports = { priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate, qcPhotos };
+module.exports = { priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate, qcPhotos };

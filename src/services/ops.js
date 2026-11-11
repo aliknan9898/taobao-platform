@@ -16,8 +16,11 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const day = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
 
 // ---------------- Backups ----------------
-function backupFile() {
-  const data = { app: 'kinan', at: new Date().toISOString(), collections: db.exportAll() };
+function backupFile({ withIdPhotos = true } = {}) {
+  const all = db.exportAll();
+  // Identity-document photos are private and large: the emailed copy leaves them out (the dashboard download keeps them)
+  if (!withIdPhotos) all.kyc_docs = [];
+  const data = { app: 'kinan', at: new Date().toISOString(), collections: all };
   const gz = zlib.gzipSync(Buffer.from(JSON.stringify(data)), { level: 9 });
   return { name: `kinan-backup-${day()}.json.gz`, body: gz, counts: Object.fromEntries(Object.entries(data.collections).map(([k, v]) => [k, v.length])) };
 }
@@ -32,7 +35,7 @@ async function dailyBackup() {
   if (!to || !mailer.enabled()) return { skipped: 'email not set up' };
   const key = `backup:${day()}`;
   if (db.mail.find((m) => m.key === key)) return { skipped: 'already sent today' };
-  const f = backupFile();
+  const f = backupFile({ withIdPhotos: false });
   if (f.body.length > 8 * 1024 * 1024) {
     require('../push').telegram(`⚠️ Today's backup is ${(f.body.length / 1048576).toFixed(1)} MB — too big for email. Download it from the admin dashboard.`);
     return { skipped: 'too big', size: f.body.length };

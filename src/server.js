@@ -320,8 +320,11 @@ r('GET', '/api/buyer/requests', BUYER, async ({ user }) => db.requests.all((x) =
 r('POST', '/api/buyer/requests', BUYER, async ({ req, user }) => shopSvc.buyerRequestView(shopSvc.createRequest(user, await readJson(req))));
 
 // Seller
-const sellerSelf = (s) => ({ id: s.id, shop_name: s.shop_name, logo: s.logo || null, description: s.description || '', return_policy: s.return_policy || '', status: s.status, commission_pct: s.commission_pct, default_markup_pct: s.default_markup_pct ?? 30, auto_pay: s.auto_pay, taobao: sellerAuth.status(s) });
+const sellerSelf = (s) => ({ verification: (({ state, reason, submitted_at }) => ({ state, reason, submitted_at }))(require('./services/kyc').view(s)), id: s.id, shop_name: s.shop_name, logo: s.logo || null, description: s.description || '', return_policy: s.return_policy || '', status: s.status, commission_pct: s.commission_pct, default_markup_pct: s.default_markup_pct ?? 30, auto_pay: s.auto_pay, taobao: sellerAuth.status(s) });
 r('GET', '/api/seller/me', SELLER, async ({ seller }) => sellerSelf(seller));
+// Identity verification: details + document + live selfie, then the admin approves the shop
+r('GET', '/api/seller/verification', SELLER, async ({ seller }) => require('./services/kyc').view(seller));
+r('POST', '/api/seller/verification', SELLER, async ({ req, seller, user }) => require('./services/kyc').submit(seller, user, await readJson(req)));
 r('PATCH', '/api/seller/me', SELLER, async ({ req, seller }) => {
   const b = await readJson(req); const patch = shopSvc.profilePatch(b);
   if (b.shop_name) patch.shop_name = String(b.shop_name).slice(0, 80);
@@ -371,6 +374,13 @@ r('POST', '/api/seller/payouts', SELLER, async ({ req, seller }) => moneySvc.req
 // Admin
 r('GET', '/api/admin/overview', STAFF, async () => admin.overview());
 r('GET', '/api/admin/sellers', ADMIN, async () => admin.sellers());
+r('GET', '/api/admin/sellers/:id/verification', ADMIN, async ({ params }) => { const sl = db.sellers.get(params.id); if (!sl) throw httpError(404, 'Seller not found'); return require('./services/kyc').adminView(sl); });
+r('GET', '/api/admin/sellers/:id/verification/:kind', ADMIN, async ({ params, res }) => {
+  const sl = db.sellers.get(params.id); if (!sl || !['id_front', 'id_back', 'selfie'].includes(params.kind)) throw httpError(404, 'Not found');
+  const img = require('./services/kyc').photo(sl, params.kind); if (!img) throw httpError(404, 'Photo not found');
+  res.writeHead(200, { 'Content-Type': img.type, 'Content-Length': img.body.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(img.body);
+});
+r('POST', '/api/admin/sellers/:id/verification', ADMIN, async ({ req, params, user }) => require('./services/kyc').decide(params.id, await readJson(req), user.id));
 r('PATCH', '/api/admin/sellers/:id', ADMIN, async ({ req, params }) => admin.updateSeller(params.id, await readJson(req)));
 r('GET', '/api/admin/orders', STAFF, async ({ url }) => admin.listOrders({ status: url.searchParams.get('status') || undefined }));
 r('GET', '/api/admin/orders/:id', STAFF, async ({ params }) => orders.decorate(db.orders.get(params.id)) || Promise.reject(httpError(404, 'Not found')));

@@ -15,7 +15,7 @@ const { config } = require('./config');
 const COLLECTIONS = [['users', 'usr'], ['sessions', 'ses'], ['sellers', 'sel'], ['listings', 'lst'], ['orders', 'ord'], ['parcels', 'pcl'],
   ['shipments', 'shp'], ['ledger', 'led'], ['inbox', 'msg'], ['oauth_states', 'st'], ['wallet', 'wal'], ['requests', 'req'], ['settings', 'set'],
   ['payouts', 'pay'], ['returns', 'ret'], ['tokens', 'tok'], ['mail', 'mail'],
-  ['coupons', 'cpn'], ['reviews', 'rev'], ['wishlist', 'wsh'], ['carts', 'crt'], ['push_subs', 'psh'], ['messages', 'chat'], ['views', 'vw']];
+  ['coupons', 'cpn'], ['reviews', 'rev'], ['wishlist', 'wsh'], ['carts', 'crt'], ['push_subs', 'psh'], ['messages', 'chat'], ['views', 'vw'], ['kyc_docs', 'kyc']];
 
 let pool = null;          // pg Pool when DATABASE_URL is used
 const cache = new Map();

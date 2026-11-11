@@ -28,6 +28,7 @@ function overview() {
   }
 
   const alerts = [];
+  for (const s of db.sellers.all((x) => x.kyc?.state === 'submitted')) alerts.push({ kind: 'seller_kyc', id: s.id, text: `New seller to verify: ${s.shop_name} — open Sellers → Review` });
   for (const o of all.filter((x) => x.status === 'attention')) alerts.push({ kind: 'order', id: o.id, text: `Order ${o.id.slice(-8)} needs attention` });
   for (const o of all) for (const s of o.sub_orders || []) {
     if (/WAIT_BUYER_P/.test(s.status) && s.pay_deadline && Number(s.pay_deadline) - Date.now() < 6 * 3600e3) {
@@ -85,12 +86,12 @@ function overview() {
 }
 
 function sellers() {
-  return db.sellers.all().map((s) => {
+  return db.sellers.all((s) => !s.system).map((s) => {
     const u = db.users.get(s.user_id);
     const led = db.ledger.all((l) => l.seller_id === s.id && l.status !== 'void');
     return {
       id: s.id, shop_name: s.shop_name, status: s.status, commission_pct: s.commission_pct, auto_pay: s.auto_pay,
-      email: u?.email, created_at: s.created_at, taobao: sellerAuth.status(s),
+      email: u?.email, created_at: s.created_at, taobao: sellerAuth.status(s), verification: require('./kyc').summary(s),
       listings: db.listings.all((l) => l.seller_id === s.id && l.status === 'active').length,
       gross: money(led.reduce((a, l) => a + l.gross, 0)), net: money(led.reduce((a, l) => a + l.net, 0))
     };

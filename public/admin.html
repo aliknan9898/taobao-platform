@@ -259,16 +259,18 @@ const VIEWS = {
 
   async sellers(v) {
     const list = await api('/api/admin/sellers');
-    v.innerHTML = `<div class="card"><h2>Sellers</h2><div class="scroll"><table><thead><tr><th>Shop</th><th>Email</th><th>Taobao</th><th>Products</th><th>Sales</th><th>Commission %</th><th>Status</th><th></th></tr></thead><tbody>
-      ${list.map((s) => `<tr><td><b>${esc(s.shop_name)}</b></td><td class="muted">${esc(s.email)}</td>
+    v.innerHTML = `<div class="card"><h2>Sellers</h2><div class="scroll"><table><thead><tr><th>Shop</th><th>Email</th><th>Identity</th><th>Taobao</th><th>Products</th><th>Sales</th><th>Commission %</th><th>Status</th><th></th></tr></thead><tbody>
+      ${list.sort((a, b) => (b.verification.state === 'submitted') - (a.verification.state === 'submitted')).map((s) => `<tr><td><b>${esc(s.shop_name)}</b></td><td class="muted">${esc(s.email)}</td>
+        <td>${{ none: '<span class="pill">Not sent</span>', submitted: `<button class="btn" data-kyc="${esc(s.id)}">Review</button>`, approved: `<button class="btn ghost" data-kyc="${esc(s.id)}">✓ Verified</button>`, rejected: `<button class="btn ghost" data-kyc="${esc(s.id)}">Correction asked</button>` }[s.verification.state] || ''}</td>
         <td>${s.taobao.connected ? `<span class="pill ok">Connected</span>${s.taobao.needs_reauth_soon ? ' <span class="pill warn">Expires soon</span>' : ''}` : '<span class="pill bad">Not connected</span>'}</td>
         <td>${s.listings}</td><td>${fmt(s.gross)}</td>
         <td><input type="number" min="0" max="50" step="0.5" value="${s.commission_pct}" style="width:70px" data-com="${esc(s.id)}"></td>
         <td><span class="pill ${statusClass(s.status)}">${{ pending:'Awaiting approval', active:'Active', suspended:'Suspended' }[s.status]}</span></td>
-        <td class="row">${s.status !== 'active' ? `<button class="btn" data-st="active" data-id="${esc(s.id)}">Activate</button>` : `<button class="btn ghost" data-st="suspended" data-id="${esc(s.id)}">Suspend</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No sellers</td></tr>'}
+        <td class="row">${s.status !== 'active' ? `<button class="btn" data-st="active" data-id="${esc(s.id)}">Activate</button>` : `<button class="btn ghost" data-st="suspended" data-id="${esc(s.id)}">Suspend</button>`}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">No sellers</td></tr>'}
       </tbody></table></div><p class="muted">Each seller connects their own Distribution Platform account; Taobao purchases are made and paid from that account.</p></div>`;
     v.querySelectorAll('[data-st]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/sellers/${b.dataset.id}`, 'PATCH', { status: b.dataset.st }); } catch (e) { alert(e.message); } render(); });
     v.querySelectorAll('[data-com]').forEach((i) => i.onchange = async () => { try { await api(`/api/admin/sellers/${i.dataset.com}`, 'PATCH', { commission_pct: Number(i.value) }); } catch (e) { alert(e.message); render(); } });
+    v.querySelectorAll('[data-kyc]').forEach((b) => b.onclick = () => openKyc(b.dataset.kyc));
   },
 
   async listings(v) {
@@ -538,6 +540,28 @@ async function openWallet(userId, email) {
     <div class="row"><button class="btn ghost" id="close">Close</button></div>`;
   $('#close').onclick = () => { d.close(); render(); };
   $('#wf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api(`/api/admin/wallet/${userId}`, 'POST', { amount: Number(f.amount), reason: f.reason }); openWallet(userId, email); } catch (err) { $('#we').textContent = err.message; } };
+}
+
+/** Seller identity check: details, document photos and live selfie side by side. */
+async function openKyc(id) {
+  const d = $('#dlg'); const b = $('#dlgBody'); b.innerHTML = '<p class="muted">Loading…</p>'; d.showModal();
+  const k = await api(`/api/admin/sellers/${id}/verification`); const x = k.details || {};
+  const age = x.date_of_birth ? Math.floor((Date.now() - new Date(x.date_of_birth)) / (365.25 * 86400e3)) : null;
+  const row = (t, v) => v ? `<tr><td class="muted">${t}</td><td><b>${esc(v)}</b></td></tr>` : '';
+  const pic = (kind, t) => k.has[kind] ? `<figure style="margin:0;display:grid;gap:4px"><a href="/api/admin/sellers/${esc(id)}/verification/${kind}" target="_blank"><img src="/api/admin/sellers/${esc(id)}/verification/${kind}" alt="${t}" style="width:100%;max-height:260px;object-fit:contain;border-radius:10px;background:#f1f3f7"></a><figcaption class="muted">${t}</figcaption></figure>` : '';
+  b.innerHTML = `<div class="row" style="justify-content:space-between"><h2>Seller verification — ${esc(k.shop_name)}</h2><span class="pill ${k.state === 'approved' ? 'ok' : k.state === 'rejected' ? 'bad' : 'warn'}">${esc({ submitted: 'Waiting for review', approved: 'Verified', rejected: 'Correction asked', none: 'Not sent' }[k.state])}</span></div>
+    <div class="muted">${esc(k.email || '')}${k.submitted_at ? ` · sent ${date(k.submitted_at)}` : ''}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:10px 0">${pic('selfie', 'Live selfie')}${pic('id_front', 'Document — front / photo page')}${pic('id_back', 'Document — back')}</div>
+    <table>${row('Full name', x.full_name)}${row('Date of birth', x.date_of_birth ? `${x.date_of_birth}${age !== null ? ` (${age} years)` : ''}` : '')}${row('Nationality', x.nationality)}${row('Phone', x.phone)}
+      ${row('Address', [x.address, x.city, x.postal_code, x.country].filter(Boolean).join(', '))}${row('Shop name', x.shop_name)}${row('Seller type', x.business_type === 'company' ? `Company — ${x.company_name}${x.company_number ? ` (${x.company_number})` : ''}` : 'Individual')}
+      ${row('Document', `${k.id_type_label || ''} ${x.id_number || ''}${x.id_expiry ? ` · expires ${x.id_expiry}` : ''}`)}${row('Will sell', x.products)}</table>
+    <p class="muted">Check that the face in the selfie matches the document photo, that the name and date of birth match the document, and that the document is not expired.</p>
+    ${k.state === 'submitted' || k.state === 'rejected' ? `<div class="row"><input id="kreason" placeholder="If something is wrong: what must the seller correct?" style="flex:1;min-width:220px"><button class="btn ghost bad" id="krej">Ask for correction</button><button class="btn" id="kok">Approve seller</button></div>` : ''}
+    ${k.reason ? `<p class="muted">Last note to the seller: “${esc(k.reason)}”</p>` : ''}
+    <div class="err" id="ke"></div><div class="row"><button class="btn ghost" id="close">Close</button></div>`;
+  $('#close').onclick = () => { d.close(); render(); };
+  const act = (approve) => async (e) => { e.target.disabled = true; try { await api(`/api/admin/sellers/${id}/verification`, 'POST', { approve, reason: $('#kreason')?.value || '' }); d.close(); render(); } catch (err) { $('#ke').textContent = err.message; e.target.disabled = false; } };
+  if ($('#kok')) { $('#kok').onclick = act(true); $('#krej').onclick = act(false); }
 }
 
 const STATUS_LABEL = { pending_payment:'Awaiting payment', paid:'Paid', procuring:'Buying', awaiting_parcels:'Awaiting parcels', ready_to_ship:'Ready to ship', shipped:'Shipped', delivered:'Delivered', cancelled:'Cancelled', refunded:'Refunded', attention:'Needs attention' };

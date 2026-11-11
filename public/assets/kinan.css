@@ -185,3 +185,5 @@ html[dir="rtl"] input[name="iban"], html[dir="rtl"] input[name="bic"], html[dir=
 .consent { position: fixed; inset-inline: 12px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 90; max-width: 520px; margin-inline: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; box-shadow: 0 10px 30px rgba(0,0,0,.15); display: grid; gap: 10px; font-size: 14px; }
 .consent p { margin: 0; color: var(--ink-2); }
 @media (min-width: 761px) { .consent { bottom: 20px; } }
+
+[hidden] { display: none !important; }
