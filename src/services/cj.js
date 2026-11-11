@@ -81,11 +81,13 @@ const stripHtml = (h) => String(h || '').replace(/<(br|\/p|\/div|\/li)\s*\/?>/gi
 const sumInv = (arr) => list(arr).reduce((a, x) => a + (Number(x.totalInventory ?? x.totalInventoryNum ?? x.storageNum ?? x.cjInventory) || 0), 0);
 
 /** CJ product (from /product/query) → Kinan's shape. Costs are in USD. */
-function normalize(p) {
+function normalize(p, { from } = {}) {
   if (!p || !(p.pid || p.id)) throw httpError(404, 'Product not found on CJdropshipping');
   const pid = String(p.pid || p.id);
   const images = [...new Set([p.bigImage, p.bigimg, ...list(p.productImageSet), ...list(p.productImage), ...list(p.newImgList)].map(httpsImg).filter(Boolean))].slice(0, 10);
-  const invByVid = new Map(list(p.variantInventory).map((x) => [String(x.vid), sumInv(x.inventory)]));
+  // From a warehouse country (e.g. DE): only the stock kept in that country counts
+  const inCountry = (arr) => (from && list(arr).some((x) => x.countryCode) ? list(arr).filter((x) => String(x.countryCode).toUpperCase() === from) : arr);
+  const invByVid = new Map(list(p.variantInventory).map((x) => [String(x.vid), sumInv(inCountry(x.inventory))]));
   const vars = list(p.variants || p.stanProducts);
   // Option names, e.g. productKeyEn "Color-Size" + variantKey "Sky blue-S" → Color: Sky blue, Size: S
   const keys = String(p.productKeyEn || p.productKey || '').split(/[-–]/).map((x) => x.trim()).filter(Boolean);
@@ -101,7 +103,7 @@ function normalize(p) {
   const skus = vars.map((v) => {
     const vid = String(v.vid || v.id || '');
     const cost = Number(v.variantSellPrice ?? v.sellPrice ?? p.sellPrice);
-    const inv = v.inventories ? sumInv(v.inventories) : invByVid.has(vid) ? invByVid.get(vid) : null;
+    const inv = v.inventories ? sumInv(inCountry(v.inventories)) : invByVid.has(vid) ? invByVid.get(vid) : null;
     return {
       cj_vid: vid, mp_sku_id: `cj_${vid}`, cj_sku: str(v.variantSku, 80), props: str(v.variantKey || v.variantNameEn || v.variantName || '', 120),
       opts: optsOf(v.variantKey),
@@ -118,8 +120,11 @@ function normalize(p) {
   };
 }
 
-async function fetchProduct(ref) {
+/** ref: link / SKU / { pid }. from: a CJ warehouse country (DE, FR, GB…) — only that warehouse's stock is used. */
+async function fetchProduct(ref, { from } = {}) {
   const q = typeof ref === 'string' ? parseRef(ref) : ref;
+  from = /^[A-Z]{2}$/.test(String(from || '')) && from !== 'CN' ? from : undefined;
+  if (from) { try { return { ...normalize(await cj.call('GET', '/product/query', { query: { ...q, countryCode: from } }), { from }), from }; } catch (e) { if (!(e.status === 404 || /not found|1602001/i.test(`${e.message} ${e.code}`))) throw e; } }
   try { return normalize(await cj.call('GET', '/product/query', { query: q })); }
   catch (e) {
     // A SKU copied from a product option (e.g. CJQB188313305EV) is a variant SKU: look the product up by it
@@ -162,9 +167,9 @@ async function categories() {
 }
 
 /** Import (or re-import) a CJ product for a shop. Kinan's own shop goes live at once; sellers' products are reviewed. */
-async function publish(seller, { ref, prices = {}, title, description, category, markup_pct } = {}) {
+async function publish(seller, { ref, prices = {}, title, description, category, markup_pct, from, extra = {} } = {}) {
   if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
-  const p = await fetchProduct(ref);
+  const p = await fetchProduct(ref, { from });
   const existing = db.listings.find((l) => l.seller_id === seller.id && l.source === 'cj' && l.cj_pid === p.cj_pid);
   const pct = markup_pct ?? seller.default_markup_pct ?? prefs().markup_pct;
   const skus = p.skus.map((s) => {
@@ -181,7 +186,7 @@ async function publish(seller, { ref, prices = {}, title, description, category,
     seller_id: seller.id, source: 'cj', fulfillment: 'direct', cj_pid: p.cj_pid, cj_sku: p.cj_sku, source_link: p.source_link,
     taobao_item_id: null, mp_id: null, item_type: 'CJ', title: newTitle, description: newDesc, custom_description: true,
     images: p.images, own_images: existing?.own_images || [], weight_kg: p.weight_kg, begin_amount: 1, currency: config.currency, skus,
-    last_synced_at: now(), sync_error: null,
+    last_synced_at: now(), sync_error: null, cj_from: p.from || null, ...extra,
     ...(own ? { status: 'active', review: { state: 'approved', decided_at: now(), note: 'Kinan shop (CJ)' } } : keep ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: now() } })
   };
   return existing ? db.listings.update(existing.id, doc) : db.listings.insert(doc);
@@ -191,7 +196,7 @@ async function publish(seller, { ref, prices = {}, title, description, category,
 async function resync(l) {
   if (!cj.enabled() || l.source !== 'cj' || !l.cj_pid) return l;
   try {
-    const p = await fetchProduct({ pid: l.cj_pid });
+    const p = await fetchProduct({ pid: l.cj_pid }, { from: l.cj_from });
     const by = new Map(p.skus.map((s) => [s.cj_vid, s]));
     const skus = l.skus.map((s) => { const f = by.get(s.cj_vid); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock, opts: f.opts, image: f.image || s.image || null } : { ...s, stock: 0 }; });
     return db.listings.update(l.id, { skus, last_synced_at: now(), sync_error: null, ...(l.status === 'unavailable' && skus.some((s) => s.stock > 0) ? { status: 'active' } : {}) });
@@ -213,10 +218,11 @@ async function resyncStale(max = 200) {
 // ---------------- shipping at checkout ----------------
 const fcache = new Map();
 /** CJ's shipping options for these variants to a country (cached 6 hours). */
-async function freightOptions(countryCode, items) {
-  const key = `${countryCode}|${items.map((i) => `${i.vid}x${i.qty}`).sort().join(',')}`;
+async function freightOptions(countryCode, items, from = 'CN') {
+  from = /^[A-Z]{2}$/.test(String(from || '')) ? from : 'CN';
+  const key = `${from}>${countryCode}|${items.map((i) => `${i.vid}x${i.qty}`).sort().join(',')}`;
   const c = fcache.get(key); if (c && now() - c.at < 6 * 3600e3) return c.v;
-  const d = await cj.call('POST', '/logistic/freightCalculate', { body: { startCountryCode: 'CN', endCountryCode: countryCode, products: items.map((i) => ({ vid: i.vid, quantity: i.qty })) } });
+  const d = await cj.call('POST', '/logistic/freightCalculate', { body: { startCountryCode: from, endCountryCode: countryCode, products: items.map((i) => ({ vid: i.vid, quantity: i.qty })) } });
   const v = list(d).map((o) => {
     const m = String(o.logisticAging || '').match(/(\d+)\D+(\d+)/) || String(o.logisticAging || '').match(/(\d+)/);
     return { method: o.logisticName, fee: money(Number(o.totalPostageFee ?? o.logisticPrice) || 0), days: o.logisticAging || '', min: m ? Number(m[1]) : null, max: m ? Number(m[2] || m[1]) : null };
@@ -249,7 +255,7 @@ async function warmUp() {
       if (!vid) continue;
       const k = l.cj_ship && l.cj_ship[cc]; if (k && now() - k.at < SHIP_TTL && k.vid === vid) continue;
       let fee = FALLBACK; let estimated = true;
-      try { const o = choose(await freightOptions(cc, [{ vid, qty: 1 }])); if (o) { fee = o.fee; estimated = false; } else stats.none++; }
+      try { const o = choose(await freightOptions(cc, [{ vid, qty: 1 }], l.cj_from || 'CN')); if (o) { fee = o.fee; estimated = false; } else stats.none++; }
       catch (e) { stats.failed++; stats.last_error = e.message; }
       // CJ has no price for it (or did not answer): use the same standard shipping the product page and checkout use
       db.listings.update(id, (x) => ({ ...x, cj_ship: { ...(x.cj_ship || {}), [cc]: { fee, vid, at: estimated ? now() - SHIP_TTL + 3600e3 : now(), estimated } } }));
@@ -285,17 +291,22 @@ async function quote(items, countryCode) {
     const l = db.listings.get(it.listing_id);
     if (!l || l.source !== 'cj') return null;
     const s = l.skus.find((x) => x.mp_sku_id === it.mp_sku_id) || l.skus[0];
-    return s?.cj_vid ? { vid: s.cj_vid, qty: Math.max(1, Math.floor(Number(it.qty) || 1)) } : null;
+    return s?.cj_vid ? { vid: s.cj_vid, qty: Math.max(1, Math.floor(Number(it.qty) || 1)), from: l.cj_from || 'CN' } : null;
   }).filter(Boolean);
   if (!lines.length) return null;
   if (!countryCode) return { fee: 0, method: null, days: null, pending_country: true };
-  try {
-    const opt = choose(await freightOptions(countryCode, lines));
-    if (!opt) return { fee: money(FALLBACK), method: null, days: null, estimated: true, note: 'CJ has no shipping method to this country for these items' };
-    return { fee: opt.fee, method: opt.method, days: opt.days };
-  } catch (e) {
-    return { fee: money(FALLBACK), method: null, days: null, estimated: true, note: e.message };
+  // Items kept in different CJ warehouses (China, Germany…) travel as separate parcels: one price per warehouse
+  const groups = new Map(); for (const x of lines) { if (!groups.has(x.from)) groups.set(x.from, []); groups.get(x.from).push({ vid: x.vid, qty: x.qty }); }
+  let fee = 0; const methods = {}; const days = []; let estimated = false; let note;
+  for (const [from, items] of groups) {
+    try {
+      const opt = choose(await freightOptions(countryCode, items, from));
+      if (!opt) { fee += FALLBACK; estimated = true; note = 'CJ has no shipping method to this country for these items'; continue; }
+      fee += opt.fee; methods[from] = opt.method; if (opt.days) days.push(opt.days);
+    } catch (e) { fee += FALLBACK; estimated = true; note = e.message; }
   }
+  const one = Object.values(methods);
+  return { fee: money(fee), method: groups.size === 1 ? one[0] || null : null, methods, days: days.join(' / ') || null, ...(estimated ? { estimated: true, note } : {}) };
 }
 
 // ---------------- orders ----------------
@@ -303,8 +314,9 @@ const STATUS = { CREATED: 'AE_PLACED', IN_CART: 'AE_PLACED', UNPAID: 'AE_PLACED'
 const LABEL = { AE_TO_BUY: 'To order on CJ', AE_PLACED: 'Created on CJ — waiting for payment', AE_PAID: 'Paid — CJ is preparing it', AE_SHIPPED: 'Shipped to the customer', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Cancelled on CJ' };
 
 function newDirectSub(o, sellerId, lines) {
+  const from = lines[0].cj_from || 'CN';
   return {
-    seller_id: sellerId, order_id: o.id, outer_purchase_id: `CJ${o.id.slice(-8).toUpperCase()}${sellerId.slice(-4).toUpperCase()}`,
+    seller_id: sellerId, order_id: o.id, outer_purchase_id: `CJ${o.id.slice(-8).toUpperCase()}${sellerId.slice(-4).toUpperCase()}${from !== 'CN' ? from : ''}`, cj_from: from,
     line_nos: lines.map((l) => l.line_no), direct: true, source: 'cj', status: 'AE_TO_BUY', purchase_ids: [], logistics: [], error: null,
     links: lines.map((l) => ({ title: l.title, props: l.props, qty: l.qty, link: l.source_link || '' }))
   };
@@ -319,13 +331,14 @@ async function place(o, sub, lines) {
   if (!a.country_code) { sub.error = 'Customer country is not recognised'; return sub; }
   if (lines.some((l) => !l.cj_vid)) { sub.error = 'An item has no CJ variant — check the product'; return sub; }
   const items = lines.map((l) => ({ vid: l.cj_vid, qty: l.qty }));
-  let method = o.cj_shipping?.method;
-  if (!method) { try { method = choose(await freightOptions(a.country_code, items))?.method; } catch { /* below */ } }
+  const from = sub.cj_from || lines[0].cj_from || 'CN';
+  let method = o.cj_shipping?.methods?.[from] || (from === 'CN' ? o.cj_shipping?.method : null);
+  if (!method) { try { method = choose(await freightOptions(a.country_code, items, from))?.method; } catch { /* below */ } }
   if (!method) { sub.error = 'CJ has no shipping method to this country for these items'; return sub; }
   const body = {
-    orderNumber: `${o.id}-${sub.seller_id.slice(-4)}`.slice(0, 50), shippingCountryCode: a.country_code, shippingCountry: a.country || a.country_code,
+    orderNumber: `${o.id}-${sub.seller_id.slice(-4)}${from !== 'CN' ? `-${from}` : ''}`.slice(0, 50), shippingCountryCode: a.country_code, shippingCountry: a.country || a.country_code,
     shippingProvince: str(a.state || a.city, 50), shippingCity: str(a.city, 50), shippingCustomerName: str(a.name, 50), shippingAddress: str(a.line1, 500),
-    shippingAddress2: str(a.line2, 200), shippingZip: str(a.postal_code, 20), shippingPhone: str(a.phone, 30), logisticName: method, fromCountryCode: 'CN',
+    shippingAddress2: str(a.line2, 200), shippingZip: str(a.postal_code, 20), shippingPhone: str(a.phone, 30), logisticName: method, fromCountryCode: from,
     payType: 3, remark: `Kinan ${o.id.slice(-8).toUpperCase()} — no invoice or prices in the parcel please`,
     products: lines.map((l) => ({ vid: l.cj_vid, quantity: l.qty, storeLineItemId: `${o.id}-${l.line_no}` })),
     ...(isTest(o) ? { isSandbox: 1 } : {})

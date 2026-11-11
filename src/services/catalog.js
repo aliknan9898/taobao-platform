@@ -260,13 +260,14 @@ function imageData(kind, id, n) {
 }
 
 /** Buyer catalog: only active listings of active sellers. Cost is never exposed to buyers. */
-function browse({ q = '', seller_id, category, sort = 'new', min_price, max_price, limit = 40, offset = 0, country } = {}) {
+function browse({ q = '', seller_id, category, collection, group, sort = 'new', min_price, max_price, limit = 40, offset = 0, country } = {}) {
   const activeSellers = new Map(db.sellers.all((s) => s.status === 'active').map((s) => [s.id, s]));
   const needle = String(q).toLowerCase().trim();
   const lo = Number(min_price) || 0; const hi = Number(max_price) || Infinity;
   let items = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id)
     && (!seller_id || l.seller_id === seller_id)
     && (!category || (l.category || 'other') === category)
+    && (!collection || (l.collections || []).includes(collection)) && (!group || l.collection_group === group)
     && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (l.keywords || []).some((k) => k.includes(needle) || needle.includes(k)) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
     .map((l) => toBuyerView(l, activeSellers.get(l.seller_id)))
     .filter((p) => p.min_price >= lo && p.min_price <= hi);
@@ -325,7 +326,7 @@ function toBuyerView(l, seller) {
   return {
     id: l.id, title: l.title, images: visibleImages(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
-    listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(['cj', 'banggood'].includes(l.source) ? { ship_extra: true } : {}), category: l.category || 'other',
+    listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(['cj', 'banggood'].includes(l.source) ? { ship_extra: true } : {}), category: l.category || 'other', ...((l.collections || []).length ? { collections: l.collections } : {}), ...(l.cj_from && l.cj_from !== 'CN' ? { ships_from: l.cj_from } : {}),
     min_price: Math.min(...l.skus.map((s) => s.price)), ...require('./growth').ratingFor(l.id),
     ...(() => { const og = optionGroups(l.skus); return {
       option_groups: og ? og.groups : null,

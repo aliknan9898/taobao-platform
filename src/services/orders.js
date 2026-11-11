@@ -100,7 +100,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       line_no: String(lines.length + 1), listing_id: l.id, seller_id: l.seller_id,
       mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: sku.props,
       ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
-      ...(l.fulfillment === 'direct' && l.source === 'cj' ? { direct: true, source: 'cj', source_link: l.source_link || '', cj_pid: l.cj_pid, cj_vid: sku.cj_vid, cost_sale: sku.cost_sale ?? null } : {}),
+      ...(l.fulfillment === 'direct' && l.source === 'cj' ? { direct: true, source: 'cj', source_link: l.source_link || '', cj_pid: l.cj_pid, cj_vid: sku.cj_vid, cj_from: l.cj_from || 'CN', cost_sale: sku.cost_sale ?? null } : {}),
       ...(l.fulfillment === 'direct' && l.source === 'banggood' ? { direct: true, source: 'banggood', source_link: l.source_link || '', bg_pid: l.bg_pid, bg_poa: sku.bg_poa || '', bg_warehouse: l.bg_warehouse || 'CN', cost_sale: sku.cost_sale ?? null } : {}),
       ...(l.fulfillment === 'direct' && !['cj', 'banggood'].includes(l.source) ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
       image: (l.own_images || []).length ? catalog.photoUrl(l, 0, l.own_images[0]) : (l.images || [])[0] || null,
@@ -124,7 +124,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     ...(disc ? { discount, coupon_code: disc.code, coupon_id: disc.coupon_id } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
-    ...(cjShip ? { cj_shipping: { method: cjShip.method, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
+    ...(cjShip ? { cj_shipping: { method: cjShip.method, methods: cjShip.methods || {}, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
     ...(bgShip ? { bg_shipping: { fee: bgShip.fee, days: bgShip.days, methods: bgShip.methods || [], estimated: Boolean(bgShip.estimated) } } : {}),
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
   });
@@ -272,10 +272,11 @@ async function procure(orderId) {
   const subs = [...(o.sub_orders || [])];
 
   // AliExpress / CJ items ship straight to the customer: one direct sub-order per seller and supplier
-  const directGroups = groupBy(o.lines.filter((l) => l.direct).map((l) => ({ ...l, _g: `${l.seller_id}|${l.source || 'aliexpress'}` })), '_g');
+  const directGroups = groupBy(o.lines.filter((l) => l.direct).map((l) => ({ ...l, _g: `${l.seller_id}|${l.source || 'aliexpress'}|${l.source === 'cj' ? l.cj_from || 'CN' : ''}` })), '_g');
   for (const lines of Object.values(directGroups)) {
     const sellerId = lines[0].seller_id; const src = lines[0].source || 'aliexpress';
-    let sub = subs.find((s) => s.direct && s.seller_id === sellerId && (s.source || 'aliexpress') === src);
+    const from = src === 'cj' ? lines[0].cj_from || 'CN' : null; // CJ: one order per warehouse country
+    let sub = subs.find((s) => s.direct && s.seller_id === sellerId && (s.source || 'aliexpress') === src && (!from || (s.cj_from || 'CN') === from));
     if (sub && !(sub.status === 'AE_TO_BUY' && !sub.purchase_ids?.length)) continue;
     if (!sub) { sub = provider(src).newDirectSub(o, sellerId, lines); subs.push(sub); }
     db.orders.update(o.id, { sub_orders: subs });

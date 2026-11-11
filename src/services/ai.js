@@ -139,4 +139,64 @@ async function assist(seller, b = {}) {
   };
 }
 
-module.exports = { enabled, assist, cleanKeywords };
+const COPY_TOOL = {
+  name: 'product_copy',
+  description: 'Return shop copy for every product, in the order received.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      products: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            index: { type: 'integer' },
+            title: { type: 'string', description: 'Warm, clear English title, 35–80 characters, Title Case, no emoji.' },
+            description: { type: 'string', description: 'English, plain text: one inviting sentence, then 3–5 "• " lines with the real facts (material, size, what is in the box, power). 300–800 characters.' },
+            title_ar: { type: 'string' }, description_ar: { type: 'string' },
+            keywords: { type: 'array', items: { type: 'string' } },
+            ad_line: { type: 'string', description: 'One short social-media ad line in English, up to 70 characters, may use one emoji.' }
+          },
+          required: ['index', 'title', 'description', 'title_ar', 'description_ar', 'keywords', 'ad_line']
+        }
+      }
+    },
+    required: ['products']
+  }
+};
+
+/**
+ * Shop copy for imported products (e.g. the Christmas collection), up to 10 per call.
+ * items = [{ title, description, options[] }]; theme = a short note such as "Christmas gifts".
+ */
+async function copywrite(items, theme = '') {
+  if (!enabled()) throw httpError(503, 'The AI assistant is not switched on yet');
+  const text = items.slice(0, 10).map((it, i) => `#${i + 1}\nSupplier title: ${s(it.title, 300)}\nSupplier description: ${s(it.description, 1500)}\nOptions: ${(it.options || []).slice(0, 12).join(' | ')}`).join('\n\n');
+  const res = await fetch(API, {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: model(), max_tokens: 6000,
+      system: [
+        `You write product copy for Kinan, an online shop for families in Europe and the UK.${theme ? ` Collection: ${theme}.` : ''}`,
+        '- Use only facts in the supplier text. Never invent materials, sizes, certifications, brands or numbers; leave unknown facts out.',
+        '- Do not mention China, CJ, dropshipping, suppliers, factories, "wholesale", "cross-border", Amazon or other shops.',
+        '- No brand or trademark names, no prices, no delivery promises, no ALL CAPS. Plain text.',
+        '- Arabic versions say the same thing naturally. Keywords: 8–12, English first then a few Arabic, lower case.',
+        'Always answer by calling the product_copy tool.'
+      ].join('\n'),
+      tools: [COPY_TOOL], tool_choice: { type: 'tool', name: COPY_TOOL.name },
+      messages: [{ role: 'user', content: text }]
+    }),
+    signal: AbortSignal.timeout(120000)
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw httpError(502, `AI copy failed (${res.status} ${j.error?.message || ''})`);
+  const out = (j.content || []).find((c) => c.type === 'tool_use')?.input?.products || [];
+  return items.slice(0, 10).map((_, i) => {
+    const o = out.find((x) => Number(x.index) === i + 1) || out[i];
+    return o ? { title: s(o.title, 120), description: s(o.description, 3000).replace(/<[^>]*>/g, ''), title_ar: s(o.title_ar, 200), description_ar: s(o.description_ar, 4000).replace(/<[^>]*>/g, ''), keywords: cleanKeywords(o.keywords), ad_line: s(o.ad_line, 90) } : null;
+  });
+}
+
+module.exports = { enabled, assist, cleanKeywords, copywrite };

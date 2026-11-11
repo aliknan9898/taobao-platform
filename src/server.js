@@ -279,7 +279,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const extra = (c?.fee || 0) + (g?.fee || 0);
   return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note };
 });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), collections: require('./services/seasonal').publicInfo(), countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -498,6 +498,15 @@ r('GET', '/api/admin/orders/:id/messages', CARE, async ({ params }) => { const o
 r('POST', '/api/admin/orders/:id/messages', CARE, async ({ req, user, params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); const b = await readJson(req); return messages.post(o, { role: 'staff', user }, { thread: 'kinan', text: b.text }); });
 r('GET', '/api/admin/backup', ADMIN, async ({ res }) => { const f = ops.backupFile(); res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="${f.name}"`, 'Content-Length': f.body.length, 'Cache-Control': 'no-store' }); res.end(f.body); });
 r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${new Date().toISOString().slice(0, 10)}`; for (const m of db.mail.all((x) => x.key === k)) db.mail.remove(m.id); return { ...(await ops.dailyBackup()), to: ops.backupRecipient() }; });
+// Seasonal collections (Christmas Shop from CJ's European warehouses)
+r('GET', '/api/admin/collections/:id', ADMIN, async ({ params }) => { const sz = require('./services/seasonal'); return { state: sz.state(params.id), rows: sz.rows(params.id) }; });
+r('POST', '/api/admin/collections/:id/import', ADMIN, async ({ req, params }) => { const sz = require('./services/seasonal'); const b = await readJson(req); if (!sz.COLLECTIONS[params.id]) throw httpError(404, 'Unknown collection'); require('./cj/client').background(() => sz.importCollection(params.id, b, 'admin')).catch((e) => console.warn('[xmas]', e.message)); return { started: true, state: sz.state(params.id) }; });
+r('POST', '/api/admin/collections/:id/polish', ADMIN, async ({ params }) => ({ rewritten: await require('./services/seasonal').polish(params.id) }));
+r('GET', '/api/admin/collections/:id/export.csv', ADMIN, async ({ params, res }) => {
+  const body = require('./services/seasonal').csv(params.id);
+  res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="kinan-${params.id}-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' });
+  res.end(body);
+});
 r('GET', '/api/admin/coupons', ADMIN, async () => db.coupons.all().sort((a, b) => b.created_at - a.created_at).map(({ used_by, ...c }) => c));
 r('POST', '/api/admin/coupons', ADMIN, async ({ req }) => growth.saveCoupon(await readJson(req)));
 r('PATCH', '/api/admin/coupons/:id', ADMIN, async ({ req, params }) => { const c = db.coupons.get(params.id); if (!c) throw httpError(404, 'Not found'); const b = await readJson(req); return Object.keys(b).length === 1 && 'active' in b ? db.coupons.update(c.id, { active: Boolean(b.active) }) : growth.saveCoupon({ ...c, ...b }, c.id); });
@@ -617,6 +626,7 @@ const server = http.createServer(async (req, res) => {
       }
       const sh = p.match(/^\/(p|s)\/([\w-]{1,80})$/);
       if (sh) return sharePage(res, sh[1], sh[2]);
+      if (p === '/christmas' || p === '/xmas') return page(res, 'shop.html', { stripe: true, head: shareHead({ title: 'Kinan Christmas Shop 🎄 — decorations, lights & gifts', description: 'Christmas decorations, lights, jumpers and gifts — shipped from European warehouses so they arrive before Christmas. Use code XMAS10 for 10% off.', image: '/assets/xmas-og.png', url: '/christmas', hash: '#/x/christmas' }) });
       if (p === '/seller') return page(res, 'seller.html');
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
@@ -756,6 +766,7 @@ function startJobs() {
   every(3600e3, async () => { const b = require('./services/banggood'); await b.updateTick(); const h = new Date().getUTCHours(); if (h === 4) await b.resyncStale(300); if (h === 5) await b.refreshLimits(); });
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
   every(30 * 60e3, () => require('./services/nss').tick());
+  every(3600e3, () => require('./services/seasonal').polish('christmas', 40));
   setTimeout(() => require('./cj/client').background(() => cjs.autoTick()).catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }
@@ -788,6 +799,9 @@ if (require.main === module) (async () => {
   setInterval(() => fx.refresh().catch((e) => console.warn('[fx]', e.message)), 6 * 3600e3).unref();
   require('./services/uptime').setup().then((r) => { if (r.ok) console.log(`[uptime] monitoring on (${r.created ? 'new monitor' : 'monitor already there'})`); }).catch((e) => console.warn('[uptime]', e.message));
   try { sellerAuth.adoptOwnerToken(); } catch (e) { console.warn('[taobao] adopt:', e.message); }
+  // Christmas Shop: the XMAS10 coupon, and the CJ import once after deploy (after the CJ webhooks/options work)
+  try { require('./services/seasonal').ensureCoupon(); } catch (e) { console.warn('[xmas] coupon:', e.message); }
+  setTimeout(() => { try { if (require('./services/seasonal').autoStart()) console.log('[xmas] Christmas Shop import queued'); } catch (e) { console.warn('[xmas]', e.message); } }, 20e3).unref();
   // Banggood: sign in once at start so the logs show whether the keys and the server IP are accepted
   if (require('./banggood/client').enabled()) require('./banggood/client').token({ force: true }).then(() => console.log('[banggood] connected — keys and server IP accepted')).catch((e) => console.warn('[banggood] not connected:', e.message));
   if (require('./cj/client').enabled()) require('./cj/client').background(async () => { await cjs.registerWebhooks().catch((e) => console.warn('[cj] webhooks:', e.message)); await cjs.upgradeOptions().catch((e) => console.warn('[cj] options:', e.message)); });
