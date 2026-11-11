@@ -170,6 +170,13 @@ function errorAlert(text) { if (Date.now() - lastErrAlert < 10 * 60e3) return; l
 process.on('unhandledRejection', (e) => { console.error('[unhandled]', e?.message || e); errorAlert(`Unhandled: ${e?.message || e}`); });
 
 /** Send a stored photo ({ type, body }) as an image response. */
+/** The app's language (sent by the apps) or, failing that, the browser/phone language. */
+function reqLang(req) {
+  const h = String(req.headers['x-kinan-lang'] || '').toLowerCase();
+  if (h === 'ar' || h === 'en') return h;
+  const al = String(req.headers['accept-language'] || '').toLowerCase();
+  return al.startsWith('ar') ? 'ar' : /^[a-z]{2}/.test(al) ? 'en' : null;
+}
 function sendImage(res, img) {
   if (!img) throw httpError(404, 'Photo not found');
   res.writeHead(200, { 'Content-Type': img.type, 'Content-Length': img.body.length, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
@@ -196,7 +203,7 @@ r('POST', '/api/auth/register', null, async ({ req }) => {
   const ip = clientIp(req); const now = Date.now();
   const list = (signups.get(ip) || []).filter((t) => now - t < 3600e3);
   if (list.length >= 30) throw httpError(429, 'Too many new accounts from this network — try again later');
-  const out = auth.register(await readJson(req));
+  const out = auth.register({ ...(await readJson(req)), lang: reqLang(req) });
   list.push(now); signups.set(ip, list);
   if (out?.role === 'seller' || out?.user?.role === 'seller') require('./push').telegram(`🏪 New seller signed up — approve them in the admin dashboard\n${config.publicBaseUrl}/admin`);
   return out;
@@ -576,7 +583,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/auth/google' && req.method === 'GET') {
       const app = ['seller', 'admin'].includes(url.searchParams.get('app')) ? url.searchParams.get('app') : 'shop';
-      try { res.writeHead(302, { Location: google.authorizeUrl(app, url.searchParams.get('next')), 'Cache-Control': 'no-store' }); }
+      try { res.writeHead(302, { Location: google.authorizeUrl(app, url.searchParams.get('next'), url.searchParams.get('lang') || reqLang(req)), 'Cache-Control': 'no-store' }); }
       catch (e) { res.writeHead(302, { Location: `${app === 'shop' ? '/' : `/${app}`}?login_error=${encodeURIComponent(e.message)}` }); }
       return res.end();
     }
@@ -613,6 +620,9 @@ const server = http.createServer(async (req, res) => {
       const m = p.match(rt.re);
       if (!m) continue;
       const ctx = { req, res, url, params: m.groups || {} };
+      // Remember each person's app language so emails and notifications reach them in it
+      const hl = req.headers['x-kinan-lang'];
+      if (hl === 'ar' || hl === 'en') { const lu = auth.authenticate(req); const rec = lu && db.users.get(lu.id); if (rec && rec.lang !== hl) db.users.update(rec.id, { lang: hl }); }
       if (rt.roles) {
         const user = auth.authenticate(req);
         Object.assign(ctx, auth.requireRole(user, ...rt.roles));

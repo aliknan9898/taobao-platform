@@ -22,12 +22,12 @@ const enabled = () => Boolean(config.googleClientId && config.googleClientSecret
 /** Only same-site hash routes are allowed as the place to land after sign-in. */
 const safeNext = (n) => (typeof n === 'string' && /^#\/[\w\-/%.?=&]*$/.test(n) && n.length < 200 ? n : '');
 
-function authorizeUrl(app, next) {
+function authorizeUrl(app, next, lang) {
   if (!enabled()) throw httpError(503, 'Google sign-in is not set up yet');
   if (!APPS[app]) throw httpError(400, 'Unknown app');
   const state = crypto.randomBytes(24).toString('base64url');
   const nonce = crypto.randomBytes(16).toString('base64url');
-  db.oauthStates.insert({ id: `gg_${state}`, kind: 'google', app, nonce, next: safeNext(next), expires_at: Date.now() + STATE_TTL });
+  db.oauthStates.insert({ id: `gg_${state}`, kind: 'google', app, nonce, next: safeNext(next), lang: ['ar', 'en'].includes(lang) ? lang : null, expires_at: Date.now() + STATE_TTL });
   const q = new URLSearchParams({
     client_id: config.googleClientId, redirect_uri: config.googleRedirectUri, response_type: 'code',
     scope: 'openid email profile', state, nonce, prompt: 'select_account'
@@ -57,7 +57,7 @@ function adminUser(claims) {
 }
 
 /** Find or create the Kinan account for a verified Google identity. */
-function upsertUser(claims, app) {
+function upsertUser(claims, app, lang) {
   if (app === 'admin') return adminUser(claims);
   const email = String(claims.email || '').toLowerCase();
   const role = APPS[app].role;
@@ -70,7 +70,7 @@ function upsertUser(claims, app) {
     return u;
   }
   const name = String(claims.name || claims.given_name || email.split('@')[0]).slice(0, 80);
-  u = db.users.insert({ email, name, role, status: 'active', pass: null, google_sub: claims.sub, avatar: claims.picture || null });
+  u = db.users.insert({ email, name, role, status: 'active', pass: null, google_sub: claims.sub, avatar: claims.picture || null, lang: lang || (/^ar/i.test(String(claims.locale || '')) ? 'ar' : null) });
   if (role === 'seller') {
     const seller = db.sellers.insert({
       user_id: u.id, shop_name: `${String(claims.given_name || name).slice(0, 60)}'s Shop`,
@@ -105,7 +105,7 @@ async function finish(code, st, home) {
   if (c.nonce !== st.nonce) throw httpError(400, 'Google sign-in could not be verified');
   if (!c.email || !(c.email_verified === true || c.email_verified === 'true')) throw httpError(403, 'Your Google email address is not verified');
 
-  const u = upsertUser(c, st.app);
+  const u = upsertUser(c, st.app, st.lang);
   const { token } = createSession(u);
   return { token, redirect: `${home}${st.app === 'admin' ? '' : st.next || (st.app === 'shop' ? '#/' : '')}` };
 }

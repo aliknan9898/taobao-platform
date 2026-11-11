@@ -17,7 +17,7 @@ const K = (() => {
 
   let onUnauthorized = null;
   async function api(path, method = 'GET', body) {
-    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(window.KinanLang ? { 'X-Kinan-Lang': window.KinanLang.lang } : {}) }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
     const j = await r.json().catch(() => ({}));
     if (r.status === 401 && onUnauthorized) onUnauthorized();
     if (!r.ok) throw Object.assign(new Error(j.error || r.statusText || 'Request failed'), { status: r.status });
@@ -59,7 +59,7 @@ const K = (() => {
   /** "Continue with Google" button + divider, or '' when Google sign-in isn't configured. */
   function googleButton(cfg, app, next = '') {
     if (!cfg || !cfg.google_signin) return '';
-    const href = `/auth/google?app=${app}${next ? `&next=${encodeURIComponent(next)}` : ''}`;
+    const href = `/auth/google?app=${app}${next ? `&next=${encodeURIComponent(next)}` : ''}${window.KinanLang ? `&lang=${window.KinanLang.lang}` : ''}`;
     return `<a class="btn gbtn block" href="${esc(href)}">${G_LOGO}<span>Continue with Google</span></a><div class="ordiv"><span>or with email</span></div>`;
   }
   /** Reads and clears ?login_error= set by the Google sign-in redirect. */

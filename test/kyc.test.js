@@ -85,3 +85,19 @@ test('emails: seller under review, seller approved (with app notice), customer w
   const html = require('../src/mailer').layout({ title: 'T', lines: ['a'], ar: { title: 'مرحبا', lines: ['ب'] }, highlight: { label: 'Code', value: 'WELCOME10' }, app: 'seller' });
   assert.match(html, /https:\/\/kinan\.example\/assets\/icon-seller-192\.png/); assert.match(html, /dir="rtl"/); assert.match(html, /WELCOME10/);
 });
+
+test('emails and notifications follow the person’s app language', async () => {
+  const mailer = require('../src/mailer');
+  // Arabic phone: register with the app language header → Arabic-only welcome
+  const res = await fetch(`${base}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Kinan-Lang': 'ar' }, body: JSON.stringify({ role: 'buyer', email: 'ar@x.com', password: 'buyerpass1', name: 'Huda' }) });
+  assert.strictEqual(res.status, 201);
+  assert.strictEqual(db.users.find((u) => u.email === 'ar@x.com').lang, 'ar');
+  assert.strictEqual(db.mail.find((m) => m.to === 'ar@x.com').subject, 'أهلاً بك في كنان 🎁');
+  // English phone → English only
+  await fetch(`${base}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept-Language': 'en-GB,en;q=0.9' }, body: JSON.stringify({ role: 'buyer', email: 'en@x.com', password: 'buyerpass1', name: 'Tom' }) });
+  assert.strictEqual(db.mail.find((m) => m.to === 'en@x.com').subject, 'Welcome to Kinan 🎁');
+  // Changing the language in the app updates it for later emails
+  const t = await login('en@x.com', 'buyerpass1');
+  await fetch(`${base}/api/me`, { headers: { Authorization: `Bearer ${t}`, 'X-Kinan-Lang': 'ar' } });
+  assert.strictEqual(mailer.langOf('en@x.com'), 'ar');
+});

@@ -16,38 +16,44 @@ const sellerUser = (sellerId) => db.sellers.get(sellerId)?.user_id;
 const money = (n, cur) => { try { return Number(n).toLocaleString('en-US', { style: 'currency', currency: String(cur || config.currency).toUpperCase() }); } catch { return `${n} ${cur}`; } };
 
 function orderPaid(o) {
+  const items = `${o.lines.map((l) => l.title).slice(0, 4).join('، ')}${o.lines.length > 4 ? '…' : ''}`;
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `paid:${o.id}`, kind: 'order', subject: `Order ${ref(o)} confirmed`, title: 'Thank you — your order is confirmed',
+    ar: { subject: `تم تأكيد طلبك ${ref(o)} ✅`, title: 'شكراً لك، تم تأكيد طلبك', lines: [`استلمنا دفعتك بقيمة ${money(o.total, o.currency)}.`, `${o.lines.reduce((a, l) => a + l.qty, 0)} قطعة: ${items}.`, 'سنراسلك مجدداً عند شحن الطلب مع رقم التتبع.'], button: { text: 'عرض طلبك', url: `${base()}/#/orders/${o.id}` } },
     lines: [`We received your payment of ${money(o.total, o.currency)}.`, `${o.lines.reduce((a, l) => a + l.qty, 0)} item(s): ${o.lines.map((l) => l.title).slice(0, 4).join(', ')}${o.lines.length > 4 ? '…' : ''}.`, 'We will email you again when it ships, with a tracking number.'],
     button: { text: 'View your order', url: `${base()}/#/orders/${o.id}` } }));
-  push.toUser(o.buyer_id, { title: 'Order confirmed', body: `Order ${ref(o)} — ${money(o.total, o.currency)}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}` });
+  push.toUser(o.buyer_id, { title: 'Order confirmed', body: `Order ${ref(o)} — ${money(o.total, o.currency)}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}`, ar: { title: 'تم تأكيد طلبك ✅', body: `الطلب ${ref(o)} — ${money(o.total, o.currency)}` } });
   push.telegram(`🛒 New paid order ${ref(o)} — ${money(o.total, o.currency)}${o.payment?.provider === 'demo' || o.payment?.mode === 'test' ? ' (TEST)' : ''}\n${o.lines.map((l) => `${l.qty} × ${l.title}`).slice(0, 5).join('\n')}\nTo: ${o.shipping_address?.city || ''}, ${o.shipping_address?.country || ''}\n${base()}/admin`);
   for (const sellerId of new Set(o.lines.map((l) => l.seller_id))) {
-    push.toUser(sellerUser(sellerId), { title: 'New order', body: `Order ${ref(o)}: ${o.lines.filter((l) => l.seller_id === sellerId).reduce((a, l) => a + l.qty, 0)} item(s)`, url: '/seller#/orders', tag: `s-${o.id}` });
-    const lines = o.lines.filter((l) => l.seller_id === sellerId);
+    const lines = o.lines.filter((l) => l.seller_id === sellerId); const n = lines.reduce((a, l) => a + l.qty, 0);
+    push.toUser(sellerUser(sellerId), { title: 'New order', body: `Order ${ref(o)}: ${n} item(s)`, url: '/seller#/orders', tag: `s-${o.id}`, ar: { title: 'طلب جديد 🛍️', body: `الطلب ${ref(o)}: ${n} قطعة` } });
     fire(mailer.send({ to: sellerEmail(sellerId), key: `sale:${o.id}:${sellerId}`, kind: 'sale', subject: `New order ${ref(o)} — ${lines.reduce((a, l) => a + l.qty, 0)} item(s)`, title: 'You have a new order',
       lines: [...lines.map((l) => `${l.qty} × ${l.title}`), `Sale value: ${money(lines.reduce((a, l) => a + l.price * l.qty, 0), o.currency)}.`],
+      ar: { subject: `طلب جديد ${ref(o)} — ${n} قطعة`, title: 'لديك طلب جديد 🎉', lines: [...lines.map((l) => `${l.qty} × ${l.title}`), `قيمة البيع: ${money(lines.reduce((a, l) => a + l.price * l.qty, 0), o.currency)}.`], button: { text: 'افتح مركز البائعين', url: `${base()}/seller#/orders` } },
       button: { text: 'Open Seller Center', url: `${base()}/seller#/orders` } }));
   }
 }
 
 function orderShipped(o, tracking = []) {
   const t = tracking.filter((x) => x && x.number);
-  push.toUser(o.buyer_id, { title: 'Your order is on its way', body: `Order ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}` });
+  push.toUser(o.buyer_id, { title: 'Your order is on its way', body: `Order ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}`, ar: { title: 'طلبك في الطريق إليك 🚚', body: `الطلب ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}` } });
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `shipped:${o.id}:${t.map((x) => x.number).join(',')}`, kind: 'order', subject: `Order ${ref(o)} is on its way`, title: 'Your order has shipped',
     lines: [...t.map((x) => `Tracking: ${x.carrier ? `${x.carrier} ` : ''}${x.number} — ${require('./services/couriers').trackingUrl(x.carrier, x.number)}`), 'You can follow every step in your Kinan orders.'],
+    ar: { subject: `طلبك ${ref(o)} في الطريق 🚚`, title: 'تم شحن طلبك', lines: [...t.map((x) => `رقم التتبع: ${x.carrier ? `${x.carrier} ` : ''}${x.number} — ${require('./services/couriers').trackingUrl(x.carrier, x.number)}`), 'يمكنك متابعة كل خطوة من صفحة طلباتك في كنان.'], button: { text: 'تتبّع طلبك', url: `${base()}/#/orders/${o.id}` } },
     button: { text: 'Track your order', url: `${base()}/#/orders/${o.id}` } }));
 }
 
 function orderDelivered(o) {
-  push.toUser(o.buyer_id, { title: 'Delivered', body: `Order ${ref(o)} was delivered. Tell us what you think!`, url: `/#/orders/${o.id}`, tag: `o-${o.id}` });
+  push.toUser(o.buyer_id, { title: 'Delivered', body: `Order ${ref(o)} was delivered. Tell us what you think!`, url: `/#/orders/${o.id}`, tag: `o-${o.id}`, ar: { title: 'تم التسليم 📦', body: `وصل طلبك ${ref(o)}. أخبرنا برأيك!` } });
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `delivered:${o.id}`, kind: 'order', subject: `Order ${ref(o)} delivered`, title: 'Your order was delivered',
-    lines: ['We hope you love it. If something is wrong, you can request a return from your order page.'], button: { text: 'View order', url: `${base()}/#/orders/${o.id}` } }));
+    lines: ['We hope you love it. If something is wrong, you can request a return from your order page.'], button: { text: 'View order', url: `${base()}/#/orders/${o.id}` },
+    ar: { subject: `تم تسليم طلبك ${ref(o)} 📦`, title: 'وصل طلبك', lines: ['نتمنى أن ينال إعجابك. إذا كانت هناك مشكلة يمكنك طلب إرجاع من صفحة الطلب.'], button: { text: 'عرض الطلب', url: `${base()}/#/orders/${o.id}` } } }));
 }
 
 function qcPhotos(o) {
-  push.toUser(o.buyer_id, { title: 'Photos of your items are ready', body: `Order ${ref(o)} — check them before we ship`, url: `/#/orders/${o.id}`, tag: `qc-${o.id}` });
+  push.toUser(o.buyer_id, { title: 'Photos of your items are ready', body: `Order ${ref(o)} — check them before we ship`, url: `/#/orders/${o.id}`, tag: `qc-${o.id}`, ar: { title: 'صور منتجاتك جاهزة 📸', body: `الطلب ${ref(o)} — راجعها قبل أن نشحن` } });
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `qc:${o.id}:${(o.qc_photos || []).length}`, kind: 'order', subject: `Photos of your order ${ref(o)} are ready`, title: 'Your items arrived at our warehouse',
     lines: ['We checked your items and took photos. Have a look and tell us if everything is right before we ship.'],
+    ar: { subject: `صور طلبك ${ref(o)} جاهزة 📸`, title: 'وصلت منتجاتك إلى مستودعنا', lines: ['فحصنا منتجاتك والتقطنا لها صوراً. ألقِ نظرة وأخبرنا إن كان كل شيء صحيحاً قبل الشحن.'], button: { text: 'شاهد الصور', url: `${base()}/#/orders/${o.id}` } },
     button: { text: 'See the photos', url: `${base()}/#/orders/${o.id}` } }));
 }
 
@@ -57,8 +63,8 @@ const firstName = (u) => String(u?.name || '').trim().split(/\s+/)[0] || '';
 function sellerUnderReview(s) {
   const u = db.users.get(s.user_id); const n = firstName(u) || s.kyc?.details?.full_name?.split(' ')[0] || '';
   fire(mailer.send({ to: u?.email, key: `seller-review:${s.id}:${s.kyc?.submitted_at}`, kind: 'seller', app: 'seller',
-    subject: 'حسابك قيد المراجعة · Your Kinan seller account is under review',
-    ar: { title: `أهلاً ${n}، استلمنا طلبك 👋`, lines: [`شكراً لاختيارك كنان لفتح متجرك «${s.shop_name}».`, 'وصلتنا بياناتك ووثيقة هويتك، وحسابك الآن قيد المراجعة. يراجع فريق كنان الطلبات عادةً خلال يوم إلى يومي عمل.', 'سنرسل لك رسالة وإشعاراً فور فتح حسابك، وبعدها تستطيع إضافة منتجاتك مباشرة.'], button: { text: 'افتح مركز البائعين', url: `${base()}/seller` } },
+    subject: 'Your Kinan seller account is under review',
+    ar: { subject: 'حسابك في كنان قيد المراجعة ⏳', title: `أهلاً ${n}، استلمنا طلبك 👋`, lines: [`شكراً لاختيارك كنان لفتح متجرك «${s.shop_name}».`, 'وصلتنا بياناتك ووثيقة هويتك، وحسابك الآن قيد المراجعة. يراجع فريق كنان الطلبات عادةً خلال يوم إلى يومي عمل.', 'سنرسل لك رسالة وإشعاراً فور فتح حسابك، وبعدها تستطيع إضافة منتجاتك مباشرة.'], button: { text: 'افتح مركز البائعين', url: `${base()}/seller` } },
     title: `Hi ${n}, we received your application`,
     lines: [`Thank you for choosing Kinan for your shop “${s.shop_name}”.`, 'Your details and identity document arrived and your account is now under review. Kinan usually reviews applications within 1–2 working days.', 'We will email you and send a notification as soon as your account is open — then you can add your products right away.'],
     button: { text: 'Open Seller Center', url: `${base()}/seller` } }));
@@ -67,10 +73,10 @@ function sellerUnderReview(s) {
 /** Seller approved: warm welcome by email + app notification. */
 function sellerApproved(s) {
   const u = db.users.get(s.user_id); const n = firstName(u);
-  push.toUser(s.user_id, { title: 'تم فتح حسابك بنجاح 🎉', body: `مرحباً بك في كنان! متجرك «${s.shop_name}» جاهز، أضف أول منتج الآن.`, url: '/seller#/add' });
+  push.toUser(s.user_id, { title: 'Your shop is open 🎉', body: `Welcome to Kinan! “${s.shop_name}” is ready — add your first product now.`, url: '/seller#/add', ar: { title: 'تم فتح حسابك بنجاح 🎉', body: `مرحباً بك في كنان! متجرك «${s.shop_name}» جاهز، أضف أول منتج الآن.` } });
   fire(mailer.send({ to: u?.email, key: `seller-approved:${s.id}`, kind: 'seller', app: 'seller',
-    subject: '🎉 تم فتح حسابك بنجاح · Your Kinan shop is open',
-    ar: { title: `مبروك ${n}! تم فتح حسابك بنجاح 🎉`, lines: [`يسعدنا أن نرحّب بك رسمياً في عائلة كنان. متجرك «${s.shop_name}» أصبح مفعّلاً.`, 'ابدأ الآن بإضافة منتجاتك من تاوباو أو علي إكسبرس أو CJ أو يدوياً. يراجع فريقنا كل منتج قبل ظهوره للعملاء.', 'نتمنى لك مبيعات كثيرة ونجاحاً كبيراً. نحن معك في كل خطوة، ويمكنك الرد على هذه الرسالة في أي وقت.'], button: { text: 'أضف أول منتج', url: `${base()}/seller#/add` } },
+    subject: '🎉 Your Kinan shop is open',
+    ar: { subject: '🎉 تم فتح حسابك بنجاح', title: `مبروك ${n}! تم فتح حسابك بنجاح 🎉`, lines: [`يسعدنا أن نرحّب بك رسمياً في عائلة كنان. متجرك «${s.shop_name}» أصبح مفعّلاً.`, 'ابدأ الآن بإضافة منتجاتك من تاوباو أو علي إكسبرس أو CJ أو يدوياً. يراجع فريقنا كل منتج قبل ظهوره للعملاء.', 'نتمنى لك مبيعات كثيرة ونجاحاً كبيراً. نحن معك في كل خطوة، ويمكنك الرد على هذه الرسالة في أي وقت.'], button: { text: 'أضف أول منتج', url: `${base()}/seller#/add` } },
     title: `Congratulations ${n}! Your shop is open 🎉`,
     lines: [`We are delighted to welcome you to the Kinan family. Your shop “${s.shop_name}” is now active.`, 'Start adding products from Taobao, AliExpress, CJ or by hand. Our team reviews each product before customers see it.', 'We wish you many sales and great success. We are with you every step — just reply to this email any time.'],
     button: { text: 'Add your first product', url: `${base()}/seller#/add` } }));
@@ -83,24 +89,26 @@ function customerWelcome(u) {
   const c = db.coupons.find((x) => x.code === 'WELCOME10' && x.active !== false && (!x.expires_at || x.expires_at > Date.now()));
   const highlight = c ? { label: 'كود الترحيب · Welcome code', value: c.code } : undefined;
   fire(mailer.send({ to: u.email, key: `welcome:${u.id}`, kind: 'account', app: 'shop', highlight,
-    subject: 'أهلاً بك في كنان 🎁 · Welcome to Kinan',
-    ar: { title: `أهلاً وسهلاً ${n}، يسعدنا انضمامك إلى كنان ✨`, lines: ['تم إنشاء حسابك بنجاح. صار بإمكانك الآن تسوّق آلاف المنتجات من الصين بأسعار ممتازة، مع شحن إلى باب بيتك وتتبّع لكل طلب.', ...(c ? [`هدية ترحيب منا: خصم ${c.value}% على طلبك الأول بكود ${c.code}.`] : []), 'هل وجدت منتجاً على تاوباو أو 1688؟ استخدم خدمة «اشترِ لي» ونشتريه لك.', 'نتمنى لك تجربة تسوّق رائعة، ولأي سؤال رد على هذه الرسالة وسنساعدك بكل سرور.'], button: { text: 'ابدأ التسوّق', url: `${base()}/` } },
+    subject: 'Welcome to Kinan 🎁',
+    ar: { subject: 'أهلاً بك في كنان 🎁', title: `أهلاً وسهلاً ${n}، يسعدنا انضمامك إلى كنان ✨`, lines: ['تم إنشاء حسابك بنجاح. صار بإمكانك الآن تسوّق آلاف المنتجات من الصين بأسعار ممتازة، مع شحن إلى باب بيتك وتتبّع لكل طلب.', ...(c ? [`هدية ترحيب منا: خصم ${c.value}% على طلبك الأول بكود ${c.code}.`] : []), 'هل وجدت منتجاً على تاوباو أو 1688؟ استخدم خدمة «اشترِ لي» ونشتريه لك.', 'نتمنى لك تجربة تسوّق رائعة، ولأي سؤال رد على هذه الرسالة وسنساعدك بكل سرور.'], button: { text: 'ابدأ التسوّق', url: `${base()}/` } },
     title: `Welcome to Kinan, ${n} ✨`,
     lines: ['Your account is ready. Shop thousands of products from China at great prices, delivered to your door with tracking for every order.', ...(c ? [`A welcome gift from us: ${c.value}% off your first order with the code ${c.code}.`] : []), 'Found something on Taobao or 1688? Use “Buy for me” and we buy it for you.', 'Happy shopping! For any question, just reply to this email and we will gladly help.'],
     button: { text: 'Start shopping', url: `${base()}/` } }));
 }
 
 function sellerKycRejected(s, reason) {
-  push.toUser(s.user_id, { title: 'Please correct your verification', body: reason, url: '/seller' });
+  push.toUser(s.user_id, { title: 'Please correct your verification', body: reason, url: '/seller', ar: { title: 'يرجى تصحيح طلب التوثيق' } });
   fire(mailer.send({ to: emailOf(s.user_id), key: `seller-kyc-rejected:${s.id}:${s.kyc?.decided_at}`, kind: 'seller', subject: 'Your Kinan seller verification needs a correction', title: 'Please correct your verification',
-    lines: ['Kinan could not approve your seller application yet.', `What to correct: ${reason}`, 'Open the Seller Center, fix it and send it again.'], button: { text: 'Open Seller Center', url: `${base()}/seller` } }));
+    lines: ['Kinan could not approve your seller application yet.', `What to correct: ${reason}`, 'Open the Seller Center, fix it and send it again.'], button: { text: 'Open Seller Center', url: `${base()}/seller` },
+    ar: { subject: 'طلب التوثيق في كنان يحتاج تصحيحاً', title: 'يرجى تصحيح طلبك', lines: ['لم نتمكن من الموافقة على طلبك بعد.', `المطلوب تصحيحه: ${reason}`, 'افتح مركز البائعين، صحّح البيانات وأرسلها من جديد.'], button: { text: 'افتح مركز البائعين', url: `${base()}/seller` } } }));
 }
 
 function listingDecision(l, approved, reason) {
-  push.toUser(sellerUser(l.seller_id), { title: approved ? 'Product approved' : 'Product needs changes', body: l.title, url: '/seller#/products' });
+  push.toUser(sellerUser(l.seller_id), { title: approved ? 'Product approved' : 'Product needs changes', body: l.title, url: '/seller#/products', ar: { title: approved ? 'تمت الموافقة على منتجك ✅' : 'منتجك يحتاج تعديلات' } });
   fire(mailer.send({ to: sellerEmail(l.seller_id), key: `listing:${l.id}:${l.review?.submitted_at || l.updated_at}:${approved ? 'ok' : 'no'}`, kind: 'seller',
     subject: approved ? `Approved: ${l.title}` : `Changes needed: ${l.title}`, title: approved ? 'Your product is live' : 'Your product needs changes',
     lines: approved ? [`“${l.title}” is now visible to customers in Kinan Shop.`] : [`“${l.title}” was not approved.`, `Kinan’s note: ${reason}`],
+    ar: { subject: approved ? `تمت الموافقة: ${l.title}` : `مطلوب تعديل: ${l.title}`, title: approved ? 'منتجك أصبح ظاهراً للعملاء ✅' : 'منتجك يحتاج تعديلات', lines: approved ? [`«${l.title}» يظهر الآن للعملاء في متجر كنان.`] : [`لم تتم الموافقة على «${l.title}».`, `ملاحظة كنان: ${reason}`], button: { text: approved ? 'عرض منتجاتك' : 'تعديل المنتج', url: `${base()}/seller#/products` } },
     button: { text: approved ? 'See your products' : 'Edit product', url: `${base()}/seller#/products` } }));
 }
 
@@ -113,6 +121,7 @@ function requestAnswered(r) {
 
 function passwordReset(user, url) {
   return mailer.send({ to: user.email, kind: 'reset', subject: 'Reset your Kinan password', title: 'Reset your password',
+    ar: { subject: 'إعادة تعيين كلمة مرور كنان', title: 'إعادة تعيين كلمة المرور', lines: ['طلب أحدهم إعادة تعيين كلمة مرور هذا الحساب في كنان. إذا كنت أنت فاستخدم الزر أدناه، والرابط صالح لمدة ساعة.', 'إذا لم تكن أنت فتجاهل هذه الرسالة، وستبقى كلمة مرورك كما هي.'], button: { text: 'اختر كلمة مرور جديدة', url } },
     lines: ['Someone asked to reset the password for this Kinan account. If it was you, use the button below — the link works for 1 hour.', 'If it wasn’t you, ignore this email; your password stays the same.'],
     button: { text: 'Choose a new password', url } });
 }

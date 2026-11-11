@@ -111,9 +111,9 @@ function shell() {
   $('#app').innerHTML = `<div class="shell">
     <aside class="side desk-only">${K.brand('Seller Center')}
       <nav>${NAV.map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t}</a>`).join('')}</nav>
-      <div class="foot"><div class="small"><b>${esc(shop?.shop_name || '')}</b><div class="muted">${esc(me.email)}</div></div><div class="row">${KinanLang.button('btn ghost sm')}${KinanTheme.button('btn ghost sm')}<button class="btn ghost sm" data-out>Sign out</button></div></div>
+      <div class="foot"><div class="small"><b>${esc(shop?.shop_name || '')}</b><div class="muted">${esc(me.email)}</div></div><div class="row">${KinanTheme.button('btn ghost sm')}<button class="btn ghost sm" data-out>Sign out</button></div></div>
     </aside>
-    <div><div class="mtop mob-only">${K.brand('Seller')}<span class="row" style="gap:6px">${KinanLang.button('btn sm ghost')}${KinanTheme.button('btn sm ghost')}<a class="btn sm quiet" href="#/settings">${esc((shop?.shop_name || '').slice(0, 18))}</a></span></div>
+    <div><div class="mtop mob-only">${K.brand('Seller')}<span class="row" style="gap:6px">${KinanTheme.button('btn sm ghost')}<a class="btn sm quiet" href="#/settings">${esc((shop?.shop_name || '').slice(0, 18))}</a></span></div>
     <main class="content" id="view"></main>${K.footer(cfg.operator?.name)}</div></div>
     <nav class="tabbar">${NAV.filter(([h]) => h !== '#/settings').map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t === 'Add product' ? 'Add' : t}</a>`).join('')}</nav>`;
   document.body.classList.add('has-tabbar');
@@ -605,7 +605,8 @@ function settings() {
     <section class="stack" style="max-width:640px">${taobaoCard()}</section>
     <section class="panel stack" style="max-width:640px"><h2>Install the app</h2>
       <p class="muted">Add the Seller Center to your phone’s home screen. On iPhone: Share, then “Add to Home Screen”. On Android: menu, then “Install app”.</p>
-      <div class="row">${KinanTheme.button('btn ghost', true)}${KinanLang.button('btn ghost')}<button class="btn quiet" id="installbtn" style="display:none">Install Seller Center</button><button class="btn danger" data-out>Sign out</button></div></section>`;
+      <div class="row">${KinanTheme.button('btn ghost', true)}<button class="btn quiet" id="installbtn" style="display:none">Install Seller Center</button><button class="btn danger" data-out>Sign out</button></div></section>
+    <section class="panel stack" style="max-width:640px"><h2>Language</h2><p class="muted" style="margin:0">The Seller Center and Kinan’s emails to you use this language.</p>${KinanLang.picker()}</section>`;
   wireConnect(); wireInstall();
   $$('[data-out]').forEach((b) => b.onclick = signOut);
   let logo = shop.logo || null;
@@ -638,7 +639,7 @@ function needsVerification() { return shop && shop.status === 'pending'; }
 async function verifyScreen() {
   document.body.classList.remove('has-tabbar');
   const k = await api('/api/seller/verification');
-  const top = `<div class="top">${K.brand('Seller Center')}<span class="row" style="gap:6px">${KinanLang.button('btn sm ghost')}${KinanTheme.button('btn sm ghost')}<button class="btn sm ghost" data-out>Sign out</button></span></div>`;
+  const top = `<div class="top">${K.brand('Seller Center')}<span class="row" style="gap:6px">${KinanTheme.button('btn sm ghost')}<button class="btn sm ghost" data-out>Sign out</button></span></div>`;
   if (k.state === 'submitted') {
     $('#app').innerHTML = `<div class="kyc">${top}<section class="panel stack" style="text-align:center;justify-items:center;padding:28px 18px">
       <div style="font-size:44px">⏳</div><h2>Your application is being reviewed</h2>
@@ -748,7 +749,7 @@ async function verifyScreen() {
 function authScreen(mode = 'in', msg = '') {
   document.body.classList.remove('has-tabbar');
   $('#app').innerHTML = `<div class="auth"><form class="panel stack" id="af">
-      <div class="row between">${K.brand('Seller Center')}${KinanLang.button('btn sm ghost')}</div>
+      <div class="row between">${K.brand('Seller Center')}</div>
       <h2>${mode === 'in' ? 'Sign in to sell on Kinan' : 'Open your Kinan shop'}</h2>
       <div class="seg"><button type="button" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button type="button" data-m="up" class="${mode === 'up' ? 'on' : ''}">Open a shop</button></div>
       ${K.googleButton(cfg, 'seller')}

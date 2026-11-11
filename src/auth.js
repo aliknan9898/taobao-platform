@@ -47,13 +47,13 @@ function ownerSeller(user) {
 
 function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '')); }
 
-function register({ email, password, name, role, shop_name }) {
+function register({ email, password, name, role, shop_name, lang }) {
   if (!['buyer', 'seller'].includes(role)) throw httpError(400, 'Account type not allowed');
   if (!validEmail(email)) throw httpError(400, 'Invalid email');
   if (!password || password.length < 8) throw httpError(400, 'Password must be at least 8 characters');
   email = email.trim().toLowerCase();
   if (db.users.find((u) => u.email === email)) throw httpError(409, 'Email is already registered');
-  const user = db.users.insert({ email, name: String(name || '').slice(0, 80), role, status: 'active', pass: hashPassword(password) });
+  const user = db.users.insert({ email, name: String(name || '').slice(0, 80), role, status: 'active', pass: hashPassword(password), lang: ['ar', 'en'].includes(lang) ? lang : null });
   if (role === 'seller') {
     // Sellers start as "pending" until an admin approves them
     const seller = db.sellers.insert({

@@ -40,7 +40,7 @@ function layout({ title, lines = [], button, highlight, ar, app }) {
   const head = `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 18px"><tr>
     ${logo ? `<td style="padding-right:10px;vertical-align:middle"><img src="${esc(logo)}" width="44" height="44" alt="Kinan" style="display:block;border-radius:12px;border:0"></td>` : ''}
     <td style="vertical-align:middle"><div style="font-weight:800;font-size:24px;color:#141b3a;letter-spacing:-.5px;line-height:1">kinan</div><div style="font-size:12px;color:#0e7c66;font-weight:600;margin-top:2px">${label}</div></td></tr></table>`;
-  const en = block({ title, lines, button, highlight }, false);
+  const en = block({ title, lines, button, highlight }, /[\u0600-\u06FF]/.test(String(title)));
   const body = ar ? `${block({ highlight, ...ar }, true)}<hr style="border:0;border-top:1px solid #e1e5ee;margin:22px 0">${en}` : en;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f4f6f9;font-family:Segoe UI,Tahoma,Arial,sans-serif;color:#141b3a">
   <div style="max-width:560px;margin:0 auto;padding:24px 14px">${head}<div style="background:#fff;border:1px solid #e1e5ee;border-radius:16px;padding:26px 22px">${body}</div>
@@ -48,8 +48,16 @@ function layout({ title, lines = [], button, highlight, ar, app }) {
 }
 
 /** Send (or log) one email. Never throws; returns the log record. `key` makes the send idempotent. */
-async function send({ to, subject, title, lines, button, key, kind = 'general', attachments, ar, highlight, app }) {
+/** The recipient's language: what their app was set to (phone language or their choice). Unknown → both languages. */
+function langOf(to) { const u = db.users.find((x) => x.email === String(to).toLowerCase()); return u?.lang === 'ar' || u?.lang === 'en' ? u.lang : null; }
+
+async function send({ to, subject, title, lines, button, key, kind = 'general', attachments, ar, highlight, app, lang }) {
   if (!to) return null;
+  // Arabic readers get only the Arabic version, English readers only the English one
+  const l = lang || langOf(to);
+  if (ar && l === 'ar') { title = ar.title; lines = ar.lines; button = ar.button || button; subject = ar.subject || subject; ar = undefined; }
+  else if (ar && l === 'en') ar = undefined;
+  else if (ar && ar.subject) subject = `${ar.subject} · ${subject}`;
   if (key) { const dup = db.mail.find((m) => m.key === key); if (dup) return dup; }
   const rec = db.mail.insert({ to, subject, kind, key: key || null, status: enabled() ? 'sending' : 'not_sent' });
   pruneLog();
@@ -128,4 +136,4 @@ function pruneLog() {
   if (all.length > 500) for (const m of all.slice(0, all.length - 500)) db.mail.remove(m.id);
 }
 
-module.exports = { send, enabled, layout, sender, setupDomain, domainStatus };
+module.exports = { langOf, send, enabled, layout, sender, setupDomain, domainStatus };

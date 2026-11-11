@@ -94,8 +94,9 @@ function subscribe(user, b) {
 function unsubscribe(user, endpoint) { for (const s of db.push_subs.all((x) => x.user_id === user.id && x.endpoint === endpoint)) db.push_subs.remove(s.id); return { ok: true }; }
 
 /** Notify every device of a user. `url` is where tapping the notification opens. */
-function toUser(userId, { title, body, url, tag }) {
+function toUser(userId, { title, body, url, tag, ar }) {
   if (!userId) return;
+  if (ar && db.users.get(userId)?.lang === 'ar') ({ title, body } = { title: ar.title || title, body: ar.body ?? body });
   for (const s of db.push_subs.all((x) => x.user_id === userId)) {
     sendOne(s, { title: String(title).slice(0, 80), body: String(body || '').slice(0, 200), url: url || '/', tag: tag || undefined })
       .catch((e) => console.warn('[push]', e.message));
