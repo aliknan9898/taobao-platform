@@ -653,7 +653,8 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     const status = e.status || (e.name === 'TaobaoApiError' ? 502 : 500);
     if (status >= 500) { console.error('[error]', req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message}`); }
-    send(res, status, { error: e.message || 'Error', code: e.code, request_id: e.requestId });
+    const TB_MSG = { SETTLE_NOT_FINISH: 'Your Taobao (TaoWorld) distributor account has not finished onboarding yet. Complete the registration at distributor.taobao.global, then try again.' };
+    send(res, status, { error: TB_MSG[e.code] || e.message || 'Error', code: e.code, request_id: e.requestId });
   }
 });
 
