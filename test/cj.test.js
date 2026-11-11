@@ -96,7 +96,10 @@ test('CJ end to end: import → checkout → sandbox order paid → shipped → 
   assert.strictEqual(orders[0].parts[0].sandbox, true);
 
   // Webhooks: bad signature refused; order shipped; logistics delivered
-  assert.strictEqual((await api('POST', '/webhooks/cj', JSON.stringify({ type: 'ORDER' }), null, { sign: 'nope' })).status, 401);
+  const bad = { messageId: 'bad', type: 'ORDER', params: { cjOrderId: 'CJORD1', orderStatus: 'CANCELLED' } };
+  assert.strictEqual((await api('POST', '/webhooks/cj', JSON.stringify(bad), null, { sign: 'nope' })).status, 200, 'answered, but ignored');
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(db.orders.get(o.id).sub_orders[0].status, 'AE_PAID', 'unsigned message changed nothing');
   let m = signed({ messageId: 'm1', type: 'ORDER', messageType: 'UPDATE', params: { cjOrderId: 'CJORD1', orderNumber: c.orderNumber, orderStatus: 'SHIPPED', logisticName: 'CJPacket Ordinary', trackNumber: 'YT123', trackingUrl: 'https://t.17track.net/en#nums=YT123' } });
   assert.strictEqual((await api('POST', '/webhooks/cj', m.raw, null, { sign: m.sign })).status, 200);
   await new Promise((r) => setTimeout(r, 30));

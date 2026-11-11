@@ -554,7 +554,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/webhooks/cj') {
       if (req.method !== 'POST') return send(res, 200, { ok: true });
       const raw = await readRaw(req);
-      if (!cjs.verify(raw, req.headers.sign)) { console.warn('[cj] webhook with a bad signature'); return send(res, 401, { error: 'bad signature' }); }
+      // CJ checks the address with an unsigned test call when webhooks are registered: answer 200 but only act on signed messages
+      if (!cjs.verify(raw, req.headers.sign)) { if (req.headers.sign) console.warn('[cj] webhook with a bad signature — ignored'); return send(res, 200, { ok: true }); }
       send(res, 200, { ok: true }); // CJ wants an answer within 3 seconds: work after replying
       setImmediate(() => { try { const m = JSON.parse(raw.toString('utf8')); const out = cjs.handleWebhook(m); if (!out.ignored) console.log('[cj] webhook', m.type, JSON.stringify(out)); } catch (e) { console.error('[cj] webhook', e.message); } });
       return;
