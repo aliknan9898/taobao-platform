@@ -266,7 +266,10 @@ function addStart(err = '') {
         <form class="stack" id="cjf"><label class="field">Search CJ, or paste a CJ link / SKU<input name="q" required placeholder="e.g. desk lamp — or https://cjdropshipping.com/product/…-p-….html" autocomplete="off"></label><div class="error" id="cje"></div><button class="btn" id="cjgo">Search CJ</button></form><div id="cjprev" class="stack"></div>
       </section>` : ''}
       ${cfg.banggood ? `<section class="panel stack srccard"><div class="srchead"><span class="srcico ae" style="background:#ff6e26">BG</span><div><b>From Banggood</b><div class="muted small">Ships from Banggood straight to the customer — from its UK warehouse when it has the item. Kinan orders it for you; shipping is added at checkout.</div></div></div>
-        <form class="stack" id="bgform"><label class="field">Banggood link or product ID<input name="ref" required placeholder="https://www.banggood.com/…-p-1234567.html" autocomplete="off"></label><div class="error" id="bge"></div><button class="btn" id="bggo">Import from Banggood</button></form><div id="bgprev" class="stack"></div>
+        <form class="stack" id="bgform"><label class="field">Banggood link or product ID<input name="ref" required placeholder="https://www.banggood.com/…-p-1234567.html" autocomplete="off"></label><div class="error" id="bge"></div><button class="btn" id="bggo">Import from Banggood</button></form>
+        <details id="bgbrowse"><summary class="small" style="cursor:pointer"><b>Or browse Banggood by category</b></summary>
+          <div class="stack" style="margin-top:10px"><label class="field">Category<select id="bgcatsel"><option value="">Loading…</option></select></label><div id="bglist" class="stack"></div></div></details>
+        <div id="bgprev" class="stack"></div>
       </section>` : ''}
       <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">✎</span><div><b>Add manually</b><div class="muted small">Any Taobao item — type it in yourself. Kinan buys it when it sells.</div></div></div>
         <p class="small">No Taobao account needed.</p><a class="btn ghost" href="#/manual">Add manually</a>
@@ -310,6 +313,27 @@ function addStart(err = '') {
     $('#aego').disabled = false; $('#aego').textContent = 'Import from AliExpress';
   };
   const bgform = $('#bgform');
+  const bgOpen = (ref) => { bgform.ref.value = ref; bgform.requestSubmit(); $('#bgprev').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const bgList = async (cat, page = 1) => {
+    const box = $('#bglist'); box.innerHTML = '<p class="muted small">Loading…</p>';
+    try {
+      const r = await api(`/api/banggood/products?cat_id=${encodeURIComponent(cat)}&page=${page}`);
+      box.innerHTML = `${r.items.map((x) => `<div class="row" style="gap:10px;flex-wrap:nowrap">${x.image ? `<img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy" style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex:none">` : ''}<span class="small" style="flex:1;min-width:0">${esc(x.title)}</span><button type="button" class="btn sm ghost" data-bgpick="${esc(x.pid)}">Choose</button></div>`).join('') || '<p class="muted small">Nothing found.</p>'}
+        <div class="row between small"><button type="button" class="btn sm quiet" id="bgprevpg" ${r.page <= 1 ? 'disabled' : ''}>‹</button><span class="muted">${r.page} / ${r.page_total}</span><button type="button" class="btn sm quiet" id="bgnextpg" ${r.page >= r.page_total ? 'disabled' : ''}>›</button></div>`;
+      $$('[data-bgpick]').forEach((b) => b.onclick = () => bgOpen(b.dataset.bgpick));
+      $('#bgprevpg').onclick = () => bgList(cat, r.page - 1); $('#bgnextpg').onclick = () => bgList(cat, r.page + 1);
+    } catch (err) { box.innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+  };
+  const bgb = $('#bgbrowse');
+  if (bgb) bgb.ontoggle = async () => {
+    if (!bgb.open || bgb.dataset.loaded) return; bgb.dataset.loaded = '1';
+    const sel = $('#bgcatsel');
+    try {
+      const cats = await api('/api/banggood/categories');
+      sel.innerHTML = `<option value="">Choose…</option>${cats.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}`;
+      sel.onchange = () => { if (sel.value) bgList(sel.value); };
+    } catch (err) { sel.innerHTML = '<option value="">—</option>'; $('#bglist').innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+  };
   if (bgform) bgform.onsubmit = async (e) => {
     e.preventDefault(); const ref = e.target.ref.value.trim(); $('#bge').textContent = '';
     $('#bggo').disabled = true; $('#bggo').textContent = 'Loading from Banggood…';

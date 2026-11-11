@@ -135,6 +135,35 @@ async function arabic(pid) {
   } catch { return null; }
 }
 
+// ---------------- browse by category ----------------
+let catCache = null;
+/** All Banggood categories (getCategoryList, every page; cached a day) → the sub-categories with their full path. */
+async function categories() {
+  if (catCache && now() - catCache.at < 86400e3) return catCache.v;
+  const all = [];
+  for (let page = 1; page <= 50; page++) {
+    const j = await bg.call('GET', 'category/getCategoryList', { page });
+    all.push(...arr(j.cat_list || j.category_list));
+    if (!(Number(j.page_total) > page)) break;
+  }
+  const by = new Map(all.map((c) => [String(c.cat_id), { id: String(c.cat_id), name: str(c.cat_name, 80), parent: String(c.parent_id ?? '0') }]));
+  const hasKids = new Set([...by.values()].map((c) => c.parent));
+  const path = (c) => { const out = []; let x = c; for (let i = 0; x && i < 6; i++) { out.unshift(x.name); x = by.get(x.parent); } return out.join(' › '); };
+  // Banggood lists products only for sub-categories (not the root ones)
+  const v = [...by.values()].filter((c) => !hasKids.has(c.id) && c.parent !== '0').map((c) => ({ id: c.id, name: path(c) })).sort((a, b) => a.name.localeCompare(b.name));
+  catCache = { at: now(), v };
+  return v;
+}
+/** One page (up to 20) of products in a sub-category. */
+async function listProducts({ cat_id, page = 1 } = {}) {
+  if (!/^\d{1,10}$/.test(String(cat_id || ''))) throw httpError(400, 'Choose a category');
+  const j = await bg.call('GET', 'product/getProductList', { cat_id, page: Math.max(1, Math.min(500, Number(page) || 1)) });
+  return {
+    page: Number(j.page) || 1, page_total: Number(j.page_total) || 1, total: Number(j.product_total) || 0,
+    items: arr(j.product_list).map((x) => ({ pid: String(x.product_id), title: str(x.product_name, 200), image: httpsImg(x.img), added: str(x.add_date, 20) })).filter((x) => x.pid)
+  };
+}
+
 const suggested = (cost, pct) => { const v = cost * (1 + (Number(pct ?? prefs().markup_pct) || 0) / 100); return Math.max(money(cost + 0.5), Math.ceil(v) - 0.01); };
 
 async function preview(seller, ref) {
@@ -400,4 +429,4 @@ async function cancel(sub) {
   throw httpError(409, 'Cancel the order in your Banggood account first, then refund the customer');
 }
 
-module.exports = { arabic, enabled, status, prefs, savePrefs, parseRef, fetchProduct, preview, publish, resync, resyncStale, cachedFee, quote, countryName, choose, shipOptions, LABEL, newDirectSub, place, sync, markPaid, cancel, mapStatus };
+module.exports = { categories, listProducts, arabic, enabled, status, prefs, savePrefs, parseRef, fetchProduct, preview, publish, resync, resyncStale, cachedFee, quote, countryName, choose, shipOptions, LABEL, newDirectSub, place, sync, markPaid, cancel, mapStatus };
