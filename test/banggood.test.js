@@ -24,12 +24,14 @@ global.fetch = async (url, opts = {}) => {
   assert.ok(q.access_token || body.get('access_token'), 'token sent'); assert.strictEqual(q.apiTest || body.get('apiTest'), '1');
   if (u.pathname === '/product/getProductInfo') return ok({ product_name: 'LED Desk Lamp', description: '<p>Bright <b>lamp</b></p>', weight: '0.45',
     warehouse_list: [{ warehouse: 'CN', warehouse_price: 10 }, { warehouse: 'UK', warehouse_price: 14 }],
-    poa_list: [{ option_id: 1, option_name: 'Color', option_values: [{ poa_id: '11', poa_name: 'White', poa_price: 0, large_image: 'https://img.bg/w.jpg' }, { poa_id: '12', poa_name: 'Black', poa_price: 1 }] },
+    poa_list: [{ option_id: 1, option_name: 'Color', option_values: [{ poa_id: '11', poa_name: 'White', poa_price: 0, large_image: 'https://img.bg/w.jpg' }, { poa_id: '12', poa: 'POA_BLACK', poa_name: 'Black', poa_price: 1 }] },
       { option_id: 2, option_name: 'Plug', option_values: [{ poa_id: '21', poa_name: 'UK', poa_price: 0 }] }],
     image_list: { large: '//img.bg/2.jpg', home: 'https://img.bg/small.jpg', view: 'https://img.bg/1.jpg' } });
   if (u.pathname === '/category/getCategoryList') return ok(q.page === '1' ? { page: 1, page_total: 2, cat_list: [{ cat_id: '1', cat_name: 'Home', parent_id: '0' }, { cat_id: '10', cat_name: 'Lighting', parent_id: '1' }] } : { page: 2, page_total: 2, cat_list: [{ cat_id: '100', cat_name: 'Desk Lamps', parent_id: '10' }] });
   if (u.pathname === '/product/getProductList') { assert.strictEqual(q.cat_id, '100'); return ok({ page: 1, page_total: 3, product_total: 41, product_list: [{ product_id: '1234567', product_name: 'LED Desk Lamp', img: 'https://img.bg/t.jpg' }] }); }
   if (u.pathname === '/product/getProductUpdateList') { assert.ok(Number(q.minutes) >= 30 && Number(q.minutes) <= 21600); return ok({ page: 1, page_total: 1, product_list: [{ product_id: 1234567, state: 2, modify_date: '2026-11-11 10:00:00' }, { product_id: 999, state: 1 }] }); }
+  if (u.pathname === '/product/getLimitPriceBrand') return ok({ page: 1, page_total: 1, brand_list: [{ brand_id: '300000001', name: 'DIGOO' }] });
+  if (u.pathname === '/product/getBrandLimitPriceList') { assert.strictEqual(q.brand_id, '300000001'); return ok({ page: 1, page_total: 1, product_list: [{ products_id: '1234567', sku: 'SKU1', poa: 'POA_BLACK', limit_price: '30.00' }] }); }
   if (u.pathname === '/product/Translate') { assert.strictEqual(q.lang, 'ar'); return { ok: true, status: 200, json: async () => ({ error: 0, TranslatedText: { product_name: 'مصباح مكتب LED', description: '<p>مصباح ساطع</p>' } }) }; }
   if (u.pathname === '/product/getProductPrice') { assert.strictEqual(q.warehouse, 'UK'); return ok({ productPrice: [{ poa_id: '21,11', price: 14.5 }] }); }
   if (u.pathname === '/product/getStocks') return ok({ stocks: [{ warehouse: 'UK', stock_list: [{ poa_id: '11,21', stock: 7, stock_msg: 'In stock' }, { poa_id: '12,21', stock: 0 }] }] });
@@ -110,6 +112,20 @@ test('Banggood: browse sub-categories and their products', async () => {
   const r = await b.listProducts({ cat_id: '100' });
   assert.deepStrictEqual([r.page_total, r.total, r.items[0].pid, r.items[0].image], [3, 41, '1234567', 'https://img.bg/t.jpg']);
   await assert.rejects(() => b.listProducts({ cat_id: 'x' }), /Choose a category/);
+});
+
+test('Banggood brand minimum prices: refused below, products below get paused', async () => {
+  const b = require('../src/services/banggood');
+  const sys = require('../src/services/buyforme').systemSeller();
+  const before = db.listings.find((x) => x.source === 'banggood');
+  const black = before.skus.find((x) => x.props.startsWith('Black'));
+  db.listings.update(before.id, { status: 'active', skus: before.skus.map((x) => (x === black ? { ...x, price: 20 } : x)) });
+  const r = await b.refreshLimits();
+  assert.deepStrictEqual([r.brands, r.products, r.paused], [1, 1, 1]);
+  assert.strictEqual(db.listings.get(before.id).status, 'paused');
+  assert.strictEqual(b.limitFor('1234567', black), 30);
+  assert.strictEqual(b.limitFor('1234567', before.skus.find((x) => x.props.startsWith('White'))), null, 'other options are free');
+  await assert.rejects(() => b.publish(sys, { ref: '1234567', category: 'home', prices: { [black.mp_sku_id]: 25 } }), /minimum selling price of \$30\.00/);
 });
 
 test('Banggood country names and status mapping', () => {

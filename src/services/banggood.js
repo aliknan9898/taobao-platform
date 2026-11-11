@@ -69,7 +69,7 @@ function combos(groups) {
   for (const g of groups) {
     const vals = arr(g.option_values);
     if (!vals.length) continue;
-    out = out.flatMap((c) => vals.map((v) => [...c, { group: str(g.option_name, 60), id: String(v.poa_id), name: str(v.poa_name, 80), price: Number(v.poa_price) || 0, image: httpsImg(v.large_image || v.view_image || v.small_image) }]));
+    out = out.flatMap((c) => vals.map((v) => [...c, { group: str(g.option_name, 60), id: String(v.poa_id), code: str(v.poa, 40), name: str(v.poa_name, 80), price: Number(v.poa_price) || 0, image: httpsImg(v.large_image || v.view_image || v.small_image) }]));
     if (out.length > 100) { out = out.slice(0, 100); break; }
   }
   return out;
@@ -101,7 +101,7 @@ async function fetchProduct(ref, wantWarehouse) {
     const cost = money(base + c.reduce((a, x) => a + x.price, 0));
     const st = stockNorm.get(norm(poa)) ?? (c.length ? null : stockNorm.get(''));
     return {
-      bg_poa: poa, mp_sku_id: `bg_${pid}_${poa ? poa.replace(/,/g, '-') : '0'}`, props: c.map((x) => x.name).join(' / ').slice(0, 120),
+      bg_poa: poa, bg_poa_codes: c.map((x) => x.code).filter(Boolean).join(','), mp_sku_id: `bg_${pid}_${poa ? poa.replace(/,/g, '-') : '0'}`, props: c.map((x) => x.name).join(' / ').slice(0, 120),
       opts: c.length ? c.map((x) => ({ name: x.group || 'Option', value: x.name })) : null,
       cost_sale: money(cost), stock: st ? st.stock : 999, image: c.map((x) => x.image).find(Boolean) || null
     };
@@ -181,6 +181,8 @@ async function publish(seller, { ref, prices = {}, title, description, category,
   const skus = p.skus.map((s) => {
     const price = prices[s.mp_sku_id] !== undefined && prices[s.mp_sku_id] !== '' ? money(prices[s.mp_sku_id]) : suggested(s.cost_sale, pct);
     if (!(price > 0)) throw httpError(400, `Invalid price for ${s.props || 'an option'}`);
+    const min = limitFor(p.bg_pid, s);
+    if (min && price < min) throw httpError(400, `Banggood sets a minimum selling price of $${min.toFixed(2)} for ${s.props || 'this product'} (brand rule) — raise your price`);
     return { ...s, price };
   });
   const newTitle = str(title || p.title, 200);
@@ -217,6 +219,57 @@ async function resync(l) {
     return db.listings.update(l.id, { sync_error: e.message, last_synced_at: now() });
   }
 }
+// ---------------- brand minimum prices ----------------
+// Some brands set a minimum selling price on Banggood (getLimitPriceBrand → getBrandLimitPriceList).
+// Selling below it can get the Banggood account penalised, so Kinan refuses lower prices and pauses
+// products that fall below a raised minimum.
+const LIMITS = 'set_banggood_limits';
+const limits = () => db.settings.get(LIMITS)?.by || {};
+/** The minimum price for one option of a product (USD), or null. */
+function limitFor(pid, sku) {
+  const by = limits()[String(pid)]; if (!by) return null;
+  const keys = new Set(['', ...String(sku?.bg_poa_codes || '').split(','), ...String(sku?.bg_poa || '').split(',')].filter((k, i) => i === 0 || k));
+  const hits = Object.entries(by).filter(([k]) => keys.has(k) || (k && String(sku?.bg_poa_codes || '').split(',').sort().join(',') === k.split(',').sort().join(','))).map(([, v]) => v);
+  return hits.length ? Math.max(...hits) : null;
+}
+async function refreshLimits() {
+  if (!enabled()) return { brands: 0, products: 0 };
+  const brands = [];
+  for (let page = 1; page <= 50; page++) {
+    const j = await bg.call('GET', 'product/getLimitPriceBrand', { page });
+    brands.push(...arr(j.brand_list).map((b) => ({ id: String(b.brand_id), name: str(b.name, 80) })).filter((b) => b.id));
+    if (!(Number(j.page_total) > page)) break;
+  }
+  const by = {};
+  for (const b of brands) {
+    for (let page = 1; page <= 100; page++) {
+      const j = await bg.call('GET', 'product/getBrandLimitPriceList', { brand_id: b.id, page });
+      for (const x of arr(j.product_list)) {
+        const pid = String(x.product_id ?? x.products_id ?? ''); const price = Number(x.limit_price);
+        if (!pid || !(price > 0)) continue;
+        (by[pid] = by[pid] || {})[str(x.poa, 80)] = Math.max(price, by[pid]?.[str(x.poa, 80)] || 0);
+      }
+      if (!(Number(j.page_total) > page)) break;
+    }
+  }
+  const doc = { at: now(), brands, by };
+  db.settings.get(LIMITS) ? db.settings.update(LIMITS, doc) : db.settings.insert({ id: LIMITS, ...doc });
+  // Our products now below a minimum: pause them and tell the seller
+  let paused = 0;
+  for (const l of db.listings.all((x) => x.source === 'banggood' && by[String(x.bg_pid)] && ['active', 'pending_review'].includes(x.status))) {
+    const low = l.skus.map((s) => ({ s, min: limitFor(l.bg_pid, s) })).filter((x) => x.min && x.s.price < x.min);
+    if (!low.length) continue;
+    const msg = `Below Banggood’s minimum price: ${low.map((x) => `${x.s.props || 'item'} min $${x.min.toFixed(2)}`).join(', ')}`;
+    db.listings.update(l.id, { status: 'paused', sync_error: msg }); paused++;
+    try {
+      const uid = db.sellers.get(l.seller_id)?.user_id;
+      if (uid) require('../push').toUser(uid, { title: 'Product paused — raise the price', body: `${l.title.slice(0, 60)}: ${msg}`, url: '/seller#/products', ar: { title: 'أُوقف منتج — ارفع السعر', body: `${l.title.slice(0, 60)}: السعر أقل من الحد الأدنى الذي يفرضه Banggood` } });
+    } catch { /* optional */ }
+  }
+  if (paused) require('../push').telegram(`⚠️ ${paused} Banggood product(s) paused: priced below the brand's minimum price.`);
+  return { brands: brands.length, products: Object.keys(by).length, paused };
+}
+
 /**
  * Hourly: ask Banggood which products changed since the last check (getProductUpdateList, up to 15 days back)
  * and refresh only ours among them. Products Banggood stopped selling (state 2) become unavailable at once.
@@ -456,4 +509,4 @@ async function cancel(sub) {
   throw httpError(409, 'Cancel the order in your Banggood account first, then refund the customer');
 }
 
-module.exports = { updateTick, categories, listProducts, arabic, enabled, status, prefs, savePrefs, parseRef, fetchProduct, preview, publish, resync, resyncStale, cachedFee, quote, countryName, choose, shipOptions, LABEL, newDirectSub, place, sync, markPaid, cancel, mapStatus };
+module.exports = { refreshLimits, limitFor, updateTick, categories, listProducts, arabic, enabled, status, prefs, savePrefs, parseRef, fetchProduct, preview, publish, resync, resyncStale, cachedFee, quote, countryName, choose, shipOptions, LABEL, newDirectSub, place, sync, markPaid, cancel, mapStatus };
