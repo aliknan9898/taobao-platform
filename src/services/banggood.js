@@ -277,7 +277,7 @@ async function quote(items, countryCode) {
 }
 
 // ---------------- orders ----------------
-const LABEL = { AE_TO_BUY: 'To order on Banggood', AE_PLACED: 'Created on Banggood — pay it in the Banggood account', AE_PAID: 'Paid — Banggood is preparing it', AE_SHIPPED: 'Shipped to the customer', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Cancelled on Banggood' };
+const LABEL = { AE_TO_BUY: 'To order on Banggood', AE_PLACED: 'Created on Banggood — pay it on banggood.com → ApiOrderList', AE_PAID: 'Paid — Banggood is preparing it', AE_SHIPPED: 'Shipped to the customer', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Cancelled on Banggood' };
 
 function newDirectSub(o, sellerId, lines) {
   return {
@@ -303,20 +303,22 @@ async function place(o, sub, lines) {
     if (!code) { sub.error = `Banggood has no shipping method to ${a.country || a.country_code} for ${l.title}`; return sub; }
     product_list.push({ product_id: l.bg_pid, quantity: l.qty, warehouse, poa_id: l.bg_poa || '', shipmethod_code: code });
   }
-  const saleId = `${o.id.slice(-10)}${sub.seller_id.slice(-4)}`.toUpperCase();
+  // Unique per attempt: Banggood refuses a sale_record_id it has seen (12062)
+  sub.bg_attempt = (sub.bg_attempt || 0) + 1;
+  const saleId = `${o.id.slice(-10)}${sub.seller_id.slice(-4)}${sub.bg_attempt > 1 ? `R${sub.bg_attempt}` : ''}`.toUpperCase();
   try {
     const j = await bg.call('POST', 'order/importOrder', {
       sale_record_id: saleId, delivery_name: str(a.name, 60), delivery_country: country, delivery_state: str(a.state || a.city, 60), delivery_city: str(a.city, 60),
-      delivery_street_address: str(a.line1, 200), delivery_street_address2: str(a.line2, 200), delivery_postcode: str(a.postal_code, 20), delivery_telephone: str(a.phone, 30),
+      delivery_street_address: str(a.line1, 200), delivery_street_address2: str(a.line2, 200), delivery_postcode: str(a.postal_code, 20) || '00000', delivery_telephone: str(a.phone, 30),
       remark: `Kinan ${o.id.slice(-8).toUpperCase()} — no invoice or prices in the parcel please`, product_total: product_list.length, product_list
-    });
+    }, { accept: [1] });
     const failed = arr(j.failure_list);
     if (Number(j.success_total) === 0 || failed.length) {
       sub.error = `Banggood: ${failed.map((f) => f.error_desc).filter(Boolean).join('; ') || 'order not accepted'}`;
       if (!Number(j.success_total)) return sub;
     }
     Object.assign(sub, { sale_record_id: saleId, status: 'AE_PLACED', placed_at: now(), error: sub.error || null });
-    require('../push').telegram(`🛒 Banggood order created for Kinan order ${o.id.slice(-8).toUpperCase()} — pay it in your Banggood account (Dropship orders): https://www.banggood.com/index.php?com=account`);
+    require('../push').telegram(`🛒 Banggood order created for Kinan order ${o.id.slice(-8).toUpperCase()} (ref ${saleId}) — pay it on banggood.com → ApiOrderList, then press “Paid on Banggood” in the admin dashboard.`);
     try { await sync(sub); } catch { /* polled later */ }
   } catch (e) { sub.error = e.message.startsWith('Banggood') ? e.message : `Banggood: ${e.message}`; }
   return sub;

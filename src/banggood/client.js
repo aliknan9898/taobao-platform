@@ -23,7 +23,7 @@ const TOKEN_CODES = new Set([21020, 21030, 11020]);
 const MESSAGES = {
   12029: 'Quantity must be below 100', 12031: 'Unknown Banggood warehouse', 12032: 'Banggood does not recognise this country',
   12033: 'Unknown product option (poa_id)', 12034: 'Unknown Banggood product', 12027: 'Product ID is missing', 12087: 'This product is no longer sold on Banggood',
-  12082: 'Too many orders asked at once', 31010: 'Banggood refused this server — register the server’s IP addresses in the Banggood Open Platform',
+  12082: 'Too many orders asked at once', 12062: 'This order was already sent to Banggood', 1: 'Banggood could not add the order — open banggood.com → ApiOrderList', 31010: 'Banggood refused this server — register the server’s IP addresses in the Banggood Open Platform',
   41010: 'Banggood daily call limit reached — try again tomorrow', 21030: 'Banggood token mismatch', 21020: 'Banggood token expired', 31020: 'Banggood account error — check the Dropship program approval and the server IP addresses'
 };
 
@@ -46,7 +46,7 @@ function form(obj, prefix = '', out = new URLSearchParams()) {
   return out;
 }
 
-async function raw(method, path, params = {}) {
+async function raw(method, path, params = {}, { accept = [] } = {}) {
   const url = new URL(`${BASE()}/${path.replace(/^\//, '')}`);
   const all = { ...params, ...(SANDBOX() ? { apiTest: 1 } : {}) };
   const init = { method, signal: AbortSignal.timeout(30000), headers: { Accept: 'application/json' } };
@@ -55,6 +55,7 @@ async function raw(method, path, params = {}) {
   const r = await fetch(url, init);
   let j; try { j = await r.json(); } catch { throw new BanggoodError(`Banggood answered ${r.status}`, r.status); }
   const code = Number(j.code ?? j.error ?? 0); // the Translate API answers with "error" instead of "code"
+  if (code !== 0 && accept.includes(code)) return j; // e.g. importOrder answers 1 with the failed products listed
   if (code !== 0) throw new BanggoodError(`Banggood: ${MESSAGES[code] || j.msg || j.errMsg || 'request failed'} (${code})`, code, code === 12034 || code === 12087 ? 404 : 502);
   return j;
 }
@@ -80,12 +81,12 @@ async function token({ force = false } = {}) {
 }
 
 /** Authenticated call; signs in again once when Banggood says the token is expired or wrong. */
-async function call(method, path, params = {}) {
+async function call(method, path, params = {}, opts = {}) {
   const withToken = (t) => ({ ...params, access_token: t, lang: params.lang || 'en', currency: params.currency || 'USD' });
   const t = await token();
-  try { return await queued(() => raw(method, path, withToken(t))); }
+  try { return await queued(() => raw(method, path, withToken(t), opts)); }
   catch (e) {
-    if (TOKEN_CODES.has(Number(e.code))) { const t2 = await token({ force: true }); return queued(() => raw(method, path, withToken(t2))); }
+    if (TOKEN_CODES.has(Number(e.code))) { const t2 = await token({ force: true }); return queued(() => raw(method, path, withToken(t2), opts)); }
     throw e;
   }
 }

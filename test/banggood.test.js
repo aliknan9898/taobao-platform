@@ -31,6 +31,7 @@ global.fetch = async (url, opts = {}) => {
   if (u.pathname === '/product/getProductPrice') { assert.strictEqual(q.warehouse, 'UK'); return ok({ productPrice: [{ poa_id: '21,11', price: 14.5 }] }); }
   if (u.pathname === '/product/getStocks') return ok({ stocks: [{ warehouse: 'UK', stock_list: [{ poa_id: '11,21', stock: 7, stock_msg: 'In stock' }, { poa_id: '12,21', stock: 0 }] }] });
   if (u.pathname === '/product/getShipments') { assert.strictEqual(q.country, 'malta'); return ok({ currency: 'USD', shipment_list: [{ shipmethod_code: 'ukpost_std', shipmethod_name: 'Standard', shipday: '4-7 business days', shipfee: '6.50' }, { shipmethod_code: 'dhl', shipmethod_name: 'DHL', shipday: '2-3 business days', shipfee: '19' }] }); }
+  if (u.pathname === '/order/importOrder' && body.get('product_list[0][product_id]') === 'FAIL') return ok({ code: 1, success_total: 0, failure_total: 1, failure_list: [{ product_id: 'FAIL', error_desc: 'Error poa' }] });
   if (u.pathname === '/order/importOrder') {
     assert.strictEqual(opts.method, 'POST');
     assert.strictEqual(body.get('delivery_country'), 'malta'); assert.strictEqual(body.get('product_list[0][warehouse]'), 'UK');
@@ -106,4 +107,17 @@ test('Banggood country names and status mapping', () => {
   assert.strictEqual(b.mapStatus('Processing'), 'AE_PAID');
   assert.strictEqual(b.mapStatus('Cancelled'), 'AE_CANCELLED');
   assert.strictEqual(b.parseRef('https://www.banggood.com/x-p-1234567.html?rmmds=x'), '1234567');
+});
+
+test('Banggood: a refused product keeps the reason and a retry gets a new sale_record_id', async () => {
+  const b = require('../src/services/banggood');
+  const o = { id: 'ord_aaaabbbbccccdddd', shipping_address: { name: 'C', country_code: 'MT', city: 'Valletta', line1: 'x', phone: '1' }, payment: { provider: 'stripe', mode: 'live' } };
+  const sub = { seller_id: 'sel_x1234', status: 'AE_TO_BUY' };
+  const line = { listing_id: 'none', bg_pid: 'FAIL', bg_poa: '1', bg_warehouse: 'UK', qty: 1, mp_sku_id: 'm', title: 'Bad' };
+  o.bg_shipping = { methods: [{ mp_sku_id: 'm', code: 'x' }] };
+  await b.place(o, sub, [line]);
+  assert.strictEqual(sub.status, 'AE_TO_BUY'); assert.match(sub.error, /Error poa/);
+  await b.place(o, sub, [line]);
+  const ids = calls.filter((c) => c.path === '/order/importOrder').map((c) => c.body.sale_record_id).slice(-2);
+  assert.notStrictEqual(ids[0], ids[1]);
 });
