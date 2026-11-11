@@ -353,6 +353,51 @@ function resizeImage(file, max = 1000) {
     img.src = url;
   });
 }
+// ---------- AI listing assistant ----------
+const AI_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
+/**
+ * A panel that sends the listing to the AI assistant and shows its suggestions.
+ * read() → { title, description, options, category, images }; apply(field, value) puts one suggestion in the form;
+ * removePhoto(index) (optional) takes a flagged photo out.
+ */
+function aiBox(el, { read, apply, removePhoto }) {
+  if (!el) return;
+  if (!cfg.ai) { el.hidden = true; return; }
+  el.innerHTML = `<div class="row between" style="gap:12px;flex-wrap:wrap"><div class="row" style="gap:10px;flex-wrap:nowrap"><span class="aiicon">${AI_ICON}</span><div><b>AI assistant</b><div class="muted small">Rewrites your title, description and keywords, translates to Arabic and checks your photos. You choose what to use.</div></div></div>
+    <button type="button" class="btn sm" id="aigo">Improve with AI</button></div><div id="aiout" class="stack"></div>`;
+  const go = el.querySelector('#aigo'); const out = el.querySelector('#aiout');
+  go.onclick = async () => {
+    const b = read();
+    if ((b.title || '').trim().length < 3 && !(b.images || []).length) { out.innerHTML = '<div class="error">Write a title or add a photo first.</div>'; return; }
+    go.disabled = true; go.textContent = 'Thinking…';
+    out.innerHTML = '<div class="skeleton" style="height:120px"></div><p class="muted small" style="margin:0">This takes about 10–20 seconds.</p>';
+    try {
+      const r = await api('/api/seller/ai/listing', 'POST', { ...b, lang: KinanLang.lang });
+      const sug = [['title', 'Title', r.title], ['description', 'Description', r.description], ['keywords', 'Search keywords', (r.keywords || []).join(', ')], ['title_ar', 'Arabic title', r.title_ar], ['description_ar', 'Arabic description', r.description_ar]].filter(([, , v]) => v);
+      const cat = r.category && (cfg.categories || []).find((c) => c.id === r.category);
+      const V = { good: ['Good', 'ok'], fix: ['Improve', 'warn'], remove: ['Remove', 'bad'] };
+      out.innerHTML = `<div class="row between"><b>Suggestions</b><button type="button" class="btn sm" id="aiall">Use all</button></div>
+        ${sug.map(([k, label, v]) => `<div class="aisug"><div class="row between"><span class="muted small">${label}</span><button type="button" class="btn sm ghost" data-ai="${k}">Use</button></div><div class="aitext" ${/_ar$/.test(k) ? 'dir="rtl"' : 'dir="auto"'} data-no-tr>${esc(v)}</div></div>`).join('')}
+        ${cat ? `<div class="aisug"><div class="row between"><span class="muted small">Category</span><button type="button" class="btn sm ghost" data-ai="category">Use</button></div><div class="aitext">${esc(KinanLang.lang === 'ar' && cat.ar ? cat.ar : cat.en)}</div></div>` : ''}
+        ${(r.photos || []).length ? `<div class="stack" style="gap:8px"><b>Photo check</b>${r.photos.map((p) => `<div class="aiphoto" data-pi="${p.index}"><span class="pill ${V[p.verdict][1]}">${V[p.verdict][0]}</span><span><b><span>Photo</span> ${p.index}</b>${p.issues.length ? `<span class="muted small" style="display:block" data-no-tr>${p.issues.map(esc).join(' · ')}</span>` : ''}</span>${p.verdict === 'remove' && removePhoto ? `<button type="button" class="btn sm quiet" data-airm="${p.index}">Remove photo</button>` : ''}</div>`).join('')}</div>` : ''}
+        ${(r.tips || []).length ? `<div class="stack" style="gap:4px"><b>Tips</b><ul class="small" style="margin:0;padding-inline-start:18px" data-no-tr>${r.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}
+        <p class="muted small" style="margin:0"><span>Check the text before saving — you are responsible for what your listing says.</span> <span>AI uses left today:</span> ${r.uses_left_today}</p>`;
+      const vals = Object.fromEntries([...sug.map(([k, , v]) => [k, v]), ...(cat ? [['category', cat.id]] : [])]);
+      const use = (k, btn) => { apply(k, vals[k]); if (btn) { btn.textContent = 'Used ✓'; btn.disabled = true; } };
+      out.querySelectorAll('[data-ai]').forEach((b2) => b2.onclick = () => use(b2.dataset.ai, b2));
+      out.querySelector('#aiall').onclick = () => { out.querySelectorAll('[data-ai]').forEach((b2) => use(b2.dataset.ai, b2)); toast('Suggestions added — check them, then save'); };
+      // Remove flagged photos from the highest number down so the numbers stay right
+      out.querySelectorAll('[data-airm]').forEach((b2) => b2.onclick = () => {
+        const i = Number(b2.dataset.airm);
+        removePhoto(i - 1);
+        out.querySelectorAll('[data-airm]').forEach((x) => { if (Number(x.dataset.airm) > i) x.dataset.airm = Number(x.dataset.airm) - 1; });
+        b2.closest('.aiphoto').remove();
+      });
+    } catch (e) { out.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+    go.disabled = false; go.textContent = 'Improve again';
+  };
+}
+
 async function manualForm(id, aeFlag) {
   const v = $('#view');
   if (shop.status !== 'active') { v.innerHTML = `<div class="head"><h1>Add product</h1></div>${approvalBanner()}`; return; }
@@ -372,8 +417,10 @@ async function manualForm(id, aeFlag) {
         <div id="vars" class="stack" style="gap:8px"></div>
         <button type="button" class="btn sm ghost" id="addv" style="justify-self:start">+ Add option</button></div>
       <div class="grid-2">${catSelect(ex?.category)}<label class="field">Weight per item (kg)<input name="weight_kg" type="number" step="0.01" min="0" value="${esc(ex?.weight_kg ?? '')}" placeholder="e.g. 0.6"><span class="muted small">Used to price shipping. Leave empty to use 0.5 kg.</span></label></div>
+      <div class="panel flat stack aibox" id="aibox"></div>
       <label class="field">Description<textarea name="description" rows="5" maxlength="5000">${esc(ex?.description || '')}</textarea></label>
-      <details class="panel flat" ${ex?.ar_manual ? 'open' : ''}><summary><b>Arabic title and description</b> <span class="muted small">(optional)</span></summary>
+      <label class="field">Search keywords<input name="keywords" maxlength="600" value="${esc((ex?.keywords || []).join(', '))}" placeholder="e.g. winter jacket, waterproof, hiking"><span class="muted small">Separate with commas. Customers who search these words find your product.</span></label>
+      <details class="panel flat" id="ardet" ${ex?.ar_manual ? 'open' : ''}><summary><b>Arabic title and description</b> <span class="muted small">(optional)</span></summary>
         <p class="muted small" style="margin:8px 0">Leave empty and Kinan translates your product into Arabic automatically. Write it yourself for the best result.</p>
         <label class="field">Arabic title<input name="title_ar" dir="rtl" maxlength="300" value="${esc(ex?.ar_manual ? ex.title_ar || '' : '')}"></label>
         <label class="field">Arabic description<textarea name="description_ar" dir="rtl" rows="4" maxlength="6000">${esc(ex?.ar_manual ? ex.description_ar || '' : '')}</textarea></label>
@@ -404,6 +451,12 @@ async function manualForm(id, aeFlag) {
   };
   $$('#srcseg button').forEach((b) => b.onclick = () => { m.source = b.dataset.src; paintSrc(); });
   paintPhotos(); paintSrc();
+  { const fm = $('#mf');
+    aiBox($('#aibox'), {
+      read: () => ({ title: fm.title.value, description: fm.description.value, category: fm.category.value, options: m.variants.map((x) => x.name).filter(Boolean), images: m.images }),
+      apply: (k, v) => { if (k === 'title_ar' || k === 'description_ar') $('#ardet').open = true; fm[k].value = v; },
+      removePhoto: (i) => { m.images.splice(i, 1); paintPhotos(); }
+    }); }
   $('#addv').onclick = () => { m.variants.push({ name: '', price: m.variants[0]?.price || '', stock: 99, cost_cny: '' }); paintVars(); };
   $('#pf').onchange = async (e) => {
     for (const f of [...e.target.files].slice(0, 6 - m.images.length)) { try { m.images.push(await resizeImage(f)); } catch (err) { toast(err.message); } }
@@ -411,7 +464,7 @@ async function manualForm(id, aeFlag) {
   };
   $('#mf').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target; $('#me').textContent = '';
-    const body = { category: f.category.value, source: m.source, source_link: f.source_link.value, title: f.title.value, description: f.description.value, title_ar: f.title_ar.value, description_ar: f.description_ar.value, weight_kg: f.weight_kg.value, images: m.images,
+    const body = { category: f.category.value, source: m.source, source_link: f.source_link.value, title: f.title.value, description: f.description.value, title_ar: f.title_ar.value, description_ar: f.description_ar.value, keywords: f.keywords.value, weight_kg: f.weight_kg.value, images: m.images,
       variants: m.variants.map((x) => ({ name: x.name, price: Number(x.price), stock: x.stock === '' ? 99 : Number(x.stock), cost_cny: x.cost_cny === '' ? null : Number(x.cost_cny) })) };
     $('#msave').disabled = true; $('#msave').textContent = 'Saving…';
     try {
@@ -426,7 +479,8 @@ async function editProduct(id) {
   if (!p) throw new Error('Product not found');
   draft = { mode: 'edit', category: p.category, id: p.id, link: p.taobao_item_id, taobao_item_id: p.taobao_item_id, item_type: p.item_type, status: p.status, review: p.review,
     title: p.title, description: plain(p.description), taobao_images: p.images || [], own_images: p.own_images || [], skus: p.skus.map((s) => ({ ...s })),
-    orig: { title: p.title, description: plain(p.description), own: JSON.stringify(p.own_images || []), prices: JSON.stringify(p.skus.map((s) => s.price)) } };
+    keywords: p.keywords || [],
+    orig: { title: p.title, description: plain(p.description), own: JSON.stringify(p.own_images || []), prices: JSON.stringify(p.skus.map((s) => s.price)), keywords: (p.keywords || []).join(', ') } };
   editorScreen();
 }
 
@@ -444,7 +498,9 @@ function editorScreen() {
           <label class="field">Title buyers will see<input name="title" required maxlength="200" value="${esc(d.title)}"></label>
           <span class="muted">Write a clear English title. Taobao titles are often in Chinese and full of keywords.</span>
           <label class="field">Description<textarea name="description" rows="6" maxlength="5000" placeholder="Material, size, what’s in the box…">${esc(d.description)}</textarea></label>
+          <label class="field">Search keywords<input name="keywords" maxlength="600" value="${esc((d.keywords || []).join(', '))}" placeholder="e.g. winter jacket, waterproof, hiking"><span class="muted small">Separate with commas. Customers who search these words find your product.</span></label>
           ${catSelect(d.category)}
+          <div class="panel flat stack aibox" id="aibox"></div>
         </section>
         <section class="panel stack"><h2>Photos</h2>
           ${noMaterial ? '<div class="callout">This item comes from Taobao’s general catalog, so its Taobao photos can’t be used. Add your own photos — buyers won’t see the product without them.</div>'
@@ -480,6 +536,10 @@ function editorScreen() {
   };
   $$('[data-p]').forEach((inp) => inp.oninput = () => { d.skus[+inp.dataset.p].price = Number(inp.value); paint(); });
   f.title.oninput = paint; f.own_images.oninput = paint;
+  aiBox($('#aibox'), {
+    read: () => ({ title: f.title.value, description: f.description.value, category: f.category.value, options: d.skus.map((x) => variantLabel(x.props)).filter(Boolean), images: [...f.own_images.value.split(/\s+/).filter((u) => /^https:\/\//.test(u)), ...(noMaterial ? [] : d.taobao_images)].slice(0, 6) }),
+    apply: (k, v) => { if (f[k]) { f[k].value = v; paint(); } }
+  });
   $('#mkgo').onclick = () => {
     const mk = Number($('#mk').value) || 0;
     d.skus.forEach((s, i) => { s.price = Math.round(costInSale(s.cost_cny) * (1 + mk / 100) * 100) / 100; $(`[data-p="${i}"]`).value = s.price; });
@@ -496,12 +556,12 @@ function editorScreen() {
     if (Object.values(prices).some((p) => !(p > 0))) { $('#ee').textContent = 'Every option needs a price.'; return; }
     const btn = $('#save'); btn.disabled = true; btn.textContent = 'Saving…'; $('#ee').textContent = '';
     try {
-      const priceOnly = d.mode === 'edit' && title === d.orig.title && description === d.orig.description && JSON.stringify(own) === d.orig.own;
+      const priceOnly = d.mode === 'edit' && title === d.orig.title && description === d.orig.description && JSON.stringify(own) === d.orig.own && f.keywords.value.trim() === d.orig.keywords;
       if (priceOnly) {
         await api(`/api/seller/products/${d.id}`, 'PATCH', { prices });
         toast('Prices updated');
       } else {
-        await api('/api/seller/products', 'POST', { link: d.link, title, description, prices, own_images: own, images_rights_confirmed: f.rights.checked, category: f.category.value });
+        await api('/api/seller/products', 'POST', { link: d.link, title, description, prices, own_images: own, images_rights_confirmed: f.rights.checked, category: f.category.value, keywords: f.keywords.value });
         toast(d.mode === 'new' ? 'Sent to Kinan for review' : 'Saved — sent back for review');
       }
       draft = null; location.hash = '#/products';

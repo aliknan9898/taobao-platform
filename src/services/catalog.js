@@ -93,7 +93,7 @@ async function preview(seller, link) {
  * Seller publishes a listing with their own sale prices.
  * own_images: optional HTTPS URLs of photos the SELLER owns (required to show images for WITHOUT_MATERIAL items).
  */
-async function publish(seller, { link, prices = {}, title, description, own_images = [], images_rights_confirmed = false, category }) {
+async function publish(seller, { link, prices = {}, title, description, own_images = [], images_rights_confirmed = false, category, keywords }) {
   if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
   const p = await itemIdFromInput(link);
   if (!p.ok) throw httpError(400, LINK_ERRORS[p.reason] || 'Unsupported link');
@@ -129,6 +129,7 @@ async function publish(seller, { link, prices = {}, title, description, own_imag
     own_images: ownImgs,
     description: newDesc,
     custom_description: customDesc,
+    keywords: keywords !== undefined ? require('./ai').cleanKeywords(keywords) : existing?.keywords || [],
     begin_amount: prod.begin_amount,
     currency: config.currency,
     skus, last_synced_at: Date.now(),
@@ -188,7 +189,7 @@ function publishManual(seller, b = {}, listingId = null) {
     seller_id: seller.id, source: fromAE ? 'aliexpress' : 'manual', fulfillment: fromAE ? 'direct' : 'warehouse', source_link: sourceLink,
     ae_product_id: fromAE ? (aliexpress.productIdFromLink(sourceLink) || existing?.ae_product_id || null) : null,
     taobao_item_id: null, mp_id: null, item_type: fromAE ? 'ALIEXPRESS' : 'MANUAL',
-    title, description, custom_description: true, images: existing?.source === 'aliexpress' && fromAE ? (existing.images || []).filter((u) => images.includes(u)) : [], own_images: images.filter((u) => !(existing?.images || []).includes(u)), weight_kg: weight,
+    title, description, custom_description: true, keywords: b.keywords !== undefined ? require('./ai').cleanKeywords(b.keywords) : existing?.keywords || [], images: existing?.source === 'aliexpress' && fromAE ? (existing.images || []).filter((u) => images.includes(u)) : [], own_images: images.filter((u) => !(existing?.images || []).includes(u)), weight_kg: weight,
     begin_amount: 1, currency: config.currency, skus, last_synced_at: Date.now(),
     ...(keepApproval ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: Date.now() } }),
     ...require('./translate').manualPatch(b, existing)
@@ -265,7 +266,7 @@ function browse({ q = '', seller_id, category, sort = 'new', min_price, max_pric
   let items = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id)
     && (!seller_id || l.seller_id === seller_id)
     && (!category || (l.category || 'other') === category)
-    && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
+    && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (l.keywords || []).some((k) => k.includes(needle) || needle.includes(k)) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
     .map((l) => toBuyerView(l, activeSellers.get(l.seller_id)))
     .filter((p) => p.min_price >= lo && p.min_price <= hi);
   const order = { price_asc: (a, b) => a.min_price - b.min_price, price_desc: (a, b) => b.min_price - a.min_price, new: (a, b) => b.listed_at - a.listed_at }[sort] || ((a, b) => b.listed_at - a.listed_at);

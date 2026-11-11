@@ -214,3 +214,11 @@ html[dir="rtl"] input[name="iban"], html[dir="rtl"] input[name="bic"], html[dir=
 .cardrow.pickable.on .dot { border: 5px solid var(--jade); }
 .cardfield { padding: 13px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); min-height: 20px; }
 dialog.addrdlg { max-width: calc(100vw - 24px); box-sizing: border-box; }
+
+/* AI listing assistant (seller) */
+.aibox { border-color: color-mix(in srgb, var(--jade) 35%, var(--line)); background: color-mix(in srgb, var(--jade-soft) 45%, var(--surface)); }
+.aibox .aiicon { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--jade); color: var(--jade-ink); flex: none; }
+.aisug { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.aisug .aitext { white-space: pre-line; font-size: 14px; }
+.aiphoto { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.aiphoto > span:nth-child(2) { flex: 1; min-width: 0; }
