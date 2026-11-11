@@ -161,6 +161,7 @@ const VIEWS = {
         <div class="bars">${d.daily.map((x) => `<div title="${esc(x.date)}: ${fmt(x.revenue, c)}"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(3))}</small></div>`).join('')}</div></div>
       <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
+      <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
       <div class="card" id="nsscard"><h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Loading…</p></div>
       <div class="card" id="aecard"><h2>AliExpress</h2><p class="muted">Loading…</p></div>
       ${isAdmin() ? '' : '<!--'}<div class="card"><h2>Setup & integrations</h2>
@@ -168,6 +169,17 @@ const VIEWS = {
         <p class="muted">Taobao Callback URL: <code>${esc(d.webhook_urls.oauth_callback)}</code><br>
         Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
         Messages waiting to be processed: ${d.inbox_backlog}</p></div>${isAdmin() ? '' : '-->'}`;
+    api('/api/admin/taobao').then((t) => {
+      const el = $('#tbcard'); if (!el) return;
+      el.innerHTML = `<h2>Taobao — Kinan’s account</h2>
+        <p>${t.connected ? `<span class="pill ok">Connected</span> ${esc(t.account || '')}${t.needs_reauth_soon ? ' <span class="pill warn">Expires soon — reconnect</span>' : ''}` : t.configured ? '<span class="pill warn">Not connected</span>' : '<span class="pill warn">Not set up</span> Add <code>TAOBAO_APP_KEY</code> and <code>TAOBAO_APP_SECRET</code>.'}</p>
+        <p class="muted">Every seller imports Taobao products through this one account — sellers never sign in to Taobao. Kinan creates and pays each purchase order; the Taobao cost is deducted from the seller’s earnings.</p>
+        ${isAdmin() ? `<div class="row">${t.configured ? `<button class="btn" id="tbconn">${t.connected ? 'Reconnect' : 'Connect Kinan’s Taobao account'}</button>` : ''}${t.connected ? '<button class="btn ghost" id="tbdis">Disconnect</button>' : ''}
+          <label><input type="checkbox" id="tbauto" ${t.prefs.auto_pay ? 'checked' : ''}> Pay purchase orders automatically from Kinan’s Taobao balance</label><span class="muted" id="tbm"></span></div>` : ''}`;
+      const c = $('#tbconn'); if (c) c.onclick = async () => { try { location.href = (await api('/api/admin/taobao/connect', 'POST')).url; } catch (e) { alert(e.message); } };
+      const d = $('#tbdis'); if (d) d.onclick = async () => { if (confirm('Disconnect Kinan’s Taobao account? Sellers will not be able to import from Taobao until you connect it again.')) { await api('/api/admin/taobao/disconnect', 'POST'); render(); } };
+      const a = $('#tbauto'); if (a) a.onchange = async () => { try { await api('/api/admin/taobao/settings', 'PUT', { auto_pay: a.checked }); $('#tbm').textContent = 'Saved'; } catch (e) { $('#tbm').textContent = e.message; } };
+    }).catch(() => {});
     api('/api/admin/nss').then((n) => {
       const el = $('#nsscard'); if (!el) return;
       if (!n.configured) { el.innerHTML = '<h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Not connected. Add NSS_CLIENT_ID and NSS_CLIENT_SECRET.</p>'; return; }
@@ -694,6 +706,7 @@ async function openOrder(id) {
   const q = new URLSearchParams(location.search); const loginError = q.get('login_error') || '';
   if (loginError || q.get('aliexpress')) history.replaceState(null, '', '/admin');
   if (q.get('aliexpress') === 'connected') setTimeout(() => alert('AliExpress account connected'), 300);
+  if (q.get('taobao') === 'connected') setTimeout(() => alert('Kinan’s Taobao account connected — sellers can now import from Taobao without signing in'), 300);
   googleSignin = await fetch('/api/config/public').then((r) => r.json()).then((c) => Boolean(c.google_signin)).catch(() => false);
   api('/api/me').then(asMe).then((u) => (STAFF_LOGIN.includes(u.role) ? boot(u) : u.role === 'warehouse' ? (location.href = '/warehouse') : showLogin(loginError || 'You are signed in to the shop with a customer account — use Continue with Google with the admin Gmail'))).catch(() => showLogin(loginError));
 })();

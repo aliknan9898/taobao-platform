@@ -141,9 +141,11 @@ async function markPaid(orderId, { provider, intent_id }) {
     if (s?.system) continue; // Kinan's own shop (buy-for-me): no seller to pay
     const gross = money(lines.reduce((a, l) => a + l.price * l.qty, 0));
     const commission = money(gross * (Number(s?.commission_pct ?? config.defaultCommissionPct) / 100));
-    // Items Kinan buys itself (AliExpress, manual Taobao) — their purchase cost is deducted from the seller's earnings.
-    // API Taobao items are paid by the seller from their own Distribution account, so nothing is deducted.
-    const cost = money(lines.reduce((a, l) => a + (l.direct ? Number(l.cost_sale || 0) : l.manual && l.cost_cny ? l.cost_cny / config.cnyRate : 0) * l.qty, 0));
+    // Items Kinan buys itself — AliExpress, manual Taobao, and Taobao items bought with Kinan's own Taobao account —
+    // have their purchase cost deducted from the seller's earnings. (Only with a seller's own Taobao account,
+    // the old setup, does the seller pay Taobao directly, so nothing is deducted.)
+    const kinanBuysTaobao = require('../taobao/sellerAuth').platformConnected();
+    const cost = money(lines.reduce((a, l) => a + (l.direct ? Number(l.cost_sale || 0) : (l.manual || kinanBuysTaobao) && l.cost_cny ? l.cost_cny / config.cnyRate : 0) * l.qty, 0));
     db.ledger.insert({ order_id: o.id, seller_id: sellerId, type: 'sale', currency: o.currency, gross, commission, cost, net: money(gross - commission - cost), status: 'pending_payout' });
   }
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));
@@ -298,7 +300,7 @@ async function procure(orderId) {
     } catch (e) {
       sub.status = 'CREATE_FAILED';
       sub.error = /GOODS_UN_BUILD_RELATION|B-10-00-005/.test(String(e.code) + e.message)
-        ? 'Check mp_id/mp_sku_id, channel PANAMA_DG, and that the seller connected their Distribution Platform account'
+        ? 'Check mp_id/mp_sku_id, channel PANAMA_DG, and that Kinan’s Taobao account is connected (Admin → Overview)'
         : e.message;
     }
     db.orders.update(o.id, { sub_orders: subs });
@@ -309,7 +311,10 @@ async function procure(orderId) {
   for (const s of subs) if (s.status !== 'CREATE_FAILED' && !s.manual && !s.direct) { try { await syncSub(o.id, s.outer_purchase_id); } catch { /* later */ } }
   for (const s of subs) {
     const seller = db.sellers.get(s.seller_id);
-    if (seller?.auto_pay && s.status !== 'CREATE_FAILED' && !s.manual && !s.direct) { try { await paySub(o.id, s.outer_purchase_id); } catch { /* shown in UI */ } }
+    // Kinan's Taobao account: Kinan's setting decides; a seller's own account (old setup): the seller's setting
+    const ta = require('../taobao/sellerAuth');
+    const autoPay = ta.platformConnected() ? ta.prefs().auto_pay : seller?.auto_pay;
+    if (autoPay && s.status !== 'CREATE_FAILED' && !s.manual && !s.direct) { try { await paySub(o.id, s.outer_purchase_id); } catch { /* shown in UI */ } }
   }
   return db.orders.get(o.id);
 }

@@ -152,6 +152,8 @@ function approvalBanner() {
 }
 function taobaoCard() {
   const t = shop.taobao || {};
+  // Kinan's own Taobao account is used for every seller: nothing to connect
+  if (cfg.taobao_kinan) return '';
   // Connected: nothing to show, unless the authorization is about to expire
   if (t.connected && !t.needs_reauth_soon) return '';
   if (t.connected) return `<div class="banner ok"><div><b>Taobao account connected</b><div class="small">${t.account ? esc(t.account) + ' · ' : ''}Orders are bought from this account.${t.needs_reauth_soon ? ' <span class="warn">Authorization expires soon — reconnect to keep orders flowing.</span>' : ''}</div></div>${t.needs_reauth_soon ? '<button class="btn sm" data-connect>Reconnect</button>' : ''}</div>`;
@@ -171,7 +173,7 @@ async function dashboard() {
   v.innerHTML = '<div class="skeleton" style="height:120px"></div>';
   const [prods, ords, earn] = await Promise.all([api('/api/seller/products'), api('/api/seller/orders'), api('/api/seller/earnings')]);
   const count = (s) => prods.filter((p) => p.status === s).length;
-  const toPay = ords.filter((o) => o.purchase && /WAIT_BUYER_P/.test(o.purchase.status));
+  const toPay = cfg.taobao_kinan ? [] : ords.filter((o) => o.purchase && /WAIT_BUYER_P/.test(o.purchase.status));
   v.innerHTML = `<div class="head"><div><h1>Hello, ${esc(shop.shop_name)}</h1><p class="muted">Here’s what needs your attention today.</p></div><a class="btn" href="#/add">Add product</a></div>
     ${approvalBanner()}${taobaoCard()}
     ${toPay.length ? `<div class="banner" style="background:color-mix(in srgb,var(--bad) 9%,var(--surface))"><div><b>${toPay.length} order${toPay.length > 1 ? 's' : ''} waiting for your payment to Taobao</b><div class="small">Unpaid purchase orders are closed by Taobao at the deadline and the buyer is refunded.</div></div><a class="btn" href="#/orders">Pay now</a></div>` : ''}
@@ -248,13 +250,13 @@ function stepper(n) {
 }
 function addStart(err = '') {
   const v = $('#view');
-  const connected = shop.taobao?.connected;
+  const connected = cfg.taobao_kinan || shop.taobao?.connected;
   v.innerHTML = `<div class="head"><div><h1>Add product</h1><p class="muted">Choose where your product comes from.</p></div></div>
     <div class="srcgrid">
       <section class="panel stack srccard"><div class="srchead"><span class="srcico tb">淘</span><div><b>From Taobao</b><div class="muted small">Ships to Kinan’s China warehouse, is checked, then sent with the customer’s other items.</div></div></div>
         ${connected ? `<form class="stack" id="lf"><label class="field">Taobao or Tmall link<input name="link" required placeholder="https://item.taobao.com/item.htm?id=…" autocomplete="off"></label>
           <span class="muted small">You can also paste just the product ID.</span><div class="error">${esc(err)}</div><button class="btn" id="go">Import product</button></form>`
-        : `<p class="small">Import by link needs a Taobao Distribution account. No account? <a href="#/manual">Add it manually</a> instead.</p><button class="btn ghost" data-connect>Connect Taobao</button>`}
+        : `<p class="small">Import by Taobao link will be available soon. Meanwhile, <a href="#/manual">add the product manually</a>.</p>`}
       </section>
       <section class="panel stack srccard"><div class="srchead"><span class="srcico ae">AE</span><div><b>From AliExpress</b><div class="muted small">Ships straight to the customer · about ${esc(cfg.aliexpress?.delivery_days || '10–20')} days.</div></div></div>
         ${cfg.aliexpress?.import ? `<form class="stack" id="aef"><label class="field">AliExpress link<input name="link" required placeholder="https://www.aliexpress.com/item/1005….html" autocomplete="off"></label><div class="error" id="aee"></div><button class="btn" id="aego">Import from AliExpress</button></form><div id="aeprev"></div>`
@@ -594,7 +596,7 @@ function orderRow(o) {
       ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
       ${(p?.logistics || []).length ? `<div class="small muted">${p.direct ? 'To the customer' : 'To warehouse'}: ${p.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}</div>
     <div style="text-align:end;display:grid;gap:6px;justify-items:end"><b>${money(o.revenue, o.currency)}</b>${o.cost_cny ? `<span class="muted">cost ¥${num(o.cost_cny)}</span>` : ''}
-      <div class="row">${due ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p && !p.direct && !p.manual ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">Refresh</button>` : ''}<button class="btn sm quiet" data-msgs="${esc(o.id)}">Messages</button></div></div>
+      <div class="row">${due && !cfg.taobao_kinan ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p && !p.direct && !p.manual ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">Refresh</button>` : ''}<button class="btn sm quiet" data-msgs="${esc(o.id)}">Messages</button></div></div>
     <div class="stack" data-mbox="${esc(o.id)}" hidden style="grid-column:1/-1"></div></div>`;
 }
 function wireOrderActions() {
@@ -604,7 +606,7 @@ function wireOrderActions() {
 async function orders() {
   const v = $('#view'); v.innerHTML = '<div class="skeleton" style="height:240px"></div>';
   const list = await api('/api/seller/orders');
-  v.innerHTML = `<div class="head"><div><h1>Orders</h1><p class="muted">${shop.taobao?.connected ? `For products imported from Taobao, Kinan creates a purchase order from your account. ${shop.auto_pay ? 'Automatic payment is on.' : 'Pay each one before its deadline.'} ` : ''}Kinan buys AliExpress and manually added products for you.</p></div></div>
+  v.innerHTML = `<div class="head"><div><h1>Orders</h1><p class="muted">${cfg.taobao_kinan ? 'Kinan buys and pays for every order from Taobao, AliExpress, CJ and manually added products — nothing to do on your side. ' : shop.taobao?.connected ? `For products imported from Taobao, Kinan creates a purchase order from your account. ${shop.auto_pay ? 'Automatic payment is on.' : 'Pay each one before its deadline.'} Kinan buys AliExpress and manually added products for you.` : 'Kinan buys AliExpress and manually added products for you.'}</p></div></div>
     <section class="panel">${list.map(orderRow).join('') || '<div class="empty"><h3>No orders yet</h3><p>Paid orders for your products appear here.</p></div>'}</section>
     <p class="muted">Buyer names and addresses stay private. Taobao ships to Kinan’s China warehouse, and we ship to the buyer.</p>`;
   wireOrderActions();
@@ -696,7 +698,6 @@ function settings() {
       <label class="field">Shop description<textarea name="description" maxlength="600" rows="3" placeholder="What you sell and why customers will love it">${esc(shop.description || '')}</textarea></label>
       <label class="field">Return policy<textarea name="return_policy" maxlength="1500" rows="4" placeholder="e.g. Returns accepted within 7 days of delivery only if the item arrives damaged or different from the listing.">${esc(shop.return_policy || '')}</textarea><span class="muted small">Shown on your shop page and on every product. Keep it clear — international returns are expensive.</span></label>
       <label class="field">Default markup on Taobao cost (%)<input name="default_markup_pct" type="number" min="0" max="500" value="${esc(shop.default_markup_pct)}"></label>
-      <label class="check"><input type="checkbox" name="auto_pay" ${shop.auto_pay ? 'checked' : ''}><span><b>Pay Taobao automatically</b><br><span class="muted">Each purchase order is paid from your Distribution account balance as soon as it’s created, so you never miss a deadline.</span></span></label>
       <div class="row"><button class="btn">Save</button><span class="muted">Commission: ${esc(shop.commission_pct)}% · Status: ${esc(shop.status)}</span></div>
     </form>
     ${shop.status === 'active' ? `<section class="panel row between" style="max-width:640px"><span><b>Your shop in Kinan Shop</b><br><span class="muted small">See your store the way customers do.</span></span><a class="btn sm ghost" href="/#/s/${esc(shop.id)}" target="_blank" rel="noopener">View shop</a></section>` : ''}
@@ -725,7 +726,7 @@ function settings() {
   const pb = document.createElement('section'); pb.className = 'panel stack'; pb.style.maxWidth = '640px'; pb.style.marginTop = '14px'; $('#stf').after(pb); K.pushPanel(pb, 'seller');
   $('#stf').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target;
-    try { shop = await api('/api/seller/me', 'PATCH', { shop_name: f.shop_name.value.trim(), logo, description: f.description.value, return_policy: f.return_policy.value, default_markup_pct: Number(f.default_markup_pct.value), auto_pay: f.auto_pay.checked }); toast('Settings saved'); route(); }
+    try { shop = await api('/api/seller/me', 'PATCH', { shop_name: f.shop_name.value.trim(), logo, description: f.description.value, return_policy: f.return_policy.value, default_markup_pct: Number(f.default_markup_pct.value) }); toast('Settings saved'); route(); }
     catch (err) { toast(err.message); }
   };
 }

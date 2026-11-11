@@ -275,7 +275,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const c = await cjs.quote(items, q.country_code || require('./countries').countryCode(b.country_code || b.country));
   return c ? { ...q, fee: Math.round((q.fee + c.fee) * 100) / 100, cj: c, days: q.fee ? q.days : c.days || q.days, note: c.fee ? undefined : q.note } : q;
 });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), ai: require('./services/ai').enabled(), countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -360,6 +360,14 @@ r('PATCH', '/api/seller/me', SELLER, async ({ req, seller }) => {
   if (b.auto_pay !== undefined) patch.auto_pay = Boolean(b.auto_pay);
   return sellerSelf(db.sellers.update(seller.id, patch));
 });
+// Kinan's own Taobao account (sellers never sign in to Taobao)
+r('GET', '/api/admin/taobao', ADMIN, async () => sellerAuth.platformStatus());
+r('POST', '/api/admin/taobao/connect', ADMIN, async () => {
+  if (!config.appKey) throw httpError(503, 'Add TAOBAO_APP_KEY and TAOBAO_APP_SECRET on the server first');
+  return { url: sellerAuth.buildAuthorizeUrl(null, `${config.publicBaseUrl}/admin?taobao=connected`) };
+});
+r('PUT', '/api/admin/taobao/settings', ADMIN, async ({ req }) => sellerAuth.savePrefs(await readJson(req)));
+r('POST', '/api/admin/taobao/disconnect', ADMIN, async () => { sellerAuth.disconnectPlatform(); return sellerAuth.platformStatus(); });
 r('GET', '/api/seller/taobao/connect', SELLER, async ({ seller, url }) => {
   const rt = url.searchParams.get('return_to');
   if (!config.appKey) throw httpError(503, 'Taobao connection is not set up on Kinan yet. Please try again later.');
@@ -391,7 +399,7 @@ r('GET', '/api/seller/orders/:id/messages', SELLER, async ({ seller, params }) =
 r('POST', '/api/seller/orders/:id/messages', SELLER, async ({ req, seller, user, params }) => messages.post(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id, user }, await readJson(req)));
 r('GET', '/api/seller/orders', SELLER, async ({ seller }) => db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment').sort((a, b) => b.created_at - a.created_at).map((o) => orders.sellerView(o, seller.id)));
 const sellerSub = (seller, id) => { const o = db.orders.get(id); const s = o?.sub_orders.find((x) => x.seller_id === seller.id && !x.direct && !x.manual); if (!s) throw httpError(404, 'Not found'); return { o, s }; };
-r('POST', '/api/seller/orders/:id/pay', SELLER, async ({ seller, params }) => { const { o, s } = sellerSub(seller, params.id); return orders.paySub(o.id, s.outer_purchase_id); });
+r('POST', '/api/seller/orders/:id/pay', SELLER, async ({ seller, params }) => { if (sellerAuth.platformConnected()) throw httpError(403, 'Kinan pays Taobao for this order'); const { o, s } = sellerSub(seller, params.id); return orders.paySub(o.id, s.outer_purchase_id); });
 r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => { const { o, s } = sellerSub(seller, params.id); await orders.syncSub(o.id, s.outer_purchase_id); return orders.sellerView(db.orders.get(o.id), seller.id); });
 r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
   const led = db.ledger.all((l) => l.seller_id === seller.id && l.status !== 'void');
@@ -672,7 +680,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/oauth/callback') {
       try {
-        const { return_to } = await sellerAuth.handleCallback(url.searchParams.get('code'), url.searchParams.get('state'));
+        const { return_to, platform } = await sellerAuth.handleCallback(url.searchParams.get('code'), url.searchParams.get('state'));
+        if (platform) { res.writeHead(302, { Location: safeReturnTo(return_to) || '/admin?taobao=connected' }); return res.end(); }
         // Native seller app: deep link back (e.g. myapp://taobao-connected)
         const back = safeReturnTo(return_to);
         if (back) { res.writeHead(302, { Location: back }); return res.end(); }
@@ -760,6 +769,7 @@ if (require.main === module) (async () => {
   fx.refresh().catch((e) => console.warn('[fx]', e.message));
   setInterval(() => fx.refresh().catch((e) => console.warn('[fx]', e.message)), 6 * 3600e3).unref();
   require('./services/uptime').setup().then((r) => { if (r.ok) console.log(`[uptime] monitoring on (${r.created ? 'new monitor' : 'monitor already there'})`); }).catch((e) => console.warn('[uptime]', e.message));
+  try { sellerAuth.adoptOwnerToken(); } catch (e) { console.warn('[taobao] adopt:', e.message); }
   if (require('./cj/client').enabled()) require('./cj/client').background(async () => { await cjs.registerWebhooks().catch((e) => console.warn('[cj] webhooks:', e.message)); await cjs.upgradeOptions().catch((e) => console.warn('[cj] options:', e.message)); });
   if (config.appKey) require('./taobao/check').check().then((r) => console.log(`[taobao] app ${config.appKey}: ${r.ok ? 'connected' : 'NOT accepted'} — ${r.message}`)).catch((e) => console.warn('[taobao] check failed:', e.message));
   if (require('./nss/client').enabled()) require('./nss/client').check().then((r) => { console.log(`[nss] NextSmartShip ${process.env.NSS_CUSTOMER_CODE || ''}: ${r.ok ? 'connected' : 'NOT connected'} — ${r.message}`); if (r.ok) require('./services/nss').registerWebhook().catch((e) => console.warn('[nss] webhook:', e.message)); });
