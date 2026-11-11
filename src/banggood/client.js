@@ -53,8 +53,8 @@ async function raw(method, path, params = {}) {
   else { init.headers['Content-Type'] = 'application/x-www-form-urlencoded'; init.body = form(all).toString(); }
   const r = await fetch(url, init);
   let j; try { j = await r.json(); } catch { throw new BanggoodError(`Banggood answered ${r.status}`, r.status); }
-  const code = Number(j.code);
-  if (code !== 0) throw new BanggoodError(`Banggood: ${MESSAGES[code] || j.msg || 'request failed'} (${code})`, code, code === 12034 || code === 12087 ? 404 : 502);
+  const code = Number(j.code ?? j.error ?? 0); // the Translate API answers with "error" instead of "code"
+  if (code !== 0) throw new BanggoodError(`Banggood: ${MESSAGES[code] || j.msg || j.errMsg || 'request failed'} (${code})`, code, code === 12034 || code === 12087 ? 404 : 502);
   return j;
 }
 

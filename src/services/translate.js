@@ -77,4 +77,4 @@ function manualPatch(b, existing) {
   return { title_ar: t, description_ar: d, ar_manual: true };
 }
 
-module.exports = { provider, translate, translateListing, translatePending, manualPatch };
+module.exports = { fingerprint, provider, translate, translateListing, translatePending, manualPatch };

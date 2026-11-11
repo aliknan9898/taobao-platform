@@ -124,6 +124,19 @@ async function fetchProduct(ref, wantWarehouse) {
   };
 }
 
+/** Banggood's own Arabic translation of a product (Translate API, lang=ar): { title, description } or null. */
+async function arabic(pid) {
+  try {
+    const j = await bg.call('GET', 'product/Translate', { product_id: pid, lang: 'ar' });
+    let t = j.TranslatedText ?? j.translatedText ?? j.data;
+    if (typeof t === 'string') { try { t = JSON.parse(t); } catch { /* plain text: the title */ } }
+    const title = typeof t === 'string' ? t : t && (t.product_name || t.title || t.name);
+    const description = t && typeof t === 'object' ? t.description || t.desc || '' : '';
+    if (!title || !/[\u0600-\u06FF]/.test(String(title))) return null;
+    return { title: str(stripHtml(title), 300), description: stripHtml(description).slice(0, 6000) };
+  } catch { return null; }
+}
+
 const suggested = (cost, pct) => { const v = cost * (1 + (Number(pct ?? prefs().markup_pct) || 0) / 100); return Math.max(money(cost + 0.5), Math.ceil(v) - 0.01); };
 
 async function preview(seller, ref) {
@@ -155,7 +168,13 @@ async function publish(seller, { ref, prices = {}, title, description, category,
     last_synced_at: now(), sync_error: null,
     ...(own ? { status: 'active', review: { state: 'approved', decided_at: now(), note: 'Kinan shop (Banggood)' } } : keep ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: now() } })
   };
-  return existing ? db.listings.update(existing.id, doc) : db.listings.insert(doc);
+  const saved = existing ? db.listings.update(existing.id, doc) : db.listings.insert(doc);
+  // Arabic from Banggood itself, when the shop kept Banggood's title (no translation service needed)
+  if (newTitle === p.title && !saved.ar_manual) {
+    const ar = await arabic(p.bg_pid);
+    if (ar) return db.listings.update(saved.id, { title_ar: ar.title, description_ar: newDesc === p.description ? ar.description : '', ar_auto: true, ar_by: 'banggood', ar_src: require('./translate').fingerprint(saved) });
+  }
+  return saved;
 }
 
 /** Follow Banggood's cost and stock. Missing options get stock 0; a product no longer sold becomes unavailable. */
@@ -362,4 +381,4 @@ async function cancel(sub) {
   throw httpError(409, 'Cancel the order in your Banggood account first, then refund the customer');
 }
 
-module.exports = { enabled, status, prefs, savePrefs, parseRef, fetchProduct, preview, publish, resync, resyncStale, cachedFee, quote, countryName, choose, shipOptions, LABEL, newDirectSub, place, sync, markPaid, cancel, mapStatus };
+module.exports = { arabic, enabled, status, prefs, savePrefs, parseRef, fetchProduct, preview, publish, resync, resyncStale, cachedFee, quote, countryName, choose, shipOptions, LABEL, newDirectSub, place, sync, markPaid, cancel, mapStatus };

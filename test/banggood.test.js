@@ -27,6 +27,7 @@ global.fetch = async (url, opts = {}) => {
     poa_list: [{ option_id: 1, option_name: 'Color', option_values: [{ poa_id: '11', poa_name: 'White', poa_price: 0, large_image: 'https://img.bg/w.jpg' }, { poa_id: '12', poa_name: 'Black', poa_price: 1 }] },
       { option_id: 2, option_name: 'Plug', option_values: [{ poa_id: '21', poa_name: 'UK', poa_price: 0 }] }],
     image_list: { large: ['https://img.bg/1.jpg', '//img.bg/2.jpg'] } });
+  if (u.pathname === '/product/Translate') { assert.strictEqual(q.lang, 'ar'); return { ok: true, status: 200, json: async () => ({ error: 0, TranslatedText: { product_name: 'مصباح مكتب LED', description: '<p>مصباح ساطع</p>' } }) }; }
   if (u.pathname === '/product/getProductPrice') { assert.strictEqual(q.warehouse, 'UK'); return ok({ productPrice: [{ poa_id: '21,11', price: 14.5 }] }); }
   if (u.pathname === '/product/getStocks') return ok({ stocks: [{ warehouse: 'UK', stock_list: [{ poa_id: '11,21', stock: 7, stock_msg: 'In stock' }, { poa_id: '12,21', stock: 0 }] }] });
   if (u.pathname === '/product/getShipments') { assert.strictEqual(q.country, 'malta'); return ok({ currency: 'USD', shipment_list: [{ shipmethod_code: 'ukpost_std', shipmethod_name: 'Standard', shipday: '4-7 business days', shipfee: '6.50' }, { shipmethod_code: 'dhl', shipmethod_name: 'DHL', shipday: '2-3 business days', shipfee: '19' }] }); }
@@ -70,6 +71,7 @@ test('Banggood: import, checkout shipping, order, paid by hand, tracking', async
 
   const l = (await api('POST', '/api/admin/banggood/import', { ref: '1234567', category: 'home', prices: { [white.mp_sku_id]: 29 } }, boss)).body;
   assert.strictEqual(l.status, 'active'); assert.strictEqual(l.bg_warehouse, 'UK');
+  assert.strictEqual(l.title_ar, 'مصباح مكتب LED', 'Arabic from Banggood'); assert.strictEqual(l.description_ar, 'مصباح ساطع');
 
   await api('POST', '/api/auth/register', { role: 'buyer', email: 'c@x.com', password: 'buyerpass1', name: 'C' });
   const cust = await login('c@x.com', 'buyerpass1');
