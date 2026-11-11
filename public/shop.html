@@ -251,14 +251,32 @@ const savedAddress = () => { try { return JSON.parse(localStorage.getItem('kinan
 const PIN_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
 /** USD, EUR or GBP by country (decided by Kinan, the customer pays in it). */
 const currencyFor = (country) => ((cfg.currency_by_country || {})[country] || 'USD');
+// Where the phone is, from its time zone (more reliable than the language: an English phone in Malta says "en-US")
+const TZ_COUNTRY = { Malta: 'MT', London: 'GB', Dublin: 'IE', Paris: 'FR', Berlin: 'DE', Busingen: 'DE', Madrid: 'ES', Ceuta: 'ES', Canary: 'ES', Rome: 'IT', Vatican: 'VA', San_Marino: 'SM',
+  Amsterdam: 'NL', Brussels: 'BE', Luxembourg: 'LU', Vienna: 'AT', Zurich: 'CH', Lisbon: 'PT', Madeira: 'PT', Azores: 'PT', Athens: 'GR', Nicosia: 'CY', Famagusta: 'CY',
+  Warsaw: 'PL', Prague: 'CZ', Bratislava: 'SK', Budapest: 'HU', Ljubljana: 'SI', Zagreb: 'HR', Bucharest: 'RO', Sofia: 'BG', Tallinn: 'EE', Riga: 'LV', Vilnius: 'LT',
+  Helsinki: 'FI', Stockholm: 'SE', Copenhagen: 'DK', Oslo: 'NO', Reykjavik: 'IS', Monaco: 'MC', Andorra: 'AD', Gibraltar: 'GI', Belgrade: 'RS', Sarajevo: 'BA',
+  Skopje: 'MK', Podgorica: 'ME', Tirane: 'AL', Chisinau: 'MD', Kyiv: 'UA', Kiev: 'UA', Istanbul: 'TR', Guernsey: 'GG', Jersey: 'JE', Isle_of_Man: 'IM',
+  Riyadh: 'SA', Dubai: 'AE', Kuwait: 'KW', Qatar: 'QA', Bahrain: 'BH', Muscat: 'OM', Amman: 'JO', Beirut: 'LB', Baghdad: 'IQ', Cairo: 'EG', Casablanca: 'MA', Tunis: 'TN', Algiers: 'DZ',
+  Toronto: 'CA', Vancouver: 'CA', Sydney: 'AU', Melbourne: 'AU', Auckland: 'NZ' };
+function tzCountry() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const city = tz.split('/').pop();
+    if (TZ_COUNTRY[city]) return TZ_COUNTRY[city];
+    if (/^America\/(New_York|Chicago|Denver|Los_Angeles|Phoenix|Anchorage|Detroit|Indiana)/.test(tz) || tz === 'Pacific/Honolulu') return 'US';
+  } catch { /* old browser */ }
+  return '';
+}
 const Locale = {
   get() {
     let s = {}; try { s = JSON.parse(localStorage.getItem('kinan_locale') || '{}'); } catch {}
-    const guess = savedAddress().country_code || (navigator.language.split('-')[1] || '').toUpperCase() || 'SA';
+    if (s.v !== 2) s = {}; // older versions saved a guess from the phone language (often "US"): guess again
+    const guess = savedAddress().country_code || tzCountry() || (navigator.language.split('-')[1] || '').toUpperCase() || 'US';
     const country = savedAddress().country_code || s.country || guess;
     return { country, currency: currencyFor(country), chosen: Boolean(s.country || savedAddress().country_code) };
   },
-  set(v) { try { localStorage.setItem('kinan_locale', JSON.stringify({ ...Locale.get(), ...v })); } catch {} }
+  set(v) { try { localStorage.setItem('kinan_locale', JSON.stringify({ ...Locale.get(), ...v, v: 2 })); } catch {} }
 };
 /** Prices are already shown in the customer's own currency: no second, approximate price any more. */
 function localPrice() { return ''; }
