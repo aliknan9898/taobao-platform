@@ -70,6 +70,7 @@ function submit(seller, user, b = {}) {
   const kyc = { state: 'submitted', details: d, docs: refs, submitted_at: Date.now(), decided_at: null, reason: null, history: [...(seller.kyc?.history || []), { at: Date.now(), event: 'submitted' }].slice(-20) };
   const out = db.sellers.update(seller.id, { kyc, shop_name: d.shop_name, status: seller.status === 'active' ? 'active' : 'pending' });
   if (user && d.full_name && user.name !== d.full_name) db.users.update(user.id, { name: d.full_name });
+  try { require('../notify').sellerUnderReview(out); } catch (e) { console.error('[kyc] mail', e.message); }
   try { require('../push').telegram(`🆕 Seller verification to review: ${d.shop_name} (${d.full_name}, ${d.country}). Open Admin → Sellers.`); } catch { /* optional */ }
   return view(out);
 }

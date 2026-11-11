@@ -51,10 +51,43 @@ function qcPhotos(o) {
     button: { text: 'See the photos', url: `${base()}/#/orders/${o.id}` } }));
 }
 
+const firstName = (u) => String(u?.name || '').trim().split(/\s+/)[0] || '';
+
+/** Seller sent their verification: "your account is under review". */
+function sellerUnderReview(s) {
+  const u = db.users.get(s.user_id); const n = firstName(u) || s.kyc?.details?.full_name?.split(' ')[0] || '';
+  fire(mailer.send({ to: u?.email, key: `seller-review:${s.id}:${s.kyc?.submitted_at}`, kind: 'seller', app: 'seller',
+    subject: 'حسابك قيد المراجعة · Your Kinan seller account is under review',
+    ar: { title: `أهلاً ${n}، استلمنا طلبك 👋`, lines: [`شكراً لاختيارك كنان لفتح متجرك «${s.shop_name}».`, 'وصلتنا بياناتك ووثيقة هويتك، وحسابك الآن قيد المراجعة. يراجع فريق كنان الطلبات عادةً خلال يوم إلى يومي عمل.', 'سنرسل لك رسالة وإشعاراً فور فتح حسابك، وبعدها تستطيع إضافة منتجاتك مباشرة.'], button: { text: 'افتح مركز البائعين', url: `${base()}/seller` } },
+    title: `Hi ${n}, we received your application`,
+    lines: [`Thank you for choosing Kinan for your shop “${s.shop_name}”.`, 'Your details and identity document arrived and your account is now under review. Kinan usually reviews applications within 1–2 working days.', 'We will email you and send a notification as soon as your account is open — then you can add your products right away.'],
+    button: { text: 'Open Seller Center', url: `${base()}/seller` } }));
+}
+
+/** Seller approved: warm welcome by email + app notification. */
 function sellerApproved(s) {
-  push.toUser(s.user_id, { title: 'Your shop is approved', body: 'You can now add products', url: '/seller#/add' });
-  fire(mailer.send({ to: emailOf(s.user_id), key: `seller-approved:${s.id}`, kind: 'seller', subject: 'Your Kinan shop is approved', title: `Welcome, ${s.shop_name}!`,
-    lines: ['Your shop is approved. You can now add products — Kinan reviews each product before customers see it.'], button: { text: 'Add your first product', url: `${base()}/seller#/add` } }));
+  const u = db.users.get(s.user_id); const n = firstName(u);
+  push.toUser(s.user_id, { title: 'تم فتح حسابك بنجاح 🎉', body: `مرحباً بك في كنان! متجرك «${s.shop_name}» جاهز، أضف أول منتج الآن.`, url: '/seller#/add' });
+  fire(mailer.send({ to: u?.email, key: `seller-approved:${s.id}`, kind: 'seller', app: 'seller',
+    subject: '🎉 تم فتح حسابك بنجاح · Your Kinan shop is open',
+    ar: { title: `مبروك ${n}! تم فتح حسابك بنجاح 🎉`, lines: [`يسعدنا أن نرحّب بك رسمياً في عائلة كنان. متجرك «${s.shop_name}» أصبح مفعّلاً.`, 'ابدأ الآن بإضافة منتجاتك من تاوباو أو علي إكسبرس أو CJ أو يدوياً. يراجع فريقنا كل منتج قبل ظهوره للعملاء.', 'نتمنى لك مبيعات كثيرة ونجاحاً كبيراً. نحن معك في كل خطوة، ويمكنك الرد على هذه الرسالة في أي وقت.'], button: { text: 'أضف أول منتج', url: `${base()}/seller#/add` } },
+    title: `Congratulations ${n}! Your shop is open 🎉`,
+    lines: [`We are delighted to welcome you to the Kinan family. Your shop “${s.shop_name}” is now active.`, 'Start adding products from Taobao, AliExpress, CJ or by hand. Our team reviews each product before customers see it.', 'We wish you many sales and great success. We are with you every step — just reply to this email any time.'],
+    button: { text: 'Add your first product', url: `${base()}/seller#/add` } }));
+}
+
+/** New customer account in Kinan Shop: a warm welcome (with the welcome discount when there is one). */
+function customerWelcome(u) {
+  if (!u?.email) return;
+  const n = firstName(u);
+  const c = db.coupons.find((x) => x.code === 'WELCOME10' && x.active !== false && (!x.expires_at || x.expires_at > Date.now()));
+  const highlight = c ? { label: 'كود الترحيب · Welcome code', value: c.code } : undefined;
+  fire(mailer.send({ to: u.email, key: `welcome:${u.id}`, kind: 'account', app: 'shop', highlight,
+    subject: 'أهلاً بك في كنان 🎁 · Welcome to Kinan',
+    ar: { title: `أهلاً وسهلاً ${n}، يسعدنا انضمامك إلى كنان ✨`, lines: ['تم إنشاء حسابك بنجاح. صار بإمكانك الآن تسوّق آلاف المنتجات من الصين بأسعار ممتازة، مع شحن إلى باب بيتك وتتبّع لكل طلب.', ...(c ? [`هدية ترحيب منا: خصم ${c.value}% على طلبك الأول بكود ${c.code}.`] : []), 'هل وجدت منتجاً على تاوباو أو 1688؟ استخدم خدمة «اشترِ لي» ونشتريه لك.', 'نتمنى لك تجربة تسوّق رائعة، ولأي سؤال رد على هذه الرسالة وسنساعدك بكل سرور.'], button: { text: 'ابدأ التسوّق', url: `${base()}/` } },
+    title: `Welcome to Kinan, ${n} ✨`,
+    lines: ['Your account is ready. Shop thousands of products from China at great prices, delivered to your door with tracking for every order.', ...(c ? [`A welcome gift from us: ${c.value}% off your first order with the code ${c.code}.`] : []), 'Found something on Taobao or 1688? Use “Buy for me” and we buy it for you.', 'Happy shopping! For any question, just reply to this email and we will gladly help.'],
+    button: { text: 'Start shopping', url: `${base()}/` } }));
 }
 
 function sellerKycRejected(s, reason) {
@@ -107,4 +140,4 @@ function returnUpdate(r) {
     button: { text: 'View order', url: `${base()}/#/orders/${r.order_id}` } }));
 }
 
-module.exports = { priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate, qcPhotos };
+module.exports = { priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerUnderReview, customerWelcome, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate, qcPhotos };

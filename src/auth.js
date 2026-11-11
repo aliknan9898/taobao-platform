@@ -62,6 +62,7 @@ function register({ email, password, name, role, shop_name }) {
     });
     return publicUser(db.users.update(user.id, { seller_id: seller.id }));
   }
+  require('./notify').customerWelcome(user); // welcome email for new Kinan Shop customers
   return publicUser(user);
 }
 

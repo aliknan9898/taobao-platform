@@ -77,7 +77,7 @@ function upsertUser(claims, app) {
       status: 'pending', commission_pct: config.defaultCommissionPct, auto_pay: false, taobao: null
     });
     u = db.users.update(u.id, { seller_id: seller.id });
-  }
+  } else require('./notify').customerWelcome(u);
   return u;
 }
 

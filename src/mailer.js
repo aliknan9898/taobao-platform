@@ -19,20 +19,36 @@ function sender() {
 const enabled = () => Boolean(config.mail.brevoKey && sender().email);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/** Simple branded layout. `lines` are plain-text paragraphs; `button` is { text, url }. */
-function layout({ title, lines = [], button, rtl = false }) {
-  const dir = rtl ? 'rtl' : 'ltr';
-  return `<!doctype html><html dir="${dir}"><body style="margin:0;background:#f4f6f9;font-family:Segoe UI,Arial,sans-serif;color:#141b3a">
-  <div style="max-width:520px;margin:0 auto;padding:24px 16px"><div style="background:#fff;border:1px solid #e1e5ee;border-radius:14px;padding:24px">
-  <div style="font-weight:700;font-size:20px;color:#0e7c66;margin-bottom:12px">kinan</div>
-  <h1 style="font-size:20px;margin:0 0 12px">${esc(title)}</h1>
-  ${lines.map((l) => `<p style="margin:0 0 10px;line-height:1.55">${esc(l)}</p>`).join('')}
-  ${button ? `<p style="margin:18px 0 6px"><a href="${esc(button.url)}" style="display:inline-block;background:#0e7c66;color:#fff;text-decoration:none;font-weight:600;padding:11px 18px;border-radius:10px">${esc(button.text)}</a></p>` : ''}
-  </div><p style="font-size:12px;color:#6b7290;text-align:center;margin-top:14px">${esc(config.operator.tradingName)} · ${esc(config.operator.name)}</p></div></body></html>`;
+/**
+ * Branded layout with the Kinan logo. `lines` are plain-text paragraphs; `button` is { text, url }.
+ * `ar` = { title, lines, button } adds an Arabic version (shown first, right-to-left) above the English one.
+ * `highlight` = { label, value } shows a boxed code (e.g. a discount code). `app` = 'shop' | 'seller' picks the label under the logo.
+ */
+function block({ title, lines = [], button, highlight }, rtl) {
+  const align = rtl ? 'right' : 'left';
+  return `<div dir="${rtl ? 'rtl' : 'ltr'}" style="text-align:${align}">
+  <h1 style="font-size:21px;line-height:1.35;margin:0 0 12px;color:#141b3a">${esc(title)}</h1>
+  ${lines.map((l) => `<p style="margin:0 0 10px;line-height:1.65;font-size:15px;color:#2b3355">${esc(l)}</p>`).join('')}
+  ${highlight ? `<div style="margin:14px 0;padding:14px;border:2px dashed #0e7c66;border-radius:12px;background:#eef8f5;text-align:center"><div style="font-size:12px;color:#4b5573;margin-bottom:4px">${esc(highlight.label)}</div><div style="font-size:24px;font-weight:800;letter-spacing:2px;color:#0e7c66">${esc(highlight.value)}</div></div>` : ''}
+  ${button ? `<p style="margin:18px 0 6px"><a href="${esc(button.url)}" style="display:inline-block;background:#0e7c66;color:#fff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:12px;font-size:15px">${esc(button.text)}</a></p>` : ''}
+  </div>`;
+}
+function layout({ title, lines = [], button, highlight, ar, app }) {
+  const site = config.publicBaseUrl || '';
+  const logo = /^https:\/\//.test(site) ? `${site}/assets/${app === 'seller' ? 'icon-seller-192.png' : 'icon-192.png'}` : '';
+  const label = app === 'seller' ? 'Seller Center' : 'Shop';
+  const head = `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 18px"><tr>
+    ${logo ? `<td style="padding-right:10px;vertical-align:middle"><img src="${esc(logo)}" width="44" height="44" alt="Kinan" style="display:block;border-radius:12px;border:0"></td>` : ''}
+    <td style="vertical-align:middle"><div style="font-weight:800;font-size:24px;color:#141b3a;letter-spacing:-.5px;line-height:1">kinan</div><div style="font-size:12px;color:#0e7c66;font-weight:600;margin-top:2px">${label}</div></td></tr></table>`;
+  const en = block({ title, lines, button, highlight }, false);
+  const body = ar ? `${block({ highlight, ...ar }, true)}<hr style="border:0;border-top:1px solid #e1e5ee;margin:22px 0">${en}` : en;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f4f6f9;font-family:Segoe UI,Tahoma,Arial,sans-serif;color:#141b3a">
+  <div style="max-width:560px;margin:0 auto;padding:24px 14px">${head}<div style="background:#fff;border:1px solid #e1e5ee;border-radius:16px;padding:26px 22px">${body}</div>
+  <p style="font-size:12px;color:#6b7290;text-align:center;margin-top:16px;line-height:1.6">${site ? `<a href="${esc(site)}" style="color:#0e7c66;text-decoration:none;font-weight:600">${esc(site.replace(/^https?:\/\//, ''))}</a><br>` : ''}${esc(config.operator.tradingName)} · ${esc(config.operator.name)}</p></div></body></html>`;
 }
 
 /** Send (or log) one email. Never throws; returns the log record. `key` makes the send idempotent. */
-async function send({ to, subject, title, lines, button, key, kind = 'general', attachments }) {
+async function send({ to, subject, title, lines, button, key, kind = 'general', attachments, ar, highlight, app }) {
   if (!to) return null;
   if (key) { const dup = db.mail.find((m) => m.key === key); if (dup) return dup; }
   const rec = db.mail.insert({ to, subject, kind, key: key || null, status: enabled() ? 'sending' : 'not_sent' });
@@ -42,7 +58,7 @@ async function send({ to, subject, title, lines, button, key, kind = 'general', 
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST', signal: AbortSignal.timeout(15000),
       headers: { 'api-key': config.mail.brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ sender: sender(), ...(config.mail.replyTo ? { replyTo: { email: config.mail.replyTo } } : {}), to: [{ email: to }], ...(attachments ? { attachment: attachments } : {}), subject, htmlContent: layout({ title: title || subject, lines, button }) })
+      body: JSON.stringify({ sender: sender(), ...(config.mail.replyTo ? { replyTo: { email: config.mail.replyTo } } : {}), to: [{ email: to }], ...(attachments ? { attachment: attachments } : {}), subject, htmlContent: layout({ title: title || subject, lines, button, ar, highlight, app: app || (kind === 'seller' ? 'seller' : 'shop') }) })
     });
     if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
     return db.mail.update(rec.id, { status: 'sent', sent_at: Date.now() });

@@ -69,3 +69,19 @@ test('admin cannot activate an unverified seller; unverified active shops go bac
   assert.strictEqual(require('../src/services/kyc').enforce(), 1);
   assert.strictEqual(db.sellers.get(reg.seller_id).status, 'pending');
 });
+
+test('emails: seller under review, seller approved (with app notice), customer welcome — all with the Kinan logo', async () => {
+  const boss = await login('boss@x.com', 'adminpass1');
+  await api('POST', '/api/auth/register', { role: 'seller', email: 'm@x.com', password: 'sellerpass', shop_name: 'M' });
+  const t = await login('m@x.com', 'sellerpass');
+  await api('POST', '/api/seller/verification', { ...form, shop_name: 'Mona Shop' }, t);
+  const id = (await api('GET', '/api/seller/me', null, t)).body.id;
+  const mail = () => db.mail.all((m) => m.to === 'm@x.com').map((m) => m.subject);
+  assert.ok(mail().some((x) => /under review/.test(x) && /قيد المراجعة/.test(x)));
+  await api('POST', `/api/admin/sellers/${id}/verification`, { approve: true }, boss);
+  assert.ok(mail().some((x) => /تم فتح حسابك بنجاح/.test(x)));
+  await api('POST', '/api/auth/register', { role: 'buyer', email: 'cust@x.com', password: 'buyerpass1', name: 'Sara Ali' });
+  assert.ok(db.mail.all((m) => m.to === 'cust@x.com').some((m) => /Welcome to Kinan/.test(m.subject)));
+  const html = require('../src/mailer').layout({ title: 'T', lines: ['a'], ar: { title: 'مرحبا', lines: ['ب'] }, highlight: { label: 'Code', value: 'WELCOME10' }, app: 'seller' });
+  assert.match(html, /https:\/\/kinan\.example\/assets\/icon-seller-192\.png/); assert.match(html, /dir="rtl"/); assert.match(html, /WELCOME10/);
+});
