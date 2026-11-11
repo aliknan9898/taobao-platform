@@ -1048,10 +1048,10 @@ async function paintCards() {
 }
 async function addCardDialog(after) {
   const d = document.createElement('dialog'); d.className = 'addrdlg';
-  d.innerHTML = `<form class="stack" style="padding:20px;max-width:460px" novalidate><h2 style="margin:0">Add a card</h2>
+  d.innerHTML = `<form class="stack" style="padding:20px;max-width:460px;box-sizing:border-box;min-width:0" novalidate><h2 style="margin:0">Add a card</h2>
     <p class="muted small" style="margin:0">Visa, Mastercard and other cards. Your bank may ask you to confirm. The card details go straight to Stripe, our payment partner.</p>
-    <div id="card-element" style="min-height:120px"><div class="skeleton" style="height:120px"></div></div>
-    <div class="error" id="cerr"></div>
+    <div id="card-element" class="cardfield"><div class="skeleton" style="height:44px"></div></div>
+    <div class="error" id="cerr" style="overflow-wrap:anywhere"></div>
     <div class="row"><button class="btn" type="submit" id="csave" style="flex:1" disabled>Save card</button><button class="btn ghost" type="button" data-close>Cancel</button></div></form>`;
   document.body.append(d); d.showModal();
   const close = () => { d.close(); d.remove(); };
@@ -1060,13 +1060,16 @@ async function addCardDialog(after) {
   try {
     const [si, Stripe] = await Promise.all([api('/api/buyer/cards/setup', 'POST'), loadStripe()]);
     const stripe = Stripe(cfg.stripe_publishable_key, { locale: KinanLang.lang === 'ar' ? 'ar' : 'en' });
-    const elements = stripe.elements({ clientSecret: si.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+    // Card only: Stripe's single secure card field (number, expiry, CVC)
+    const dark = KinanTheme.isDark();
+    const card = stripe.elements().create('card', { hidePostalCode: true, style: { base: { fontSize: '16px', color: dark ? '#eef0f7' : '#141b3a', '::placeholder': { color: '#9097b3' } }, invalid: { color: '#d93025' } } });
     d.querySelector('#card-element').innerHTML = '';
-    elements.create('payment', { layout: 'tabs', wallets: { applePay: 'never', googlePay: 'never' } }).mount('#card-element');
+    card.mount('#card-element');
+    card.on('change', (ev) => { err.textContent = ev.error ? ev.error.message : ''; });
     btn.disabled = false;
     f.onsubmit = async (e) => {
       e.preventDefault(); btn.disabled = true; err.textContent = '';
-      const { error } = await stripe.confirmSetup({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/#/account` } });
+      const { error } = await stripe.confirmCardSetup(si.client_secret, { payment_method: { card, billing_details: { name: (me && me.name) || undefined, email: (me && me.email) || undefined } } });
       if (error) { err.textContent = error.message; btn.disabled = false; return; }
       toast('Card saved'); close(); if (after) after();
     };

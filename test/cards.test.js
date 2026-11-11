@@ -20,7 +20,7 @@ global.fetch = async (url, opts = {}) => {
   const ok = (j) => ({ ok: true, status: 200, json: async () => j });
   if (u.pathname === '/v1/customers' && method === 'POST') { const id = `cus_${++n}`; customers[id] = { id, email: b.get('email') }; return ok(customers[id]); }
   if (u.pathname === '/v1/setup_intents' && method === 'POST') {
-    assert.ok(customers[b.get('customer')]); assert.strictEqual(b.get('payment_method_types[0]'), 'card');
+    assert.ok(customers[b.get('customer')]); assert.strictEqual(b.get('automatic_payment_methods[enabled]'), 'true'); assert.strictEqual(b.get('payment_method_types[0]'), null);
     // pretend the buyer finished Stripe's form: a Visa is now on the customer
     const id = `pm_${++n}`; pms[id] = { id, customer: b.get('customer'), card: { brand: 'visa', last4: '4242', exp_month: 4, exp_year: 2030 } };
     return ok({ id: `seti_${n}`, client_secret: `seti_${n}_secret` });

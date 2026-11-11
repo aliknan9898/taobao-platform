@@ -163,7 +163,7 @@ async function customerFor(user, create = true) {
 async function cardSetup(user) {
   if (demoMode()) throw bad(409, 'Card payments are not switched on yet');
   const customer = await customerFor(user);
-  const si = await stripe('/setup_intents', { customer, payment_method_types: ['card'], usage: 'on_session', metadata: { user_id: user.id } });
+  const si = await stripe('/setup_intents', { customer, automatic_payment_methods: { enabled: true, allow_redirects: 'never' }, usage: 'on_session', metadata: { user_id: user.id } });
   return { client_secret: si.client_secret };
 }
 
