@@ -135,6 +135,15 @@ async function route() {
 }
 window.addEventListener('hashchange', route);
 const refreshShop = async () => { shop = await api('/api/seller/me'); };
+const NEXT_KEY = 'kinan_seller_next';
+function rememberNext(h) { try { localStorage.setItem(NEXT_KEY, JSON.stringify({ h, at: Date.now() })); } catch { /* private mode */ } }
+/** After signing in: go to the page the person was opening (saved less than 30 minutes ago). */
+function takeNext() {
+  try {
+    const v = JSON.parse(localStorage.getItem(NEXT_KEY) || 'null'); localStorage.removeItem(NEXT_KEY);
+    if (v && /^#\/[\w\-/?=]*$/.test(v.h) && Date.now() - v.at < 30 * 60e3 && (!location.hash || location.hash === '#/')) history.replaceState(null, '', '/seller' + v.h);
+  } catch { /* ignore */ }
+}
 
 function approvalBanner() {
   if (shop.status === 'pending') return `<div class="banner"><div><b>Your shop is waiting for approval</b><div class="small">Kinan reviews new sellers before they can publish. Meanwhile, connect your Taobao account and prepare products.</div></div></div>`;
@@ -856,7 +865,7 @@ function authScreen(mode = 'in', msg = '') {
       if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'seller' });
       const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password });
       if (asMe(r.user).role !== 'seller') { await api('/api/auth/logout', 'POST'); return authScreen(mode, 'This is not a seller account. Customers shop at the Kinan store.'); }
-      me = asMe(r.user); await refreshShop(); route();
+      me = asMe(r.user); await refreshShop(); takeNext(); route();
     } catch (err) { authScreen(mode, err.message); }
   };
 }
@@ -877,6 +886,10 @@ function wireInstall() {
   if (params.toString()) history.replaceState(null, '', '/seller' + location.hash);
   cfg = await api('/api/config/public').catch(() => cfg);
   try { const u = asMe(await api('/api/me')); if (u.role === 'seller') { me = u; await refreshShop(); } } catch {}
+  // A link from an email (e.g. /seller#/add) must still open that page after signing in — also with Google,
+  // which comes back without the #part
+  if (!me && location.hash && location.hash !== '#/') rememberNext(location.hash);
+  if (me) takeNext();
   if (!me) authScreen('in', loginError); else { route(); if (connected) toast('Taobao account connected'); }
   K.registerSW();
 })();
