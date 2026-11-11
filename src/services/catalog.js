@@ -273,13 +273,46 @@ function browse({ q = '', seller_id, category, sort = 'new', min_price, max_pric
   return { total: items.length, items: items.slice(Number(offset) || 0, (Number(offset) || 0) + (limit === 100000 ? items.length : Math.min(Number(limit) || 40, 100))) };
 }
 
+/**
+ * Options grouped like big marketplaces: "Color" → [Red, Blue], "Size" → [S, M, L].
+ * Works for every source: CJ (stored names), Taobao ("Color: Red / Size: M"), AliExpress and manual ("Red / M").
+ * Returns null when the options cannot be split the same way for every variant (then the shop shows a simple list).
+ */
+function optionGroups(skus) {
+  const parts = skus.map((s) => {
+    if (Array.isArray(s.opts) && s.opts.length) return s.opts.map((o) => ({ name: String(o.name || '').trim(), value: String(o.value || '').trim() }));
+    let raw = s.props;
+    if (raw && typeof raw === 'string' && /^[[{]/.test(raw.trim())) { try { raw = propsLabel(raw); } catch { /* keep */ } }
+    const txt = String(raw || '').trim();
+    if (!txt) return [];
+    return txt.split(/\s*[\/;|]\s*/).filter(Boolean).map((x) => { const m = x.match(/^([^:：]{1,30})[:：]\s*(.+)$/); return m ? { name: m[1].trim(), value: m[2].trim() } : { name: '', value: x.trim() }; });
+  });
+  const n = parts[0]?.length || 0;
+  if (skus.length < 2 || !n || n > 4 || parts.some((p) => p.length !== n || p.some((x) => !x.value))) return null;
+  const groups = [];
+  for (let i = 0; i < n; i++) {
+    const name = parts.find((p) => p[i].name)?.[i].name || (n === 1 ? 'Option' : ['Color', 'Size', 'Style', 'Type'][i]);
+    const values = [];
+    for (const [k, p] of parts.entries()) {
+      if (!values.some((v) => v.value === p[i].value)) values.push({ value: p[i].value, ...(skus[k].image ? { image: skus[k].image } : {}) });
+    }
+    groups.push({ name, values });
+  }
+  // Only the first group keeps pictures (usually the colour), and only if they differ
+  groups.forEach((g, i) => { if (i > 0 || new Set(g.values.map((v) => v.image)).size < 2) g.values.forEach((v) => delete v.image); });
+  return { groups, picks: parts.map((p) => p.map((x) => x.value)) };
+}
+
 function toBuyerView(l, seller) {
   return {
     id: l.id, title: l.title, images: visibleImages(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(l.source === 'cj' ? { ship_extra: true } : {}), category: l.category || 'other',
     min_price: Math.min(...l.skus.map((s) => s.price)), ...require('./growth').ratingFor(l.id),
-    skus: l.skus.map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
+    ...(() => { const og = optionGroups(l.skus); return {
+      option_groups: og ? og.groups : null,
+      skus: l.skus.map((s, i) => ({ mp_sku_id: s.mp_sku_id, props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), price: s.price, in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
+    }; })()
   };
 }
 
@@ -321,4 +354,5 @@ function sellerSetStatus(l, status) {
   return status;
 }
 
-module.exports = { checkMargins, photoUrl, imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };
+module.exports = {
+  optionGroups, checkMargins, photoUrl, imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };

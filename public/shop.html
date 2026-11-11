@@ -119,6 +119,13 @@
   .variants button { font: 500 14px var(--font-body); padding: 8px 14px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
   .variants button.on { border-color: var(--jade); background: var(--jade-soft); font-weight: 600; }
   .variants button:disabled { opacity: .45; text-decoration: line-through; cursor: not-allowed; }
+  .optgroup { display: grid; gap: 8px; }
+  .optgroup .oghead { display: flex; gap: 6px; align-items: baseline; font-size: 15px; }
+  .optgroup .oghead b { font-weight: 600; }
+  .optgroup .oghead span { color: var(--muted); }
+  .variants button.pic { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; }
+  .variants button.pic img { width: 34px; height: 34px; object-fit: cover; border-radius: 8px; background: var(--chip, #f1f3f7); }
+  .variants button.na { opacity: .45; border-style: dashed; }
   .qty { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: var(--r-md); }
   .qty button { width: 40px; height: 40px; border: 0; background: transparent; font-size: 18px; color: var(--ink); cursor: pointer; }
   .qty input { width: 52px; border: 0; text-align: center; min-height: 40px; padding: 0; box-shadow: none !important; }
@@ -266,6 +273,8 @@ function pickLocale(after) {
 function localeLabel() { const l = Locale.get(); return `<span>${esc(countryName(l.country))}</span> · ${esc(l.currency)}`; }
 function renderLocaleChip() { $$('.locchip').forEach((b) => { b.innerHTML = `${PIN_IC}<span>Deliver to</span> <b>${localeLabel()}</b>`; b.onclick = () => pickLocale(route); }); }
 
+const OPT_AR = { color: 'اللون', colour: 'اللون', size: 'المقاس', style: 'النمط', type: 'النوع', model: 'الموديل', material: 'الخامة', capacity: 'السعة', length: 'الطول', option: 'الخيار', pattern: 'النقشة', specification: 'المواصفات', specs: 'المواصفات', quantity: 'الكمية', 'shoe size': 'مقاس الحذاء', 'plug type': 'نوع القابس' };
+function optName(n) { const k = String(n || '').trim(); return KinanLang.lang === 'ar' ? OPT_AR[k.toLowerCase()] || k : k; }
 function variantLabel(props, fallback = 'Standard') {
   if (!props) return fallback;
   try {
@@ -495,7 +504,9 @@ async function product(id) {
           <h1 style="font-size:clamp(22px,3.4vw,30px)" dir="auto">${esc(T(p))}</h1>
           <div id="price"></div>
         </div>
-        ${p.skus.length > 1 ? `<div class="stack"><h3>Option</h3><div class="variants" id="variants">${p.skus.map((s) => `<button data-sku="${esc(s.mp_sku_id)}" ${s.in_stock ? '' : 'disabled'}>${esc(variantLabel(s.props))}</button>`).join('')}</div></div>` : ''}
+        ${p.option_groups ? `<div class="stack" id="optgroups">${p.option_groups.map((g, gi) => `<div class="optgroup"><div class="oghead"><b>${esc(optName(g.name))}:</b><span data-ogsel="${gi}"></span></div>
+          <div class="variants">${g.values.map((v) => `<button type="button" data-og="${gi}" data-ov="${esc(v.value)}" class="${v.image ? 'pic' : ''}">${v.image ? `<img src="${esc(v.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}<span>${esc(v.value)}</span></button>`).join('')}</div></div>`).join('')}</div>`
+        : p.skus.length > 1 ? `<div class="stack"><h3>Option</h3><div class="variants" id="variants">${p.skus.map((s) => `<button data-sku="${esc(s.mp_sku_id)}" ${s.in_stock ? '' : 'disabled'}>${esc(variantLabel(s.props))}</button>`).join('')}</div></div>` : ''}
         <div class="row"><div class="qty"><button type="button" id="qm" aria-label="Less">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="More">+</button></div><span class="muted" id="stock"></span></div>
         <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
         <div class="row"><button class="btn quiet" id="share">${ICONS.share} Share</button><button class="btn quiet heart" id="save" type="button">${HEART} <span>Save</span></button>${p.rating ? `<a href="#reviews" class="small" style="text-decoration:none">${stars(p.rating, p.reviews)}</a>` : ''}</div>
@@ -554,6 +565,35 @@ async function product(id) {
   }
   $$('.thumbs button').forEach((b) => b.onclick = () => { imgIdx = Number(b.dataset.i); paint(); });
   $$('#variants button').forEach((b) => b.onclick = () => { sku = p.skus.find((s) => s.mp_sku_id === b.dataset.sku); qty = Math.min(qty, Math.max(1, sku.stock)); paint(); });
+  // Grouped options (Color, Size…): one value per group; values with no stock for the current choice are faded
+  if (p.option_groups) {
+    let pick = [...(sku.pick || [])];
+    const match = (pk) => p.skus.find((s) => s.pick && s.pick.every((v, i) => v === pk[i]));
+    const paintOpts = () => {
+      $$('[data-og]').forEach((b) => {
+        const gi = Number(b.dataset.og); const v = b.dataset.ov;
+        const t = match(pick.map((x, i) => (i === gi ? v : x)));
+        b.classList.toggle('on', pick[gi] === v);
+        b.classList.toggle('na', !t || !t.in_stock);
+        b.disabled = !p.skus.some((s) => s.pick && s.pick[gi] === v && s.in_stock);
+      });
+      $$('[data-ogsel]').forEach((el) => { el.textContent = pick[Number(el.dataset.ogsel)] || ''; });
+    };
+    $$('[data-og]').forEach((b) => b.onclick = () => {
+      const gi = Number(b.dataset.og); pick[gi] = b.dataset.ov;
+      let s = match(pick);
+      // That combination is missing or sold out: keep this choice and move the others to the nearest one in stock
+      if (!s || !s.in_stock) {
+        const ok = p.skus.filter((x) => x.pick && x.pick[gi] === pick[gi] && x.in_stock);
+        s = ok.sort((a, b) => b.pick.filter((v, i) => v === pick[i]).length - a.pick.filter((v, i) => v === pick[i]).length)[0] || s;
+        if (s) pick = [...s.pick];
+      }
+      if (s) { sku = s; qty = Math.min(qty, Math.max(1, sku.stock)); }
+      if (s?.image) { const i = p.images.indexOf(s.image); if (i >= 0) imgIdx = i; }
+      paintOpts(); paint();
+    });
+    paintOpts();
+  }
   const setQty = (n) => { qty = Math.max(1, Math.min(Number(n) || 1, sku.stock || 1, 999)); paint(); };
   $('#qm').onclick = () => setQty(qty - 1); $('#qp').onclick = () => setQty(qty + 1); $('#qv').onchange = (e) => setQty(e.target.value);
   const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });

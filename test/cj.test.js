@@ -24,8 +24,8 @@ global.fetch = async (url, opts = {}) => {
   calls.push(`${opts.method} ${p}`);
   if (p !== '/authentication/getAccessToken') assert.strictEqual(opts.headers['CJ-Access-Token'], 'tok-1');
   if (p === '/authentication/getAccessToken') { assert.strictEqual(body.apiKey, process.env.CJ_API_KEY); return ok({ openId: 777, accessToken: 'tok-1', accessTokenExpiryDate: new Date(Date.now() + 180 * 86400e3).toISOString(), refreshToken: 'ref-1', refreshTokenExpiryDate: new Date(Date.now() + 180 * 86400e3).toISOString() }); }
-  if (p === '/product/query') return ok({ pid: PID, productNameEn: 'LED Desk Lamp', productSku: 'CJLED001', bigImage: 'https://cf.cjdropshipping.com/a.jpg', productImageSet: ['https://cf.cjdropshipping.com/a.jpg', 'https://cf.cjdropshipping.com/b.jpg'], productWeight: 450, description: '<p>Bright <b>lamp</b></p>', sellPrice: 6.5,
-    variants: [{ vid: 'V1', variantSku: 'CJLED001-W', variantKey: 'White', variantSellPrice: 6.5, inventories: [{ totalInventory: 120 }] }, { vid: 'V2', variantSku: 'CJLED001-B', variantKey: 'Black', variantSellPrice: 7, inventories: [{ totalInventory: 0 }] }] });
+  if (p === '/product/query') return ok({ pid: PID, productNameEn: 'LED Desk Lamp', productSku: 'CJLED001', bigImage: 'https://cf.cjdropshipping.com/a.jpg', productImageSet: ['https://cf.cjdropshipping.com/a.jpg', 'https://cf.cjdropshipping.com/b.jpg'], productWeight: 450, productKeyEn: 'Color-Size', description: '<p>Bright <b>lamp</b></p>', sellPrice: 6.5,
+    variants: [{ vid: 'V1', variantSku: 'CJLED001-W', variantKey: 'Sky blue-S', variantSellPrice: 6.5, inventories: [{ totalInventory: 120 }] }, { vid: 'V2', variantSku: 'CJLED001-B', variantKey: 'T-shirt black-XL', variantSellPrice: 7, inventories: [{ totalInventory: 0 }] }] });
   if (p === '/product/listV2') return ok({ totalRecords: 1, content: [{ productList: [{ id: PID, nameEn: 'LED Desk Lamp', sku: 'CJLED001', bigImage: 'https://cf.cjdropshipping.com/a.jpg', sellPrice: '6.5', warehouseInventoryNum: 120 }] }] });
   if (p === '/logistic/freightCalculate') { assert.strictEqual(body.endCountryCode, 'DE'); return ok([{ logisticName: 'CJPacket Ordinary', logisticPrice: 4.2, logisticAging: '10-20' }, { logisticName: 'DHL', logisticPrice: 19, logisticAging: '3-6' }]); }
   if (p === '/shopping/order/createOrderV2') { created.push(body); return ok({ orderId: 'CJORD1', orderNumber: body.orderNumber, shipmentOrderId: 'SH1', orderAmount: 17.2, orderStatus: 'CREATED' }); }
@@ -71,6 +71,10 @@ test('CJ end to end: import → checkout → sandbox order paid → shipped → 
   const l = (await api('POST', '/api/admin/cj/import', { ref: PID, prices: { cj_V1: 15 } }, boss)).body;
   assert.strictEqual(l.status, 'active'); assert.strictEqual(l.fulfillment, 'direct'); assert.strictEqual(l.skus[0].price, 15); assert.strictEqual(l.skus[1].stock, 0);
   assert.strictEqual(l.skus[1].price, 9.99, '40% markup rounded to .99');
+  // Options are grouped like on CJ: Color and Size
+  const view = (await api('GET', `/api/catalog/${l.id}`)).body;
+  assert.deepStrictEqual(view.option_groups.map((g) => [g.name, g.values.map((v) => v.value)]), [['Color', ['Sky blue', 'T-shirt black']], ['Size', ['S', 'XL']]]);
+  assert.deepStrictEqual(view.skus[0].pick, ['Sky blue', 'S']);
 
   // Shipping quote and checkout use CJ's price to the customer's country (cheapest by default)
   const q = (await api('POST', '/api/shipping/quote', { items: [{ listing_id: l.id, mp_sku_id: 'cj_V1', qty: 1 }], country_code: 'DE' })).body;

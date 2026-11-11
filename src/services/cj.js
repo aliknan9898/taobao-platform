@@ -87,12 +87,24 @@ function normalize(p) {
   const images = [...new Set([p.bigImage, p.bigimg, ...list(p.productImageSet), ...list(p.productImage), ...list(p.newImgList)].map(httpsImg).filter(Boolean))].slice(0, 10);
   const invByVid = new Map(list(p.variantInventory).map((x) => [String(x.vid), sumInv(x.inventory)]));
   const vars = list(p.variants || p.stanProducts);
+  // Option names, e.g. productKeyEn "Color-Size" + variantKey "Sky blue-S" → Color: Sky blue, Size: S
+  const keys = String(p.productKeyEn || p.productKey || '').split(/[-–]/).map((x) => x.trim()).filter(Boolean);
+  const optsOf = (key) => {
+    const parts = String(key || '').split('-').map((x) => x.trim());
+    if (!key || !keys.length) return null;
+    if (keys.length === 1) return [{ name: keys[0], value: String(key).trim() }];
+    if (parts.length < keys.length) return null;
+    // extra dashes belong to the first value ("T-shirt-M" with Style-Size → "T-shirt", "M")
+    const head = parts.slice(0, parts.length - keys.length + 1).join('-');
+    return [head, ...parts.slice(parts.length - keys.length + 1)].map((value, i) => ({ name: keys[i], value }));
+  };
   const skus = vars.map((v) => {
     const vid = String(v.vid || v.id || '');
     const cost = Number(v.variantSellPrice ?? v.sellPrice ?? p.sellPrice);
     const inv = v.inventories ? sumInv(v.inventories) : invByVid.has(vid) ? invByVid.get(vid) : null;
     return {
       cj_vid: vid, mp_sku_id: `cj_${vid}`, cj_sku: str(v.variantSku, 80), props: str(v.variantKey || v.variantNameEn || v.variantName || '', 120),
+      opts: optsOf(v.variantKey),
       cost_sale: money(cost), stock: inv === null ? 999 : Math.max(0, Math.floor(inv)),
       weight_g: Number(v.variantWeight) || Number(p.productWeight) || null, image: httpsImg(v.variantImage || v.img)
     };
@@ -172,7 +184,7 @@ async function resync(l) {
   try {
     const p = await fetchProduct({ pid: l.cj_pid });
     const by = new Map(p.skus.map((s) => [s.cj_vid, s]));
-    const skus = l.skus.map((s) => { const f = by.get(s.cj_vid); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock } : { ...s, stock: 0 }; });
+    const skus = l.skus.map((s) => { const f = by.get(s.cj_vid); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock, opts: f.opts, image: f.image || s.image || null } : { ...s, stock: 0 }; });
     return db.listings.update(l.id, { skus, last_synced_at: now(), sync_error: null, ...(l.status === 'unavailable' && skus.some((s) => s.stock > 0) ? { status: 'active' } : {}) });
   } catch (e) {
     if (e.status === 404 || /not found/i.test(e.message)) return db.listings.update(l.id, { status: l.status === 'active' ? 'unavailable' : l.status, sync_error: 'Removed on CJdropshipping', last_synced_at: now() });
@@ -376,6 +388,15 @@ function handleWebhook(msg) {
   return { ignored: t || 'unknown type' };
 }
 
+/** CJ products imported before options were grouped: fetch them again once to get option names and pictures. */
+async function upgradeOptions() {
+  if (!cj.enabled()) return 0;
+  const old = db.listings.all((l) => l.source === 'cj' && l.skus.some((s) => s.opts === undefined));
+  for (const l of old) await resync(l);
+  if (old.length) console.log(`[cj] grouped options for ${old.length} product(s)`);
+  return old.length;
+}
+
 /** Tell CJ where to send product, stock, order and logistics updates (once per site address). */
 async function registerWebhooks() {
   if (!cj.enabled() || !/^https:\/\//.test(config.publicBaseUrl)) return { skipped: true };
@@ -391,5 +412,5 @@ async function registerWebhooks() {
 
 module.exports = {
   prefs, savePrefs, status, balance, parseRef, normalize, fetchProduct, preview, search, categories, publish, resync, resyncStale,
-  freightOptions, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, STATUS, LABEL
+  freightOptions, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, STATUS, LABEL
 };
