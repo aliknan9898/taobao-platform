@@ -30,7 +30,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 test('growth features', async () => {
   const boss = await login('boss@x.com', 'adminpass1');
   const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 's@x.com', password: 'sellerpass', shop_name: 'S' })).body;
-  await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active' }, boss);
+  await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, boss);
   const sel = await login('s@x.com', 'sellerpass');
   const p = (await api('POST', '/api/seller/products/manual', { title: 'Lamp', category: 'home', weight_kg: 0.5, images: [PNG], variants: [{ name: 'One', price: 50, stock: 5 }] }, sel)).body;
   await api('POST', `/api/admin/listings/${p.id}/approve`, null, boss);

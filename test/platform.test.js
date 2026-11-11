@@ -110,7 +110,7 @@ test('full marketplace flow: seller → buyer → Taobao → warehouse → deliv
   assert.strictEqual(cb.headers.get('location'), 'myseller://connected');
   assert.strictEqual((await api('GET', '/api/seller/me', null, sTok)).body.taobao.connected, true);
   assert.strictEqual((await api('POST', '/api/seller/products', { link: '723456789012' }, sTok)).status, 403);
-  assert.strictEqual((await api('PATCH', `/api/admin/sellers/${sellerId}`, { status: 'active', commission_pct: 10 }, aTok)).status, 200);
+  assert.strictEqual((await api('PATCH', `/api/admin/sellers/${sellerId}`, { status: 'active', verified_manually: true, commission_pct: 10 }, aTok)).status, 200);
 
   // Seller imports by link and prices it
   const prev = await api('POST', '/api/seller/products/preview', { link: 'https://item.taobao.com/item.htm?id=723456789012' }, sTok);

@@ -33,7 +33,7 @@ const login = async (e, p) => (await api('POST', '/api/auth/login', { email: e, 
 test('ops features', async () => {
   const boss = await login('boss@x.com', 'adminpass1');
   const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 's@x.com', password: 'sellerpass', shop_name: 'S' })).body;
-  await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active' }, boss);
+  await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, boss);
   const sel = await login('s@x.com', 'sellerpass');
 
   // bulk: two rows same title → one product with 2 options; one bad row

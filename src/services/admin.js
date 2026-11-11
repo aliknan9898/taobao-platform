@@ -98,13 +98,15 @@ function sellers() {
   });
 }
 
-function updateSeller(id, { status, commission_pct }) {
+function updateSeller(id, { status, commission_pct, verified_manually }) {
   const s = db.sellers.get(id);
   if (!s) throw httpError(404, 'Seller not found');
   const patch = {};
   if (status !== undefined) {
     if (!['pending', 'active', 'suspended'].includes(status)) throw httpError(400, 'Invalid status');
+    if (status === 'active' && s.kyc?.state !== 'approved' && !verified_manually && !require('../auth').isOwner(db.users.get(s.user_id))) throw httpError(409, 'This seller has not been verified yet — open Review in the Identity column first');
     patch.status = status;
+    if (status === 'active' && verified_manually && s.kyc?.state !== 'approved') patch.kyc = { ...(s.kyc || {}), state: 'approved', decided_at: Date.now(), reason: null, manual: true };
   }
   if (commission_pct !== undefined) {
     const c = Number(commission_pct);

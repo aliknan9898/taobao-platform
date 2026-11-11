@@ -665,6 +665,7 @@ if (require.main === module) (async () => {
     console.log(`OAuth callback: ${config.redirectUri}`);
   });
   startJobs();
+  try { require('./services/kyc').enforce(); } catch (e) { console.error('[kyc]', e.message); }
   // Brevo: add/check the site's domain now, then every 30 minutes until it is authenticated
   const mailDomain = () => mailer.setupDomain().catch((e) => console.error('[mail] domain setup:', e.message));
   // MAIL_SELFTEST=a@x,b@y sends one test email to each address at start-up (to check sending and forwarding), then remove it

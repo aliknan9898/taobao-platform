@@ -60,3 +60,12 @@ test('seller verifies identity, admin asks for a correction, then approves', asy
   assert.strictEqual((await api('GET', '/api/seller/me', null, t)).body.status, 'active');
   assert.strictEqual((await api('POST', '/api/seller/verification', form, t)).status, 409);
 });
+
+test('admin cannot activate an unverified seller; unverified active shops go back to pending', async () => {
+  const boss = await login('boss@x.com', 'adminpass1');
+  const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 'u@x.com', password: 'sellerpass', shop_name: 'U' })).body;
+  assert.strictEqual((await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active' }, boss)).status, 409);
+  db.sellers.update(reg.seller_id, { status: 'active' }); // a shop approved before verification existed
+  assert.strictEqual(require('../src/services/kyc').enforce(), 1);
+  assert.strictEqual(db.sellers.get(reg.seller_id).status, 'pending');
+});

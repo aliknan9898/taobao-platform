@@ -66,7 +66,7 @@ test('operations and growth', async () => {
   const [buy, fin, sup, wh] = await Promise.all(['buy', 'fin', 'sup', 'wh'].map((n) => login(`${n}@x.com`, 'staffpass1')));
 
   const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 'sel@x.com', password: 'sellerpass', shop_name: 'Atlas' })).body;
-  await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active' }, boss);
+  await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, boss);
   const sel = await login('sel@x.com', 'sellerpass');
   const p = (await api('POST', '/api/seller/products/manual', { title: 'Hiking backpack', description: 'Strong <b>30L</b> bag', category: 'sports', weight_kg: 1, images: [img], variants: [{ name: 'Black', price: 30, stock: 10, cost_cny: 72 }] }, sel)).body;
   assert.strictEqual((await api('POST', `/api/admin/listings/${p.id}/approve`, null, buy)).status, 403, 'procurement cannot approve products');

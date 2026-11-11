@@ -108,4 +108,16 @@ function decide(sellerId, { approve, reason } = {}, by) {
   return adminView(out);
 }
 
-module.exports = { view, submit, summary, adminView, photo, decide, ID_TYPES };
+/** Every seller except the owner's own shop must be verified: shops opened before verification existed go back to "pending" until they send it. */
+function enforce() {
+  const { isOwner } = require('../auth');
+  let n = 0;
+  for (const sl of db.sellers.all((x) => !x.system && x.status === 'active' && x.kyc?.state !== 'approved')) {
+    if (isOwner(db.users.get(sl.user_id))) continue;
+    db.sellers.update(sl.id, { status: 'pending', kyc_required_at: Date.now() }); n++;
+  }
+  if (n) console.log(`[kyc] ${n} unverified shop(s) moved to pending until they verify`);
+  return n;
+}
+
+module.exports = { enforce, view, submit, summary, adminView, photo, decide, ID_TYPES };
