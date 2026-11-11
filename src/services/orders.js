@@ -20,7 +20,9 @@ const shop = require('./shop');
 const aliexpress = require('./aliexpress');
 const cj = require('./cj');
 /** Suppliers that ship straight to the customer. */
-const provider = (src) => (src === 'cj' ? cj : aliexpress);
+const banggood = require('./banggood');
+const provider = (src) => (src === 'cj' ? cj : src === 'banggood' ? banggood : aliexpress);
+const LABELS_OF = (src) => (src === 'cj' ? cj.LABEL : src === 'banggood' ? banggood.LABEL : null);
 const notify = require('../notify');
 const { httpError } = require('../auth');
 const { countryCode, countryName } = require('../countries');
@@ -99,7 +101,8 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: sku.props,
       ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
       ...(l.fulfillment === 'direct' && l.source === 'cj' ? { direct: true, source: 'cj', source_link: l.source_link || '', cj_pid: l.cj_pid, cj_vid: sku.cj_vid, cost_sale: sku.cost_sale ?? null } : {}),
-      ...(l.fulfillment === 'direct' && l.source !== 'cj' ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
+      ...(l.fulfillment === 'direct' && l.source === 'banggood' ? { direct: true, source: 'banggood', source_link: l.source_link || '', bg_pid: l.bg_pid, bg_poa: sku.bg_poa || '', bg_warehouse: l.bg_warehouse || 'CN', cost_sale: sku.cost_sale ?? null } : {}),
+      ...(l.fulfillment === 'direct' && !['cj', 'banggood'].includes(l.source) ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
       image: (l.own_images || []).length ? catalog.photoUrl(l, 0, l.own_images[0]) : (l.images || [])[0] || null,
       ...(l.source === 'manual' || (l.source === 'aliexpress' && !sku.ae_sku_id) ? { own_stock: true } : {}), // typed-in stock, not synced from an API
       qty, price: sku.price, cost_cny: sku.cost_cny
@@ -109,7 +112,9 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   const ship = require('./shipping').quote(lines.map((l) => ({ listing_id: l.listing_id, qty: l.qty })), address.country_code || address.country);
   // CJ items: CJ's real shipping price to the customer's country
   const cjShip = await cj.quote(lines.filter((l) => l.source === 'cj').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
-  const shipping = money(ship.fee + (cjShip?.fee || 0));
+  // Banggood items: Banggood's real shipping price to the customer's country
+  const bgShip = await banggood.quote(lines.filter((l) => l.source === 'banggood').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
+  const shipping = money(ship.fee + (cjShip?.fee || 0) + (bgShip?.fee || 0));
   const warehouseItems = lines.some((l) => !l.direct);
   const packagingFee = warehouseItems ? money(PACKAGING[packaging]) : 0;
   const disc = coupon ? require('./growth').couponFor(coupon, buyer, subtotal) : null;
@@ -120,6 +125,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     ...(cjShip ? { cj_shipping: { method: cjShip.method, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
+    ...(bgShip ? { bg_shipping: { fee: bgShip.fee, days: bgShip.days, methods: bgShip.methods || [], estimated: Boolean(bgShip.estimated) } } : {}),
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
   });
   const payment = await stripe.createPaymentIntent(order);
@@ -448,8 +454,13 @@ async function updateDirect(orderId, { outer_purchase_id, place, pay, ...manual 
   if (sub.source === 'cj' && pay) {
     if (sub.status !== 'AE_PLACED') throw httpError(409, 'This CJ order is not waiting for payment');
     await cj.pay(sub);
+  } else if (sub.source === 'banggood' && pay) {
+    banggood.markPaid(sub); // paid by hand in the Banggood account
   } else if (place) {
-    if (sub.source === 'cj') {
+    if (sub.source === 'banggood') {
+      if (sub.status !== 'AE_TO_BUY') throw httpError(409, 'Already ordered on Banggood');
+      await banggood.place(o, sub, o.lines.filter((l) => sub.line_nos.includes(l.line_no)));
+    } else if (sub.source === 'cj') {
       if (sub.status !== 'AE_TO_BUY') throw httpError(409, 'Already ordered on CJ');
       await cj.place(o, sub, o.lines.filter((l) => sub.line_nos.includes(l.line_no)));
     } else {
@@ -516,7 +527,7 @@ function groupBy(arr, k) { return arr.reduce((m, x) => ((m[x[k]] = m[x[k]] || []
 function decorate(o) {
   return o && {
     ...o, status_label: ORDER_STATUS_LABEL[o.status] || o.status, qc_photos: (o.qc_photos || []).length,
-    sub_orders: (o.sub_orders || []).map((s) => ({ ...s, status_label: (s.source === 'cj' ? cj.LABEL[s.status] : TB_STATUS_LABEL[s.status]) || s.status, shop: db.sellers.get(s.seller_id)?.shop_name }))
+    sub_orders: (o.sub_orders || []).map((s) => ({ ...s, status_label: (LABELS_OF(s.source) ? LABELS_OF(s.source)[s.status] : TB_STATUS_LABEL[s.status]) || s.status, shop: db.sellers.get(s.seller_id)?.shop_name }))
   };
 }
 
@@ -560,7 +571,7 @@ function sellerView(o, sellerId) {
     lines: lines.map(({ title, props, qty, price, cost_cny }) => ({ title, props, qty, price, cost_cny })),
     revenue: money(lines.reduce((a, l) => a + l.price * l.qty, 0)),
     cost_cny: money(lines.reduce((a, l) => a + l.cost_cny * l.qty, 0)),
-    purchase: sub ? { direct: Boolean(sub.direct), source: sub.source || null, manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: (sub.source === 'cj' ? cj.LABEL[sub.status] : TB_STATUS_LABEL[sub.status]) || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] } : null
+    purchase: sub ? { direct: Boolean(sub.direct), source: sub.source || null, manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: (LABELS_OF(sub.source) ? LABELS_OF(sub.source)[sub.status] : TB_STATUS_LABEL[sub.status]) || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] } : null
   };
 }
 

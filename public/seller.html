@@ -265,6 +265,9 @@ function addStart(err = '') {
       ${cfg.cj ? `<section class="panel stack srccard"><div class="srchead"><span class="srcico ae" style="background:#1f6feb">CJ</span><div><b>From CJdropshipping</b><div class="muted small">Ships from CJ straight to the customer. Kinan orders and pays CJ for you; shipping is added at checkout.</div></div></div>
         <form class="stack" id="cjf"><label class="field">Search CJ, or paste a CJ link / SKU<input name="q" required placeholder="e.g. desk lamp — or https://cjdropshipping.com/product/…-p-….html" autocomplete="off"></label><div class="error" id="cje"></div><button class="btn" id="cjgo">Search CJ</button></form><div id="cjprev" class="stack"></div>
       </section>` : ''}
+      ${cfg.banggood ? `<section class="panel stack srccard"><div class="srchead"><span class="srcico ae" style="background:#ff6e26">BG</span><div><b>From Banggood</b><div class="muted small">Ships from Banggood straight to the customer — from its UK warehouse when it has the item. Kinan orders it for you; shipping is added at checkout.</div></div></div>
+        <form class="stack" id="bgform"><label class="field">Banggood link or product ID<input name="ref" required placeholder="https://www.banggood.com/…-p-1234567.html" autocomplete="off"></label><div class="error" id="bge"></div><button class="btn" id="bggo">Import from Banggood</button></form><div id="bgprev" class="stack"></div>
+      </section>` : ''}
       <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">✎</span><div><b>Add manually</b><div class="muted small">Any Taobao item — type it in yourself. Kinan buys it when it sells.</div></div></div>
         <p class="small">No Taobao account needed.</p><a class="btn ghost" href="#/manual">Add manually</a>
       </section>
@@ -305,6 +308,26 @@ function addStart(err = '') {
       };
     } catch (err) { $('#aee').textContent = err.message; }
     $('#aego').disabled = false; $('#aego').textContent = 'Import from AliExpress';
+  };
+  const bgform = $('#bgform');
+  if (bgform) bgform.onsubmit = async (e) => {
+    e.preventDefault(); const ref = e.target.ref.value.trim(); $('#bge').textContent = '';
+    $('#bggo').disabled = true; $('#bggo').textContent = 'Loading from Banggood…';
+    try {
+      const p = await api('/api/seller/products/banggood/preview', 'POST', { ref });
+      $('#bgprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="bgt" value="${esc(p.title)}" maxlength="200"></label></div>
+        <p class="muted small" style="margin:0">Ships from the <b>${esc(p.warehouse)}</b> warehouse${p.warehouses.length > 1 ? ` (also in ${esc(p.warehouses.filter((w) => w !== p.warehouse).join(', '))})` : ''}.</p><div id="bgcat">${catSelect('')}</div>
+        <div class="scroll"><table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>Banggood cost</th><th>Stock</th><th>Your price</th></tr></thead><tbody>${p.skus.map((k) => `<tr><td>${esc(k.props || 'Standard')}</td><td style="text-align:center">$${Number(k.cost_sale).toFixed(2)}</td><td style="text-align:center">${k.stock}</td><td><input type="number" step="0.01" min="0" data-bgp="${esc(k.mp_sku_id)}" value="${k.suggested_price}" style="min-height:34px"></td></tr>`).join('')}</tbody></table></div>
+        <button class="btn" id="bgpub">Submit for review</button></div>`;
+      $('#bgpub').onclick = async () => {
+        const prices = Object.fromEntries($$('[data-bgp]').map((i) => [i.dataset.bgp, Number(i.value)]));
+        const category = $('#bgcat select').value; if (!category) { $('#bge').textContent = 'Choose a category'; return; }
+        $('#bgpub').disabled = true;
+        try { await api('/api/seller/products/banggood', 'POST', { ref: p.bg_pid, title: $('#bgt').value, prices, category }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
+        catch (err) { $('#bge').textContent = err.message; $('#bgpub').disabled = false; }
+      };
+    } catch (err) { $('#bgprev').innerHTML = ''; $('#bge').textContent = err.message; }
+    $('#bggo').disabled = false; $('#bggo').textContent = 'Import from Banggood';
   };
   const cjf = $('#cjf');
   const cjOpen = async (ref) => {

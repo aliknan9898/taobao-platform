@@ -272,10 +272,14 @@ r('POST', '/api/shipping/prepare', null, async ({ req }) => { throttleLight(req)
 r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const b = await readJson(req); const items = Array.isArray(b.items) ? b.items.slice(0, 100) : [];
   const q = shipping.quote(items, b.country_code || b.country);
-  const c = await cjs.quote(items, q.country_code || require('./countries').countryCode(b.country_code || b.country));
-  return c ? { ...q, fee: Math.round((q.fee + c.fee) * 100) / 100, cj: c, days: q.fee ? q.days : c.days || q.days, note: c.fee ? undefined : q.note } : q;
+  const cc = q.country_code || require('./countries').countryCode(b.country_code || b.country);
+  const c = await cjs.quote(items, cc);
+  const g = await require('./services/banggood').quote(items, cc);
+  if (!c && !g) return q;
+  const extra = (c?.fee || 0) + (g?.fee || 0);
+  return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note };
 });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -453,6 +457,17 @@ r('POST', '/api/admin/orders/:id/nss', PROC, async ({ req, params, user }) => {
   else throw httpError(400, 'Unknown action');
   return orders.decorate(db.orders.get(params.id));
 });
+// Banggood (direct supplier)
+const bgs = require('./services/banggood');
+r('GET', '/api/admin/banggood', STAFF, async () => bgs.status());
+r('PUT', '/api/admin/banggood/settings', ADMIN, async ({ req }) => bgs.savePrefs(await readJson(req)));
+r('POST', '/api/admin/banggood/resync', ADMIN, async () => ({ checked: await bgs.resyncStale(300) }));
+r('POST', '/api/seller/products/banggood/preview', SELLER, async ({ req, seller }) => bgs.preview(seller, (await readJson(req)).ref));
+r('POST', '/api/seller/products/banggood', SELLER, async ({ req, seller }) => bgs.publish(seller, await readJson(req)));
+r('POST', '/api/admin/banggood/preview', ADMIN, async ({ req }) => bgs.preview(require('./services/buyforme').systemSeller(), (await readJson(req)).ref));
+r('POST', '/api/admin/banggood/import', ADMIN, async ({ req }) => bgs.publish(require('./services/buyforme').systemSeller(), await readJson(req)));
+r('GET', '/api/admin/banggood/orders', STAFF, async () => db.orders.all((o) => (o.sub_orders || []).some((s) => s.source === 'banggood')).sort((a, b) => b.created_at - a.created_at).slice(0, 200)
+  .map((o) => ({ id: o.id, status: o.status, created_at: o.created_at, country: o.shipping_address?.country_code, parts: o.sub_orders.filter((s) => s.source === 'banggood').map((s) => ({ outer_purchase_id: s.outer_purchase_id, sale_record_id: s.sale_record_id || null, purchase_ids: s.purchase_ids, status: s.status, label: bgs.LABEL[s.status] || s.status, bg_status: s.bg_status || null, amount: s.bg_amount || null, error: s.error || null, logistics: s.logistics || [] })) })));
 r('GET', '/api/admin/cj', STAFF, async () => cjs.status());
 r('PUT', '/api/admin/cj/settings', ADMIN, async ({ req }) => cjs.savePrefs(await readJson(req)));
 r('POST', '/api/admin/cj/webhooks', ADMIN, async () => { db.settings.remove('set_cj_webhooks'); return cjs.registerWebhooks(); });
@@ -736,6 +751,7 @@ function startJobs() {
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
+  every(3600e3, async () => { if (new Date().getUTCHours() === 4) await require('./services/banggood').resyncStale(300); });
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
   every(30 * 60e3, () => require('./services/nss').tick());
   setTimeout(() => require('./cj/client').background(() => cjs.autoTick()).catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();
