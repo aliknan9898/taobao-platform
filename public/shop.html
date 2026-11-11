@@ -49,6 +49,11 @@
   @media (min-width: 761px) { #sf .sgo svg { display: none; } }
   .sellbtn { color: var(--jade); }
   .addrdlg { width: min(520px, calc(100vw - 24px)); }
+  .addr { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); }
+  .addr.on { border-color: var(--jade); background: var(--jade-soft); }
+  .addrpick { display: flex; gap: 10px; align-items: flex-start; text-align: start; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+  .addrpick .dot { flex: none; width: 18px; height: 18px; margin-top: 2px; border-radius: 50%; border: 2px solid var(--line); }
+  .addr.on .addrpick .dot { border-color: var(--jade); box-shadow: inset 0 0 0 4px var(--surface); background: var(--jade); }
   .locchip { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 0; color: var(--ink-2); font: 14px var(--font-body); cursor: pointer; }
   .locchip svg { width: 16px; height: 16px; color: var(--jade); flex: none; }
   .locchip b { color: var(--ink); font-weight: 600; text-decoration: underline dotted; text-underline-offset: 3px; }
@@ -273,10 +278,44 @@ function pickLocale(after, first = false) {
 }
 /** The customer's full delivery address (kept on this phone, used at checkout). */
 const hasAddress = () => { const a = savedAddress(); return Boolean(a.country_code && a.city && a.line1 && a.name && a.phone); };
-function addressDialog(after, { first = false } = {}) {
-  const a = { name: (me && me.name) || '', ...savedAddress() }; if (!a.country_code) a.country_code = Locale.get().country;
+/** Several delivery addresses; the chosen one is used for prices and checkout. Kept on the phone and in the account. */
+const ADDR_KEYS = ['name', 'phone', 'country_code', 'city', 'line1', 'line2', 'postal_code', 'state', 'label'];
+const Book = {
+  list() {
+    try { const l = JSON.parse(localStorage.getItem('kinan_addrs') || '[]'); if (Array.isArray(l) && l.length) return l; } catch {}
+    if (!hasAddress()) return [];
+    // An address saved before the address book existed becomes its first entry
+    const a = { ...savedAddress() }; if (!a.id) a.id = Book.newId();
+    try { localStorage.setItem('kinan_addrs', JSON.stringify([a])); localStorage.setItem('kinan_addr', JSON.stringify(a)); } catch {}
+    return [a];
+  },
+  newId: () => `adr_${Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, '0')).join('')}`,
+  selectedId() { return savedAddress().id || null; },
+  store(list, selected, { push = true } = {}) {
+    const sel = list.find((a) => a.id === selected) || list[0] || null;
+    try { localStorage.setItem('kinan_addrs', JSON.stringify(list)); localStorage.setItem('kinan_addr', JSON.stringify(sel ? { ...sel, country: countryName(sel.country_code) } : {})); } catch {}
+    if (sel) Locale.set({ country: sel.country_code });
+    if (push && me && me.role === 'buyer') api('/api/buyer/addresses', 'PUT', { addresses: list.map((a) => Object.fromEntries([['id', a.id], ...ADDR_KEYS.map((k) => [k, a[k] || ''])])), selected: sel ? sel.id : null }).catch(() => {});
+    if (sel) api('/api/shipping/prepare', 'POST', { country_code: sel.country_code }).catch(() => {});
+  },
+  upsert(a) { const list = Book.list(); const id = a.id || Book.newId(); const i = list.findIndex((x) => x.id === id); const v = { ...(i >= 0 ? list[i] : {}), ...a, id }; if (i >= 0) list[i] = v; else list.push(v); Book.store(list.slice(-10), id); return id; },
+  select(id) { Book.store(Book.list(), id); },
+  remove(id) { const list = Book.list().filter((x) => x.id !== id); Book.store(list, Book.selectedId() === id ? list[0]?.id : Book.selectedId()); },
+  /** Signed-in customers: addresses saved on another phone appear here too (and this phone's ones are kept). */
+  async sync() {
+    if (!me || me.role !== 'buyer') return;
+    const r = await api('/api/buyer/addresses').catch(() => null); if (!r) return;
+    const local = Book.list(); const same = (a, b) => a.id === b.id || (a.line1 === b.line1 && a.city === b.city && a.country_code === b.country_code);
+    const merged = [...r.addresses, ...local.filter((l) => !r.addresses.some((x) => same(x, l)))].slice(0, 10);
+    const cur = Book.selectedId(); const pick = merged.find((x) => x.id === cur)?.id || (local.length ? merged.find((x) => same(x, local.find((l) => l.id === cur) || {}))?.id : null) || r.selected;
+    Book.store(merged, pick, { push: merged.length !== r.addresses.length || pick !== r.selected });
+  }
+};
+const addrLine = (a) => [a.line1, a.line2, a.city, a.postal_code, countryName(a.country_code)].filter(Boolean).join(', ');
+function addressDialog(after, { first = false, edit = null } = {}) {
+  const a = edit ? { ...edit } : first || !Book.list().length ? { name: (me && me.name) || '', ...savedAddress() } : { name: (me && me.name) || '' }; if (!a.country_code) a.country_code = Locale.get().country;
   const d = document.createElement('dialog'); d.className = 'addrdlg';
-  d.innerHTML = `<form class="stack" style="padding:20px;max-width:460px" novalidate><h2 style="margin:0">${first ? 'Where should we deliver?' : 'Delivery address'}</h2>
+  d.innerHTML = `<form class="stack" style="padding:20px;max-width:460px" novalidate><h2 style="margin:0">${edit ? 'Edit address' : first ? 'Where should we deliver?' : 'Delivery address'}</h2>
     <p class="muted" style="margin:0">Add your full address to see the exact price with shipping, in your currency. We keep it for checkout.</p>
     <label class="field">Country<select name="country_code" required autocomplete="country"><option value="">Choose…</option>${KinanLang.sortCountries(cfg.countries).map(([c, n]) => `<option value="${esc(c)}" ${c === a.country_code ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
     <div class="muted small" id="curnote"></div>
@@ -287,8 +326,9 @@ function addressDialog(after, { first = false } = {}) {
     <div class="grid-2"><label class="field">City<input name="city" required autocomplete="address-level2" value="${esc(a.city || '')}"></label>
       <label class="field">Postal code<input name="postal_code" autocomplete="postal-code" value="${esc(a.postal_code || '')}"></label></div>
     <label class="field">State / province (optional)<input name="state" autocomplete="address-level1" value="${esc(a.state || '')}"></label>
+    <label class="field">Name for this address (optional)<input name="label" maxlength="40" placeholder="Home, Work…" value="${esc(a.label || '')}"></label>
     <div class="error" id="aerr"></div>
-    <div class="row"><button class="btn" type="submit" style="flex:1">Show price with shipping</button><button class="btn ghost" type="button" data-close>${first ? 'Later' : 'Cancel'}</button></div></form>`;
+    <div class="row"><button class="btn" type="submit" style="flex:1">${edit || !first ? 'Save address' : 'Show price with shipping'}</button><button class="btn ghost" type="button" data-close>${first ? 'Later' : 'Cancel'}</button></div></form>`;
   document.body.append(d);
   const f = d.querySelector('form');
   const note = () => { const c = currencyFor(f.country_code.value); d.querySelector('#curnote').textContent = f.country_code.value ? `Prices and payment in ${({ USD: 'US dollars (USD)', EUR: 'euros (EUR)', GBP: 'pounds sterling (GBP)' })[c] || c}.` : ''; };
@@ -296,13 +336,11 @@ function addressDialog(after, { first = false } = {}) {
   d.querySelector('[data-close]').onclick = () => { d.close(); d.remove(); };
   f.onsubmit = (e) => {
     e.preventDefault();
-    const v = Object.fromEntries(['country_code', 'name', 'phone', 'line1', 'line2', 'city', 'postal_code', 'state'].map((k) => [k, f[k].value.trim()]));
+    const v = Object.fromEntries(['country_code', 'name', 'phone', 'line1', 'line2', 'city', 'postal_code', 'state', 'label'].map((k) => [k, f[k].value.trim()]));
     const miss = [['country_code', 'country'], ['name', 'full name'], ['phone', 'phone'], ['line1', 'address'], ['city', 'city']].filter(([k]) => !v[k]).map(([, t]) => t);
     if (miss.length) { d.querySelector('#aerr').textContent = `Please fill in: ${miss.join(', ')}`; return; }
     if (!/^\+?[0-9 ()-]{6,30}$/.test(v.phone)) { d.querySelector('#aerr').textContent = 'Check the phone number'; return; }
-    try { localStorage.setItem('kinan_addr', JSON.stringify({ ...savedAddress(), ...v, country: countryName(v.country_code) })); } catch {}
-    Locale.set({ country: v.country_code });
-    api('/api/shipping/prepare', 'POST', { country_code: v.country_code }).catch(() => {});
+    Book.upsert(edit ? { ...v, id: edit.id } : v);
     d.close(); d.remove(); renderLocaleChip(); if (after) after();
   };
   d.showModal();
@@ -720,6 +758,7 @@ async function checkout() {
   const sub = items.reduce((s, x) => s + x.price * x.qty, 0);
   $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/cart">${ICONS.back} Cart</a><h1 style="margin-top:6px">Delivery address</h1></div></div>
     <div class="two"><form class="panel stack" id="af">
+      ${Book.list().length > 1 ? `<label class="field">Saved addresses<select id="abook">${Book.list().map((x) => `<option value="${esc(x.id)}" ${x.id === Book.selectedId() ? 'selected' : ''}>${esc(x.label || x.name)} — ${esc(addrLine(x))}</option>`).join('')}<option value="">+ New address</option></select></label>` : ''}
       <div class="grid-2"><label class="field">Full name<input name="name" required autocomplete="name" value="${esc(a.name)}"></label>
       <label class="field">Phone<input name="phone" type="tel" required autocomplete="tel" value="${esc(a.phone)}"></label></div>
       <label class="field">Address<input name="line1" required autocomplete="address-line1" placeholder="Street and number" value="${esc(a.line1)}"></label>
@@ -757,6 +796,10 @@ async function checkout() {
       paintTotal();
     } catch {}
   };
+  if ($('#abook')) $('#abook').onchange = (e) => {
+    if (e.target.value) { Book.select(e.target.value); checkout(); return; }
+    const f = $('#af'); for (const k of ['name', 'phone', 'line1', 'line2', 'city', 'postal_code', 'state']) if (f[k]) f[k].value = k === 'name' ? (me.name || '') : '';
+  };
   $('#af').country_code.onchange = () => {
     const f = $('#af'); const code = f.country_code.value;
     if (code && currencyFor(code) !== Locale.get().currency) {
@@ -779,7 +822,9 @@ async function checkout() {
   };
   $('#af').onsubmit = async (e) => {
     e.preventDefault(); const { packaging = 'standard', hold, ...addr } = Object.fromEntries(new FormData(e.target));
-    try { localStorage.setItem('kinan_addr', JSON.stringify(addr)); } catch {}
+    // Keep it in the address book: update the chosen address, or add it when it is a new one
+    const sid = $('#abook') ? $('#abook').value : Book.selectedId();
+    Book.upsert({ ...Object.fromEntries(ADDR_KEYS.map((k) => [k, addr[k] ?? (Book.list().find((x) => x.id === sid) || {})[k] ?? ''])), ...(sid ? { id: sid } : {}) });
     $('#go').disabled = true; $('#go').textContent = 'Placing order…';
     try {
       const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '' });
@@ -964,19 +1009,32 @@ async function orderDetail(id) {
   if (c) c.onclick = async () => { if (!confirm('Cancel this order? If you already paid, you will be refunded.')) return; c.disabled = true; try { await api(`/api/buyer/orders/${id}/cancel`, 'POST'); toast('Order cancelled'); orderDetail(id); } catch (e) { $('#oe').textContent = e.message; c.disabled = false; } };
 }
 
+function paintBook() {
+  const el = $('#addrbook'); if (!el) return; const list = Book.list(); const sel = Book.selectedId();
+  el.innerHTML = `<div class="row between"><div><b>Delivery addresses</b><div class="muted small">Choose where your orders go. Prices with shipping follow the chosen address.</div></div></div>
+    ${list.map((a) => `<div class="addr ${a.id === sel ? 'on' : ''}"><button type="button" class="addrpick" data-asel="${esc(a.id)}" aria-pressed="${a.id === sel}"><span class="dot"></span><span><b>${esc(a.label || a.name)}</b>${a.id === sel ? ' <span class="pill ok">Shipping here</span>' : ''}<span class="muted small" style="display:block">${esc(a.label ? `${a.name} · ` : '')}${esc(addrLine(a))}</span><span class="muted small" style="display:block" dir="ltr">${esc(a.phone)}</span></span></button>
+      <div class="row" style="gap:6px"><button type="button" class="btn sm ghost" data-aedit="${esc(a.id)}">Edit</button><button type="button" class="btn sm quiet" data-adel="${esc(a.id)}">Remove</button></div></div>`).join('') || '<p class="muted small" style="margin:0">No address yet.</p>'}
+    ${list.length < 10 ? '<button type="button" class="btn ghost" id="addaddr2">+ Add an address</button>' : ''}`;
+  $$('[data-asel]').forEach((b) => b.onclick = () => { Book.select(b.dataset.asel); paintBook(); toast('Orders will ship to this address'); });
+  $$('[data-aedit]').forEach((b) => b.onclick = () => addressDialog(paintBook, { edit: Book.list().find((x) => x.id === b.dataset.aedit) }));
+  $$('[data-adel]').forEach((b) => b.onclick = () => { if (confirm(KinanLang.t('Remove this address?'))) { Book.remove(b.dataset.adel); paintBook(); } });
+  const add = $('#addaddr2'); if (add) add.onclick = () => addressDialog(paintBook);
+}
 async function account() {
   if (!me || me.role !== 'buyer') { signin('/account'); return; }
+  await Book.sync();
   const wallet = await api('/api/buyer/wallet').catch(() => ({ balance: 0, currency: cfg.currency }));
   $('#view').innerHTML = `<div class="pagehead"><h1>Account</h1></div>
     <div class="stack" style="max-width:520px">
       <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
         <a class="btn ghost" href="#/orders">Your orders</a>${KinanTheme.button('btn ghost', true)}</div>
+      <div class="panel stack" id="addrbook"></div>
       <div class="panel stack"><div><b>Language</b><div class="muted small">The app and our emails use this language.</div></div>${KinanLang.picker()}</div>
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
       <a class="panel acrow" href="#/saved"><span class="acticon">${HEART}</span><span><b>Saved items</b><div class="muted small">We email you when a price drops or an item is back</div></span><span class="muted flip-rtl">›</span></a>
       <div class="panel stack" id="pushbox"></div>
       <div class="panel stack" id="invite"></div>
-      <a class="panel acrow" href="#/request"><span class="acticon">${ICONS.plus}</span><span><b>Buy for me</b><div class="muted small">Paste any Taobao, 1688 or AliExpress link — we buy it for you</div></span><span class="muted flip-rtl">›</span></a>
+      <a class="panel acrow" href="#/request" data-afterbook><span class="acticon">${ICONS.plus}</span><span><b>Buy for me</b><div class="muted small">Paste any Taobao, 1688 or AliExpress link — we buy it for you</div></span><span class="muted flip-rtl">›</span></a>
       <div class="panel stack small" id="installbox"><h3>Get the Kinan Shop app</h3>
         <p class="muted">Install Kinan Shop on your phone’s home screen. On iPhone: tap Share, then “Add to Home Screen”. On Android: tap the menu, then “Install app”.</p>
         <button class="btn quiet install" id="installbtn">Install Kinan Shop</button><a class="muted" href="/download">Step-by-step guide for Android and iPhone</a></div>
@@ -985,6 +1043,7 @@ async function account() {
     </div>`;
   $('#out').onclick = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; toast('Signed out'); location.hash = '#/'; };
   wireInstall();
+  paintBook();
   K.pushPanel($('#pushbox'), 'shop');
   api('/api/buyer/referral').then((r) => {
     $('#invite').innerHTML = `<h3>Invite friends, earn ${money(r.reward, r.currency)}</h3>
@@ -1105,7 +1164,7 @@ function signin(next, mode = 'in', msg = '') {
       if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'buyer' });
       const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password });
       if (asMe(r.user).role !== 'buyer') { await api('/api/auth/logout', 'POST'); return signin(encodeURIComponent(next), mode, 'This is not a customer account. Sellers sign in at the Seller Center.'); }
-      me = asMe(r.user); toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in');
+      me = asMe(r.user); toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
       location.hash = '#' + next; if (location.hash === '#' + next) route();
     } catch (err) { signin(encodeURIComponent(next), mode, err.message); }
   };
@@ -1134,7 +1193,7 @@ function wireInstall() {
   }
   [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').then(asMe).catch(() => null)]);
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
-  Cart.sync();
+  Cart.sync(); Book.sync();
   K.analyticsConsent(cfg.analytics);
   if (cfg.whatsapp) { const a = document.createElement('a'); a.className = 'wafab'; a.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent('Hello Kinan')}`; a.target = '_blank'; a.rel = 'noopener'; a.setAttribute('aria-label', 'WhatsApp'); a.innerHTML = WA; document.body.append(a); }
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();

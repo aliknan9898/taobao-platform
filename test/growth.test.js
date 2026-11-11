@@ -83,3 +83,14 @@ test('growth features', async () => {
   assert.strictEqual(growth.cartReminders(Date.now() + 25 * 3600e3), 1);
   assert.strictEqual(growth.cartReminders(Date.now() + 26 * 3600e3), 0);
 });
+
+test('address book: several delivery addresses, one chosen', async () => {
+  await api('POST', '/api/auth/register', { role: 'buyer', email: 'book@x.com', password: 'buyerpass1', name: 'B' });
+  const t = await login('book@x.com', 'buyerpass1');
+  assert.deepStrictEqual((await api('GET', '/api/buyer/addresses', null, t)).body, { addresses: [], selected: null });
+  const home = { id: 'adr_aaaaaaaaaaaa', label: 'Home', name: 'B K', phone: '+356 1', country_code: 'mt', city: 'Valletta', line1: 'St 1' };
+  const work = { name: 'B K', phone: '+44 2', country_code: 'GB', city: 'London', line1: 'High St 2' };
+  const r = (await api('PUT', '/api/buyer/addresses', { addresses: [home, work], selected: 'adr_aaaaaaaaaaaa' }, t)).body;
+  assert.strictEqual(r.addresses.length, 2); assert.strictEqual(r.addresses[0].country_code, 'MT'); assert.match(r.addresses[1].id, /^adr_/); assert.strictEqual(r.selected, 'adr_aaaaaaaaaaaa');
+  assert.strictEqual((await api('PUT', '/api/buyer/addresses', { addresses: [{ name: 'x' }] }, t)).status, 400);
+});

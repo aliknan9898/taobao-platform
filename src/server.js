@@ -320,6 +320,20 @@ r('POST', '/api/push/subscribe', auth.ROLES, async ({ req, user }) => require('.
 r('POST', '/api/push/unsubscribe', auth.ROLES, async ({ req, user }) => require('./push').unsubscribe(user, (await readJson(req)).endpoint));
 r('GET', '/api/buyer/orders/:id/messages', BUYER, async ({ user, params }) => { const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found'); return { shops: [...new Set(o.lines.map((l) => l.seller_id))].map((id) => db.sellers.get(id)).filter((s) => s && !s.system).map((s) => ({ id: s.id, name: s.shop_name })), messages: messages.threadsFor(o, { role: 'buyer' }) }; });
 r('POST', '/api/buyer/orders/:id/messages', BUYER, async ({ req, user, params }) => { const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found'); return messages.post(o, { role: 'buyer', user: db.users.get(user.id) }, await readJson(req)); });
+// Address book: several delivery addresses, one chosen for shipping
+const cleanAddr = (a = {}) => {
+  const t = (v, n) => String(v ?? '').trim().slice(0, n);
+  const o = { id: /^adr_[a-z0-9]{6,20}$/.test(a.id) ? a.id : `adr_${require('crypto').randomBytes(6).toString('hex')}`, label: t(a.label, 40), name: t(a.name, 100), phone: t(a.phone, 30), country_code: t(a.country_code, 2).toUpperCase(), city: t(a.city, 80), line1: t(a.line1, 200), line2: t(a.line2, 200), postal_code: t(a.postal_code, 20), state: t(a.state, 80) };
+  if (!o.name || !o.phone || !o.city || !o.line1 || !/^[A-Z]{2}$/.test(o.country_code)) throw httpError(400, 'Each address needs a name, phone, country, city and street');
+  return o;
+};
+r('GET', '/api/buyer/addresses', BUYER, async ({ user }) => { const u = db.users.get(user.id); return { addresses: u.addresses || [], selected: u.address_selected || null }; });
+r('PUT', '/api/buyer/addresses', BUYER, async ({ req, user }) => {
+  const b = await readJson(req); const list = (Array.isArray(b.addresses) ? b.addresses : []).slice(0, 10).map(cleanAddr);
+  const selected = list.some((a) => a.id === b.selected) ? b.selected : list[0]?.id || null;
+  db.users.update(user.id, { addresses: list, address_selected: selected });
+  return { addresses: list, selected };
+});
 r('GET', '/api/buyer/wallet', BUYER, async ({ user }) => shopSvc.walletOf(user.id));
 r('POST', '/api/buyforme/parse', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return require('./services/buyforme').parse(b.text || b.link); });
 r('POST', '/api/buyforme/estimate', null, async ({ req }) => { throttleLight(req); return require('./services/buyforme').estimate(await readJson(req)); });
