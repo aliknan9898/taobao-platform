@@ -84,12 +84,7 @@ async function fetchProduct(ref, wantWarehouse) {
   const warehouse = pickWarehouse(whs.map((w) => w.warehouse), wantWarehouse);
   const base = whs.find((w) => w.warehouse === warehouse).price;
 
-  // Exact price per option combination when Banggood gives it; otherwise warehouse price + option prices
-  const exact = new Map();
-  try {
-    const pr = await bg.call('GET', 'product/getProductPrice', { product_id: pid, warehouse });
-    for (const x of arr(pr.productPrice || pr.product_price)) if (x && Number(x.price) > 0) exact.set(String(x.poa_id ?? ''), Number(x.price));
-  } catch { /* fall back below */ }
+  // Banggood's rule: product price = warehouse_price + the poa_price of each chosen option
   const stockBy = new Map();
   try {
     const st = await bg.call('GET', 'product/getStocks', { product_id: pid });
@@ -100,11 +95,10 @@ async function fetchProduct(ref, wantWarehouse) {
   } catch { /* unknown stock: shown as available */ }
 
   const norm = (ids) => ids.split(',').filter(Boolean).sort().join(',');
-  const exactBy = new Map([...exact].map(([k, v]) => [norm(k), v]));
   const stockNorm = new Map([...stockBy].map(([k, v]) => [norm(k), v]));
   const skus = combos(arr(info.poa_list)).map((c) => {
     const poa = c.map((x) => x.id).join(',');
-    const cost = exactBy.get(norm(poa)) ?? money(base + c.reduce((a, x) => a + x.price, 0));
+    const cost = money(base + c.reduce((a, x) => a + x.price, 0));
     const st = stockNorm.get(norm(poa)) ?? (c.length ? null : stockNorm.get(''));
     return {
       bg_poa: poa, mp_sku_id: `bg_${pid}_${poa ? poa.replace(/,/g, '-') : '0'}`, props: c.map((x) => x.name).join(' / ').slice(0, 120),
@@ -113,11 +107,15 @@ async function fetchProduct(ref, wantWarehouse) {
     };
   }).filter((s) => s.cost_sale > 0);
   if (!skus.length) throw httpError(422, 'This Banggood product has no options with a price');
-  const il = info.image_list || {};
-  const images = [...new Set([...arr(il.large), ...arr(il.view), ...arr(il.gallery), ...arr(il.home), ...arr(il.grid), ...arr(il.list_grid), ...arr(il.other_items)].map(httpsImg).filter(Boolean))].slice(0, 10);
+  // image_list sizes are single URLs (or lists): take the large ones first
+  const il = info.image_list && typeof info.image_list === 'object' ? info.image_list : {};
+  const many = (v) => (typeof v === 'string' ? [v] : arr(v));
+  const images = [...new Set([...many(il.large), ...many(il.view), ...many(il.gallery)].map(httpsImg).filter(Boolean))].slice(0, 10);
+  // The description is usually HTML; some products give an object of image links instead
+  const descText = typeof info.description === 'string' ? stripHtml(info.description) : '';
   const weight = Number(info.weight);
   return {
-    bg_pid: pid, warehouse, warehouses: whs.map((w) => w.warehouse), title: str(info.product_name, 200), description: stripHtml(info.description).slice(0, 5000),
+    bg_pid: pid, warehouse, warehouses: whs.map((w) => w.warehouse), title: str(info.product_name, 200), description: descText.slice(0, 5000),
     images: images.length ? images : skus.map((s) => s.image).filter(Boolean).slice(0, 6),
     weight_kg: weight > 0 ? (weight > 50 ? Math.round(weight) / 1000 : weight) : null, // documented in kilograms; grams if implausibly large
     source_link: `https://www.banggood.com/-p-${pid}.html`, skus

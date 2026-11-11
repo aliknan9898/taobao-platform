@@ -23,7 +23,8 @@ const TOKEN_CODES = new Set([21020, 21030, 11020]);
 const MESSAGES = {
   12029: 'Quantity must be below 100', 12031: 'Unknown Banggood warehouse', 12032: 'Banggood does not recognise this country',
   12033: 'Unknown product option (poa_id)', 12034: 'Unknown Banggood product', 12027: 'Product ID is missing', 12087: 'This product is no longer sold on Banggood',
-  12082: 'Too many orders asked at once', 31020: 'Banggood account error — check the Dropship program approval and the server IP addresses'
+  12082: 'Too many orders asked at once', 31010: 'Banggood refused this server — register the server’s IP addresses in the Banggood Open Platform',
+  41010: 'Banggood daily call limit reached — try again tomorrow', 21030: 'Banggood token mismatch', 21020: 'Banggood token expired', 31020: 'Banggood account error — check the Dropship program approval and the server IP addresses'
 };
 
 // One call at a time, a short gap between calls (Banggood publishes no rate limit)

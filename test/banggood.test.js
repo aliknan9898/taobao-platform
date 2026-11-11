@@ -26,7 +26,7 @@ global.fetch = async (url, opts = {}) => {
     warehouse_list: [{ warehouse: 'CN', warehouse_price: 10 }, { warehouse: 'UK', warehouse_price: 14 }],
     poa_list: [{ option_id: 1, option_name: 'Color', option_values: [{ poa_id: '11', poa_name: 'White', poa_price: 0, large_image: 'https://img.bg/w.jpg' }, { poa_id: '12', poa_name: 'Black', poa_price: 1 }] },
       { option_id: 2, option_name: 'Plug', option_values: [{ poa_id: '21', poa_name: 'UK', poa_price: 0 }] }],
-    image_list: { large: ['https://img.bg/1.jpg', '//img.bg/2.jpg'] } });
+    image_list: { large: '//img.bg/2.jpg', home: 'https://img.bg/small.jpg', view: 'https://img.bg/1.jpg' } });
   if (u.pathname === '/product/Translate') { assert.strictEqual(q.lang, 'ar'); return { ok: true, status: 200, json: async () => ({ error: 0, TranslatedText: { product_name: 'مصباح مكتب LED', description: '<p>مصباح ساطع</p>' } }) }; }
   if (u.pathname === '/product/getProductPrice') { assert.strictEqual(q.warehouse, 'UK'); return ok({ productPrice: [{ poa_id: '21,11', price: 14.5 }] }); }
   if (u.pathname === '/product/getStocks') return ok({ stocks: [{ warehouse: 'UK', stock_list: [{ poa_id: '11,21', stock: 7, stock_msg: 'In stock' }, { poa_id: '12,21', stock: 0 }] }] });
@@ -63,12 +63,12 @@ test('Banggood: import, checkout shipping, order, paid by hand, tracking', async
   assert.strictEqual(pv.body.warehouse, 'UK', 'UK warehouse preferred');
   assert.strictEqual(pv.body.skus.length, 2);
   const white = pv.body.skus.find((s) => s.props === 'White / UK');
-  assert.strictEqual(white.cost_sale, 14.5, 'exact price from getProductPrice');
+  assert.strictEqual(white.cost_sale, 14, 'warehouse price + option prices');
   assert.strictEqual(white.stock, 7);
   assert.strictEqual(pv.body.skus.find((s) => s.props === 'Black / UK').cost_sale, 15, 'warehouse price + option price');
   assert.deepStrictEqual(white.opts, [{ name: 'Color', value: 'White' }, { name: 'Plug', value: 'UK' }]);
   assert.strictEqual(pv.body.description, 'Bright lamp');
-  assert.ok(pv.body.images.includes('https://img.bg/2.jpg'));
+  assert.deepStrictEqual(pv.body.images, ['https://img.bg/2.jpg', 'https://img.bg/1.jpg'], 'large first, no thumbnails');
 
   const l = (await api('POST', '/api/admin/banggood/import', { ref: '1234567', category: 'home', prices: { [white.mp_sku_id]: 29 } }, boss)).body;
   assert.strictEqual(l.status, 'active'); assert.strictEqual(l.bg_warehouse, 'UK');
