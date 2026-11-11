@@ -421,6 +421,18 @@ r('POST', '/api/admin/orders/:id/pay-taobao', PROC, async ({ params }) => {
 r('POST', '/api/admin/orders/:id/manual-bought', PROC, async ({ req, params, user }) => orders.decorate(orders.markManualBought(params.id, await readJson(req), user.id)));
 r('POST', '/api/admin/orders/:id/aliexpress', PROC, async ({ req, params, user }) => orders.decorate(await orders.updateDirect(params.id, await readJson(req), user.id)));
 // CJdropshipping: catalog, import, settings, wallet
+// NextSmartShip (China warehouse + international shipping)
+r('GET', '/api/admin/nss', STAFF, async () => require('./services/nss').status());
+r('PUT', '/api/admin/nss/settings', ADMIN, async ({ req }) => require('./services/nss').savePrefs(await readJson(req)));
+r('POST', '/api/admin/orders/:id/nss', PROC, async ({ req, params, user }) => {
+  const n = require('./services/nss'); const b = await readJson(req);
+  if (b.action === 'create') await n.createOrder(params.id, { force: Boolean(b.force) });
+  else if (b.action === 'options') return n.options(params.id);
+  else if (b.action === 'ship') await n.ship(params.id, b, user.id);
+  else if (b.action === 'sync') await n.sync(params.id);
+  else throw httpError(400, 'Unknown action');
+  return orders.decorate(db.orders.get(params.id));
+});
 r('GET', '/api/admin/cj', STAFF, async () => cjs.status());
 r('PUT', '/api/admin/cj/settings', ADMIN, async ({ req }) => cjs.savePrefs(await readJson(req)));
 r('POST', '/api/admin/cj/webhooks', ADMIN, async () => { db.settings.remove('set_cj_webhooks'); return cjs.registerWebhooks(); });
@@ -595,6 +607,14 @@ const server = http.createServer(async (req, res) => {
       setImmediate(() => { try { const m = JSON.parse(raw.toString('utf8')); const out = cjs.handleWebhook(m); if (!out.ignored) console.log('[cj] webhook', m.type, JSON.stringify(out)); } catch (e) { console.error('[cj] webhook', e.message); } });
       return;
     }
+    if (p === '/webhooks/nss') {
+      if (req.method !== 'POST') return send(res, 200, { ok: true });
+      const raw = await readRaw(req); const n = require('./services/nss');
+      if (!n.verify(raw, req.headers['x-nss-signature'])) { if (req.headers['x-nss-signature']) console.warn('[nss] webhook with a bad signature — ignored'); return send(res, 200, { ok: true }); }
+      send(res, 200, { ok: true });
+      setImmediate(() => { try { n.onWebhook(JSON.parse(raw)).catch((e) => console.error('[nss] webhook', e.message)); } catch (e) { console.error('[nss] webhook', e.message); } });
+      return;
+    }
     if (p === '/webhooks/stripe' && req.method === 'POST') {
       const out = await webhooks.stripeHook(await readRaw(req), req.headers);
       return send(res, out.status, out.body);
@@ -680,6 +700,7 @@ function startJobs() {
   every(10 * 60e3, () => require('./services/translate').translatePending());
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
   every(3600e3, () => cjs.autoTick());
+  every(30 * 60e3, () => require('./services/nss').tick());
   setTimeout(() => cjs.autoTick().catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }
@@ -713,7 +734,7 @@ if (require.main === module) (async () => {
   require('./services/uptime').setup().then((r) => { if (r.ok) console.log(`[uptime] monitoring on (${r.created ? 'new monitor' : 'monitor already there'})`); }).catch((e) => console.warn('[uptime]', e.message));
   if (require('./cj/client').enabled()) cjs.registerWebhooks().catch((e) => console.warn('[cj] webhooks:', e.message)).then(() => cjs.upgradeOptions()).catch((e) => console.warn('[cj] options:', e.message));
   if (config.appKey) require('./taobao/check').check().then((r) => console.log(`[taobao] app ${config.appKey}: ${r.ok ? 'connected' : 'NOT accepted'} — ${r.message}`)).catch((e) => console.warn('[taobao] check failed:', e.message));
-  if (require('./nss/client').enabled()) require('./nss/client').check().then((r) => console.log(`[nss] NextSmartShip ${process.env.NSS_CUSTOMER_CODE || ''}: ${r.ok ? 'connected' : 'NOT connected'} — ${r.message}`));
+  if (require('./nss/client').enabled()) require('./nss/client').check().then((r) => { console.log(`[nss] NextSmartShip ${process.env.NSS_CUSTOMER_CODE || ''}: ${r.ok ? 'connected' : 'NOT connected'} — ${r.message}`); if (r.ok) require('./services/nss').registerWebhook().catch((e) => console.warn('[nss] webhook:', e.message)); });
   stripe.setup().then((r) => { if (r.ok) console.log(`[stripe] ready (${r.mode} mode)`); }).catch((e) => console.error('[stripe] setup failed:', e.message));
   // Render stops the instance with SIGTERM: write pending changes first
   const stop = async () => { try { await db.close(); } catch { /* exiting */ } process.exit(0); };

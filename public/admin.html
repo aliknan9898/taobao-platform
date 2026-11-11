@@ -161,12 +161,26 @@ const VIEWS = {
         <div class="bars">${d.daily.map((x) => `<div title="${esc(x.date)}: ${fmt(x.revenue, c)}"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(3))}</small></div>`).join('')}</div></div>
       <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
+      <div class="card" id="nsscard"><h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Loading…</p></div>
       <div class="card" id="aecard"><h2>AliExpress</h2><p class="muted">Loading…</p></div>
       ${isAdmin() ? '' : '<!--'}<div class="card"><h2>Setup & integrations</h2>
         ${d.config_problems.length ? `<p class="warn">Missing: ${d.config_problems.map((x) => `<code>${esc(x)}</code>`).join(' ')}</p>` : '<p class="ok">Configuration complete.</p>'}
         <p class="muted">Taobao Callback URL: <code>${esc(d.webhook_urls.oauth_callback)}</code><br>
         Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
         Messages waiting to be processed: ${d.inbox_backlog}</p></div>${isAdmin() ? '' : '-->'}`;
+    api('/api/admin/nss').then((n) => {
+      const el = $('#nsscard'); if (!el) return;
+      if (!n.configured) { el.innerHTML = '<h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Not connected. Add NSS_CLIENT_ID and NSS_CLIENT_SECRET.</p>'; return; }
+      const p = n.prefs;
+      el.innerHTML = `<h2>NextSmartShip — China warehouse &amp; shipping</h2>
+        <p>${n.connected ? `<span class="pill ok">Connected</span> ${esc(n.customer_code || '')} · balance <b>$${Number(n.balance?.available_amount || 0).toFixed(2)}</b>${n.balance?.frozen_amount ? ` (+$${Number(n.balance.frozen_amount).toFixed(2)} on hold)` : ''}` : `<span class="pill bad">Not connected</span> ${esc(n.error || '')}`}</p>
+        <p class="muted">Paid orders with Taobao / manual items are created at NextSmartShip with the customer’s address. When the goods arrive at the NSS China warehouse, the order ships automatically and the customer gets the tracking. Test-payment orders are never sent automatically. Top up the balance in the NSS portal.</p>
+        ${isAdmin() ? `<form class="row" id="nssf"><label><input type="checkbox" name="auto_create" ${p.auto_create ? 'checked' : ''}> Create orders at NSS automatically</label>
+          <label><input type="checkbox" name="auto_ship" ${p.auto_ship ? 'checked' : ''}> Ship automatically when the goods arrive</label>
+          <label>Shipping <select name="shipping"><option value="cheapest" ${p.shipping === 'cheapest' ? 'selected' : ''}>Cheapest</option><option value="balanced" ${p.shipping === 'balanced' ? 'selected' : ''}>Cheapest within max days</option><option value="fastest" ${p.shipping === 'fastest' ? 'selected' : ''}>Fastest</option></select></label>
+          <label>Max days <input type="number" name="max_days" min="3" max="60" value="${esc(p.max_days)}" style="width:64px"></label><button class="btn ghost">Save</button><span class="muted" id="nssm"></span></form>` : ''}`;
+      const f = $('#nssf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/nss/settings', 'PUT', { auto_create: Boolean(x.auto_create), auto_ship: Boolean(x.auto_ship), shipping: x.shipping, max_days: Number(x.max_days) }); $('#nssm').textContent = 'Saved.'; } catch (err) { $('#nssm').textContent = err.message; } };
+    }).catch(() => {});
     const aeS = await api('/api/admin/aliexpress');
     $('#aecard').innerHTML = `<h2>AliExpress</h2>
       <p>${aeS.mode === 'api' ? `<span class="pill ok">Connected</span> ${esc(aeS.account || '')} — products import from a link; orders are placed automatically.${aeS.needs_reauth_soon ? ' <span class="pill warn">Reconnect soon</span>' : ''}`
@@ -605,6 +619,11 @@ async function openOrder(id) {
       <div class="muted">Customer: ${{ pending: 'has not answered yet', approved: 'looks good', problem: `<b class="bad">reported a problem</b>${o.qc_note ? ` — “${esc(o.qc_note)}”` : ''}`, resolved: 'problem resolved' }[o.qc_review] || '—'}</div>
       ${o.qc_review === 'problem' ? '<div class="row"><input id="qcres" placeholder="What was agreed with the customer" style="flex:1"><button class="btn" data-qcres>Mark resolved — allow shipping</button></div>' : ''}` : ''}
     <h2>Messages with the customer</h2><div id="amsgs" style="display:grid;gap:6px"><span class="muted">Loading…</span></div>
+    ${o.lines.some((l) => !l.direct) ? `<h2>NextSmartShip</h2><div class="sub" id="nssbox">${o.nss?.order_number ? `<div class="row" style="justify-content:space-between"><b>NSS order <code>${esc(o.nss.order_number)}</code></b><span class="pill ${o.nss.status === 'on_hold' ? 'bad' : ['fulfilled'].includes(o.nss.status) ? 'ok' : 'warn'}">${esc({ open: 'Waiting for the goods', requested: 'Getting tracking number', on_hold: 'On hold', scheduled: 'Tracking ready', fulfilling: 'Packing', partially_fulfilled: 'Partly shipped', fulfilled: 'Shipped', cancelled: 'Cancelled' }[o.nss.status] || o.nss.status)}</span></div>
+        <div class="muted">${o.nss.route ? `Route: ${esc(o.nss.route)}${o.nss.est_fee ? ` · about $${esc(o.nss.est_fee)}` : ''} · ` : ''}${(o.nss.packages || []).map((x) => `${esc(x.courier || '')} <a href="${esc(x.url || '#')}" target="_blank" rel="noopener">${esc(x.tracking)}</a>`).join(', ') || 'no tracking yet'}</div>
+        ${o.nss.hold_reason ? `<div class="err">${esc(o.nss.hold_reason)}</div>` : ''}${o.nss.error ? `<div class="err">${esc(o.nss.error)}</div>` : ''}
+        ${canBuy() ? `<div class="row">${['open', 'on_hold'].includes(o.nss.status) ? '<button class="btn" data-nss="options">Ship now…</button>' : ''}<button class="btn ghost" data-nss="sync">Refresh</button></div><div id="nssopts"></div>` : ''}`
+      : `<div class="muted">Not at NextSmartShip yet.${o.nss?.error ? ` <span class="err">${esc(o.nss.error)}</span>` : ''}</div>${canBuy() && !['pending_payment', 'cancelled', 'refunded'].includes(o.status) ? '<div class="row"><button class="btn ghost" data-nss="create">Create at NextSmartShip</button></div>' : ''}`}</div>` : ''}
     <h2>Taobao purchase orders</h2>
     ${o.sub_orders.map((s) => `<div class="sub"><div class="row" style="justify-content:space-between"><b>${esc(s.shop)}</b><span class="pill ${s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED' ? 'bad' : s.status === 'WAIT_BUYER_CONFIRM_GOODS' ? 'ok' : 'warn'}">${esc(s.status_label)}</span></div>
       <div class="muted"><code>${esc(s.outer_purchase_id)}</code> · ${esc((s.purchase_ids || []).join(', ') || '—')}${s.pay_deadline && /WAIT_BUYER_P/.test(s.status) ? ` · pay by ${date(s.pay_deadline)}` : ''}</div>
@@ -646,6 +665,17 @@ async function openOrder(id) {
   b.querySelectorAll('[data-aedel]').forEach((btn) => { btn.onclick = aeDo(btn.dataset.aedel, () => ({ delivered: true })); });
   b.querySelectorAll('[data-aeplace]').forEach((btn) => { btn.onclick = aeDo(btn.dataset.aeplace, () => ({ place: true })); });
   b.querySelectorAll('[data-cjpay]').forEach((btn) => { btn.onclick = aeDo(btn.dataset.cjpay, () => ({ pay: true })); });
+  const nssDo = async (body, btn) => { if (btn) btn.disabled = true; try { const r = await api(`/api/admin/orders/${id}/nss`, 'POST', body); return r; } catch (e) { $('#oe').textContent = e.message; if (btn) btn.disabled = false; return null; } };
+  b.querySelectorAll('[data-nss]').forEach((btn) => btn.onclick = async () => {
+    const a = btn.dataset.nss;
+    if (a === 'create') { const test = o.payment?.provider === 'demo' || o.payment?.mode === 'test'; if (test && !confirm('This order was paid with a TEST payment. Create it at NextSmartShip anyway? Shipping it costs real money.')) return; if (await nssDo({ action: 'create', force: test }, btn)) openOrder(id); }
+    else if (a === 'sync') { if (await nssDo({ action: 'sync' }, btn)) openOrder(id); }
+    else if (a === 'options') {
+      const list = await nssDo({ action: 'options' }, btn); btn.disabled = false; if (!list) return;
+      $('#nssopts').innerHTML = list.length ? `<div style="display:grid;gap:6px;margin-top:6px">${list.map((x, i) => `<label class="row"><input type="radio" name="nssr" value="${i}" ${i ? '' : 'checked'}> <b>${esc(x.name)}</b> · $${esc(x.fee)} · ${esc(x.min_days)}–${esc(x.max_days)} days</label>`).join('')}<div class="row"><button class="btn" id="nssgo">Send for shipping</button></div></div>` : '<p class="err">No shipping option for this address.</p>';
+      const go = $('#nssgo'); if (go) go.onclick = async () => { const x = list[Number(b.querySelector('[name=nssr]:checked').value)]; if (!confirm(`Ship with ${x.name} for about $${x.fee}? It is charged to your NextSmartShip balance.`)) return; if (await nssDo({ action: 'ship', route_id: x.route_id, channel_id: x.channel_id }, go)) { openOrder(id); render(); } };
+    }
+  });
   b.querySelectorAll('[data-mb]').forEach((btn) => btn.onclick = async () => {
     const outer = btn.dataset.mb; btn.disabled = true;
     try { await api(`/api/admin/orders/${id}/manual-bought`, 'POST', { outer_purchase_id: outer, taobao_order_no: b.querySelector(`[data-mo="${outer}"]`).value.trim(), tracking: b.querySelector(`[data-mt="${outer}"]`).value.trim() }); await openOrder(id); render(); }

@@ -151,6 +151,8 @@ async function markPaid(orderId, { provider, intent_id }) {
   try { require('./growth').redeem(o); } catch (e) { console.error('[coupon]', e.message); }
   adjustStock(o, -1);
   await procure(o.id);
+  // China warehouse items: the order is created at NextSmartShip at once (it ships when the goods arrive)
+  setImmediate(() => require('./nss').onPaid(o.id).catch(() => {}));
   return db.orders.get(o.id);
 }
 
@@ -474,6 +476,7 @@ async function cancelOrder(orderId, by) {
     if (o.payment?.provider === 'wallet') shop.walletEntry(o.buyer_id, o.total, `Refund for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'refund' });
     else await stripe.refund(o);
   } else if (o.payment?.provider === 'stripe') await stripe.cancelIntent(o.payment.intent_id);
+  if (o.nss?.order_number) { try { await require('./nss').cancel(o.id); } catch (e) { throw httpError(409, `Could not cancel at NextSmartShip: ${e.message}`); } }
   for (const led of db.ledger.all((l) => l.order_id === o.id)) db.ledger.update(led.id, { status: 'void' });
   if (o.status !== 'pending_payment') adjustStock(o, +1);
   return db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'pending_payment' ? 'cancelled' : 'refunded', timeline: log(x, 'cancelled', { by }) }));
@@ -526,7 +529,7 @@ function buyerViewBase(o) {
     lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image, listing_id, direct: Boolean(direct) })),
     shipping_address: o.shipping_address,
     payment: { provider: o.payment?.provider, client_secret: o.status === 'pending_payment' ? o.payment?.client_secret : undefined },
-    tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, url: require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,
+    tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, url: shipment.url || require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,
     // AliExpress parts travel separately, straight to the customer
     direct: (o.sub_orders || []).filter((s) => s.direct).map((s) => ({
       status: s.status, label: { AE_TO_BUY: 'Being ordered', AE_PLACED: 'Being ordered', AE_PAID: 'Ordered — preparing', AE_SHIPPED: 'On its way to you', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Being reviewed' }[s.status] || 'Being ordered',
