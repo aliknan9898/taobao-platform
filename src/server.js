@@ -558,12 +558,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET') {
       if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true });
-      const inv = p.match(/^\/invoice\/(ord_[a-f0-9]{8,40})$/);
+      const inv = p.match(/^\/invoice\/(ord_[a-f0-9]{8,40})(\.pdf)?$/);
       if (inv) {
         let user = null; try { user = auth.authenticate(req); } catch { user = null; }
         const o = db.orders.get(inv[1]);
         if (!user) { res.writeHead(302, { Location: `/#/orders/${inv[1]}` }); return res.end(); }
         if (!o || !(o.buyer_id === user.id || (auth.STAFF_ROLES || {})[user.role] || user.role === 'admin') || o.status === 'pending_payment') return send(res, 404, 'Invoice not found');
+        if (inv[2]) { const f = ops.invoicePdf(o); res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${f.name}"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); return res.end(f.body); }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" });
         return res.end(ops.invoiceHtml(o));
       }

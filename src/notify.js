@@ -17,11 +17,13 @@ const money = (n, cur) => { try { return Number(n).toLocaleString('en-US', { sty
 
 function orderPaid(o) {
   const paid = require('./payments/stripe').chargeOf(o); const total = money(paid.amount, paid.currency);
+  // The invoice (PDF with the Kinan logo) goes with the confirmation
+  let attachments; try { const f = require('./services/ops').invoicePdf(o); attachments = [{ name: f.name, content: f.body.toString('base64') }]; } catch (e) { console.error('[invoice] pdf', e.message); }
   const items = `${o.lines.map((l) => l.title).slice(0, 4).join('، ')}${o.lines.length > 4 ? '…' : ''}`;
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `paid:${o.id}`, kind: 'order', subject: `Order ${ref(o)} confirmed`, title: 'Thank you — your order is confirmed',
-    ar: { subject: `تم تأكيد طلبك ${ref(o)} ✅`, title: 'شكراً لك، تم تأكيد طلبك', lines: [`استلمنا دفعتك بقيمة ${total}.`, `${o.lines.reduce((a, l) => a + l.qty, 0)} قطعة: ${items}.`, 'سنراسلك مجدداً عند شحن الطلب مع رقم التتبع.'], button: { text: 'عرض طلبك', url: `${base()}/#/orders/${o.id}` } },
-    lines: [`We received your payment of ${total}.`, `${o.lines.reduce((a, l) => a + l.qty, 0)} item(s): ${o.lines.map((l) => l.title).slice(0, 4).join(', ')}${o.lines.length > 4 ? '…' : ''}.`, 'We will email you again when it ships, with a tracking number.'],
-    button: { text: 'View your order', url: `${base()}/#/orders/${o.id}` } }));
+    ar: { subject: `تم تأكيد طلبك ${ref(o)} ✅`, title: 'شكراً لك، تم تأكيد طلبك', lines: [`استلمنا دفعتك بقيمة ${total}.`, `${o.lines.reduce((a, l) => a + l.qty, 0)} قطعة: ${items}.`, ...(attachments ? ['فاتورتك مرفقة بهذه الرسالة بصيغة PDF.'] : []), 'سنراسلك مجدداً عند شحن الطلب مع رقم التتبع.'], button: { text: 'عرض طلبك', url: `${base()}/#/orders/${o.id}` } },
+    lines: [`We received your payment of ${total}.`, `${o.lines.reduce((a, l) => a + l.qty, 0)} item(s): ${o.lines.map((l) => l.title).slice(0, 4).join(', ')}${o.lines.length > 4 ? '…' : ''}.`, ...(attachments ? ['Your invoice is attached to this email as a PDF.'] : []), 'We will email you again when it ships, with a tracking number.'],
+    button: { text: 'View your order', url: `${base()}/#/orders/${o.id}` }, attachments }));
   push.toUser(o.buyer_id, { title: 'Order confirmed', body: `Order ${ref(o)} — ${total}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}`, ar: { title: 'تم تأكيد طلبك ✅', body: `الطلب ${ref(o)} — ${total}` } });
   push.telegram(`🛒 New paid order ${ref(o)} — ${money(o.total, o.currency)}${o.charge ? ` (paid ${total})` : ''}${o.payment?.provider === 'demo' || o.payment?.mode === 'test' ? ' (TEST)' : ''}\n${o.lines.map((l) => `${l.qty} × ${l.title}`).slice(0, 5).join('\n')}\nTo: ${o.shipping_address?.city || ''}, ${o.shipping_address?.country || ''}\n${base()}/admin`);
   for (const sellerId of new Set(o.lines.map((l) => l.seller_id))) {
