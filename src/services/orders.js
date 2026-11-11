@@ -170,10 +170,16 @@ async function cardPayment(orderId, buyer) {
     // Reuse it unless Stripe says it can no longer be paid
     const pi = await stripe.retrieveIntent(p.intent_id).catch(() => null);
     if (pi && pi.status === 'succeeded') return { paid: true, order: await stripePaid(pi) };
-    if (pi && !['canceled'].includes(pi.status) && pi.amount === want) return { client_secret: p.client_secret };
+    if (pi && !['canceled'].includes(pi.status) && pi.amount === want) {
+      // A buyer with saved cards: the payment must belong to their Stripe customer so a saved card can pay it
+      const customer = await stripe.customerFor(buyer, false).catch(() => null);
+      if (customer && !pi.customer) await stripe.attachCustomer(pi.id, customer).catch((e) => console.error('[stripe] attach customer', e.message));
+      return { client_secret: p.client_secret };
+    }
   }
   const attempt = (p.attempt || 0) + 1;
-  const payment = await stripe.createPaymentIntent(o, attempt);
+  const customer = await stripe.customerFor(buyer, false).catch(() => null);
+  const payment = await stripe.createPaymentIntent(o, attempt, customer);
   db.orders.update(o.id, { payment: { ...payment, attempt } });
   return { client_secret: payment.client_secret };
 }

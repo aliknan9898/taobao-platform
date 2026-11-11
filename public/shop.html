@@ -842,7 +842,7 @@ async function pay(id) {
   $('#view').innerHTML = `<div class="pagehead"><h1>Payment</h1></div>
     <div class="two"><div class="panel stack">
       ${demo ? `<div class="pill warn" style="justify-self:start">Test mode</div><p>Card payments are not switched on yet. Use the test payment to try the full order flow — no money is charged.</p><button class="btn" id="demo">Pay ${money(o.total, o.currency)} (test)</button>`
-        : `<div id="pay-element"></div><button class="btn" id="paybtn" disabled>Pay ${money(o.total, o.currency)}</button>`}
+        : `<div id="savedcards" class="stack" hidden></div><div id="pay-element"></div><button class="btn" id="paybtn" disabled>Pay ${money(o.total, o.currency)}</button>`}
       ${wallet.balance > 0 ? `<div class="panel flat row between small"><span>Wallet balance: <b>${money(wallet.balance, o.currency)}</b></span>${canWallet ? `<button class="btn sm ghost" id="wpay">Pay with wallet</button>` : '<span class="muted">Not enough for this order</span>'}</div>` : ''}
       <div class="error" id="pe"></div>
       <a class="muted" href="#/orders/${esc(id)}">Pay later — the order stays in your orders</a>
@@ -857,15 +857,30 @@ async function pay(id) {
   }
   try {
     if (!cfg.stripe_publishable_key) throw new Error('Card payments are not configured yet. Please try again later.');
-    const [cp, Stripe] = await Promise.all([api(`/api/buyer/orders/${id}/card-payment`, 'POST'), loadStripe()]);
+    const [saved, Stripe] = await Promise.all([api('/api/buyer/cards').catch(() => []), loadStripe()]);
+    const cp = await api(`/api/buyer/orders/${id}/card-payment`, 'POST');
     if (cp.paid) { toast('Payment received'); location.hash = `#/orders/${id}`; return; }
     const stripe = Stripe(cfg.stripe_publishable_key);
     const elements = stripe.elements({ clientSecret: cp.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
     elements.create('payment').mount('#pay-element');
+    // Saved cards: pick one, or "new card" to use the form
+    let pick = saved.length ? saved[0].id : 'new';
+    if (saved.length) {
+      const box = $('#savedcards'); box.hidden = false;
+      const paint = () => {
+        box.innerHTML = `<b>Pay with</b>${saved.map((c) => `<button type="button" class="cardrow pickable ${pick === c.id ? 'on' : ''}" data-cpick="${esc(c.id)}" aria-pressed="${pick === c.id}"><span class="dot"></span><span class="acticon">${CARD_ICON}</span><span><b><bdi dir="ltr">${esc(cardName(c))} •••• ${esc(c.last4)}</bdi></b><span class="muted small" style="display:block">Expires <span dir="ltr">${esc(cardExp(c))}</span></span></span></button>`).join('')}
+          <button type="button" class="cardrow pickable ${pick === 'new' ? 'on' : ''}" data-cpick="new" aria-pressed="${pick === 'new'}"><span class="dot"></span><span class="acticon">${ICONS.plus}</span><span><b>A new card or another way to pay</b></span></button>`;
+        $('#pay-element').hidden = pick !== 'new';
+        $$('[data-cpick]').forEach((b) => b.onclick = () => { pick = b.dataset.cpick; paint(); });
+      };
+      paint();
+    }
     $('#paybtn').disabled = false;
     $('#paybtn').onclick = async () => {
       $('#paybtn').disabled = true; $('#pe').textContent = '';
-      const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/?order=${encodeURIComponent(id)}` } });
+      const { error } = pick !== 'new'
+        ? await stripe.confirmCardPayment(cp.client_secret, { payment_method: pick, return_url: `${location.origin}/?order=${encodeURIComponent(id)}` })
+        : await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/?order=${encodeURIComponent(id)}` } });
       if (error) { $('#pe').textContent = error.message; $('#paybtn').disabled = false; return; }
       await api(`/api/buyer/orders/${id}/confirm-card`, 'POST').catch(() => {});
       K.track('purchase', { id, currency: o.currency, value: o.total });
@@ -1009,6 +1024,55 @@ function paintBook() {
   $$('[data-adel]').forEach((b) => b.onclick = () => { if (confirm(KinanLang.t('Remove this address?'))) { Book.remove(b.dataset.adel); paintBook(); } });
   const add = $('#addaddr2'); if (add) add.onclick = () => addressDialog(paintBook);
 }
+// ---------- Saved payment cards (kept by Stripe; Kinan only sees brand, last 4 digits and expiry) ----------
+const CARD_BRAND = { visa: 'Visa', mastercard: 'Mastercard', amex: 'American Express', discover: 'Discover', diners: 'Diners Club', jcb: 'JCB', unionpay: 'UnionPay', cartes_bancaires: 'Cartes Bancaires' };
+const cardName = (c) => CARD_BRAND[c.brand] || 'Card';
+const cardExp = (c) => c.exp_month ? `${String(c.exp_month).padStart(2, '0')}/${String(c.exp_year).slice(-2)}` : '';
+const CARD_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h4"/></svg>';
+async function paintCards() {
+  const el = $('#cardbox'); if (!el) return;
+  const head = '<div><b>Payment cards</b><div class="muted small">Save a Visa or other card to pay faster. Your card is kept safely by Stripe — Kinan never sees the full number.</div></div>';
+  if (cfg.payments === 'demo' || !cfg.stripe_publishable_key) { el.innerHTML = `${head}<p class="muted small" style="margin:0">Card payments are not switched on yet.</p>`; return; }
+  el.innerHTML = `${head}<div class="skeleton" style="height:48px"></div>`;
+  let list = [];
+  try { list = await api('/api/buyer/cards'); } catch (e) { el.innerHTML = `${head}<div class="error">${esc(e.message)}</div>`; return; }
+  el.innerHTML = `${head}
+    ${list.map((c) => `<div class="cardrow"><span class="acticon">${CARD_ICON}</span><span><b><bdi dir="ltr">${esc(cardName(c))} •••• ${esc(c.last4)}</bdi></b><span class="muted small" style="display:block">Expires <span dir="ltr">${esc(cardExp(c))}</span></span></span><button type="button" class="btn sm quiet" data-cdel="${esc(c.id)}">Remove</button></div>`).join('') || '<p class="muted small" style="margin:0">No card saved yet.</p>'}
+    ${list.length < 10 ? '<button type="button" class="btn ghost" id="addcard">+ Add a card</button>' : ''}`;
+  $$('[data-cdel]').forEach((b) => b.onclick = async () => {
+    if (!confirm(KinanLang.t('Remove this card?'))) return;
+    b.disabled = true;
+    try { await api(`/api/buyer/cards/${encodeURIComponent(b.dataset.cdel)}`, 'DELETE'); toast('Card removed'); paintCards(); } catch (e) { toast(e.message); b.disabled = false; }
+  });
+  const add = $('#addcard'); if (add) add.onclick = () => addCardDialog(paintCards);
+}
+async function addCardDialog(after) {
+  const d = document.createElement('dialog'); d.className = 'addrdlg';
+  d.innerHTML = `<form class="stack" style="padding:20px;max-width:460px" novalidate><h2 style="margin:0">Add a card</h2>
+    <p class="muted small" style="margin:0">Visa, Mastercard and other cards. Your bank may ask you to confirm. The card details go straight to Stripe, our payment partner.</p>
+    <div id="card-element" style="min-height:120px"><div class="skeleton" style="height:120px"></div></div>
+    <div class="error" id="cerr"></div>
+    <div class="row"><button class="btn" type="submit" id="csave" style="flex:1" disabled>Save card</button><button class="btn ghost" type="button" data-close>Cancel</button></div></form>`;
+  document.body.append(d); d.showModal();
+  const close = () => { d.close(); d.remove(); };
+  d.querySelector('[data-close]').onclick = close;
+  const f = d.querySelector('form'); const err = d.querySelector('#cerr'); const btn = d.querySelector('#csave');
+  try {
+    const [si, Stripe] = await Promise.all([api('/api/buyer/cards/setup', 'POST'), loadStripe()]);
+    const stripe = Stripe(cfg.stripe_publishable_key, { locale: KinanLang.lang === 'ar' ? 'ar' : 'en' });
+    const elements = stripe.elements({ clientSecret: si.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+    d.querySelector('#card-element').innerHTML = '';
+    elements.create('payment', { layout: 'tabs', wallets: { applePay: 'never', googlePay: 'never' } }).mount('#card-element');
+    btn.disabled = false;
+    f.onsubmit = async (e) => {
+      e.preventDefault(); btn.disabled = true; err.textContent = '';
+      const { error } = await stripe.confirmSetup({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/#/account` } });
+      if (error) { err.textContent = error.message; btn.disabled = false; return; }
+      toast('Card saved'); close(); if (after) after();
+    };
+  } catch (e) { err.textContent = e.message; }
+}
+
 async function account() {
   if (!me || me.role !== 'buyer') { signin('/account'); return; }
   await Book.sync();
@@ -1018,7 +1082,8 @@ async function account() {
       <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
         <a class="btn ghost" href="#/orders">Your orders</a>${KinanTheme.button('btn ghost', true)}</div>
       <div class="panel stack" id="addrbook"></div>
-      <div class="panel stack"><div><b>Language</b><div class="muted small">The app and our emails use this language.</div></div>${KinanLang.picker()}</div>
+      <div class="panel stack" id="cardbox"></div>
+      ${KinanLang.folded('Language', 'The app and our emails use this language.', 'panel')}
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
       <a class="panel acrow" href="#/shops"><span class="acticon">${ICONS.shop || ICONS.box}</span><span><b>Shops</b><div class="muted small">All Kinan shops</div></span><span class="muted flip-rtl">›</span></a>
       <a class="panel acrow" href="#/saved"><span class="acticon">${HEART}</span><span><b>Saved items</b><div class="muted small">We email you when a price drops or an item is back</div></span><span class="muted flip-rtl">›</span></a>
@@ -1032,7 +1097,7 @@ async function account() {
     </div>`;
   $('#out').onclick = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; toast('Signed out'); location.hash = '#/'; };
   wireInstall();
-  paintBook();
+  paintBook(); paintCards();
   K.pushPanel($('#pushbox'), 'shop');
   api('/api/buyer/referral').then((r) => {
     $('#invite').innerHTML = `<h3>Invite friends, earn ${money(r.reward, r.currency)}</h3>

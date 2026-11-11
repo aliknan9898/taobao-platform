@@ -43,14 +43,15 @@ async function stripe(path, params, idempotencyKey, method = 'POST') {
 /** What the customer pays: the order total in their currency (EUR / GBP) when it has one, else the sale currency. */
 function chargeOf(o) { return o.charge && o.charge.currency ? { amount: o.charge.total, currency: o.charge.currency, rate: o.charge.rate } : { amount: o.total, currency: o.currency, rate: 1 }; }
 
-async function createPaymentIntent(order, attempt = 0) {
+async function createPaymentIntent(order, attempt = 0, customer = null) {
   if (demoMode()) return { provider: 'demo', intent_id: `demo_${order.id}`, client_secret: null, status: 'requires_payment_method' };
   const pi = await stripe('/payment_intents', {
     amount: toMinor(chargeOf(order).amount, chargeOf(order).currency),
     currency: chargeOf(order).currency,
     automatic_payment_methods: { enabled: true },
+    ...(customer ? { customer } : {}),
     metadata: { order_id: order.id, buyer_id: order.buyer_id }
-  }, `pi_${order.id}${attempt ? `_${attempt}` : ''}`);
+  }, `pi_${order.id}${attempt ? `_${attempt}` : ''}${customer ? '_c' : ''}`);
   return { provider: 'stripe', intent_id: pi.id, client_secret: pi.client_secret, status: pi.status, amount: pi.amount, mode: pi.livemode ? 'live' : 'test' };
 }
 
@@ -143,4 +144,51 @@ function verifyWith(rawBody, header, secret, now) {
 /** Money that was not really received: the old test button, or a card paid with Stripe test keys. */
 const isTestPayment = (o) => o?.payment?.provider === 'demo' || (o?.payment?.provider === 'stripe' && o.payment.mode === 'test');
 
-module.exports = { chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };
+// ---------- Saved cards ----------
+// Card numbers never touch Kinan: the buyer types them into Stripe's own secure field, and Stripe keeps the card
+// on a Stripe customer. Kinan stores only the customer id and shows the brand, last 4 digits and expiry.
+const bad = (status, message) => Object.assign(new Error(message), { status });
+
+/** The buyer's Stripe customer (created the first time). */
+async function customerFor(user, create = true) {
+  const u = db.users.get(user.id) || user;
+  if (u.stripe_customer_id) return u.stripe_customer_id;
+  if (!create || demoMode()) return null;
+  const c = await stripe('/customers', { email: u.email || undefined, name: u.name || undefined, metadata: { user_id: u.id } }, `cus_${u.id}`);
+  db.users.update(u.id, { stripe_customer_id: c.id });
+  return c.id;
+}
+
+/** Start adding a card: Stripe's secure form confirms this SetupIntent in the browser. */
+async function cardSetup(user) {
+  if (demoMode()) throw bad(409, 'Card payments are not switched on yet');
+  const customer = await customerFor(user);
+  const si = await stripe('/setup_intents', { customer, payment_method_types: ['card'], usage: 'on_session', metadata: { user_id: user.id } });
+  return { client_secret: si.client_secret };
+}
+
+const cardView = (pm) => ({ id: pm.id, brand: pm.card?.brand || 'card', last4: pm.card?.last4 || '', exp_month: pm.card?.exp_month || null, exp_year: pm.card?.exp_year || null });
+
+async function listCards(user) {
+  if (demoMode()) return [];
+  const customer = await customerFor(user, false);
+  if (!customer) return [];
+  const j = await stripe(`/customers/${customer}/payment_methods?type=card&limit=10`, null, null, 'GET');
+  return (j.data || []).map(cardView);
+}
+
+async function removeCard(user, id) {
+  if (!/^pm_[\w]+$/.test(String(id))) throw bad(400, 'Unknown card');
+  const cards = await listCards(user);
+  if (!cards.some((c) => c.id === id)) throw bad(404, 'Card not found');
+  await stripe(`/payment_methods/${id}/detach`, {});
+  return listCards(user);
+}
+
+/** Give an existing unpaid PaymentIntent the buyer's customer so a saved card can pay it. */
+async function attachCustomer(intentId, customer) {
+  if (demoMode() || !customer || !/^pi_[\w]+$/.test(String(intentId))) return null;
+  return stripe(`/payment_intents/${intentId}`, { customer });
+}
+
+module.exports = { customerFor, cardSetup, listCards, removeCard, attachCustomer, chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };

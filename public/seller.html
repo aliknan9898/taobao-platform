@@ -606,7 +606,7 @@ function settings() {
     <section class="panel stack" style="max-width:640px"><h2>Install the app</h2>
       <p class="muted">Add the Seller Center to your phone’s home screen. On iPhone: Share, then “Add to Home Screen”. On Android: menu, then “Install app”.</p>
       <div class="row">${KinanTheme.button('btn ghost', true)}<button class="btn quiet" id="installbtn" style="display:none">Install Seller Center</button><button class="btn danger" data-out>Sign out</button></div></section>
-    <section class="panel stack" style="max-width:640px"><h2>Language</h2><p class="muted" style="margin:0">The Seller Center and Kinan’s emails to you use this language.</p>${KinanLang.picker()}</section>`;
+    <div style="max-width:640px">${KinanLang.folded('Language', 'The Seller Center and Kinan’s emails to you use this language.', 'panel')}</div>`;
   wireConnect(); wireInstall();
   $$('[data-out]').forEach((b) => b.onclick = signOut);
   let logo = shop.logo || null;

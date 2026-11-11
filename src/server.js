@@ -293,6 +293,9 @@ r('POST', '/api/buyer/orders/:id/demo-pay', BUYER, async ({ user, params }) => {
   return orders.buyerView(await orders.markPaid(o.id, { provider: 'demo', intent_id: o.payment?.intent_id }));
 });
 
+r('GET', '/api/buyer/cards', BUYER, async ({ user }) => stripe.listCards(user));
+r('POST', '/api/buyer/cards/setup', BUYER, async ({ req, user }) => { throttleLight(req); return stripe.cardSetup(user); });
+r('DELETE', '/api/buyer/cards/:id', BUYER, async ({ user, params }) => stripe.removeCard(user, params.id));
 r('POST', '/api/buyer/orders/:id/card-payment', BUYER, async ({ user, params }) => {
   const out = await orders.cardPayment(params.id, user);
   return out.paid ? { paid: true } : { client_secret: out.client_secret };
