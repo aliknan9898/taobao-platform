@@ -788,6 +788,8 @@ if (require.main === module) (async () => {
   setInterval(() => fx.refresh().catch((e) => console.warn('[fx]', e.message)), 6 * 3600e3).unref();
   require('./services/uptime').setup().then((r) => { if (r.ok) console.log(`[uptime] monitoring on (${r.created ? 'new monitor' : 'monitor already there'})`); }).catch((e) => console.warn('[uptime]', e.message));
   try { sellerAuth.adoptOwnerToken(); } catch (e) { console.warn('[taobao] adopt:', e.message); }
+  // Banggood: sign in once at start so the logs show whether the keys and the server IP are accepted
+  if (require('./banggood/client').enabled()) require('./banggood/client').token({ force: true }).then(() => console.log('[banggood] connected — keys and server IP accepted')).catch((e) => console.warn('[banggood] not connected:', e.message));
   if (require('./cj/client').enabled()) require('./cj/client').background(async () => { await cjs.registerWebhooks().catch((e) => console.warn('[cj] webhooks:', e.message)); await cjs.upgradeOptions().catch((e) => console.warn('[cj] options:', e.message)); });
   if (config.appKey) require('./taobao/check').check().then((r) => console.log(`[taobao] app ${config.appKey}: ${r.ok ? 'connected' : 'NOT accepted'} — ${r.message}`)).catch((e) => console.warn('[taobao] check failed:', e.message));
   if (require('./nss/client').enabled()) require('./nss/client').check().then((r) => { console.log(`[nss] NextSmartShip ${process.env.NSS_CUSTOMER_CODE || ''}: ${r.ok ? 'connected' : 'NOT connected'} — ${r.message}`); if (r.ok) require('./services/nss').registerWebhook().catch((e) => console.warn('[nss] webhook:', e.message)); });
