@@ -30,6 +30,7 @@ const CHRISTMAS = {
 };
 const COLLECTIONS = { christmas: CHRISTMAS };
 const WAREHOUSES = () => String(process.env.XMAS_WAREHOUSES || 'DE,FR,ES,IT,PL,CZ,NL,GB').split(',').map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
+const VERIFIED = process.env.XMAS_VERIFIED !== '0'; // only stock CJ has checked in its own warehouses
 const EU = new Set(['DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'BE', 'AT', 'HU', 'PT', 'IE', 'SE', 'DK']);
 const WAREHOUSE_NAME = { DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy', PL: 'Poland', CZ: 'Czechia', NL: 'Netherlands', GB: 'United Kingdom', BE: 'Belgium', CN: 'China', US: 'USA' };
 
@@ -89,6 +90,7 @@ function groupFor(title, fallback) {
 }
 
 // ---------------- import ----------------
+const RULES = 2; // import rules version: a deploy with new rules tops the collection up once by itself
 const STATE = (id) => `set_collection_${id}`;
 const state = (id = 'christmas') => db.settings.get(STATE(id)) || { running: false };
 const setState = (id, patch) => (db.settings.get(STATE(id)) ? db.settings.update(STATE(id), patch) : db.settings.insert({ id: STATE(id), ...patch }));
@@ -109,7 +111,7 @@ async function candidates(cjc, keyword, p, have) {
   for (const cc of WAREHOUSES()) {
     if (out.length >= 10) break;
     let d;
-    try { d = await cjc.call('GET', '/product/listV2', { query: { keyWord: keyword, countryCode: cc, page: 1, size: 50, orderBy: 1, sort: 'desc', startSellPrice: p.min_cost || undefined, endSellPrice: p.max_cost } }); }
+    try { d = await cjc.call('GET', '/product/listV2', { query: { keyWord: keyword, countryCode: cc, page: 1, size: 50, orderBy: 1, sort: 'desc', verifiedWarehouse: VERIFIED ? 1 : undefined, startSellPrice: p.min_cost || undefined, endSellPrice: p.max_cost } }); }
     catch (e) { if (/limit|busy|429/i.test(e.message)) throw e; continue; }
     for (const x of list(d?.content).flatMap((c) => list(c.productList))) {
       const pid = String(x.id || x.pid || ''); const title = x.nameEn || x.productNameEn || '';
@@ -134,7 +136,7 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
   const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
   const already = members(id).filter((l) => l.status === 'active').length;
   const target = Math.max(0, p.count - already);
-  const st = { running: true, started_at: now(), by, target: p.count, had: already, added: 0, checked: 0, skipped: 0, reasons: {}, error: null, prefs: p };
+  const st = { v: RULES, running: true, started_at: now(), by, target: p.count, had: already, added: 0, checked: 0, skipped: 0, reasons: {}, error: null, prefs: p };
   const skip = (why) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; };
   setState(id, st);
   console.log(`[xmas] import started — ${target} to add (${already} already in the collection)`);
@@ -160,7 +162,8 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
         const vid = [...l.skus].filter((k) => k.stock > 0).sort((a, b) => a.price - b.price)[0]?.cj_vid;
         const dest = cand.from === 'GB' ? 'GB' : cand.from === 'DE' ? 'FR' : 'DE';
         let opt = null;
-        try { opt = cj.choose(await cj.freightOptions(dest, [{ vid, qty: 1 }], cand.from)); } catch (e) { st.last_item_error = e.message; }
+        const storage = [...new Set(l.skus.filter((k) => k.cj_vid === vid).flatMap((k) => k.cj_storage || []))];
+        try { opt = cj.choose(await cj.freightOptions(dest, [{ vid, qty: 1 }], cand.from)); if (!opt && storage.length) opt = cj.choose(await cj.freightOptions(dest, [{ vid, qty: 1 }], cand.from, storage)); } catch (e) { st.last_item_error = e.message; }
         if (!opt) { db.listings.remove(l.id); skip('no shipping from the warehouse'); continue; }
         const copy = templateCopy(l, group, cand.from);
         const cost = Math.min(...l.skus.map((k) => k.cost_sale));
@@ -252,7 +255,7 @@ function autoStart() {
   if (process.env.XMAS_AUTO === '0' || now() > CHRISTMAS.ends) return false;
   if (!require('../cj/client').enabled()) return false;
   const s = state('christmas');
-  if (s.done_at || (s.running && now() - (s.started_at || 0) < 3 * 3600e3)) return false;
+  if ((s.done_at && s.v === RULES) || (s.running && now() - (s.started_at || 0) < 3 * 3600e3)) return false;
   require('../cj/client').background(() => importCollection('christmas', {}, 'auto')).catch((e) => console.warn('[xmas] import:', e.message));
   return true;
 }

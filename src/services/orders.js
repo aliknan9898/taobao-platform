@@ -124,7 +124,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     ...(disc ? { discount, coupon_code: disc.code, coupon_id: disc.coupon_id } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
-    ...(cjShip ? { cj_shipping: { method: cjShip.method, methods: cjShip.methods || {}, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
+    ...(cjShip ? { cj_shipping: { method: cjShip.method, methods: cjShip.methods || {}, origins: cjShip.origins || {}, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
     ...(bgShip ? { bg_shipping: { fee: bgShip.fee, days: bgShip.days, methods: bgShip.methods || [], estimated: Boolean(bgShip.estimated) } } : {}),
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
   });

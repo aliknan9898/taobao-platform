@@ -23,6 +23,7 @@ const PRODUCTS = {
   P5: { name: 'Christmas Sweater Reindeer Knit', cost: 12, wh: 'GB', desc: 'Material: Acrylic' },
   P6: { name: 'Plain office chair', cost: 30, wh: 'DE', desc: '' },
   P7: { name: 'Christmas Mug Santa', cost: 4, wh: 'DE', desc: '', noShip: true },
+  P8: { name: 'Christmas Gift Box Set', cost: 4, wh: 'DE', desc: '' },
   CN1: { name: 'Desk lamp', cost: 6, wh: 'CN', desc: 'Lamp' }
 };
 global.fetch = async (url, opts = {}) => {
@@ -39,11 +40,13 @@ global.fetch = async (url, opts = {}) => {
     const id = u.searchParams.get('pid'); const x = PRODUCTS[id]; const cc = u.searchParams.get('countryCode');
     if (!x || (cc && x.wh !== cc)) return { status: 200, json: async () => ({ code: 1602001, result: false, message: 'Product not found' }) };
     return ok({ pid: id, productNameEn: x.name, productSku: `SKU${id}`, bigImage: `https://cf.cjdropshipping.com/${id}.jpg`, productWeight: 200, description: `<p>${x.desc}</p>`, sellPrice: x.cost,
-      variants: [{ vid: `${id}-V1`, variantSku: `${id}-1`, variantKey: 'Red', variantSellPrice: x.cost, inventories: [{ countryCode: 'CN', totalInventory: 900 }, { countryCode: x.wh, totalInventory: x.wh === 'CN' ? 900 : 40 }] }] });
+      variants: [{ vid: `${id}-V1`, variantSku: `${id}-1`, variantKey: 'Red', variantSellPrice: x.cost, inventories: [{ countryCode: 'CN', totalInventory: 900, stock: [{ stockId: 'cn1' }] }, { countryCode: x.wh, totalInventory: x.wh === 'CN' ? 900 : 40, stock: [{ stockId: `${x.wh}-store` }] }] }] });
   }
   if (p === '/logistic/freightCalculate') {
     freight.push(`${body.startCountryCode}>${body.endCountryCode}`);
     if (body.products.some((it) => it.vid.startsWith('P7'))) return ok([]);
+    if (body.startCountryCode === 'DE' && body.endCountryCode === 'MT') return ok([]);
+    if (body.products.some((it) => it.vid.startsWith('P8')) && !body.storageIdList) return ok([]);
     return ok(body.startCountryCode === 'CN' ? [{ logisticName: 'CJPacket', logisticPrice: 4, logisticAging: '10-20' }] : [{ logisticName: 'DHL Paket DE', logisticPrice: 3.5, logisticAging: '2-5' }]);
   }
   if (p === '/shopping/order/createOrderV2') { created.push(body); return ok({ orderId: `CJ${created.length}`, orderNumber: body.orderNumber, shipmentOrderId: `SH${created.length}`, orderAmount: 10, orderStatus: 'CREATED' }); }
@@ -77,7 +80,7 @@ test('Christmas import → collection → checkout splits CJ orders by warehouse
   const st = await seasonal.importCollection('christmas', { count: 10 });
   assert.strictEqual(st.error, null);
   const m = seasonal.members('christmas');
-  assert.deepStrictEqual(m.map((l) => l.cj_pid).sort(), ['P1', 'P2', 'P5'], 'unsuitable, non-Christmas and unshippable products are left out');
+  assert.deepStrictEqual(m.map((l) => l.cj_pid).sort(), ['P1', 'P2', 'P5', 'P8'], 'unsuitable, non-Christmas and unshippable products are left out');
   assert.strictEqual(db.listings.all((l) => l.cj_pid === 'P7').length, 0, 'the mug with no shipping method was removed');
   const ball = m.find((l) => l.cj_pid === 'P1');
   assert.strictEqual(ball.cj_from, 'DE'); assert.strictEqual(ball.skus[0].stock, 40, 'only the German stock counts');
@@ -89,8 +92,8 @@ test('Christmas import → collection → checkout splits CJ orders by warehouse
 
   // Shop: public config, collection browse, group filter
   const cfg = (await api('GET', '/api/config/public')).body;
-  assert.strictEqual(cfg.collections[0].id, 'christmas'); assert.strictEqual(cfg.collections[0].count, 3);
-  assert.strictEqual((await api('GET', '/api/catalog?collection=christmas')).body.total, 3);
+  assert.strictEqual(cfg.collections[0].id, 'christmas'); assert.strictEqual(cfg.collections[0].count, 4);
+  assert.strictEqual((await api('GET', '/api/catalog?collection=christmas')).body.total, 4);
   const lights = (await api('GET', '/api/catalog?collection=christmas&group=lights')).body;
   assert.strictEqual(lights.total, 1); assert.strictEqual(lights.items[0].ships_from, 'DE');
   assert.strictEqual((await api('GET', '/christmas')).status, 200);
@@ -98,7 +101,7 @@ test('Christmas import → collection → checkout splits CJ orders by warehouse
   // Admin table + CSV
   const boss = await login('boss@x.com', 'adminpass1');
   const t = (await api('GET', '/api/admin/collections/christmas', null, boss)).body;
-  assert.strictEqual(t.rows.length, 3); const r = t.rows.find((x) => x.cj_link.includes('P1'));
+  assert.strictEqual(t.rows.length, 4); const r = t.rows.find((x) => x.cj_link.includes('P1'));
   assert.strictEqual(r.cost_usd, 3); assert.strictEqual(r.price_usd, 5.99); assert.strictEqual(r.margin_pct, 50); assert.strictEqual(r.warehouse, 'Germany');
   const csv = await (await realFetch(`${base}/api/admin/collections/christmas/export.csv`, { headers: { Authorization: `Bearer ${boss}` } })).text();
   assert.match(csv, /^\uFEFF?group,title,description,cost_usd/); assert.strictEqual(csv.trim().split('\n').filter((x) => /^(Decorations|Lights|Clothing),/.test(x)).length >= 2, true);
@@ -121,4 +124,14 @@ test('Christmas import → collection → checkout splits CJ orders by warehouse
   assert.deepStrictEqual(created.map((c) => [c.fromCountryCode, c.logisticName, c.products[0].vid]).sort(), [['CN', 'CJPacket', 'CN1-V1'], ['DE', 'DHL Paket DE', 'P1-V1']]);
   const subs = db.orders.get(o.id).sub_orders.filter((s) => s.source === 'cj');
   assert.strictEqual(subs.length, 2); assert.notStrictEqual(subs[0].outer_purchase_id, subs[1].outer_purchase_id);
+
+  // Malta: the German warehouse has no method there → CJ sends it from China
+  const q = cj.quote([{ listing_id: ball.id, mp_sku_id: ball.skus[0].mp_sku_id, qty: 1 }], 'MT');
+  const qq = await q; assert.strictEqual(qq.fee, 4); assert.deepStrictEqual(qq.origins, { DE: 'CN' });
+  const o2 = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: ball.id, mp_sku_id: ball.skus[0].mp_sku_id, qty: 1 }], shipping_address: { ...addr, country_code: 'MT', city: 'Valletta' } }, cust)).body;
+  await api('POST', `/api/buyer/orders/${o2.id}/demo-pay`, null, cust);
+  for (let i = 0; i < 50 && created.length < 3; i++) await new Promise((res) => setTimeout(res, 20));
+  assert.strictEqual(created[2].fromCountryCode, 'CN'); assert.strictEqual(created[2].logisticName, 'CJPacket');
+  // the gift box needed CJ's German storage named in the shipping request
+  assert.deepStrictEqual(m.find((l) => l.cj_pid === 'P8').skus[0].cj_storage, ['DE-store']);
 });
