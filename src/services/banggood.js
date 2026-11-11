@@ -197,18 +197,18 @@ async function resyncStale(max = 200) {
 }
 
 // ---------------- shipping ----------------
-// Banggood wants the country as its ISO 3166 English short name, lower case
-const NAME_FIX = { SY: 'syrian arab republic', PS: 'palestine, state of', RU: 'russian federation', KR: 'korea, republic of', IR: 'iran, islamic republic of', VN: 'viet nam', MD: 'moldova, republic of', TZ: 'tanzania, united republic of', BO: 'bolivia, plurinational state of', VE: 'venezuela, bolivarian republic of', CZ: 'czechia', MK: 'north macedonia', TW: 'taiwan, province of china', LA: "lao people's democratic republic" };
+// Banggood wants the country spelled as in its own list (Country field 1 / 2), lower case
+const { BANGGOOD_COUNTRIES } = require('../banggood/countries');
 function countryName(code) {
-  const c = String(code || '').toUpperCase();
-  return NAME_FIX[c] || String(require('../countries').countryName(c) || '').toLowerCase() || null;
+  const n = BANGGOOD_COUNTRIES[String(code || '').toUpperCase()];
+  return n ? n.toLowerCase() : null;
 }
 
 const fcache = new Map();
 /** Banggood shipping methods for one product option to a country (cached 6 hours). */
 async function shipOptions(pid, warehouse, poa, qty, countryCode) {
   const country = countryName(countryCode);
-  if (!country) throw httpError(400, 'Banggood does not recognise this country');
+  if (!country) throw httpError(400, 'Banggood does not deliver to this country');
   const key = `${pid}|${warehouse}|${poa}|${qty}|${countryCode}`;
   const c = fcache.get(key); if (c && now() - c.at < 6 * 3600e3) return c.v;
   const j = await bg.call('GET', 'product/getShipments', { product_id: pid, warehouse, country, poa_id: poa || undefined, quantity: Math.min(99, qty) });
@@ -293,7 +293,7 @@ async function place(o, sub, lines) {
   if (require('../payments/stripe').isTestPayment(o) && process.env.BANGGOOD_SANDBOX !== '1') { sub.error = 'Test payment — not ordered on Banggood'; return sub; }
   const a = o.shipping_address || {};
   const country = countryName(a.country_code);
-  if (!country) { sub.error = 'Customer country is not recognised'; return sub; }
+  if (!country) { sub.error = 'Banggood does not deliver to the customer’s country — order it elsewhere or refund'; return sub; }
   const product_list = [];
   for (const l of lines) {
     const listing = db.listings.get(l.listing_id);

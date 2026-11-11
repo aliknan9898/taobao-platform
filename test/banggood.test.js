@@ -102,6 +102,10 @@ test('Banggood country names and status mapping', () => {
   const b = require('../src/services/banggood');
   assert.strictEqual(b.countryName('GB'), 'united kingdom');
   assert.strictEqual(b.countryName('SY'), 'syrian arab republic');
+  assert.strictEqual(b.countryName('CZ'), 'czech republic');
+  assert.strictEqual(b.countryName('IR'), 'iran (islamic republic of)');
+  assert.strictEqual(b.countryName('CI'), "cote d'ivoire");
+  assert.strictEqual(b.countryName('PS'), null, 'not served by Banggood');
   assert.strictEqual(b.mapStatus('Unpaid'), 'AE_PLACED');
   assert.strictEqual(b.mapStatus('Payment Pending'), 'AE_PLACED');
   assert.strictEqual(b.mapStatus('Processing'), 'AE_PAID');
