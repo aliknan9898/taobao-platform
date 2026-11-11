@@ -17,19 +17,36 @@ class CjError extends Error {
   constructor(message, code, status = 502) { super(message); this.code = code; this.status = status; }
 }
 
-// ---------------- one call per second ----------------
-let chain = Promise.resolve(); let last = 0;
+// ---------------- one call per second, people first ----------------
+// Background work (shipping prices for the shop, re-syncs, best sellers) waits behind anything a seller or
+// admin is doing right now, so a product lookup never sits behind a long queue of freight checks.
+const { AsyncLocalStorage } = require('async_hooks');
+const ctx = new AsyncLocalStorage();
+/** Run fn as background work: its CJ calls go after interactive ones. */
+const background = (fn) => ctx.run({ bg: true }, fn);
 const GAP = Number(process.env.CJ_MIN_GAP_MS ?? 1100);
+const COOL_MS = Number(process.env.CJ_COOL_MS ?? 3000);
+const queues = { hi: [], lo: [] }; let pumping = false; let last = 0; let coolUntil = 0;
 function queued(fn) {
-  const run = chain.then(async () => {
-    const wait = last + GAP - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    last = Date.now();
-    return fn();
+  return new Promise((resolve, reject) => {
+    (ctx.getStore()?.bg ? queues.lo : queues.hi).push({ fn, resolve, reject });
+    pump();
   });
-  chain = run.catch(() => {});
-  return run;
 }
+async function pump() {
+  if (pumping) return; pumping = true;
+  try {
+    while (queues.hi.length || queues.lo.length) {
+      const wait = Math.max(last + GAP, coolUntil) - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      const job = queues.hi.shift() || queues.lo.shift(); // picked after the wait, so a newer interactive call goes first
+      last = Date.now();
+      try { job.resolve(await job.fn()); } catch (e) { job.reject(e); }
+    }
+  } finally { pumping = false; }
+}
+/** CJ said "too many requests": pause every call for a moment. */
+const coolDown = (ms = COOL_MS) => { coolUntil = Math.max(coolUntil, Date.now() + ms); };
 
 async function raw(method, path, { query, body, token } = {}) {
   const url = new URL(BASE + path);
@@ -81,14 +98,20 @@ async function token({ force = false } = {}) {
 
 /** Authenticated call; signs in again once if CJ says the token is no longer valid. */
 async function call(method, path, opts = {}) {
-  const t = await token();
-  try { return await queued(() => raw(method, path, { ...opts, token: t })); }
-  catch (e) {
-    if ([1600001, 1600002, 1600003].includes(Number(e.code))) { const t2 = await token({ force: true }); return queued(() => raw(method, path, { ...opts, token: t2 })); }
-    throw e;
+  let t = await token();
+  // "Too many requests": wait and try again (twice for a person waiting, once for background work)
+  const tries = ctx.getStore()?.bg ? 1 : 2;
+  for (let i = 0; ; i++) {
+    try { return await queued(() => raw(method, path, { ...opts, token: t })); }
+    catch (e) {
+      if ([1600001, 1600002, 1600003].includes(Number(e.code))) { t = await token({ force: true }); continue; }
+      if (e.status === 429 && i < tries) { coolDown(COOL_MS * (i + 1)); continue; }
+      if (e.status === 429) coolDown();
+      throw e;
+    }
   }
 }
 
 const openId = () => saved()?.open_id || null;
 
-module.exports = { call, token, enabled, openId, CjError, BASE };
+module.exports = { call, token, enabled, openId, background, CjError, BASE };

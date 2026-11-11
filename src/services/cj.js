@@ -120,7 +120,16 @@ function normalize(p) {
 
 async function fetchProduct(ref) {
   const q = typeof ref === 'string' ? parseRef(ref) : ref;
-  return normalize(await cj.call('GET', '/product/query', { query: q }));
+  try { return normalize(await cj.call('GET', '/product/query', { query: q })); }
+  catch (e) {
+    // A SKU copied from a product option (e.g. CJQB188313305EV) is a variant SKU: look the product up by it
+    if (q.productSku && /not found|1602001/i.test(`${e.message} ${e.code}`)) {
+      try { return normalize(await cj.call('GET', '/product/query', { query: { variantSku: q.productSku } })); } catch { /* fall through to the search */ }
+      const hit = (await search({ q: q.productSku, size: 5 }).catch(() => ({ items: [] }))).items.find((x) => x.pid);
+      if (hit) return normalize(await cj.call('GET', '/product/query', { query: { pid: hit.pid } }));
+    }
+    throw e;
+  }
 }
 
 const suggested = (cost, pct) => { const v = cost * (1 + (Number(pct ?? prefs().markup_pct) || 0) / 100); return Math.max(money(cost + 0.5), Math.ceil(v) - 0.01); };
@@ -228,7 +237,7 @@ function cachedFee(l, countryCode) {
   if (!countryCode || l.source !== 'cj') return null;
   const k = l.cj_ship && l.cj_ship[countryCode];
   if (k && now() - k.at < SHIP_TTL && k.vid === cheapestVid(l)) return k.fee;
-  if (cj.enabled() && warm.size < 1000) { warm.add(`${countryCode}|${l.id}`); if (!warming) warmUp(); }
+  if (cj.enabled() && warm.size < 1000) { warm.add(`${countryCode}|${l.id}`); if (!warming) cj.background(warmUp); }
   return null;
 }
 async function warmUp() {

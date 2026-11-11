@@ -715,7 +715,8 @@ function cleanup(now = Date.now()) {
 }
 
 function startJobs() {
-  const every = (ms, fn) => setInterval(() => fn().catch(() => {}), ms).unref();
+  // Scheduled jobs are background work: their CJ calls wait behind anything a person is doing
+  const every = (ms, fn) => setInterval(() => Promise.resolve(require('./cj/client').background(fn)).catch(() => {}), ms).unref();
   every(30e3, webhooks.processInbox);
   every(config.orderSyncMinutes * 60e3, orders.syncOpen);
   every(3600e3, catalog.resyncStale);
@@ -726,9 +727,9 @@ function startJobs() {
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
-  every(3600e3, () => cjs.autoTick());
+  every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
   every(30 * 60e3, () => require('./services/nss').tick());
-  setTimeout(() => cjs.autoTick().catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();
+  setTimeout(() => require('./cj/client').background(() => cjs.autoTick()).catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }
 
@@ -759,7 +760,7 @@ if (require.main === module) (async () => {
   fx.refresh().catch((e) => console.warn('[fx]', e.message));
   setInterval(() => fx.refresh().catch((e) => console.warn('[fx]', e.message)), 6 * 3600e3).unref();
   require('./services/uptime').setup().then((r) => { if (r.ok) console.log(`[uptime] monitoring on (${r.created ? 'new monitor' : 'monitor already there'})`); }).catch((e) => console.warn('[uptime]', e.message));
-  if (require('./cj/client').enabled()) cjs.registerWebhooks().catch((e) => console.warn('[cj] webhooks:', e.message)).then(() => cjs.upgradeOptions()).catch((e) => console.warn('[cj] options:', e.message));
+  if (require('./cj/client').enabled()) require('./cj/client').background(async () => { await cjs.registerWebhooks().catch((e) => console.warn('[cj] webhooks:', e.message)); await cjs.upgradeOptions().catch((e) => console.warn('[cj] options:', e.message)); });
   if (config.appKey) require('./taobao/check').check().then((r) => console.log(`[taobao] app ${config.appKey}: ${r.ok ? 'connected' : 'NOT accepted'} — ${r.message}`)).catch((e) => console.warn('[taobao] check failed:', e.message));
   if (require('./nss/client').enabled()) require('./nss/client').check().then((r) => { console.log(`[nss] NextSmartShip ${process.env.NSS_CUSTOMER_CODE || ''}: ${r.ok ? 'connected' : 'NOT connected'} — ${r.message}`); if (r.ok) require('./services/nss').registerWebhook().catch((e) => console.warn('[nss] webhook:', e.message)); });
   stripe.setup().then((r) => { if (r.ok) console.log(`[stripe] ready (${r.mode} mode)`); }).catch((e) => console.error('[stripe] setup failed:', e.message));
