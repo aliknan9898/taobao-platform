@@ -265,6 +265,7 @@ r('GET', '/api/categories', null, async () => {
   const counts = {}; for (const p of catalog.browse({ limit: 100000 }).items) counts[p.category] = (counts[p.category] || 0) + 1;
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
 });
+r('POST', '/api/shipping/prepare', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return cjs.prepareCountry(String(b.country_code || '').toUpperCase()); });
 r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const b = await readJson(req); const items = Array.isArray(b.items) ? b.items.slice(0, 100) : [];
   const q = shipping.quote(items, b.country_code || b.country);

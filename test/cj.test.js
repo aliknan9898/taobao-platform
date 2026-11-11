@@ -162,3 +162,17 @@ test('best sellers: adds trending CJ products to the Kinan shop, skipping unsuit
   assert.strictEqual(cj.guessCategory('Phone case for iPhone 15'), 'phone');
   assert.ok(cj.BLOCK.test('Tactical knife')); assert.ok(!cj.BLOCK.test('Kitchen knife sharpener stone'.replace('knife', 'blade')));
 });
+
+test('saving an address works out CJ shipping for the whole shop; the list then shows delivered prices', async () => {
+  const l = db.listings.find((x) => x.source === 'cj' && x.status === 'active');
+  db.listings.update(l.id, { cj_ship: null });
+  let d = (await api('GET', '/api/catalog?country=DE')).body;
+  const first = d.items.find((x) => x.id === l.id);
+  assert.ok(first.ship_pending || first.delivered_price != null);
+  await api('POST', '/api/shipping/prepare', { country_code: 'DE' });
+  await new Promise((r) => setTimeout(r, 100));
+  d = (await api('GET', '/api/catalog?country=DE')).body;
+  const after = d.items.find((x) => x.id === l.id);
+  assert.strictEqual(after.ship_fee, 4.2); assert.strictEqual(after.delivered_price, Math.round((after.min_price + 4.2) * 100) / 100);
+  assert.strictEqual(db.listings.get(l.id).cj_ship.DE.fee, 4.2, 'kept on the product for next time');
+});

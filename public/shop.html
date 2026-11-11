@@ -302,6 +302,7 @@ function addressDialog(after, { first = false } = {}) {
     if (!/^\+?[0-9 ()-]{6,30}$/.test(v.phone)) { d.querySelector('#aerr').textContent = 'Check the phone number'; return; }
     try { localStorage.setItem('kinan_addr', JSON.stringify({ ...savedAddress(), ...v, country: countryName(v.country_code) })); } catch {}
     Locale.set({ country: v.country_code });
+    api('/api/shipping/prepare', 'POST', { country_code: v.country_code }).catch(() => {});
     d.close(); d.remove(); renderLocaleChip(); if (after) after();
   };
   d.showModal();
@@ -434,11 +435,25 @@ function requireBuyer(next) {
 }
 
 // ---------- views ----------
+/** While shipping for some products is still being worked out, check again and update their prices in place. */
+let priceTimer = null;
+function followPrices(query, items, tries = 0) {
+  clearTimeout(priceTimer);
+  if (!items.some((x) => x.ship_pending) || tries > 25) return;
+  priceTimer = setTimeout(async () => {
+    const d = await api(`/api/catalog?${query}`).catch(() => null); if (!d) return;
+    for (const p of d.items) {
+      const card = document.querySelector(`[data-pid="${CSS.escape(p.id)}"]`); if (!card) continue;
+      if (p.delivered_price != null) { card.querySelector('[data-price]').textContent = money(p.delivered_price, p.currency); card.querySelector('[data-shipnote]').textContent = KinanLang.t('Incl. shipping'); }
+    }
+    if (document.querySelector('[data-pid]')) followPrices(query, d.items, tries + 1);
+  }, tries < 5 ? 3000 : 6000);
+}
 function productCard(p) {
   const img = p.images[0];
-  return `<a class="card" href="#/p/${esc(p.id)}">
-    <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}<span class="tag">${money(p.delivered_price ?? p.min_price, p.currency)}</span></div>
-    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.rating ? stars(p.rating, p.reviews) : ''}<div class="muted small">${p.delivered_price != null ? 'Incl. shipping' : '+ shipping'}</div>${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
+  return `<a class="card" href="#/p/${esc(p.id)}" data-pid="${esc(p.id)}">
+    <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}<span class="tag" data-price>${money(p.delivered_price ?? p.min_price, p.currency)}</span></div>
+    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.rating ? stars(p.rating, p.reviews) : ''}<div class="muted small" data-shipnote>${p.delivered_price != null ? 'Incl. shipping' : p.ship_pending ? 'Calculating shipping…' : '+ shipping'}</div>${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
 }
 const skeletonGrid = () => `<div class="grid">${Array.from({ length: 8 }, () => '<div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="height:14px;margin-top:10px;width:80%"></div></div>').join('')}</div>`;
 
@@ -478,7 +493,9 @@ async function home(q = '', category = '') {
   Search.set(q);
   const load = async () => {
     $('#results').innerHTML = skeletonGrid();
-    const d = await api(`/api/catalog?${catalogQuery({ q, ...(category ? { category } : {}) })}`);
+    const query = catalogQuery({ q, ...(category ? { category } : {}) }).toString();
+    const d = await api(`/api/catalog?${query}`);
+    followPrices(query, d.items);
     $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>`
       : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
   };
@@ -516,7 +533,8 @@ async function shopPage(sellerId) {
     <details class="panel flat small" style="margin:10px 0 4px"><summary><b>Return policy</b></summary><p class="desc" style="margin-top:8px">${esc(sh.return_policy)}</p></details>
     <div class="sechead"><h2>Products</h2></div>${toolbar()}<div id="results">${skeletonGrid()}</div>`;
   const load = async () => {
-    const d = await api(`/api/catalog?${catalogQuery({ seller_id: sellerId })}`);
+    const sq = catalogQuery({ seller_id: sellerId }).toString();
+    const d = await api(`/api/catalog?${sq}`); followPrices(sq, d.items);
     $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>No products match</h3></div>';
   };
   $('#sshare').onclick = () => shareLink(`${location.origin}/s/${sh.id}`, sh.name);

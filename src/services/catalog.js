@@ -282,6 +282,7 @@ function browse({ q = '', seller_id, category, sort = 'new', min_price, max_pric
         else { const cheapest = [...l.skus].sort((a, b) => a.price - b.price)[0]; fee = shipping.quote([{ listing_id: l.id, mp_sku_id: cheapest?.mp_sku_id, qty: 1 }], cc).fee; }
       } catch { fee = null; }
       if (fee !== null && fee !== undefined) { p.ship_fee = Math.round(fee * 100) / 100; p.delivered_price = Math.round((p.min_price + fee) * 100) / 100; }
+      else if (l.source === 'cj') p.ship_pending = true;
     }
   }
   return { total: items.length, items: page };

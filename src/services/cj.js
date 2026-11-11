@@ -217,19 +217,41 @@ async function freightOptions(countryCode, items) {
   return v;
 }
 
-/** Shipping for one piece of this product to a country, if CJ's price is already known; otherwise asks CJ in the background. */
+/**
+ * Shipping for one piece of this product to a country, when it is already known (kept on the product for 3 days);
+ * otherwise CJ is asked in the background (1 request per second) and null is returned for now.
+ */
+const SHIP_TTL = 3 * 86400e3;
 const warm = new Set(); let warming = false;
+const cheapestVid = (l) => [...(l.skus || [])].filter((x) => x.cj_vid).sort((a, b) => a.price - b.price)[0]?.cj_vid || null;
 function cachedFee(l, countryCode) {
-  const s = [...(l.skus || [])].filter((x) => x.cj_vid).sort((a, b) => a.price - b.price)[0];
-  if (!s || !countryCode) return null;
-  const c = fcache.get(`${countryCode}|${s.cj_vid}x1`);
-  if (c && now() - c.at < 6 * 3600e3) { const o = choose(c.v); return o ? o.fee : null; }
-  if (cj.enabled() && warm.size < 300) { warm.add(`${countryCode}|${s.cj_vid}`); if (!warming) warmUp(); }
+  if (!countryCode || l.source !== 'cj') return null;
+  const k = l.cj_ship && l.cj_ship[countryCode];
+  if (k && now() - k.at < SHIP_TTL && k.vid === cheapestVid(l)) return k.fee;
+  if (cj.enabled() && warm.size < 1000) { warm.add(`${countryCode}|${l.id}`); if (!warming) warmUp(); }
   return null;
 }
 async function warmUp() {
   warming = true;
-  try { while (warm.size) { const k = warm.values().next().value; warm.delete(k); const [cc, vid] = k.split('|'); try { await freightOptions(cc, [{ vid, qty: 1 }]); } catch { /* skip */ } } } finally { warming = false; }
+  try {
+    while (warm.size) {
+      const key = warm.values().next().value; warm.delete(key);
+      const [cc, id] = key.split('|'); const l = db.listings.get(id); const vid = l && cheapestVid(l);
+      if (!vid) continue;
+      const k = l.cj_ship && l.cj_ship[cc]; if (k && now() - k.at < SHIP_TTL && k.vid === vid) continue;
+      try {
+        const o = choose(await freightOptions(cc, [{ vid, qty: 1 }]));
+        db.listings.update(id, (x) => ({ ...x, cj_ship: { ...(x.cj_ship || {}), [cc]: { fee: o ? o.fee : FALLBACK, vid, at: now(), estimated: !o } } }));
+      } catch { /* try again on a later visit */ }
+    }
+  } finally { warming = false; }
+}
+/** A customer saved their address: work out CJ shipping to their country for every CJ product in the shop. */
+function prepareCountry(countryCode) {
+  if (!/^[A-Z]{2}$/.test(String(countryCode || '')) || !cj.enabled()) return { pending: 0 };
+  let n = 0;
+  for (const l of db.listings.all((x) => x.source === 'cj' && x.status === 'active')) if (cachedFee(l, countryCode) === null) n++;
+  return { pending: n };
 }
 
 function choose(options) {
@@ -512,5 +534,5 @@ async function registerWebhooks() {
 
 module.exports = {
   prefs, savePrefs, status, balance, parseRef, normalize, fetchProduct, preview, search, categories, publish, resync, resyncStale,
-  freightOptions, cachedFee, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
+  freightOptions, cachedFee, prepareCountry, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
 };
