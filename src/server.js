@@ -395,6 +395,11 @@ r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
   const b = moneySvc.sellerBalance(seller.id);
   return { ...b, payable: b.available, paid: b.withdrawn, entries: led.slice(-100).reverse(), payouts: moneySvc.listPayouts({ sellerId: seller.id }).slice(0, 50), payout_details: seller.payout_details || null };
 });
+r('GET', '/api/seller/statement.pdf', SELLER, async ({ seller, url, res }) => {
+  const f = ops.sellerStatementPdf(seller, { from: url.searchParams.get('from'), to: url.searchParams.get('to') });
+  res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${f.name}"`, 'Content-Length': f.body.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.end(f.body);
+});
 r('POST', '/api/seller/payouts', SELLER, async ({ req, seller }) => moneySvc.requestWithdrawal(seller, await readJson(req)));
 
 // Admin

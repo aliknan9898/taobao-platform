@@ -164,6 +164,117 @@ function invoicePdf(o) {
   return { name: `Kinan-invoice-${no}.pdf`, body: doc.toBuffer() };
 }
 
+// ---------------- Seller account statement ----------------
+/** The Kinan mark: rounded square with the K and the yellow dot. */
+function drawLogo(doc, x, y, size) {
+  const k = size / 64;
+  doc.rect(x, y, size, size, { fill: '#0e7c66', radius: size / 4 });
+  doc.path('M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z', x, y, k, { fill: '#ffffff' });
+  doc.circle(x + 49 * k, y + 15 * k, 6 * k, { fill: '#f4b400' });
+}
+
+const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(v));
+/** Statement period from ?from=&to= (YYYY-MM-DD, inclusive); default: this month so far. */
+function statementPeriod(from, to) {
+  const now = new Date();
+  const f = isDay(from) ? from : `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  const t = isDay(to) ? to : day();
+  if (f > t) throw httpError(400, 'The start date is after the end date');
+  return { from: f, to: t, start: Date.parse(`${f}T00:00:00Z`), end: Date.parse(`${t}T00:00:00Z`) + 86400e3 };
+}
+
+/**
+ * Account statement for a seller as a PDF: opening balance, every sale / refund / withdrawal in the period
+ * with a running balance, and the closing balance. Balance = everything earned (sales after Kinan's
+ * commission and purchase cost, minus refunds) less withdrawals already sent.
+ */
+function sellerStatementPdf(seller, { from, to } = {}) {
+  const { PDF } = require('../pdf');
+  const per = statementPeriod(from, to);
+  const cur = String(config.currency).toUpperCase();
+  const fmt = (n) => { const v = Math.round(Number(n) * 100) / 100; try { return v.toLocaleString('en-US', { style: 'currency', currency: cur }); } catch { return `${v.toFixed(2)} ${cur}`; } };
+  const led = db.ledger.all((l) => l.seller_id === seller.id && l.status !== 'void');
+  const paid = db.payouts.all((p) => p.seller_id === seller.id && p.status === 'paid');
+  const at = (x) => x.created_at || 0; const pAt = (p) => p.paid_at || p.updated_at || p.created_at || 0;
+  const opening = led.filter((l) => at(l) < per.start).reduce((a, l) => a + l.net, 0) - paid.filter((p) => pAt(p) < per.start).reduce((a, p) => a + p.amount, 0);
+  const STATUS = { pending_payout: 'on the way', payable: 'available', paid: 'paid out' };
+  const rows = [
+    ...led.filter((l) => at(l) >= per.start && at(l) < per.end).map((l) => ({ at: at(l), kind: l.type === 'refund' ? 'Refund' : 'Sale', desc: `${l.type === 'refund' ? 'Refund' : 'Sale'} — order ${String(l.order_id).slice(-8).toUpperCase()}`, note: STATUS[l.status] || l.status, gross: l.gross, commission: l.commission, cost: l.cost, net: l.net })),
+    ...paid.filter((p) => pAt(p) >= per.start && pAt(p) < per.end).map((p) => ({ at: pAt(p), kind: 'Withdrawal', desc: `Withdrawal${p.details?.method === 'bank' && p.details.iban ? ` to IBAN …${String(p.details.iban).slice(-4)}` : p.details?.email ? ` to ${p.details.method === 'paypal' ? 'PayPal' : 'Wise'}` : ''}`, note: p.reference ? `ref. ${p.reference}` : '', gross: null, commission: null, cost: null, net: -p.amount }))
+  ].sort((a, b) => a.at - b.at);
+  const tot = (k, f = () => true) => rows.filter(f).reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  const sales = tot('gross', (r) => r.kind === 'Sale'); const commission = tot('commission'); const cost = tot('cost');
+  const refunds = tot('net', (r) => r.kind === 'Refund'); const withdrawals = tot('net', (r) => r.kind === 'Withdrawal');
+  const closing = opening + tot('net');
+  const bal = require('./money').sellerBalance(seller.id);
+  const owner = db.users.get(seller.user_id) || {};
+
+  const INK = '#141b3a'; const MUTED = '#6b7290'; const JADE = '#0e7c66'; const LINE = '#e1e5ee';
+  const doc = new PDF({ title: `Kinan statement ${seller.shop_name || ''} ${per.from} to ${per.to}`, author: 'Kinan' });
+  const L = 40; const R = doc.w - 40; let y;
+  const header = (first) => {
+    drawLogo(doc, L, 36, 42);
+    doc.text('kinan', L + 52, 66, { size: 24, bold: true, color: INK });
+    doc.text('ACCOUNT STATEMENT', R, 58, { size: 16, bold: true, color: INK, align: 'right' });
+    doc.text(`${per.from}  to  ${per.to}`, R, 74, { size: 9, color: MUTED, align: 'right' });
+    if (!first) return 100;
+    doc.text(seller.shop_name || 'Shop', L, 104, { size: 11, bold: true });
+    doc.text(owner.email || '', L, 118, { size: 9, color: MUTED });
+    doc.text(`Seller ID ${String(seller.id).slice(-8).toUpperCase()}`, L, 131, { size: 9, color: MUTED });
+    doc.text(`Issued ${day()}`, R, 104, { size: 9, color: MUTED, align: 'right' });
+    doc.text(`Currency ${cur}`, R, 118, { size: 9, color: MUTED, align: 'right' });
+    return 150;
+  };
+  y = header(true);
+
+  // Summary
+  const box = (x, w, label, value, color = INK) => { doc.rect(x, y, w, 46, { fill: '#f4f6f9', radius: 8 }); doc.text(label, x + 10, y + 17, { size: 8, color: MUTED }); doc.text(value, x + 10, y + 36, { size: 12, bold: true, color }); };
+  const bw = (R - L - 18) / 4;
+  box(L, bw, 'Opening balance', fmt(opening)); box(L + bw + 6, bw, 'Earned in period', fmt(sales - commission - cost + refunds), JADE);
+  box(L + 2 * (bw + 6), bw, 'Withdrawals sent', fmt(-withdrawals)); box(L + 3 * (bw + 6), bw, 'Closing balance', fmt(closing), JADE);
+  y += 60;
+  const kv = [['Sales', fmt(sales)], ['Kinan commission', `−${fmt(commission)}`], ['Purchase cost', cost ? `−${fmt(cost)}` : fmt(0)], ['Refunds', fmt(refunds)]];
+  kv.forEach(([k, v], i) => { const x = L + i * ((R - L) / 4); doc.text(k, x, y, { size: 8, color: MUTED }); doc.text(v, x, y + 13, { size: 9.5, bold: true }); });
+  y += 32;
+
+  // Transactions
+  const C = { date: L + 6, desc: L + 66, sales: R - 250, comm: R - 185, cost: R - 125, net: R - 62, bal: R - 6 };
+  const head = () => {
+    doc.rect(L, y, R - L, 22, { fill: '#e3f2ee', radius: 6 });
+    const hy = y + 15; const o = { size: 8, bold: true };
+    doc.text('Date', C.date, hy, o); doc.text('Description', C.desc, hy, o); doc.text('Sales', C.sales, hy, { ...o, align: 'right' }); doc.text('Commission', C.comm, hy, { ...o, align: 'right' });
+    doc.text('Cost', C.cost, hy, { ...o, align: 'right' }); doc.text('Amount', C.net, hy, { ...o, align: 'right' }); doc.text('Balance', C.bal, hy, { ...o, align: 'right' });
+    y += 32;
+  };
+  head();
+  doc.text('Opening balance', C.desc, y, { size: 8.5, color: MUTED }); doc.text(fmt(opening), C.bal, y, { size: 8.5, bold: true, align: 'right' }); y += 8;
+  doc.line(L, y, R, y, { color: LINE, width: 0.5 }); y += 14;
+  let run = opening;
+  for (const r of rows) {
+    if (y > doc.h - 90) { doc.addPage(); y = header(false); head(); }
+    run += r.net;
+    doc.text(day(r.at), C.date, y, { size: 8.5 });
+    doc.text(r.desc, C.desc, y, { size: 8.5, bold: r.kind === 'Withdrawal' });
+    if (r.note) doc.text(r.note, C.desc, y + 10, { size: 7, color: MUTED });
+    if (r.gross !== null) { doc.text(fmt(r.gross), C.sales, y, { size: 8.5, align: 'right' }); doc.text(r.commission ? `−${fmt(r.commission)}` : '—', C.comm, y, { size: 8.5, color: MUTED, align: 'right' }); doc.text(r.cost ? `−${fmt(r.cost)}` : '—', C.cost, y, { size: 8.5, color: MUTED, align: 'right' }); }
+    doc.text(fmt(r.net), C.net, y, { size: 8.5, bold: true, align: 'right', color: r.net < 0 ? '#b42318' : INK });
+    doc.text(fmt(run), C.bal, y, { size: 8.5, align: 'right' });
+    y += r.note ? 14 : 8; doc.line(L, y, R, y, { color: LINE, width: 0.5 }); y += 14;
+  }
+  if (!rows.length) { doc.text('No transactions in this period.', C.desc, y, { size: 9, color: MUTED }); y += 22; }
+  if (y > doc.h - 150) { doc.addPage(); y = header(false); }
+  doc.rect(L, y, R - L, 26, { fill: '#e8f5ee', radius: 6 });
+  doc.text('Closing balance', L + 12, y + 17, { size: 10, bold: true, color: '#1f7a4d' }); doc.text(fmt(closing), R - 12, y + 17, { size: 11, bold: true, color: '#1f7a4d', align: 'right' });
+  y += 44;
+  doc.text(`Today: available to withdraw ${fmt(bal.available)} · on the way ${fmt(bal.pending)} · withdrawal in progress ${fmt(bal.requested)}`, L, y, { size: 8, color: MUTED }); y += 12;
+  for (const t of doc.wrap('Sales are your sale price; Kinan’s commission and, for items Kinan buys for you, the purchase cost are deducted. Earnings become available when the customer receives the order. Withdrawals appear on the date they were sent.', R - L, 7.5)) { doc.text(t, L, y, { size: 7.5, color: MUTED }); y += 10; }
+  doc.line(L, doc.h - 56, R, doc.h - 56, { color: LINE, width: 0.6 });
+  doc.text('Kinan Seller Center · kinan.shop/seller', L, doc.h - 40, { size: 8, color: MUTED });
+  doc.text('support@kinan.shop', R, doc.h - 40, { size: 8, color: MUTED, align: 'right' });
+  const safe = String(seller.shop_name || 'shop').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'shop';
+  return { name: `Kinan-statement-${safe}-${per.from}_${per.to}.pdf`, body: doc.toBuffer() };
+}
+
 // ---------------- Product views (seller stats) ----------------
 const seen = new Map();
 /** Count a product page view (one per visitor per product per hour). */
@@ -223,4 +334,4 @@ function bulkUpload(seller, rows) {
   return { created: out.filter((x) => x.ok).length, failed: out.filter((x) => !x.ok).length, results: out };
 }
 
-module.exports = { backupFile, dailyBackup, backupRecipient, invoiceHtml, invoicePdf, invoiceNo, countView, sellerStats, bulkUpload };
+module.exports = { backupFile, dailyBackup, backupRecipient, invoiceHtml, invoicePdf, invoiceNo, sellerStatementPdf, statementPeriod, countView, sellerStats, bulkUpload };

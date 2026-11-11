@@ -633,10 +633,36 @@ async function earnings() {
         <div class="error" id="we"></div><button class="btn" style="justify-self:start">Request withdrawal</button></form>`}
       ${e.payouts.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr></thead><tbody>${e.payouts.map((p) => `<tr><td class="muted">${date(p.created_at, false)}</td><td>${money(p.amount, p.currency)}</td><td class="muted">${esc(p.details.method === 'bank' ? `IBAN …${p.details.iban.slice(-4)}` : p.details.email)}</td><td>${pill(...(PS[p.status] || [p.status, '']))}${p.reference ? ` <span class="muted small">${esc(p.reference)}</span>` : ''}${p.note ? `<div class="small bad">${esc(p.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
     </section>
+    <section class="panel stack" style="max-width:720px"><div><h2>Account statement</h2><p class="muted small" style="margin:4px 0 0">A PDF of your sales, Kinan commission, refunds and withdrawals for a period, with your balance.</p></div>
+      <div class="seg" id="stp"><button type="button" data-p="this">This month</button><button type="button" data-p="last">Last month</button><button type="button" data-p="3m">Last 3 months</button><button type="button" data-p="year">This year</button></div>
+      <div class="grid-2"><label class="field">From<input type="date" id="stfrom"></label><label class="field">To<input type="date" id="stto"></label></div>
+      <div class="row"><button type="button" class="btn" id="stdl">Download PDF</button><span class="error" id="ste"></span></div></section>
     <section class="panel"><h2 style="margin-bottom:8px">History</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Order</th><th>Sales</th><th>Kinan commission</th><th>Cost</th><th>You earn</th><th>Status</th></tr></thead><tbody>
       ${e.entries.map((x) => `<tr><td class="muted">${date(x.created_at, false)}</td><td><code>${esc(String(x.order_id).slice(-8).toUpperCase())}</code>${x.type === 'refund' ? ' <span class="pill bad">Refund</span>' : ''}</td><td>${money(x.gross, x.currency)}</td><td class="muted">−${money(x.commission, x.currency)}</td><td class="muted">${x.cost ? `−${money(x.cost, x.currency)}` : '—'}</td><td><b>${money(x.net, x.currency)}</b></td><td>${pill(...(ST[x.status] || [x.status, '']))}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No earnings yet.</td></tr>'}
     </tbody></table></div></section>
     <p class="muted">Earnings become available when the buyer receives the order. Your earnings are your sale price minus Kinan’s ${esc(shop.commission_pct)}% commission, and minus the purchase cost for items Kinan buys for you (AliExpress and manually added products).</p>`;
+  // Account statement
+  const iso = (dt) => dt.toISOString().slice(0, 10);
+  const setPeriod = (k) => {
+    const n = new Date(); const y = n.getUTCFullYear(); const m = n.getUTCMonth();
+    const r = { this: [new Date(Date.UTC(y, m, 1)), n], last: [new Date(Date.UTC(y, m - 1, 1)), new Date(Date.UTC(y, m, 0))], '3m': [new Date(Date.UTC(y, m - 2, 1)), n], year: [new Date(Date.UTC(y, 0, 1)), n] }[k];
+    $('#stfrom').value = iso(r[0]); $('#stto').value = iso(r[1]);
+    $$('#stp button').forEach((b) => b.classList.toggle('on', b.dataset.p === k));
+  };
+  $$('#stp button').forEach((b) => b.onclick = () => setPeriod(b.dataset.p)); setPeriod('this');
+  ['#stfrom', '#stto'].forEach((q) => $(q).onchange = () => $$('#stp button').forEach((b) => b.classList.remove('on')));
+  $('#stdl').onclick = async () => {
+    const btn = $('#stdl'); $('#ste').textContent = ''; btn.disabled = true; btn.textContent = 'Preparing…';
+    try {
+      const r = await fetch(`/api/seller/statement.pdf?from=${encodeURIComponent($('#stfrom').value)}&to=${encodeURIComponent($('#stto').value)}`, { credentials: 'same-origin' });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not make the statement');
+      const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'Kinan-statement.pdf';
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) { $('#ste').textContent = e.message; }
+    btn.disabled = false; btn.textContent = 'Download PDF';
+  };
   const wf = $('#wf'); if (!wf) return;
   let method = d.method || 'bank';
   const paint = () => { $$('#wm button').forEach((b) => b.classList.toggle('on', b.dataset.m === method)); $('#wbank').hidden = method !== 'bank'; $('#wmail').hidden = method === 'bank'; };
