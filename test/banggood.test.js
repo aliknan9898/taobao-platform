@@ -29,6 +29,7 @@ global.fetch = async (url, opts = {}) => {
     image_list: { large: '//img.bg/2.jpg', home: 'https://img.bg/small.jpg', view: 'https://img.bg/1.jpg' } });
   if (u.pathname === '/category/getCategoryList') return ok(q.page === '1' ? { page: 1, page_total: 2, cat_list: [{ cat_id: '1', cat_name: 'Home', parent_id: '0' }, { cat_id: '10', cat_name: 'Lighting', parent_id: '1' }] } : { page: 2, page_total: 2, cat_list: [{ cat_id: '100', cat_name: 'Desk Lamps', parent_id: '10' }] });
   if (u.pathname === '/product/getProductList') { assert.strictEqual(q.cat_id, '100'); return ok({ page: 1, page_total: 3, product_total: 41, product_list: [{ product_id: '1234567', product_name: 'LED Desk Lamp', img: 'https://img.bg/t.jpg' }] }); }
+  if (u.pathname === '/product/getProductUpdateList') { assert.ok(Number(q.minutes) >= 30 && Number(q.minutes) <= 21600); return ok({ page: 1, page_total: 1, product_list: [{ product_id: 1234567, state: 2, modify_date: '2026-11-11 10:00:00' }, { product_id: 999, state: 1 }] }); }
   if (u.pathname === '/product/Translate') { assert.strictEqual(q.lang, 'ar'); return { ok: true, status: 200, json: async () => ({ error: 0, TranslatedText: { product_name: 'مصباح مكتب LED', description: '<p>مصباح ساطع</p>' } }) }; }
   if (u.pathname === '/product/getProductPrice') { assert.strictEqual(q.warehouse, 'UK'); return ok({ productPrice: [{ poa_id: '21,11', price: 14.5 }] }); }
   if (u.pathname === '/product/getStocks') return ok({ stocks: [{ warehouse: 'UK', stock_list: [{ poa_id: '11,21', stock: 7, stock_msg: 'In stock' }, { poa_id: '12,21', stock: 0 }] }] });
@@ -98,6 +99,9 @@ test('Banggood: import, checkout shipping, order, paid by hand, tracking', async
   assert.strictEqual(sub.status, 'AE_SHIPPED');
   assert.strictEqual(sub.logistics[0].tracking, 'LX987654321GB', 'tracking number from getOrderHistory');
   assert.strictEqual(tokens, 1, 'token reused');
+  // Banggood stopped selling it: hourly update list marks it unavailable; unknown products are ignored
+  assert.deepStrictEqual(await require('../src/services/banggood').updateTick(), { checked: 1 });
+  assert.strictEqual(db.listings.get(l.id).status, 'unavailable');
 });
 
 test('Banggood: browse sub-categories and their products', async () => {

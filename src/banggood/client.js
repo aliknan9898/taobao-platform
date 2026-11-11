@@ -25,7 +25,7 @@ const MESSAGES = {
   12033: 'Unknown product option (poa_id)', 12034: 'Unknown Banggood product', 12027: 'Product ID is missing', 12087: 'This product is no longer sold on Banggood',
   12082: 'Too many orders asked at once', 12062: 'This order was already sent to Banggood', 1: 'Banggood could not add the order — open banggood.com → ApiOrderList', 31010: 'Banggood refused this server — register the server’s IP addresses in the Banggood Open Platform',
   12021: 'Choose a category', 12022: 'Choose a sub-category (Banggood does not list root categories)',
-  41010: 'Banggood daily call limit reached — try again tomorrow', 21030: 'Banggood token mismatch', 21020: 'Banggood token expired', 31020: 'Banggood account error — check the Dropship program approval and the server IP addresses'
+  41010: 'Banggood call limit reached — Banggood blocks calls for up to 48 hours', 21030: 'Banggood token mismatch', 21020: 'Banggood token expired', 31020: 'Banggood account error — check the Dropship program approval and the server IP addresses'
 };
 
 // One call at a time, a short gap between calls (Banggood publishes no rate limit)

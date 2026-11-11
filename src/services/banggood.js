@@ -217,9 +217,36 @@ async function resync(l) {
     return db.listings.update(l.id, { sync_error: e.message, last_synced_at: now() });
   }
 }
+/**
+ * Hourly: ask Banggood which products changed since the last check (getProductUpdateList, up to 15 days back)
+ * and refresh only ours among them. Products Banggood stopped selling (state 2) become unavailable at once.
+ */
+const UPD = 'set_banggood_updates';
+async function updateTick() {
+  if (!enabled()) return { checked: 0 };
+  const mine = new Map(db.listings.all((l) => l.source === 'banggood' && l.bg_pid).map((l) => [String(l.bg_pid), l]));
+  const last = db.settings.get(UPD)?.at || now() - 24 * 3600e3;
+  const minutes = Math.min(21600, Math.max(30, Math.ceil((now() - last) / 60e3) + 10));
+  const started = now(); let n = 0; const seen = new Set();
+  for (let page = 1; page <= 200; page++) {
+    const j = await bg.call('GET', 'product/getProductUpdateList', { minutes, page });
+    for (const x of arr(j.update_product_list || j.product_update_list || j.product_list)) {
+      const pid = String(x.product_id); if (seen.has(pid) || !mine.has(pid)) continue; seen.add(pid);
+      const l = db.listings.get(mine.get(pid).id);
+      if (Number(x.state) === 2) { db.listings.update(l.id, { status: l.status === 'active' ? 'unavailable' : l.status, sync_error: 'No longer sold on Banggood', last_synced_at: now() }); n++; continue; }
+      await require('./catalog').resync(l.id); n++;
+    }
+    if (!(Number(j.page_total) > page)) break;
+  }
+  const doc = { at: started, minutes, refreshed: n };
+  db.settings.get(UPD) ? db.settings.update(UPD, doc) : db.settings.insert({ id: UPD, ...doc });
+  return { checked: n };
+}
+
+/** Safety net: products not refreshed for a week (the hourly update list catches normal changes). */
 async function resyncStale(max = 200) {
   if (!enabled()) return 0;
-  const stale = db.listings.all((l) => l.source === 'banggood' && ['active', 'paused', 'unavailable', 'private'].includes(l.status) && now() - (l.last_synced_at || 0) > 22 * 3600e3)
+  const stale = db.listings.all((l) => l.source === 'banggood' && ['active', 'paused', 'unavailable', 'private'].includes(l.status) && now() - (l.last_synced_at || 0) > 7 * 86400e3)
     .sort((a, b) => (a.last_synced_at || 0) - (b.last_synced_at || 0)).slice(0, max);
   for (const l of stale) await resync(l);
   return stale.length;
@@ -429,4 +456,4 @@ async function cancel(sub) {
   throw httpError(409, 'Cancel the order in your Banggood account first, then refund the customer');
 }
 
-module.exports = { categories, listProducts, arabic, enabled, status, prefs, savePrefs, parseRef, fetchProduct, preview, publish, resync, resyncStale, cachedFee, quote, countryName, choose, shipOptions, LABEL, newDirectSub, place, sync, markPaid, cancel, mapStatus };
+module.exports = { updateTick, categories, listProducts, arabic, enabled, status, prefs, savePrefs, parseRef, fetchProduct, preview, publish, resync, resyncStale, cachedFee, quote, countryName, choose, shipOptions, LABEL, newDirectSub, place, sync, markPaid, cancel, mapStatus };

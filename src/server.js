@@ -753,7 +753,7 @@ function startJobs() {
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
-  every(3600e3, async () => { if (new Date().getUTCHours() === 4) await require('./services/banggood').resyncStale(300); });
+  every(3600e3, async () => { await require('./services/banggood').updateTick(); if (new Date().getUTCHours() === 4) await require('./services/banggood').resyncStale(300); });
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
   every(30 * 60e3, () => require('./services/nss').tick());
   setTimeout(() => require('./cj/client').background(() => cjs.autoTick()).catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();
