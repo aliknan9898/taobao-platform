@@ -77,7 +77,8 @@ const config = {
     zip: e.WAREHOUSE_ZIP || '', country: 'China'
   }
 };
-config.redirectUri = `${config.publicBaseUrl}/oauth/callback`;
+// Taobao app's registered Callback URL (when it cannot be changed in the Taobao console, e.g. the old *.onrender.com address — it forwards to the main domain)
+config.redirectUri = process.env.TAOBAO_REDIRECT_URI || `${config.publicBaseUrl}/oauth/callback`;
 config.googleRedirectUri = `${config.publicBaseUrl}/auth/google/callback`;
 config.aliexpress.redirectUri = `${config.publicBaseUrl}/oauth/aliexpress/callback`;
 
