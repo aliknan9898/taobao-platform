@@ -32,7 +32,7 @@
       '<a class="muted" href="' + (app === 'seller' ? '/seller' : app === 'admin' ? '/admin' : '/#/signin') + '">Back to sign in</a>';
     $('#f').onsubmit = function (e) {
       e.preventDefault(); var b = e.target.querySelector('button'); b.disabled = true;
-      api('/api/auth/forgot', 'POST', { email: e.target.email.value }).then(function (r) {
+      api('/api/auth/forgot', 'POST', { email: e.target.email.value, app: new URLSearchParams(location.search).get('app') || 'shop' }).then(function (r) {
         box.innerHTML = head + '<h2>Check your email</h2><p>If an account exists for <b>' + esc(e.target.email.value) + '</b>, a reset link is on its way. It works for 1 hour.</p>' +
           (r.email_enabled ? '' : '<p class="muted small">Email isn’t switched on for Kinan yet — ask Kinan support for a reset link.</p>');
       }, function (err) { ask(err.message); });

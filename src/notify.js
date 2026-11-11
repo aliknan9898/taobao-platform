@@ -123,8 +123,10 @@ function requestAnswered(r) {
 }
 
 function passwordReset(user, url) {
-  return mailer.send({ to: user.email, kind: 'reset', subject: 'Reset your Kinan password', title: 'Reset your password',
-    ar: { subject: 'إعادة تعيين كلمة مرور كنان', title: 'إعادة تعيين كلمة المرور', lines: ['طلب أحدهم إعادة تعيين كلمة مرور هذا الحساب في كنان. إذا كنت أنت فاستخدم الزر أدناه، والرابط صالح لمدة ساعة.', 'إذا لم تكن أنت فتجاهل هذه الرسالة، وستبقى كلمة مرورك كما هي.'], button: { text: 'اختر كلمة مرور جديدة', url } },
+  // One email can have a Kinan Shop account and a Seller Center account: say which one this is
+  const which = user.role === 'seller' ? 'Seller Center' : user.role === 'buyer' ? 'Kinan Shop' : 'Kinan';
+  return mailer.send({ to: user.email, kind: 'reset', subject: `Reset your ${which} password`, title: `Reset your ${which} password`,
+    ar: { subject: `إعادة تعيين كلمة مرور ${user.role === 'seller' ? 'مركز البائعين' : 'متجر كنان'}`, title: `إعادة تعيين كلمة مرور ${user.role === 'seller' ? 'مركز البائعين' : 'متجر كنان'}`, lines: ['طلب أحدهم إعادة تعيين كلمة مرور هذا الحساب في كنان. إذا كنت أنت فاستخدم الزر أدناه، والرابط صالح لمدة ساعة.', 'إذا لم تكن أنت فتجاهل هذه الرسالة، وستبقى كلمة مرورك كما هي.'], button: { text: 'اختر كلمة مرور جديدة', url } },
     lines: ['Someone asked to reset the password for this Kinan account. If it was you, use the button below — the link works for 1 hour.', 'If it wasn’t you, ignore this email; your password stays the same.'],
     button: { text: 'Choose a new password', url } });
 }

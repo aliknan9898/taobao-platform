@@ -209,32 +209,35 @@ r('POST', '/api/auth/register', null, async ({ req }) => {
   return out;
 });
 // SameSite=Lax so the cookie is kept after the redirect back from Google; still not sent on cross-site POSTs.
-const setSession = (res, token) => {
+// Seller Center sessions use their own cookie (ssid), so one email can be signed in as customer and seller at once.
+const setSession = (res, token, role) => {
   const secure = config.publicBaseUrl.startsWith('https') ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `sid=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}${secure}`);
+  res.setHeader('Set-Cookie', `${auth.cookieName(role)}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}${secure}`);
 };
 r('POST', '/api/auth/login', null, async ({ req, res }) => {
   throttle(clientIp(req));
-  const { email, password } = await readJson(req);
+  const { email, password, app } = await readJson(req);
+  const which = app || (auth.sellerContext(req) ? 'seller' : undefined);
   let out;
-  try { out = auth.login(email, password); } catch (e) { if (e.status === 401) recordFailure(clientIp(req)); throw e; }
-  setSession(res, out.token);
+  try { out = auth.login(email, password, which); } catch (e) { if (e.status === 401) recordFailure(clientIp(req)); throw e; }
+  setSession(res, out.token, which === 'seller' || (!which && out.user.role === 'seller') ? 'seller' : 'buyer');
   return out;
 });
 r('POST', '/api/auth/logout', null, async ({ req, res }) => {
-  const h = req.headers.authorization || ''; const c = (req.headers.cookie || '').match(/sid=([^;]+)/);
-  const t = h.startsWith('Bearer ') ? h.slice(7) : c && decodeURIComponent(c[1]);
+  const t = auth.tokenFromRequest(req);
   if (t) auth.logout(t);
-  res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+  res.setHeader('Set-Cookie', `${auth.sellerContext(req) ? 'ssid' : 'sid'}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
   return { ok: true };
 });
 // Forgot / reset password. Always answers OK so nobody can probe which emails have accounts.
 const resetUrl = (token) => `${config.publicBaseUrl}/reset#t=${token}`;
 r('POST', '/api/auth/forgot', null, async ({ req }) => {
   throttle(clientIp(req)); recordFailure(clientIp(req)); // every request counts towards the limit
-  const { email } = await readJson(req);
-  const u = db.users.find((x) => x.email === String(email || '').trim().toLowerCase() && x.status === 'active');
-  if (u) await require('./notify').passwordReset(u, resetUrl(auth.createResetToken(u)));
+  const { email, app } = await readJson(req);
+  // The email may have a customer and a seller account: reset the one for the app it was asked from (else each)
+  const all = auth.usersByEmail(email).filter((x) => x.status === 'active');
+  const role = auth.APP_ROLE[app]; const mine = role ? all.filter((x) => x.role === role) : [];
+  for (const u of mine.length ? mine : all) await require('./notify').passwordReset(u, resetUrl(auth.createResetToken(u)));
   return { ok: true, email_enabled: require('./mailer').enabled() };
 });
 r('POST', '/api/auth/reset', null, async ({ req, res }) => {
@@ -242,7 +245,7 @@ r('POST', '/api/auth/reset', null, async ({ req, res }) => {
   const { token, password } = await readJson(req);
   let out;
   try { out = auth.resetPassword(token, password); } catch (e) { recordFailure(clientIp(req)); throw e; }
-  setSession(res, out.token);
+  setSession(res, out.token, out.user.role);
   return out;
 });
 r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
@@ -653,7 +656,7 @@ const server = http.createServer(async (req, res) => {
       throttle(clientIp(req));
       try {
         const out = await google.callback({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') });
-        if (out.token) setSession(res, out.token);
+        if (out.token) setSession(res, out.token, out.role);
         res.writeHead(302, { Location: out.redirect, 'Cache-Control': 'no-store' });
       } catch (e) {
         recordFailure(clientIp(req));

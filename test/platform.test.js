@@ -338,9 +338,13 @@ test('Continue with Google: shop and Seller Center', async () => {
   r = await back('s', st);
   assert.strictEqual(r.headers.get('location'), '/seller');
   assert.strictEqual((await api('GET', '/api/seller/me', null, sid(r))).body.shop_name, 'Shop One');
-  // A customer Google account cannot open the Seller Center, errors go back to /seller
+  // The same Gmail as a customer can also open a seller account: a separate (pending) seller, the customer account stays
   st = await start('seller'); r = await back('c1', st);
-  assert.match(decodeURIComponent(r.headers.get('location')), /^\/seller\?login_error=.*customer account/);
+  assert.strictEqual(r.headers.get('location'), '/seller');
+  assert.match(r.headers.get('set-cookie'), /^ssid=/, 'Seller Center has its own cookie');
+  const twin = (await api('GET', '/api/seller/me', null, sid(r))).body;
+  assert.strictEqual(twin.status, 'pending');
+  assert.strictEqual(db.users.all((u) => u.email === googleUsers.c1.email.toLowerCase()).map((u) => u.role).sort().join(), 'buyer,seller');
   // New seller via Google starts pending
   googleUsers.ns = { sub: 'g-ns', email: 'newseller@gmail.com', given_name: 'Omar', name: 'Omar K' };
   st = await start('seller'); r = await back('ns', st);

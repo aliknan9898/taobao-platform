@@ -47,12 +47,21 @@ function ownerSeller(user) {
 
 function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '')); }
 
+/**
+ * One email can have a customer account (Kinan Shop) AND a seller account (Seller Center) — two separate
+ * accounts, each with its own password and session. Staff emails stay unique.
+ */
+const APP_ROLE = { shop: 'buyer', seller: 'seller' };
+const isStaff = (u) => u && (u.role === 'admin' || Boolean(STAFF_ROLES[u.role]));
+const usersByEmail = (email) => db.users.all((u) => u.email === String(email || '').trim().toLowerCase());
+
 function register({ email, password, name, role, shop_name, lang }) {
   if (!['buyer', 'seller'].includes(role)) throw httpError(400, 'Account type not allowed');
   if (!validEmail(email)) throw httpError(400, 'Invalid email');
   if (!password || password.length < 8) throw httpError(400, 'Password must be at least 8 characters');
   email = email.trim().toLowerCase();
-  if (db.users.find((u) => u.email === email)) throw httpError(409, 'Email is already registered');
+  const same = usersByEmail(email);
+  if (same.some((u) => u.role === role || isStaff(u))) throw httpError(409, role === 'seller' ? 'This email already has a seller account — sign in instead' : 'This email already has a Kinan Shop account — sign in instead');
   const user = db.users.insert({ email, name: String(name || '').slice(0, 80), role, status: 'active', pass: hashPassword(password), lang: ['ar', 'en'].includes(lang) ? lang : null });
   if (role === 'seller') {
     // Sellers start as "pending" until an admin approves them
@@ -74,10 +83,16 @@ function createStaff({ email, password, name, role }) {
   return publicUser(db.users.insert({ email, name, role, status: 'active', pass: hashPassword(password) }));
 }
 
-function login(email, password) {
-  const u = db.users.find((x) => x.email === String(email || '').trim().toLowerCase());
-  if (!u || !u.pass || !checkPassword(String(password || ''), u.pass)) {
-    if (u && !u.pass && u.google_sub) throw httpError(401, 'This account uses Google sign-in — tap “Continue with Google”');
+/** Sign in. `app` (shop / seller) picks the right account when the email has both. */
+function login(email, password, app) {
+  const all = usersByEmail(email);
+  const role = APP_ROLE[app];
+  // The app's own account first; staff and the owner can sign in anywhere
+  const list = role ? all.filter((u) => u.role === role || isStaff(u) || isOwner(u)) : all;
+  const u = list.find((x) => x.pass && checkPassword(String(password || ''), x.pass));
+  if (!u) {
+    if (list.some((x) => !x.pass && x.google_sub)) throw httpError(401, 'This account uses Google sign-in — tap “Continue with Google”');
+    if (role && !list.length && all.length) throw httpError(401, role === 'seller' ? 'This email has no seller account yet — tap “Open a shop”' : 'This email has no Kinan Shop account yet — tap “Create account”');
     throw httpError(401, 'Incorrect email or password');
   }
   return createSession(u);
@@ -98,11 +113,26 @@ function logout(token) {
 
 const sha = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
 
+/** Each app keeps its own sign-in cookie, so the same email can be signed in to Kinan Shop and the Seller Center at once. */
+const cookieName = (role) => (role === 'seller' ? 'ssid' : 'sid');
+/** Requests from the Seller Center (its pages, its API, or calls marked X-Kinan-App: seller). */
+const sellerContext = (req) => req.headers['x-kinan-app'] === 'seller' || /^\/(api\/seller|seller)(\/|$|\?|\.)/.test(req.url || '');
+function readCookie(req, name) {
+  const c = (req.headers.cookie || '').split(';').map((x) => x.trim()).find((x) => x.startsWith(`${name}=`));
+  return c ? decodeURIComponent(c.slice(name.length + 1)) : null;
+}
 function tokenFromRequest(req) {
   const h = req.headers.authorization || '';
   if (h.startsWith('Bearer ')) return h.slice(7).trim();
-  const c = (req.headers.cookie || '').split(';').map((x) => x.trim()).find((x) => x.startsWith('sid='));
-  return c ? decodeURIComponent(c.slice(4)) : null;
+  if (sellerContext(req)) {
+    const t = readCookie(req, 'ssid');
+    if (t) return t;
+    // Sellers signed in before separate cookies existed keep their session
+    const old = readCookie(req, 'sid'); const s = old && db.sessions.find((x) => x.token_hash === sha(old));
+    const u = s && db.users.get(s.user_id);
+    return u && (u.role === 'seller' || isOwner(u)) ? old : null;
+  }
+  return readCookie(req, 'sid');
 }
 
 function authenticate(req) {
@@ -164,4 +194,4 @@ function resetPassword(token, password) {
   return createSession(db.users.get(u.id));
 }
 
-module.exports = { isOwner, STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };
+module.exports = { isOwner, isStaff, usersByEmail, APP_ROLE, cookieName, sellerContext, tokenFromRequest, STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };

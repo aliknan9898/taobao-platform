@@ -1219,7 +1219,7 @@ function signin(next, mode = 'in', msg = '') {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
     try {
       if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'buyer' });
-      const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password });
+      const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password, app: 'shop' });
       if (asMe(r.user).role !== 'buyer') { await api('/api/auth/logout', 'POST'); return signin(encodeURIComponent(next), mode, 'This is not a customer account. Sellers sign in at the Seller Center.'); }
       me = asMe(r.user); toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
       location.hash = '#' + next; if (location.hash === '#' + next) route();

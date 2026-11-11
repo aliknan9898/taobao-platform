@@ -45,7 +45,8 @@ function decodeIdToken(jwt) {
 function adminUser(claims) {
   const email = String(claims.email || '').toLowerCase();
   if (!config.adminGoogleEmails.includes(email)) throw httpError(403, 'This Google account is not allowed to open the admin dashboard');
-  let u = db.users.find((x) => x.email === email);
+  const mine = db.users.all((x) => x.email === email);
+  let u = mine.find((x) => x.role === 'admin') || mine.find((x) => isOwner(x) && x.role !== 'buyer') || mine.find((x) => x.role === 'buyer') || mine[0];
   // The owner often signs in to the shop first with the same Gmail: an allowlisted customer account becomes the admin account
   if (u && u.role === 'buyer') u = db.users.update(u.id, { role: 'admin' });
   // The owner keeps their existing role (e.g. seller) and still gets the admin dashboard — see requireRole
@@ -61,11 +62,13 @@ function upsertUser(claims, app, lang) {
   if (app === 'admin') return adminUser(claims);
   const email = String(claims.email || '').toLowerCase();
   const role = APPS[app].role;
-  let u = db.users.find((x) => x.google_sub === claims.sub) || db.users.find((x) => x.email === email);
+  // The same Gmail can have a customer account and a seller account: use the one for this app
+  const mine = db.users.all((x) => x.google_sub === claims.sub || x.email === email);
+  const owner = mine.find((x) => isOwner(x));
+  if (owner) return owner.google_sub ? owner : db.users.update(owner.id, { google_sub: claims.sub });
+  if (mine.some((x) => !['buyer', 'seller'].includes(x.role))) throw httpError(403, 'Staff accounts must sign in with email and password');
+  let u = mine.find((x) => x.role === role);
   if (u) {
-    if (isOwner(u)) { if (!u.google_sub) u = db.users.update(u.id, { google_sub: claims.sub }); return u; }
-    if (!['buyer', 'seller'].includes(u.role)) throw httpError(403, 'Staff accounts must sign in with email and password');
-    if (u.role !== role) throw httpError(409, u.role === 'seller' ? 'This Google account is a seller account — use the Seller Center' : 'This Google account is a customer account — sellers need a separate account');
     if (!u.google_sub) u = db.users.update(u.id, { google_sub: claims.sub });
     return u;
   }
@@ -107,7 +110,7 @@ async function finish(code, st, home) {
 
   const u = upsertUser(c, st.app, st.lang);
   const { token } = createSession(u);
-  return { token, redirect: `${home}${st.app === 'admin' ? '' : st.next || (st.app === 'shop' ? '#/' : '')}` };
+  return { token, role: st.app === 'seller' ? 'seller' : 'buyer', redirect: `${home}${st.app === 'admin' ? '' : st.next || (st.app === 'shop' ? '#/' : '')}` };
 }
 
 module.exports = { enabled, authorizeUrl, callback, safeNext };

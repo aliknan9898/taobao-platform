@@ -850,6 +850,7 @@ function authScreen(mode = 'in', msg = '') {
       <h2>${mode === 'in' ? 'Sign in to sell on Kinan' : 'Open your Kinan shop'}</h2>
       <div class="seg"><button type="button" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button type="button" data-m="up" class="${mode === 'up' ? 'on' : ''}">Open a shop</button></div>
       ${K.googleButton(cfg, 'seller')}
+      <p class="muted small" style="margin:0">Already shopping on Kinan? You can use the same email or Gmail — your shop is a separate account.</p>
       ${mode === 'up' ? '<label class="field">Shop name<input name="shop_name" required maxlength="80"></label><label class="field">Your name<input name="name" required autocomplete="name"></label>' : ''}
       <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
       <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
@@ -863,7 +864,7 @@ function authScreen(mode = 'in', msg = '') {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
     try {
       if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'seller' });
-      const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password });
+      const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password, app: 'seller' });
       if (asMe(r.user).role !== 'seller') { await api('/api/auth/logout', 'POST'); return authScreen(mode, 'This is not a seller account. Customers shop at the Kinan store.'); }
       me = asMe(r.user); await refreshShop(); takeNext(); route();
     } catch (err) { authScreen(mode, err.message); }
