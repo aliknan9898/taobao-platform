@@ -516,8 +516,7 @@ const emptyFiltered = () => filters.min_price || filters.max_price;
 async function home(q = '', category = '') {
   const v = $('#view');
   v.innerHTML = `${q || category ? `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a>${q ? `<h2 style="margin-top:6px">Results for “${esc(q)}”</h2>` : ''}</div></div>` : `
-    <div id="shopstrip"></div>`}
-    <button class="locchip" type="button"></button>
+    `}
     <div class="cats" id="cats"></div>
     <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2></div>
     ${toolbar()}
@@ -535,10 +534,6 @@ async function home(q = '', category = '') {
   api('/api/categories').then((cs) => {
     const el = $('#cats'); if (!el) return; const shown = cs.filter((c) => c.count > 0);
     if (shown.length) el.innerHTML = `<a class="chip ${category ? '' : 'on'}" href="#/">All</a>${shown.map((c) => `<a class="chip ${c.id === category ? 'on' : ''}" href="#/c/${c.id}">${esc(c.en)}</a>`).join('')}`;
-  }).catch(() => {});
-  if (!q && !category) api('/api/shops').then((shops) => {
-    const el = $('#shopstrip'); if (!el || !shops.length) return;
-    el.innerHTML = `<div class="sechead"><h2>Shops</h2><a href="#/shops">See all</a></div><div class="shops">${shops.slice(0, 12).map((sh) => `<a class="shopchip" href="#/s/${esc(sh.id)}">${shopLogo(sh)}<span><b>${esc(sh.name)}</b><small>${sh.products} product${sh.products === 1 ? '' : 's'}</small></span></a>`).join('')}</div>`;
   }).catch(() => {});
   await load();
 }
@@ -1025,6 +1020,7 @@ async function account() {
       <div class="panel stack" id="addrbook"></div>
       <div class="panel stack"><div><b>Language</b><div class="muted small">The app and our emails use this language.</div></div>${KinanLang.picker()}</div>
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
+      <a class="panel acrow" href="#/shops"><span class="acticon">${ICONS.shop || ICONS.box}</span><span><b>Shops</b><div class="muted small">All Kinan shops</div></span><span class="muted flip-rtl">›</span></a>
       <a class="panel acrow" href="#/saved"><span class="acticon">${HEART}</span><span><b>Saved items</b><div class="muted small">We email you when a price drops or an item is back</div></span><span class="muted flip-rtl">›</span></a>
       <div class="panel stack" id="pushbox"></div>
       <div class="panel stack" id="invite"></div>
