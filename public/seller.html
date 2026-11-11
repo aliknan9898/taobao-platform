@@ -208,7 +208,7 @@ async function products() {
           <a class="btn sm ghost" href="${['manual', 'aliexpress'].includes(p.source) ? '#/manual/' : '#/edit/'}${esc(p.id)}">Edit</a>
           ${p.status === 'active' ? `<button class="btn sm ghost" data-st="paused" data-id="${esc(p.id)}">Pause</button>` : ''}
           ${p.status === 'paused' ? `<button class="btn sm" data-st="active" data-id="${esc(p.id)}">Go live</button>` : ''}
-          ${p.source === 'aliexpress' ? `<span class="pill">AliExpress · ships direct</span>${p.ae_product_id && cfg.aliexpress?.import ? `<button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : ''}` : p.source === 'manual' ? '<span class="muted small">Added manually</span>' : `<button class="btn sm quiet" data-sync="${esc(p.id)}" title="Refresh cost and stock from Taobao">Refresh</button>`}
+          ${p.source === 'cj' ? `<span class="pill">CJdropshipping · ships direct</span><button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : p.source === 'aliexpress' ? `<span class="pill">AliExpress · ships direct</span>${p.ae_product_id && cfg.aliexpress?.import ? `<button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : ''}` : p.source === 'manual' ? '<span class="muted small">Added manually</span>' : `<button class="btn sm quiet" data-sync="${esc(p.id)}" title="Refresh cost and stock from Taobao">Refresh</button>`}
         </div></div>`; }).join('') || `<div class="empty"><h3>${list.length ? 'Nothing in this list' : 'No products yet'}</h3><p>Paste a Taobao link to import your first product.</p><a class="btn" href="#/add">Add product</a></div>`}</section>
     <p class="muted">New products and changes to titles, descriptions or photos are reviewed by Kinan before buyers see them. Price changes go live right away.</p>`;
   $$('[data-f]').forEach((b) => b.onclick = () => { prodFilter = b.dataset.f; products(); });
@@ -234,6 +234,9 @@ function addStart(err = '') {
         ${cfg.aliexpress?.import ? `<form class="stack" id="aef"><label class="field">AliExpress link<input name="link" required placeholder="https://www.aliexpress.com/item/1005….html" autocomplete="off"></label><div class="error" id="aee"></div><button class="btn" id="aego">Import from AliExpress</button></form><div id="aeprev"></div>`
         : `<p class="small">Add the title, photos and price yourself; Kinan orders it on AliExpress when it sells.</p><a class="btn" href="#/manual?ae">Add AliExpress product</a>`}
       </section>
+      ${cfg.cj ? `<section class="panel stack srccard"><div class="srchead"><span class="srcico ae" style="background:#1f6feb">CJ</span><div><b>From CJdropshipping</b><div class="muted small">Ships from CJ straight to the customer. Kinan orders and pays CJ for you; shipping is added at checkout.</div></div></div>
+        <form class="stack" id="cjf"><label class="field">Search CJ, or paste a CJ link / SKU<input name="q" required placeholder="e.g. desk lamp — or https://cjdropshipping.com/product/…-p-….html" autocomplete="off"></label><div class="error" id="cje"></div><button class="btn" id="cjgo">Search CJ</button></form><div id="cjprev" class="stack"></div>
+      </section>` : ''}
       <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">✎</span><div><b>Add manually</b><div class="muted small">Any Taobao item — type it in yourself. Kinan buys it when it sells.</div></div></div>
         <p class="small">No Taobao account needed.</p><a class="btn ghost" href="#/manual">Add manually</a>
       </section>
@@ -274,6 +277,34 @@ function addStart(err = '') {
       };
     } catch (err) { $('#aee').textContent = err.message; }
     $('#aego').disabled = false; $('#aego').textContent = 'Import from AliExpress';
+  };
+  const cjf = $('#cjf');
+  const cjOpen = async (ref) => {
+    $('#cje').textContent = ''; $('#cjprev').innerHTML = '<p class="muted small">Loading from CJ…</p>';
+    try {
+      const p = await api('/api/seller/products/cj/preview', 'POST', { ref });
+      $('#cjprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="cjt" value="${esc(p.title)}" maxlength="200"></label></div><div id="cjcat">${catSelect('')}</div>
+        <table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>CJ cost</th><th>Stock</th><th>Your price</th></tr></thead><tbody>${p.skus.map((k) => `<tr><td>${esc(k.props || 'Standard')}</td><td style="text-align:center">$${Number(k.cost_sale).toFixed(2)}</td><td style="text-align:center">${k.stock}</td><td><input type="number" step="0.01" min="0" data-cjp="${esc(k.mp_sku_id)}" value="${k.suggested_price}" style="min-height:34px"></td></tr>`).join('')}</tbody></table>
+        <button class="btn" id="cjpub">Submit for review</button></div>`;
+      $('#cjpub').onclick = async () => {
+        const prices = Object.fromEntries($$('[data-cjp]').map((i) => [i.dataset.cjp, Number(i.value)]));
+        const category = $('#cjcat select').value; if (!category) { $('#cje').textContent = 'Choose a category'; return; }
+        $('#cjpub').disabled = true;
+        try { await api('/api/seller/products/cj', 'POST', { ref: p.cj_pid, title: $('#cjt').value, prices, category }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
+        catch (err) { $('#cje').textContent = err.message; $('#cjpub').disabled = false; }
+      };
+    } catch (err) { $('#cjprev').innerHTML = ''; $('#cje').textContent = err.message; }
+  };
+  if (cjf) cjf.onsubmit = async (e) => {
+    e.preventDefault(); const q = e.target.q.value.trim();
+    if (/cjdropshipping\.com|^CJ[A-Z0-9]{4,}$/i.test(q) || /^[0-9A-F]{8}-[0-9A-F-]{20,}$/i.test(q)) return cjOpen(q);
+    $('#cjgo').disabled = true; $('#cje').textContent = ''; $('#cjprev').innerHTML = '<p class="muted small">Searching CJ…</p>';
+    try {
+      const r = await api(`/api/cj/search?q=${encodeURIComponent(q)}`);
+      $('#cjprev').innerHTML = r.items.map((x) => `<div class="row" style="gap:10px">${x.image ? `<img src="${esc(x.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" style="width:56px;height:56px;object-fit:cover;border-radius:8px">` : ''}<div style="flex:1;min-width:0"><div class="small"><b>${esc(x.title)}</b></div><div class="muted small">CJ cost $${esc(x.cost ?? '—')}</div></div><button class="btn sm ghost" type="button" data-cjpid="${esc(x.pid)}">Choose</button></div>`).join('') || '<p class="muted small">Nothing found.</p>';
+      $$('[data-cjpid]').forEach((b) => b.onclick = () => cjOpen(b.dataset.cjpid));
+    } catch (err) { $('#cjprev').innerHTML = ''; $('#cje').textContent = err.message; }
+    $('#cjgo').disabled = false;
   };
   const lf = $('#lf');
   if (lf) lf.onsubmit = async (e) => {
@@ -472,7 +503,7 @@ function orderRow(o) {
     <div style="display:grid;gap:4px;min-width:0"><div class="row"><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><span class="muted">${date(o.created_at)}</span></div>
       <div class="small">${o.lines.map((l) => `${l.qty} × ${esc(l.title)}${l.props ? ` <span class="muted">(${esc(variantLabel(l.props))})</span>` : ''}`).join('<br>')}</div>
       <div class="row">${pill(o.status_label, ['delivered', 'shipped'].includes(o.status) ? 'ok' : ['cancelled', 'refunded'].includes(o.status) ? 'bad' : 'warn')}
-        ${p ? pill(p.manual ? p.status_label : `${p.direct ? 'AliExpress' : 'Taobao'}: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
+        ${p ? pill(p.manual ? p.status_label : `${p.direct ? (p.source === 'cj' ? 'CJ' : 'AliExpress') : 'Taobao'}: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
         ${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
       ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
       ${(p?.logistics || []).length ? `<div class="small muted">${p.direct ? 'To the customer' : 'To warehouse'}: ${p.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}</div>

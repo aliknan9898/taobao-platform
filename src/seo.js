@@ -15,7 +15,7 @@ const abs = (u) => (u && u.startsWith('/') ? config.publicBaseUrl + u : u);
 const plain = (s) => String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
 function liveProducts() {
-  const active = new Map(db.sellers.all((s) => s.status === 'active' && !s.system).map((s) => [s.id, s]));
+  const active = new Map(db.sellers.all((s) => s.status === 'active').map((s) => [s.id, s]));
   return db.listings.all((l) => l.status === 'active' && active.has(l.seller_id)).map((l) => ({ l, s: active.get(l.seller_id) }));
 }
 const images = (l) => [...(l.own_images || []).map((u, i) => require('./services/catalog').photoUrl(l, i, u)), ...(l.images || [])];
@@ -28,7 +28,7 @@ function sitemap() {
   const urls = [['/', 'daily', '1.0'], ['/download', 'monthly', '0.4'], ['/terms', 'yearly', '0.2'], ['/privacy', 'yearly', '0.2'], ['/legal', 'yearly', '0.2']]
     .map(([u, f, p]) => ({ loc: abs(u), changefreq: f, priority: p }));
   const shops = new Set();
-  for (const { l, s } of liveProducts()) { urls.push({ loc: abs(`/p/${l.id}`), lastmod: new Date(l.updated_at || l.created_at).toISOString().slice(0, 10), changefreq: 'weekly', priority: '0.8' }); shops.add(s.id); }
+  for (const { l, s } of liveProducts()) { urls.push({ loc: abs(`/p/${l.id}`), lastmod: new Date(l.updated_at || l.created_at).toISOString().slice(0, 10), changefreq: 'weekly', priority: '0.8' }); if (!s.system) shops.add(s.id); }
   for (const id of shops) urls.push({ loc: abs(`/s/${id}`), changefreq: 'weekly', priority: '0.6' });
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `<url><loc>${xml(u.loc)}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ''}<changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`).join('\n')}\n</urlset>\n`;
 }

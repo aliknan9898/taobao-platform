@@ -115,7 +115,7 @@ function showLogin(msg = '') {
 let googleSignin = false;
 // [tab, label, roles that see it]
 const ALL_TABS = [['overview','Overview','*'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['listings','Products','admin'],
-  ['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
+  ['cj','CJdropshipping','admin procurement'],['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
 const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
 let TABS = ALL_TABS;
@@ -176,6 +176,73 @@ const VIEWS = {
       <div class="row">${aeS.api_configured && isAdmin() ? `<button class="btn" id="aeconn">${aeS.connected ? 'Reconnect' : 'Connect AliExpress account'}</button>` : ''}${aeS.connected && isAdmin() ? '<button class="btn ghost" id="aedis">Disconnect</button>' : ''}</div>`;
     const aeC = $('#aeconn'); if (aeC) aeC.onclick = async () => { try { location.href = (await api('/api/admin/aliexpress/connect', 'POST')).url; } catch (e) { alert(e.message); } };
     const x = $('#aedis'); if (x) x.onclick = async () => { if (confirm('Disconnect AliExpress? New AliExpress orders will need to be placed by hand.')) { await api('/api/admin/aliexpress/disconnect', 'POST'); render(); } };
+  },
+
+  async cj(v) {
+    const st = await api('/api/admin/cj'); const p = st.prefs;
+    if (!st.configured) {
+      v.innerHTML = `<div class="card"><h2>CJdropshipping</h2><p><span class="pill warn">Not connected</span></p>
+        <ol><li>Create a free account on <a href="https://cjdropshipping.com" target="_blank" rel="noopener">cjdropshipping.com</a>.</li>
+        <li>In your CJ account open <b>Authorization → API</b> and generate an <b>API Key</b>.</li>
+        <li>On Render → kinan → Environment add <code>CJ_API_KEY</code> with that key, then save.</li></ol>
+        <p class="muted">After the restart Kinan signs in to CJ, registers its webhooks and this page shows the CJ catalog, your CJ balance and CJ orders.</p></div>`;
+      return;
+    }
+    const fmtUsd = (n) => `$${Number(n || 0).toFixed(2)}`;
+    v.innerHTML = `<div class="card"><h2>CJdropshipping</h2>
+        ${st.connected ? `<p><span class="pill ok">Connected</span> CJ balance <b>${fmtUsd(st.balance?.amount)}</b>${st.balance?.bonus ? ` + ${fmtUsd(st.balance.bonus)} bonus` : ''}${st.balance?.frozen ? ` · ${fmtUsd(st.balance.frozen)} frozen` : ''} · <a href="https://cjdropshipping.com/my.html#/myWallet" target="_blank" rel="noopener">Top up on CJ</a></p>` : `<p><span class="pill bad">Cannot sign in</span> ${esc(st.error || '')}</p>`}
+        <p class="muted">CJ items ship from CJ straight to the customer. After payment Kinan creates the CJ order with the customer’s address and pays it from your CJ balance. Orders paid with test payments become CJ sandbox orders (nothing is bought).
+        Webhooks: ${st.webhooks ? `<code>${esc(st.webhooks.url)}</code>` : '<span class="warn">not registered yet</span>'}</p>
+        ${isAdmin() ? `<form class="row" id="cjset">
+          <label>Shipping method <select name="shipping"><option value="cheapest" ${p.shipping === 'cheapest' ? 'selected' : ''}>Cheapest</option><option value="balanced" ${p.shipping === 'balanced' ? 'selected' : ''}>Cheapest within max days</option><option value="fastest" ${p.shipping === 'fastest' ? 'selected' : ''}>Fastest</option></select></label>
+          <label>Max days <input name="max_days" type="number" min="3" max="60" value="${esc(p.max_days)}" style="width:70px"></label>
+          <label>Default markup % <input name="markup_pct" type="number" min="0" max="500" value="${esc(p.markup_pct)}" style="width:80px"></label>
+          <label><input type="checkbox" name="auto_pay" ${p.auto_pay ? 'checked' : ''}> Pay CJ orders automatically</label>
+          <button class="btn">Save</button><button class="btn ghost" type="button" id="cjhooks">Re-register webhooks</button><button class="btn ghost" type="button" id="cjsync">Check prices & stock now</button></form>` : ''}
+        <div class="muted" id="cjmsg"></div></div>
+      ${isAdmin() ? `<div class="card"><h2>Add CJ products to the Kinan shop</h2>
+        <form class="row" id="cjq"><input name="q" placeholder="Search the CJ catalog (English), or paste a CJ link / SKU" style="flex:1;min-width:220px" required><button class="btn">Search</button></form>
+        <div id="cjres" style="display:grid;gap:8px;margin-top:10px"></div></div>` : ''}
+      <div class="card"><h2>CJ orders</h2><div class="scroll" id="cjorders"><p class="muted">Loading…</p></div></div>`;
+    const msg = (t) => { const m = $('#cjmsg'); if (m) m.textContent = t; };
+    const f = $('#cjset');
+    if (f) {
+      f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/cj/settings', 'PUT', { shipping: x.shipping, max_days: Number(x.max_days), markup_pct: Number(x.markup_pct), auto_pay: Boolean(x.auto_pay) }); msg('Saved.'); } catch (err) { msg(err.message); } };
+      $('#cjhooks').onclick = async () => { try { const r = await api('/api/admin/cj/webhooks', 'POST'); msg(r.url ? `Webhooks registered: ${r.url}` : 'Skipped (the site needs an https address).'); } catch (err) { msg(err.message); } };
+      $('#cjsync').onclick = async (e) => { e.target.disabled = true; msg('Checking… (CJ allows one request per second)'); try { const r = await api('/api/admin/cj/resync', 'POST'); msg(`Checked ${r.checked} product(s).`); } catch (err) { msg(err.message); } e.target.disabled = false; };
+    }
+    const importBox = async (ref) => {
+      const box = $('#cjres'); box.innerHTML = '<p class="muted">Loading from CJ…</p>';
+      try {
+        const pv = await api('/api/admin/cj/preview', 'POST', { ref });
+        box.innerHTML = `<div class="sub"><div class="row" style="align-items:flex-start">${pv.images[0] ? `<img src="${esc(pv.images[0])}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:8px">` : ''}<div style="flex:1"><b>${esc(pv.title)}</b><div class="muted">${esc(pv.cj_sku)} · ${pv.weight_kg ? `${esc(pv.weight_kg)} kg · ` : ''}${pv.skus.length} option(s)</div></div></div>
+          <form id="cjimp" style="display:grid;gap:6px;margin-top:8px"><input name="title" value="${esc(pv.title)}">
+          <table><thead><tr><th>Option</th><th>CJ cost</th><th>Stock</th><th>Your price</th></tr></thead><tbody>${pv.skus.map((s) => `<tr><td>${esc(s.props || '—')}</td><td>${fmtUsd(s.cost_sale)}</td><td>${s.stock}</td><td><input type="number" step="0.01" min="0.01" name="p_${esc(s.mp_sku_id)}" value="${esc(s.suggested_price)}" style="width:90px"></td></tr>`).join('')}</tbody></table>
+          <div class="row"><button class="btn">Add to the Kinan shop</button><span class="muted">Shipping is added at checkout from CJ’s price to the customer’s country.</span></div><div class="err" id="cjie"></div></form></div>`;
+        $('#cjimp').onsubmit = async (e) => {
+          e.preventDefault(); const x = Object.fromEntries(new FormData(e.target)); const prices = {};
+          for (const [k, val] of Object.entries(x)) if (k.startsWith('p_')) prices[k.slice(2)] = Number(val);
+          try { const l = await api('/api/admin/cj/import', 'POST', { ref: pv.cj_pid, title: x.title, prices }); box.innerHTML = `<p class="ok">Added — <a href="/p/${esc(l.id)}" target="_blank" rel="noopener">open in the shop</a>. You can set its category in Products.</p>`; }
+          catch (err) { $('#cjie').textContent = err.message; }
+        };
+      } catch (err) { box.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+    };
+    const q = $('#cjq');
+    if (q) q.onsubmit = async (e) => {
+      e.preventDefault(); const text = q.q.value.trim();
+      if (/cjdropshipping\.com|^CJ[A-Z0-9]{4,}$/i.test(text) || /^[0-9A-F]{8}-[0-9A-F-]{20,}$/i.test(text)) return importBox(text);
+      const box = $('#cjres'); box.innerHTML = '<p class="muted">Searching CJ…</p>';
+      try {
+        const r = await api(`/api/cj/search?q=${encodeURIComponent(text)}`);
+        box.innerHTML = r.items.map((x) => `<div class="sub"><div class="row" style="flex-wrap:nowrap;align-items:center;gap:12px">${x.image ? `<img src="${esc(x.image)}" alt="" loading="lazy" style="width:64px;height:64px;object-fit:cover;border-radius:8px">` : ''}<div style="flex:1"><b>${esc(x.title)}</b><div class="muted">${esc(x.sku)} · CJ cost ${esc(x.cost ?? '—')} USD${x.stock !== null ? ` · stock ${esc(x.stock)}` : ''}</div></div><button class="btn ghost" data-pid="${esc(x.pid)}">Import</button></div></div>`).join('') || '<p class="muted">Nothing found.</p>';
+        box.querySelectorAll('[data-pid]').forEach((b) => b.onclick = () => importBox(b.dataset.pid));
+      } catch (err) { box.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+    };
+    const list = await api('/api/admin/cj/orders').catch(() => []);
+    $('#cjorders').innerHTML = `<table><thead><tr><th>Order</th><th>To</th><th>CJ order</th><th>Method</th><th>CJ cost</th><th>Status</th><th>Tracking</th></tr></thead><tbody>
+      ${list.flatMap((o) => o.parts.map((s) => `<tr data-id="${esc(o.id)}" style="cursor:pointer"><td><code>${esc(o.id.slice(-8))}</code><div class="muted">${date(o.created_at)}</div></td><td>${esc(o.country || '')}</td><td>${esc(s.cj_order || '—')}${s.sandbox ? ' <span class="pill bad">SANDBOX</span>' : ''}</td><td>${esc(s.method || o.cj_shipping?.method || '—')}</td><td>${s.amount ? fmtUsd(s.amount) : '—'}</td>
+        <td><span class="pill ${s.status === 'AE_DELIVERED' ? 'ok' : s.error || s.status === 'AE_CANCELLED' ? 'bad' : 'warn'}">${esc(s.label)}</span>${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}</td><td>${s.tracking ? esc(s.tracking.tracking) : '—'}</td></tr>`)).join('') || '<tr><td colspan="7" class="muted">No CJ orders yet.</td></tr>'}</tbody></table>`;
+    v.querySelectorAll('#cjorders tr[data-id]').forEach((tr) => tr.onclick = () => openOrder(tr.dataset.id));
   },
 
   async orders(v) {
@@ -496,11 +563,11 @@ async function openOrder(id) {
     ${o.sub_orders.map((s) => `<div class="sub"><div class="row" style="justify-content:space-between"><b>${esc(s.shop)}</b><span class="pill ${s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED' ? 'bad' : s.status === 'WAIT_BUYER_CONFIRM_GOODS' ? 'ok' : 'warn'}">${esc(s.status_label)}</span></div>
       <div class="muted"><code>${esc(s.outer_purchase_id)}</code> · ${esc((s.purchase_ids || []).join(', ') || '—')}${s.pay_deadline && /WAIT_BUYER_P/.test(s.status) ? ` · pay by ${date(s.pay_deadline)}` : ''}</div>
       ${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}
-      ${s.direct ? `<div style="display:grid;gap:6px;margin-top:6px"><div class="muted">Ships straight to the customer · AliExpress order: ${esc((s.purchase_ids || []).join(', ') || '—')}${(s.logistics || []).length ? ` · tracking ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}` : ''}</div>
-        ${(s.links || []).map((x) => `<div class="muted">${x.qty} × ${esc(x.title)}${x.props ? ` (${esc(x.props)})` : ''} ${(x.link.match(/https?:\/\/\S+/) || [])[0] ? `· <a href="${esc(x.link.match(/https?:\/\/\S+/)[0])}" target="_blank" rel="noopener noreferrer">Open on AliExpress</a>` : ''}</div>`).join('')}
-        ${s.status === 'AE_TO_BUY' ? `<div class="muted">Order it on AliExpress with the customer’s address: <code>${esc([a.name, a.line1, a.line2, a.city, a.state, a.postal_code, a.country, a.phone].filter(Boolean).join(', '))}</code> <button class="btn ghost" data-copyaddr>Copy</button></div>` : ''}
+      ${s.direct ? `<div style="display:grid;gap:6px;margin-top:6px"><div class="muted">Ships straight to the customer · ${s.source === 'cj' ? `CJdropshipping order${s.sandbox ? ' <span class="pill bad">SANDBOX</span>' : ''}${s.cj_method ? ` · ${esc(s.cj_method)}` : ''}${s.cj_amount ? ` · CJ cost $${esc(s.cj_amount)}` : ''}` : 'AliExpress order'}: ${esc((s.purchase_ids || []).join(', ') || '—')}${(s.logistics || []).length ? ` · tracking ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}` : ''}</div>
+        ${(s.links || []).map((x) => `<div class="muted">${x.qty} × ${esc(x.title)}${x.props ? ` (${esc(x.props)})` : ''} ${(x.link.match(/https?:\/\/\S+/) || [])[0] ? `· <a href="${esc(x.link.match(/https?:\/\/\S+/)[0])}" target="_blank" rel="noopener noreferrer">Open on ${s.source === 'cj' ? 'CJ' : 'AliExpress'}</a>` : ''}</div>`).join('')}
+        ${s.status === 'AE_TO_BUY' && s.source !== 'cj' ? `<div class="muted">Order it on AliExpress with the customer’s address: <code>${esc([a.name, a.line1, a.line2, a.city, a.state, a.postal_code, a.country, a.phone].filter(Boolean).join(', '))}</code> <button class="btn ghost" data-copyaddr>Copy</button></div>` : ''}
         ${canBuy() && !['AE_DELIVERED', 'AE_CANCELLED'].includes(s.status) ? `<div class="row"><input placeholder="AliExpress order no." data-aeo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking number" data-aet="${esc(s.outer_purchase_id)}" style="flex:1;min-width:150px"><input placeholder="Carrier" data-aec="${esc(s.outer_purchase_id)}" style="width:110px">
-          <button class="btn" data-aesave="${esc(s.outer_purchase_id)}">Save</button>${s.status === 'AE_SHIPPED' ? `<button class="btn ghost" data-aedel="${esc(s.outer_purchase_id)}">Mark delivered</button>` : ''}${s.status === 'AE_TO_BUY' && aeApi ? `<button class="btn ghost" data-aeplace="${esc(s.outer_purchase_id)}">Place via API</button>` : ''}</div>` : ''}</div>` : ''}
+          <button class="btn" data-aesave="${esc(s.outer_purchase_id)}">Save</button>${s.status === 'AE_SHIPPED' ? `<button class="btn ghost" data-aedel="${esc(s.outer_purchase_id)}">Mark delivered</button>` : ''}${s.status === 'AE_TO_BUY' && (aeApi || s.source === 'cj') ? `<button class="btn ghost" data-aeplace="${esc(s.outer_purchase_id)}">${s.source === 'cj' ? 'Order on CJ' : 'Place via API'}</button>` : ''}${s.source === 'cj' && s.status === 'AE_PLACED' ? `<button class="btn" data-cjpay="${esc(s.outer_purchase_id)}">Pay on CJ</button>` : ''}</div>` : ''}</div>` : ''}
       ${s.manual ? `<div class="stack" style="display:grid;gap:6px;margin-top:6px">${(s.links || []).map((x) => `<div class="muted">${x.qty} × ${esc(x.title)}${x.props ? ` (${esc(x.props)})` : ''} ${(x.link.match(/https?:\/\/\S+/) || [])[0] ? `· <a href="${esc(x.link.match(/https?:\/\/\S+/)[0])}" target="_blank" rel="noopener noreferrer">Open on Taobao</a>` : x.link ? `· <code>${esc(x.link.slice(0, 80))}</code>` : '· no link'}</div>`).join('')}
         ${canBuy() && ['MANUAL_TO_BUY', 'MANUAL_BOUGHT'].includes(s.status) ? `<div class="row"><input placeholder="Taobao order no." data-mo="${esc(s.outer_purchase_id)}" value="${esc((s.purchase_ids || []).join(','))}" style="width:170px"><input placeholder="Tracking to warehouse (when shipped)" data-mt="${esc(s.outer_purchase_id)}" style="flex:1;min-width:180px"><button class="btn" data-mb="${esc(s.outer_purchase_id)}">${s.status === 'MANUAL_TO_BUY' ? 'Mark bought' : 'Save tracking'}</button></div>` : ''}</div>` : ''}
       ${(s.logistics || []).length ? `<div class="muted">Shipping: ${s.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(' · ')}</div>` : ''}</div>`).join('') || '<p class="muted">Not created yet.</p>'}
@@ -532,6 +599,7 @@ async function openOrder(id) {
   b.querySelectorAll('[data-aesave]').forEach((btn) => { const o = btn.dataset.aesave; btn.onclick = aeDo(o, () => ({ ae_order_no: b.querySelector(`[data-aeo="${o}"]`).value.trim(), tracking: b.querySelector(`[data-aet="${o}"]`).value.trim(), carrier: b.querySelector(`[data-aec="${o}"]`).value.trim() })); });
   b.querySelectorAll('[data-aedel]').forEach((btn) => { btn.onclick = aeDo(btn.dataset.aedel, () => ({ delivered: true })); });
   b.querySelectorAll('[data-aeplace]').forEach((btn) => { btn.onclick = aeDo(btn.dataset.aeplace, () => ({ place: true })); });
+  b.querySelectorAll('[data-cjpay]').forEach((btn) => { btn.onclick = aeDo(btn.dataset.cjpay, () => ({ pay: true })); });
   b.querySelectorAll('[data-mb]').forEach((btn) => btn.onclick = async () => {
     const outer = btn.dataset.mb; btn.disabled = true;
     try { await api(`/api/admin/orders/${id}/manual-bought`, 'POST', { outer_purchase_id: outer, taobao_order_no: b.querySelector(`[data-mo="${outer}"]`).value.trim(), tracking: b.querySelector(`[data-mt="${outer}"]`).value.trim() }); await openOrder(id); render(); }

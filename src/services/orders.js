@@ -18,6 +18,9 @@ const stripe = require('../payments/stripe');
 const catalog = require('./catalog');
 const shop = require('./shop');
 const aliexpress = require('./aliexpress');
+const cj = require('./cj');
+/** Suppliers that ship straight to the customer. */
+const provider = (src) => (src === 'cj' ? cj : aliexpress);
 const notify = require('../notify');
 const { httpError } = require('../auth');
 const { countryCode, countryName } = require('../countries');
@@ -87,7 +90,8 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       line_no: String(lines.length + 1), listing_id: l.id, seller_id: l.seller_id,
       mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: sku.props,
       ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
-      ...(l.fulfillment === 'direct' ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
+      ...(l.fulfillment === 'direct' && l.source === 'cj' ? { direct: true, source: 'cj', source_link: l.source_link || '', cj_pid: l.cj_pid, cj_vid: sku.cj_vid, cost_sale: sku.cost_sale ?? null } : {}),
+      ...(l.fulfillment === 'direct' && l.source !== 'cj' ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
       image: (l.own_images || []).length ? catalog.photoUrl(l, 0, l.own_images[0]) : (l.images || [])[0] || null,
       ...(l.source === 'manual' || (l.source === 'aliexpress' && !sku.ae_sku_id) ? { own_stock: true } : {}), // typed-in stock, not synced from an API
       qty, price: sku.price, cost_cny: sku.cost_cny
@@ -95,7 +99,9 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   }
   const subtotal = money(lines.reduce((s, x) => s + x.price * x.qty, 0));
   const ship = require('./shipping').quote(lines.map((l) => ({ listing_id: l.listing_id, qty: l.qty })), address.country_code || address.country);
-  const shipping = money(ship.fee);
+  // CJ items: CJ's real shipping price to the customer's country
+  const cjShip = await cj.quote(lines.filter((l) => l.source === 'cj').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
+  const shipping = money(ship.fee + (cjShip?.fee || 0));
   const warehouseItems = lines.some((l) => !l.direct);
   const packagingFee = warehouseItems ? money(PACKAGING[packaging]) : 0;
   const disc = coupon ? require('./growth').couponFor(coupon, buyer, subtotal) : null;
@@ -105,6 +111,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     ...(disc ? { discount, coupon_code: disc.code, coupon_id: disc.coupon_id } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
+    ...(cjShip ? { cj_shipping: { method: cjShip.method, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
   });
   const payment = await stripe.createPaymentIntent(order);
@@ -239,13 +246,15 @@ async function procure(orderId) {
   if (!o || !['paid', 'procuring', 'attention'].includes(o.status)) return o;
   const subs = [...(o.sub_orders || [])];
 
-  // AliExpress items ship straight to the customer: one direct sub-order per seller
-  for (const [sellerId, lines] of Object.entries(groupBy(o.lines.filter((l) => l.direct), 'seller_id'))) {
-    let sub = subs.find((s) => s.direct && s.seller_id === sellerId);
+  // AliExpress / CJ items ship straight to the customer: one direct sub-order per seller and supplier
+  const directGroups = groupBy(o.lines.filter((l) => l.direct).map((l) => ({ ...l, _g: `${l.seller_id}|${l.source || 'aliexpress'}` })), '_g');
+  for (const lines of Object.values(directGroups)) {
+    const sellerId = lines[0].seller_id; const src = lines[0].source || 'aliexpress';
+    let sub = subs.find((s) => s.direct && s.seller_id === sellerId && (s.source || 'aliexpress') === src);
     if (sub && !(sub.status === 'AE_TO_BUY' && !sub.purchase_ids?.length)) continue;
-    if (!sub) { sub = aliexpress.newDirectSub(o, sellerId, lines); subs.push(sub); }
+    if (!sub) { sub = provider(src).newDirectSub(o, sellerId, lines); subs.push(sub); }
     db.orders.update(o.id, { sub_orders: subs });
-    await aliexpress.place(db.orders.get(o.id), sub, lines);
+    await provider(src).place(db.orders.get(o.id), sub, lines);
     db.orders.update(o.id, { sub_orders: subs });
   }
 
@@ -310,7 +319,7 @@ async function syncSub(orderId, outer) {
   if (!sub) throw httpError(404, 'Purchase order not found');
   if (sub.manual) return o; // nothing to ask Taobao: updated by hand
   if (sub.direct) {
-    await aliexpress.sync(sub);
+    await provider(sub.source).sync(sub);
     db.orders.update(o.id, (x) => ({ ...x, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === outer ? sub : s)) }));
     return recompute(o.id);
   }
@@ -386,7 +395,7 @@ function recompute(orderId) {
   const direct = all.filter((s) => s.direct);         // AliExpress → customer
   if (o.status === 'shipped' && subs.length) return o; // warehouse part already left; delivery is confirmed by staff
   let status = o.status;
-  if (subs.some((s) => s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED') || direct.some((s) => s.status === 'AE_CANCELLED' || (s.error && s.status === 'AE_TO_BUY'))) status = 'attention';
+  if (subs.some((s) => s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED') || direct.some((s) => s.status === 'AE_CANCELLED' || (s.error && (s.status === 'AE_TO_BUY' || (s.source === 'cj' && s.status === 'AE_PLACED'))))) status = 'attention';
   else if (subs.length) {
     if (subs.every((s) => s.status === 'WAIT_BUYER_CONFIRM_GOODS')) {
       const parcels = db.parcels.all((p) => p.order_id === o.id);
@@ -408,18 +417,26 @@ function recompute(orderId) {
 }
 
 /** Admin: AliExpress part of an order — place it via the API, or record what was done by hand. */
-async function updateDirect(orderId, { outer_purchase_id, place, ...manual } = {}, by) {
+async function updateDirect(orderId, { outer_purchase_id, place, pay, ...manual } = {}, by) {
   const o = db.orders.get(orderId);
   if (!o) throw httpError(404, 'Order not found');
   if (['pending_payment', 'cancelled', 'refunded'].includes(o.status)) throw httpError(409, 'This order is not active');
   const sub = o.sub_orders.find((s) => s.direct && (!outer_purchase_id || s.outer_purchase_id === outer_purchase_id));
   if (!sub) throw httpError(404, 'No AliExpress part in this order');
-  if (place) {
-    if (!aliexpress.apiReady()) throw httpError(503, 'AliExpress API is not connected — order it by hand and enter the order number');
-    if (sub.status !== 'AE_TO_BUY') throw httpError(409, 'Already ordered on AliExpress');
-    await aliexpress.place(o, sub, o.lines.filter((l) => sub.line_nos.includes(l.line_no)));
+  if (sub.source === 'cj' && pay) {
+    if (sub.status !== 'AE_PLACED') throw httpError(409, 'This CJ order is not waiting for payment');
+    await cj.pay(sub);
+  } else if (place) {
+    if (sub.source === 'cj') {
+      if (sub.status !== 'AE_TO_BUY') throw httpError(409, 'Already ordered on CJ');
+      await cj.place(o, sub, o.lines.filter((l) => sub.line_nos.includes(l.line_no)));
+    } else {
+      if (!aliexpress.apiReady()) throw httpError(503, 'AliExpress API is not connected — order it by hand and enter the order number');
+      if (sub.status !== 'AE_TO_BUY') throw httpError(409, 'Already ordered on AliExpress');
+      await aliexpress.place(o, sub, o.lines.filter((l) => sub.line_nos.includes(l.line_no)));
+    }
   } else aliexpress.manualUpdate(sub, manual);
-  const saved = db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'paid' || x.status === 'attention' ? 'procuring' : x.status, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === sub.outer_purchase_id ? sub : s)), timeline: log(x, `aliexpress:${sub.status}`, { by }) }));
+  const saved = db.orders.update(o.id, (x) => ({ ...x, status: x.status === 'paid' || x.status === 'attention' ? 'procuring' : x.status, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === sub.outer_purchase_id ? sub : s)), timeline: log(x, `${sub.source || 'aliexpress'}:${sub.status}`, { by }) }));
   if (sub.status === 'AE_SHIPPED' && (sub.logistics || []).length && saved.lines.some((l) => !l.direct)) notify.orderShipped(saved, sub.logistics.map((t) => ({ carrier: t.carrier, number: t.tracking })));
   return recompute(o.id);
 }
@@ -428,13 +445,18 @@ async function cancelOrder(orderId, by) {
   const o = db.orders.get(orderId);
   if (!o) throw httpError(404, 'Order not found');
   if (['shipped', 'delivered', 'cancelled', 'refunded'].includes(o.status)) throw httpError(409, 'This order cannot be cancelled');
-  if (o.sub_orders.some((s) => s.direct && s.status !== 'AE_TO_BUY')) {
-    throw httpError(409, 'Part of this order was already ordered on AliExpress — cancel it there first, then refund the customer');
+  if (o.sub_orders.some((s) => s.direct && s.status !== 'AE_TO_BUY' && !(s.source === 'cj' && ['AE_PLACED', 'AE_CANCELLED'].includes(s.status)))) {
+    throw httpError(409, 'Part of this order was already ordered and paid with the supplier — cancel it there first, then refund the customer');
   }
+  // CJ orders not paid yet are deleted on CJ
+  const cjSubs = o.sub_orders.filter((s) => s.direct && s.source === 'cj' && s.status === 'AE_PLACED');
+  for (const s of cjSubs) await cj.cancel(s);
+  if (cjSubs.length) db.orders.update(o.id, (x) => ({ ...x, sub_orders: x.sub_orders.map((s) => cjSubs.find((c) => c.outer_purchase_id === s.outer_purchase_id) || s) }));
   if (o.sub_orders.some((s) => s.status === 'WAIT_BUYER_CONFIRM_GOODS')) {
     throw httpError(409, 'A Taobao seller already shipped part of this order — use the after-sales (refund) flow');
   }
   for (const s of o.sub_orders) {
+    if (s.direct) continue; // AliExpress / CJ handled above
     for (const pid of s.purchase_ids || []) {
       try { await call(API.ORDER_CANCEL, { [API.ORDER_CANCEL_PARAM]: pid }, { accessToken: await tokenFor(s.seller_id) }); } catch { /* reported in timeline */ }
     }
@@ -471,7 +493,7 @@ function groupBy(arr, k) { return arr.reduce((m, x) => ((m[x[k]] = m[x[k]] || []
 function decorate(o) {
   return o && {
     ...o, status_label: ORDER_STATUS_LABEL[o.status] || o.status, qc_photos: (o.qc_photos || []).length,
-    sub_orders: (o.sub_orders || []).map((s) => ({ ...s, status_label: TB_STATUS_LABEL[s.status] || s.status, shop: db.sellers.get(s.seller_id)?.shop_name }))
+    sub_orders: (o.sub_orders || []).map((s) => ({ ...s, status_label: (s.source === 'cj' ? cj.LABEL[s.status] : TB_STATUS_LABEL[s.status]) || s.status, shop: db.sellers.get(s.seller_id)?.shop_name }))
   };
 }
 
@@ -507,7 +529,7 @@ function sellerView(o, sellerId) {
     lines: lines.map(({ title, props, qty, price, cost_cny }) => ({ title, props, qty, price, cost_cny })),
     revenue: money(lines.reduce((a, l) => a + l.price * l.qty, 0)),
     cost_cny: money(lines.reduce((a, l) => a + l.cost_cny * l.qty, 0)),
-    purchase: sub ? { direct: Boolean(sub.direct), manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: TB_STATUS_LABEL[sub.status] || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] } : null
+    purchase: sub ? { direct: Boolean(sub.direct), source: sub.source || null, manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: (sub.source === 'cj' ? cj.LABEL[sub.status] : TB_STATUS_LABEL[sub.status]) || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] } : null
   };
 }
 

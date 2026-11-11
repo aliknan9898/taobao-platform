@@ -209,7 +209,7 @@ function checkMargins(l) {
   }).map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, cost: Math.round((s.cost_sale ?? s.cost_cny / config.cnyRate) * 100) / 100 }));
   const before = l.price_alert?.skus?.length || 0;
   if (!losing.length) return before ? db.listings.update(l.id, { price_alert: null }) : l;
-  const pause = l.source === 'aliexpress' && l.status === 'active';
+  const pause = ['aliexpress', 'cj'].includes(l.source) && l.status === 'active';
   const out = db.listings.update(l.id, { price_alert: { at: Date.now(), skus: losing, paused: pause || Boolean(l.price_alert?.paused) }, ...(pause ? { status: 'paused' } : {}) });
   if (!before) require('../notify').priceAlert(out, losing, pause);
   return out;
@@ -220,6 +220,7 @@ async function resync(listingId) {
   if (!l) throw httpError(404, 'Product not found');
   if (l.source === 'manual') return l; // typed in by hand: nothing to fetch from Taobao
   if (l.source === 'aliexpress') return checkMargins(await aliexpress.resync(l));
+  if (l.source === 'cj') return checkMargins(await require('./cj').resync(l));
   try {
     const prod = await fetchProduct(l.seller_id, l.taobao_item_id);
     const bySku = new Map(prod.skus.map((s) => [s.mp_sku_id, s]));
@@ -235,7 +236,7 @@ async function resync(listingId) {
 }
 
 async function resyncStale(maxAgeMs = 6 * 3600e3) {
-  for (const l of db.listings.all((x) => x.source !== 'manual' && ['active', 'pending_review'].includes(x.status) && Date.now() - (x.last_synced_at || 0) > maxAgeMs)) {
+  for (const l of db.listings.all((x) => !['manual', 'cj'].includes(x.source) && ['active', 'pending_review'].includes(x.status) && Date.now() - (x.last_synced_at || 0) > maxAgeMs)) {
     await resync(l.id);
   }
 }
@@ -276,7 +277,7 @@ function toBuyerView(l, seller) {
   return {
     id: l.id, title: l.title, images: visibleImages(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
-    listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', category: l.category || 'other',
+    listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(l.source === 'cj' ? { ship_extra: true } : {}), category: l.category || 'other',
     min_price: Math.min(...l.skus.map((s) => s.price)), ...require('./growth').ratingFor(l.id),
     skus: l.skus.map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
   };

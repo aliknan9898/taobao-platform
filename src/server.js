@@ -19,6 +19,7 @@ const reports = require('./services/reports');
 const couriers = require('./services/couriers');
 const google = require('./googleAuth');
 const aliexpress = require('./services/aliexpress');
+const cjs = require('./services/cj');
 const { COUNTRIES } = require('./countries');
 const stripe = require('./payments/stripe');
 const mailer = require('./mailer');
@@ -183,6 +184,7 @@ const ADMIN = ['admin']; const SELLER = ['seller']; const BUYER = ['buyer']; con
 // Staff roles: who may use which part of the admin dashboard
 const STAFF = ['admin', 'procurement', 'finance', 'support'];       // overview + read orders
 const PROC = ['admin', 'procurement'];                             // buying on Taobao / AliExpress
+const SELLER_OR_STAFF = ['seller', ...STAFF];                       // CJ catalog search
 const FIN = ['admin', 'finance'];                                  // money: withdrawals, refunds, wallets, reports
 const CARE = ['admin', 'support', 'procurement'];                  // item requests
 const PEOPLE = ['admin', 'finance', 'support'];                    // users list
@@ -256,8 +258,13 @@ r('GET', '/api/categories', null, async () => {
   const counts = {}; for (const p of catalog.browse({ limit: 100000 }).items) counts[p.category] = (counts[p.category] || 0) + 1;
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
 });
-r('POST', '/api/shipping/quote', null, async ({ req }) => { const b = await readJson(req); return shipping.quote(Array.isArray(b.items) ? b.items.slice(0, 100) : [], b.country_code || b.country); });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('POST', '/api/shipping/quote', null, async ({ req }) => {
+  const b = await readJson(req); const items = Array.isArray(b.items) ? b.items.slice(0, 100) : [];
+  const q = shipping.quote(items, b.country_code || b.country);
+  const c = await cjs.quote(items, q.country_code || require('./countries').countryCode(b.country_code || b.country));
+  return c ? { ...q, fee: Math.round((q.fee + c.fee) * 100) / 100, cj: c, days: q.fee ? q.days : c.days || q.days, note: c.fee ? undefined : q.note } : q;
+});
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), countries: COUNTRIES, categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -381,6 +388,19 @@ r('POST', '/api/admin/orders/:id/pay-taobao', PROC, async ({ params }) => {
 });
 r('POST', '/api/admin/orders/:id/manual-bought', PROC, async ({ req, params, user }) => orders.decorate(orders.markManualBought(params.id, await readJson(req), user.id)));
 r('POST', '/api/admin/orders/:id/aliexpress', PROC, async ({ req, params, user }) => orders.decorate(await orders.updateDirect(params.id, await readJson(req), user.id)));
+// CJdropshipping: catalog, import, settings, wallet
+r('GET', '/api/admin/cj', STAFF, async () => cjs.status());
+r('PUT', '/api/admin/cj/settings', ADMIN, async ({ req }) => cjs.savePrefs(await readJson(req)));
+r('POST', '/api/admin/cj/webhooks', ADMIN, async () => { db.settings.remove('set_cj_webhooks'); return cjs.registerWebhooks(); });
+r('POST', '/api/admin/cj/resync', ADMIN, async () => ({ checked: await cjs.resyncStale(300) }));
+r('GET', '/api/cj/search', SELLER_OR_STAFF, async ({ url }) => cjs.search({ q: url.searchParams.get('q'), page: url.searchParams.get('page'), category: url.searchParams.get('category'), country: url.searchParams.get('country') }));
+r('GET', '/api/cj/categories', SELLER_OR_STAFF, async () => cjs.categories());
+r('POST', '/api/seller/products/cj/preview', SELLER, async ({ req, seller }) => cjs.preview(seller, (await readJson(req)).ref));
+r('POST', '/api/seller/products/cj', SELLER, async ({ req, seller }) => cjs.publish(seller, await readJson(req)));
+r('POST', '/api/admin/cj/preview', ADMIN, async ({ req }) => cjs.preview(require('./services/buyforme').systemSeller(), (await readJson(req)).ref));
+r('POST', '/api/admin/cj/import', ADMIN, async ({ req }) => cjs.publish(require('./services/buyforme').systemSeller(), await readJson(req)));
+r('GET', '/api/admin/cj/orders', STAFF, async () => db.orders.all((o) => (o.sub_orders || []).some((s) => s.source === 'cj')).sort((a, b) => b.created_at - a.created_at).slice(0, 200)
+  .map((o) => ({ id: o.id, status: o.status, created_at: o.created_at, country: o.shipping_address?.country_code, cj_shipping: o.cj_shipping || null, parts: o.sub_orders.filter((s) => s.source === 'cj').map((s) => ({ outer_purchase_id: s.outer_purchase_id, status: s.status, label: cjs.LABEL[s.status] || s.status, cj_order: s.purchase_ids?.[0] || null, amount: s.cj_amount ?? null, method: s.cj_method || null, sandbox: Boolean(s.sandbox), error: s.error || null, tracking: (s.logistics || [])[0] || null })) })));
 r('GET', '/api/admin/aliexpress', STAFF, async () => ({ ...aliexpress.status(), redirect_uri: config.aliexpress.redirectUri }));
 r('POST', '/api/admin/aliexpress/connect', ADMIN, async () => ({ url: aliexpress.authorizeUrl() }));
 r('POST', '/api/admin/aliexpress/disconnect', ADMIN, async () => aliexpress.disconnect());
@@ -531,6 +551,14 @@ const server = http.createServer(async (req, res) => {
       if (out.status === 200) setImmediate(() => webhooks.processInbox().catch(() => {}));
       return;
     }
+    if (p === '/webhooks/cj') {
+      if (req.method !== 'POST') return send(res, 200, { ok: true });
+      const raw = await readRaw(req);
+      if (!cjs.verify(raw, req.headers.sign)) { console.warn('[cj] webhook with a bad signature'); return send(res, 401, { error: 'bad signature' }); }
+      send(res, 200, { ok: true }); // CJ wants an answer within 3 seconds: work after replying
+      setImmediate(() => { try { const m = JSON.parse(raw.toString('utf8')); const out = cjs.handleWebhook(m); if (!out.ignored) console.log('[cj] webhook', m.type, JSON.stringify(out)); } catch (e) { console.error('[cj] webhook', e.message); } });
+      return;
+    }
     if (p === '/webhooks/stripe' && req.method === 'POST') {
       const out = await webhooks.stripeHook(await readRaw(req), req.headers);
       return send(res, out.status, out.body);
@@ -610,6 +638,7 @@ function startJobs() {
   every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); growth.cartReminders(); });
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
+  every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }
 
@@ -639,6 +668,7 @@ if (require.main === module) (async () => {
   fx.refresh().catch((e) => console.warn('[fx]', e.message));
   setInterval(() => fx.refresh().catch((e) => console.warn('[fx]', e.message)), 6 * 3600e3).unref();
   require('./services/uptime').setup().then((r) => { if (r.ok) console.log(`[uptime] monitoring on (${r.created ? 'new monitor' : 'monitor already there'})`); }).catch((e) => console.warn('[uptime]', e.message));
+  if (require('./cj/client').enabled()) cjs.registerWebhooks().catch((e) => console.warn('[cj] webhooks:', e.message));
   stripe.setup().then((r) => { if (r.ok) console.log(`[stripe] ready (${r.mode} mode)`); }).catch((e) => console.error('[stripe] setup failed:', e.message));
   // Render stops the instance with SIGTERM: write pending changes first
   const stop = async () => { try { await db.close(); } catch { /* exiting */ } process.exit(0); };
