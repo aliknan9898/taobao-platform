@@ -26,6 +26,7 @@ global.fetch = async (url, opts = {}) => {
   if (p === '/authentication/getAccessToken') { assert.strictEqual(body.apiKey, process.env.CJ_API_KEY); return ok({ openId: 777, accessToken: 'tok-1', accessTokenExpiryDate: new Date(Date.now() + 180 * 86400e3).toISOString(), refreshToken: 'ref-1', refreshTokenExpiryDate: new Date(Date.now() + 180 * 86400e3).toISOString() }); }
   if (p === '/product/query') return ok({ pid: PID, productNameEn: 'LED Desk Lamp', productSku: 'CJLED001', bigImage: 'https://cf.cjdropshipping.com/a.jpg', productImageSet: ['https://cf.cjdropshipping.com/a.jpg', 'https://cf.cjdropshipping.com/b.jpg'], productWeight: 450, productKeyEn: 'Color-Size', description: '<p>Bright <b>lamp</b></p>', sellPrice: 6.5,
     variants: [{ vid: 'V1', variantSku: 'CJLED001-W', variantKey: 'Sky blue-S', variantSellPrice: 6.5, inventories: [{ totalInventory: 120 }] }, { vid: 'V2', variantSku: 'CJLED001-B', variantKey: 'T-shirt black-XL', variantSellPrice: 7, inventories: [{ totalInventory: 0 }] }] });
+  if (p === '/product/listV2' && u.searchParams.get('productFlag') === '0') { assert.strictEqual(u.searchParams.get('orderBy'), '1'); return ok({ content: [{ productList: [{ id: 'BAD1', nameEn: 'Sexy lingerie set', sellPrice: '3', bigImage: 'https://x/a.jpg' }, { id: 'EXP1', nameEn: 'Massage chair', sellPrice: '300', bigImage: 'https://x/a.jpg' }, { id: PID, nameEn: 'LED Desk Lamp', sellPrice: '6.5', bigImage: 'https://x/a.jpg', listedNum: 900 }] }] }); }
   if (p === '/product/listV2') return ok({ totalRecords: 1, content: [{ productList: [{ id: PID, nameEn: 'LED Desk Lamp', sku: 'CJLED001', bigImage: 'https://cf.cjdropshipping.com/a.jpg', sellPrice: '6.5', warehouseInventoryNum: 120 }] }] });
   if (p === '/logistic/freightCalculate') { assert.strictEqual(body.endCountryCode, 'DE'); return ok([{ logisticName: 'CJPacket Ordinary', logisticPrice: 4.2, logisticAging: '10-20' }, { logisticName: 'DHL', logisticPrice: 19, logisticAging: '3-6' }]); }
   if (p === '/shopping/order/createOrderV2') { created.push(body); return ok({ orderId: 'CJORD1', orderNumber: body.orderNumber, shipmentOrderId: 'SH1', orderAmount: 17.2, orderStatus: 'CREATED' }); }
@@ -149,4 +150,15 @@ test('low CJ balance: order waits, admin pays later; unpaid CJ order is deleted 
   assert.strictEqual(calls.filter((x) => x.includes('deleteOrder')).length, before + 1);
   assert.strictEqual(db.orders.get(o2.id).status, 'refunded');
   payFails = false;
+});
+
+test('best sellers: adds trending CJ products to the Kinan shop, skipping unsuitable, too expensive and existing ones', async () => {
+  for (const l of db.listings.all((x) => x.source === 'cj')) db.listings.remove(l.id);
+  const st = await cj.importBestSellers({ count: 5 }, 'test');
+  assert.strictEqual(st.added, 1); assert.ok(st.skipped >= 2);
+  const l = db.listings.find((x) => x.cj_auto);
+  assert.strictEqual(l.status, 'active'); assert.strictEqual(l.seller_id, 'sel_kinan'); assert.strictEqual(l.category, 'electronics');
+  assert.strictEqual((await cj.importBestSellers({ count: 5 }, 'test')).added, 0, 'never added twice');
+  assert.strictEqual(cj.guessCategory('Phone case for iPhone 15'), 'phone');
+  assert.ok(cj.BLOCK.test('Tactical knife')); assert.ok(!cj.BLOCK.test('Kitchen knife sharpener stone'.replace('knife', 'blade')));
 });

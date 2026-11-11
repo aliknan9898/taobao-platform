@@ -397,6 +397,91 @@ async function upgradeOptions() {
   return old.length;
 }
 
+// ---------------- best sellers, added automatically ----------------
+const AUTO = 'set_cj_auto'; const AUTO_STATE = 'set_cj_auto_state';
+function autoPrefs() { return { enabled: true, count: 30, max_cost: 40, min_stock: 20, every_days: 7, ...(db.settings.get(AUTO) || {}) }; }
+function saveAutoPrefs(b = {}) {
+  const p = autoPrefs();
+  const doc = {
+    enabled: b.enabled === undefined ? p.enabled : Boolean(b.enabled),
+    count: b.count === undefined ? p.count : Math.min(200, Math.max(1, Math.floor(Number(b.count) || 30))),
+    max_cost: b.max_cost === undefined ? p.max_cost : Math.min(500, Math.max(1, Number(b.max_cost) || 40)),
+    min_stock: b.min_stock === undefined ? p.min_stock : Math.min(10000, Math.max(0, Math.floor(Number(b.min_stock) || 0))),
+    every_days: b.every_days === undefined ? p.every_days : Math.min(60, Math.max(1, Math.floor(Number(b.every_days) || 7)))
+  };
+  return db.settings.get(AUTO) ? db.settings.update(AUTO, doc) : db.settings.insert({ id: AUTO, ...doc });
+}
+const autoState = () => db.settings.get(AUTO_STATE) || { running: false };
+const setState = (patch) => { const cur = db.settings.get(AUTO_STATE); return cur ? db.settings.update(AUTO_STATE, patch) : db.settings.insert({ id: AUTO_STATE, ...patch }); };
+
+/** Kinan's shop sells to Arab families: products that do not fit are never added automatically. */
+const BLOCK = /\b(sex|sexy|adult|erotic|lingerie|vibrator|dildo|condom|nipple|bdsm|fetish|alcohol|wine|beer|whisky|vodka|cigarette|e-?cig|vape|hookah tobacco|knife|knives|dagger|gun|pistol|rifle|airsoft|weapon|crossbow|slingshot|ammo|pork|bacon|cross necklace|tarot|ouija|casino|replica|counterfeit)\b/i;
+
+/** Kinan category from CJ's category name and the title. */
+function guessCategory(text) {
+  const t = String(text || '').toLowerCase();
+  const rules = [
+    ['phone', /phone|iphone|samsung|charger|charging|cable|power bank|earbud|airpod|screen protector|case for/], ['car', /\bcar\b|vehicle|auto |motorcycle|bike light|dashboard/],
+    ['electronics', /electronic|bluetooth|speaker|headphone|camera|led|usb|smart watch|smartwatch|projector|keyboard|mouse|computer|gadget/],
+    ['beauty', /beauty|makeup|cosmetic|skin|hair|nail|lash|lipstick|perfume|massag|teeth|shaver|trimmer/], ['kids', /baby|kid|child|infant|toddler|maternity/],
+    ['toys', /toy|puzzle|game|doll|lego|plush|fidget/], ['shoes_bags', /shoe|sneaker|boot|sandal|slipper|bag|backpack|wallet|handbag|luggage/],
+    ['sports', /sport|fitness|yoga|gym|outdoor|camping|hiking|fishing|cycling|swim/], ['women', /women|woman|dress|skirt|blouse|bra|ladies|girl/],
+    ['men', /\bmen\b|\bman\b|mens|men's|beard/], ['home', /home|kitchen|house|bath|bedding|storage|decor|lamp|garden|pet|cleaning|organizer|cup|bottle|tool/]
+  ];
+  return (rules.find(([, re]) => re.test(t)) || ['other'])[0];
+}
+
+/**
+ * Add CJ's top products (trending, most-listed) to the Kinan shop, skipping ones already there, too expensive,
+ * low on stock or not suitable. Runs in the background; progress is kept in settings.
+ */
+async function importBestSellers(opts = {}, by = 'auto') {
+  if (!cj.enabled()) throw httpError(503, 'CJdropshipping is not connected');
+  if (autoState().running && now() - (autoState().started_at || 0) < 3 * 3600e3) return autoState();
+  const p = { ...autoPrefs(), ...opts };
+  const kinan = require('./buyforme').systemSeller();
+  const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
+  const st = { running: true, started_at: now(), by, target: p.count, added: 0, skipped: 0, checked: 0, error: null, added_titles: [] };
+  setState(st);
+  try {
+    for (let page = 1; page <= 15 && st.added < p.count; page++) {
+      const d = await cj.call('GET', '/product/listV2', { query: { page, size: 50, productFlag: 0, orderBy: 1, sort: 'desc', endSellPrice: p.max_cost, startWarehouseInventory: p.min_stock || undefined } });
+      const items = list(d?.content).flatMap((c) => list(c.productList));
+      if (!items.length) break;
+      for (const x of items) {
+        if (st.added >= p.count) break;
+        const pid = String(x.id || x.pid || ''); st.checked++;
+        const title = x.nameEn || x.productNameEn || '';
+        const cost = Number(String(x.sellPrice ?? '').split(/[-–]/)[0]);
+        if (!pid || have.has(pid) || BLOCK.test(title) || !(cost > 0) || cost > p.max_cost || !(x.bigImage || x.productImage)) { st.skipped++; continue; }
+        have.add(pid);
+        try {
+          const l = await publish(kinan, { ref: { pid }, category: guessCategory(`${x.threeCategoryName || x.categoryName || ''} ${title}`) });
+          if (!l.skus.some((k) => k.stock >= Math.min(p.min_stock, 1)) || BLOCK.test(`${l.title} ${l.description}`)) { db.listings.update(l.id, { status: 'paused', sync_error: 'Added automatically but out of stock or not suitable' }); st.skipped++; continue; }
+          db.listings.update(l.id, { cj_auto: true, cj_listed: Number(x.listedNum) || null, auto_added_at: now() });
+          st.added++; st.added_titles = [...st.added_titles, l.title].slice(-50);
+        } catch (e) { st.skipped++; st.last_item_error = e.message; }
+        setState({ ...st });
+      }
+    }
+  } catch (e) { st.error = e.message; }
+  st.running = false; st.done_at = now();
+  setState({ ...st });
+  console.log(`[cj] best sellers: added ${st.added}, skipped ${st.skipped}${st.error ? ` — ${st.error}` : ''}`);
+  if (st.added) try { require('../push').telegram(`🛍️ CJ best sellers: ${st.added} new product(s) added to the Kinan shop.`); } catch { /* optional */ }
+  return st;
+}
+
+/** Hourly check: add new best sellers every N days (the first time soon after CJ is connected). */
+async function autoTick() {
+  const p = autoPrefs();
+  if (!cj.enabled() || !p.enabled) return null;
+  const s = autoState();
+  if (s.running && now() - (s.started_at || 0) < 3 * 3600e3) return null;
+  if (s.done_at && now() - s.done_at < p.every_days * 86400e3) return null;
+  return importBestSellers({}, 'auto');
+}
+
 /** Tell CJ where to send product, stock, order and logistics updates (once per site address). */
 async function registerWebhooks() {
   if (!cj.enabled() || !/^https:\/\//.test(config.publicBaseUrl)) return { skipped: true };
@@ -412,5 +497,5 @@ async function registerWebhooks() {
 
 module.exports = {
   prefs, savePrefs, status, balance, parseRef, normalize, fetchProduct, preview, search, categories, publish, resync, resyncStale,
-  freightOptions, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, STATUS, LABEL
+  freightOptions, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
 };

@@ -416,6 +416,9 @@ r('POST', '/api/seller/products/cj/preview', SELLER, async ({ req, seller }) => 
 r('POST', '/api/seller/products/cj', SELLER, async ({ req, seller }) => cjs.publish(seller, await readJson(req)));
 r('POST', '/api/admin/cj/preview', ADMIN, async ({ req }) => cjs.preview(require('./services/buyforme').systemSeller(), (await readJson(req)).ref));
 r('POST', '/api/admin/cj/import', ADMIN, async ({ req }) => cjs.publish(require('./services/buyforme').systemSeller(), await readJson(req)));
+r('GET', '/api/admin/cj/bestsellers', ADMIN, async () => ({ prefs: cjs.autoPrefs(), state: cjs.autoState(), count: db.listings.all((l) => l.cj_auto).length }));
+r('PUT', '/api/admin/cj/bestsellers', ADMIN, async ({ req }) => cjs.saveAutoPrefs(await readJson(req)));
+r('POST', '/api/admin/cj/bestsellers/run', ADMIN, async ({ req }) => { if (!require('./cj/client').enabled()) throw httpError(503, 'CJdropshipping is not connected'); const b = await readJson(req).catch(() => ({})); cjs.importBestSellers(b.count ? { count: b.count } : {}, 'admin').catch((e) => console.error('[cj] best sellers', e.message)); return { started: true }; });
 r('GET', '/api/admin/cj/orders', STAFF, async () => db.orders.all((o) => (o.sub_orders || []).some((s) => s.source === 'cj')).sort((a, b) => b.created_at - a.created_at).slice(0, 200)
   .map((o) => ({ id: o.id, status: o.status, created_at: o.created_at, country: o.shipping_address?.country_code, cj_shipping: o.cj_shipping || null, parts: o.sub_orders.filter((s) => s.source === 'cj').map((s) => ({ outer_purchase_id: s.outer_purchase_id, status: s.status, label: cjs.LABEL[s.status] || s.status, cj_order: s.purchase_ids?.[0] || null, amount: s.cj_amount ?? null, method: s.cj_method || null, sandbox: Boolean(s.sandbox), error: s.error || null, tracking: (s.logistics || [])[0] || null })) })));
 r('GET', '/api/admin/aliexpress', STAFF, async () => ({ ...aliexpress.status(), redirect_uri: config.aliexpress.redirectUri }));
@@ -660,6 +663,8 @@ function startJobs() {
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
+  every(3600e3, () => cjs.autoTick());
+  setTimeout(() => cjs.autoTick().catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }
 

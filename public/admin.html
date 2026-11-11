@@ -200,6 +200,7 @@ const VIEWS = {
           <label><input type="checkbox" name="auto_pay" ${p.auto_pay ? 'checked' : ''}> Pay CJ orders automatically</label>
           <button class="btn">Save</button><button class="btn ghost" type="button" id="cjhooks">Re-register webhooks</button><button class="btn ghost" type="button" id="cjsync">Check prices & stock now</button></form>` : ''}
         <div class="muted" id="cjmsg"></div></div>
+      ${isAdmin() ? `<div class="card" id="cjbest"><h2>Best sellers, added automatically</h2><p class="muted">Loading…</p></div>` : ''}
       ${isAdmin() ? `<div class="card"><h2>Add CJ products to the Kinan shop</h2>
         <form class="row" id="cjq"><input name="q" placeholder="Search the CJ catalog (English), or paste a CJ link / SKU" style="flex:1;min-width:220px" required><button class="btn">Search</button></form>
         <div id="cjres" style="display:grid;gap:8px;margin-top:10px"></div></div>` : ''}
@@ -238,6 +239,27 @@ const VIEWS = {
         box.querySelectorAll('[data-pid]').forEach((b) => b.onclick = () => importBox(b.dataset.pid));
       } catch (err) { box.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
     };
+    const paintBest = async () => {
+      const box = $('#cjbest'); if (!box) return;
+      const b = await api('/api/admin/cj/bestsellers').catch(() => null); if (!b || !document.body.contains(box)) return;
+      const bp = b.prefs; const st = b.state || {};
+      box.innerHTML = `<h2>Best sellers, added automatically</h2>
+        <p class="muted">Kinan picks CJ’s trending, most-listed products and adds them to the Kinan shop with your markup (${esc(p.markup_pct)}%). Products already in the shop, out of stock, above the cost limit or not suitable (adult items, alcohol, weapons…) are skipped. Arabic titles are added automatically once translation (DeepL or Google) is set up.</p>
+        <p>${st.running ? `<span class="pill warn">Adding now…</span> ${st.added} of ${st.target} added · ${st.checked} checked` : st.done_at ? `<span class="pill ok">Last run ${date(st.done_at)}</span> ${st.added} added, ${st.skipped} skipped${st.error ? ` · <span class="bad">${esc(st.error)}</span>` : ''}` : '<span class="pill">Not run yet</span>'} · ${b.count} best-seller product(s) in the shop</p>
+        ${st.added_titles?.length ? `<details><summary class="muted">Last added</summary><ul class="muted">${st.added_titles.slice(-15).map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>` : ''}
+        <form class="row" id="cjbf">
+          <label>How many <input name="count" type="number" min="1" max="200" value="${esc(bp.count)}" style="width:70px"></label>
+          <label>Max CJ cost $ <input name="max_cost" type="number" min="1" max="500" value="${esc(bp.max_cost)}" style="width:70px"></label>
+          <label>Min stock <input name="min_stock" type="number" min="0" value="${esc(bp.min_stock)}" style="width:80px"></label>
+          <label>Every <input name="every_days" type="number" min="1" max="60" value="${esc(bp.every_days)}" style="width:60px"> days</label>
+          <label><input type="checkbox" name="enabled" ${bp.enabled ? 'checked' : ''}> Add new best sellers automatically</label>
+          <button class="btn ghost">Save</button><button class="btn" type="button" id="cjbrun" ${st.running ? 'disabled' : ''}>Add best sellers now</button></form><div class="muted" id="cjbmsg"></div>`;
+      const f = $('#cjbf'); const read = () => { const x = Object.fromEntries(new FormData(f)); return { count: Number(x.count), max_cost: Number(x.max_cost), min_stock: Number(x.min_stock), every_days: Number(x.every_days), enabled: Boolean(x.enabled) }; };
+      f.onsubmit = async (e) => { e.preventDefault(); try { await api('/api/admin/cj/bestsellers', 'PUT', read()); $('#cjbmsg').textContent = 'Saved.'; } catch (err) { $('#cjbmsg').textContent = err.message; } };
+      $('#cjbrun').onclick = async (e) => { e.target.disabled = true; try { await api('/api/admin/cj/bestsellers', 'PUT', read()); await api('/api/admin/cj/bestsellers/run', 'POST', { count: read().count }); setTimeout(paintBest, 1500); } catch (err) { $('#cjbmsg').textContent = err.message; e.target.disabled = false; } };
+      if (st.running) setTimeout(paintBest, 5000);
+    };
+    paintBest();
     const list = await api('/api/admin/cj/orders').catch(() => []);
     $('#cjorders').innerHTML = `<table><thead><tr><th>Order</th><th>To</th><th>CJ order</th><th>Method</th><th>CJ cost</th><th>Status</th><th>Tracking</th></tr></thead><tbody>
       ${list.flatMap((o) => o.parts.map((s) => `<tr data-id="${esc(o.id)}" style="cursor:pointer"><td><code>${esc(o.id.slice(-8))}</code><div class="muted">${date(o.created_at)}</div></td><td>${esc(o.country || '')}</td><td>${esc(s.cj_order || '—')}${s.sandbox ? ' <span class="pill bad">SANDBOX</span>' : ''}</td><td>${esc(s.method || o.cj_shipping?.method || '—')}</td><td>${s.amount ? fmtUsd(s.amount) : '—'}</td>
