@@ -28,8 +28,9 @@ test('rates refresh, cost margin and display currencies', async () => {
   assert.strictEqual(config.cnyRate, 6.958, 'market 7.1 minus 2%');
   const pub = fx.publicRates();
   assert.strictEqual(pub.base, 'USD');
-  assert.strictEqual(pub.rates.SAR, 3.75);
-  assert.strictEqual(pub.rates.XXX, undefined, 'only known display currencies');
+  assert.strictEqual(pub.rates.SAR, undefined, 'only USD, EUR and GBP');
+  assert.strictEqual(pub.rates.EUR, 0.9292, 'EUR with the 1% conversion margin');
+  assert.deepStrictEqual(['GB', 'MT', 'DE', 'SE', 'SA', 'US', 'EG'].map(fx.currencyFor), ['GBP', 'EUR', 'EUR', 'EUR', 'USD', 'USD', 'USD']);
   await fx.refresh();
   assert.strictEqual(calls, 1, 'fresh rates are not fetched again');
   assert.strictEqual(fx.status().cny_market, 7.1);

@@ -214,7 +214,15 @@
 <script>
 // The platform owner has full access to every app: act as this app's role
 const asMe = (u) => (u && u.owner ? { ...u, role: 'buyer' } : u);
-const { $, $$, esc, money, date, plain, api, toast, ICONS, ORDER_STATUS, pill } = K;
+const { $, $$, esc, date, plain, api, toast, ICONS, ORDER_STATUS, pill } = K;
+/** Prices are shown in the customer's currency (USD, EUR or GBP by country), at the same rate they are charged. */
+function money(n, cur) {
+  const base = String((cfg.fx && cfg.fx.base) || cfg.currency || 'USD').toUpperCase();
+  const from = String(cur || base).toUpperCase();
+  const to = Locale.get().currency; const r = cfg.fx && cfg.fx.rates && cfg.fx.rates[to];
+  if (from === base && to !== base && r) return K.money(Math.round(Number(n || 0) * r * 100) / 100, to);
+  return K.money(n, from);
+}
 K.offerInstall({ name: 'Kinan Shop', icon: '/assets/icon-192.png' });
 let me = null, cfg = { currency: 'usd', shipping_flat: 0, payments: 'demo' };
 
@@ -235,41 +243,34 @@ const savedAddress = () => { try { return JSON.parse(localStorage.getItem('kinan
 
 // ---------- where the customer is and which currency they read prices in ----------
 const PIN_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
-const COUNTRY_CURRENCY = { SA: 'SAR', AE: 'AED', KW: 'KWD', QA: 'QAR', BH: 'BHD', OM: 'OMR', JO: 'JOD', IQ: 'IQD', EG: 'EGP', MA: 'MAD', DZ: 'DZD', TN: 'TND', LY: 'LYD', LB: 'LBP', SY: 'SYP', YE: 'YER', SD: 'SDG', TR: 'TRY', GB: 'GBP',
-  MT: 'EUR', DE: 'EUR', FR: 'EUR', IT: 'EUR', ES: 'EUR', NL: 'EUR', BE: 'EUR', AT: 'EUR', IE: 'EUR', GR: 'EUR', CY: 'EUR', PT: 'EUR', FI: 'EUR' };
+/** USD, EUR or GBP by country (decided by Kinan, the customer pays in it). */
+const currencyFor = (country) => ((cfg.currency_by_country || {})[country] || 'USD');
 const Locale = {
   get() {
     let s = {}; try { s = JSON.parse(localStorage.getItem('kinan_locale') || '{}'); } catch {}
     const guess = savedAddress().country_code || (navigator.language.split('-')[1] || '').toUpperCase() || 'SA';
     const country = s.country || guess;
-    return { country, currency: s.currency || COUNTRY_CURRENCY[country] || 'USD' };
+    return { country, currency: currencyFor(country), chosen: Boolean(s.country) };
   },
   set(v) { try { localStorage.setItem('kinan_locale', JSON.stringify({ ...Locale.get(), ...v })); } catch {} }
 };
-/** Approximate price in the customer's currency (they are charged in the sale currency). '' when it is the same currency. */
-function localPrice(amount, { approx = true } = {}) {
-  const { currency } = Locale.get(); const fx = cfg.fx || { base: 'USD', rates: { USD: 1 } };
-  if (!fx.rates[currency] || currency === fx.base) return '';
-  const v = amount * fx.rates[currency];
-  const digits = v >= 100 || ['IQD', 'LBP', 'SYP', 'YER', 'SDG', 'DZD'].includes(currency) ? 0 : 2;
-  let s; try { s = new Intl.NumberFormat(KinanLang.lang === 'ar' ? 'ar-u-nu-latn' : 'en', { style: 'currency', currency, maximumFractionDigits: digits, minimumFractionDigits: digits }).format(v); } catch { s = `${v.toFixed(digits)} ${currency}`; }
-  return (approx ? '≈ ' : '') + s;
-}
-/** Dialog: deliver-to country and display currency. */
-function pickLocale(after) {
+/** Prices are already shown in the customer's own currency: no second, approximate price any more. */
+function localPrice() { return ''; }
+/** Dialog: where the order goes. The country decides the shipping price and the currency (USD / EUR / GBP). */
+function pickLocale(after, first = false) {
   const cur = Locale.get(); const d = document.createElement('dialog');
-  const cs = Object.keys((cfg.fx && cfg.fx.rates) || { USD: 1 });
-  d.innerHTML = `<form method="dialog" class="stack" style="padding:20px"><h2>Deliver to</h2>
+  d.innerHTML = `<form method="dialog" class="stack" style="padding:20px;max-width:420px"><h2>${first ? 'Where should we deliver?' : 'Deliver to'}</h2>
+    <p class="muted" style="margin:0">Choose your country to see the full price with shipping, in your currency.</p>
     <label>Country<select name="country">${(cfg.countries || []).map(([c, n]) => `<option value="${esc(c)}" ${c === cur.country ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
-    <label>Show prices in<select name="currency">${cs.map((c) => `<option value="${c}" ${c === cur.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
-    <p class="muted small">You pay in ${esc((cfg.currency || 'usd').toUpperCase())}. Prices in other currencies are close estimates, updated daily.</p>
-    <div class="row"><button class="btn" value="ok">Save</button><button class="btn ghost" value="cancel">Cancel</button></div></form>`;
+    <div class="muted small" id="curnote"></div>
+    <div class="row"><button class="btn" value="ok">Save</button>${first ? '' : '<button class="btn ghost" value="cancel">Cancel</button>'}</div></form>`;
   document.body.append(d);
-  d.querySelector('[name=country]').onchange = (e) => { const c = COUNTRY_CURRENCY[e.target.value] || 'USD'; if (cs.includes(c)) d.querySelector('[name=currency]').value = c; };
-  d.onclose = () => { if (d.returnValue === 'ok') { const f = d.querySelector('form'); Locale.set({ country: f.country.value, currency: f.currency.value }); renderLocaleChip(); if (after) after(); } d.remove(); };
+  const note = () => { const c = currencyFor(d.querySelector('[name=country]').value); d.querySelector('#curnote').textContent = `Prices and payment in ${({ USD: 'US dollars (USD)', EUR: 'euros (EUR)', GBP: 'pounds sterling (GBP)' })[c] || c}.`; };
+  d.querySelector('[name=country]').onchange = note; note();
+  d.onclose = () => { if (d.returnValue === 'ok' || first) { const f = d.querySelector('form'); Locale.set({ country: f.country.value }); renderLocaleChip(); if (after) after(); } d.remove(); };
   d.showModal();
 }
-function localeLabel() { const l = Locale.get(); return `<span>${esc(countryName(l.country))}</span> · ${esc(l.currency)}`; }
+function localeLabel() { const l = Locale.get(); return `<span>${esc(countryName(l.country))}</span> · ${esc({ USD: '$ USD', EUR: '€ EUR', GBP: '£ GBP' }[l.currency] || l.currency)}`; }
 function renderLocaleChip() { $$('.locchip').forEach((b) => { b.innerHTML = `${PIN_IC}<span>Deliver to</span> <b>${localeLabel()}</b>`; b.onclick = () => pickLocale(route); }); }
 
 const OPT_AR = { color: 'اللون', colour: 'اللون', size: 'المقاس', style: 'النمط', type: 'النوع', model: 'الموديل', material: 'الخامة', capacity: 'السعة', length: 'الطول', option: 'الخيار', pattern: 'النقشة', specification: 'المواصفات', specs: 'المواصفات', quantity: 'الكمية', 'shoe size': 'مقاس الحذاء', 'plug type': 'نوع القابس' };
@@ -410,8 +411,8 @@ const shopLogo = (shop, size = '') => shop?.logo ? `<img class="slogo ${size}" s
 let filters = { sort: 'new', min_price: '', max_price: '' };
 const toolbar = () => `<form class="toolbar" id="tb">
     <select name="sort" aria-label="Sort"><option value="new">Newest</option><option value="price_asc">Price: low to high</option><option value="price_desc">Price: high to low</option></select>
-    <input name="min_price" type="number" min="0" step="1" placeholder="Min $" aria-label="Minimum price" value="${esc(filters.min_price)}">
-    <input name="max_price" type="number" min="0" step="1" placeholder="Max $" aria-label="Maximum price" value="${esc(filters.max_price)}">
+    <input name="min_price" type="number" min="0" step="1" placeholder="Min ${({ USD: "$", EUR: "€", GBP: "£" })[Locale.get().currency] || "$"}" aria-label="Minimum price" value="${esc(filters.min_price)}">
+    <input name="max_price" type="number" min="0" step="1" placeholder="Max ${({ USD: "$", EUR: "€", GBP: "£" })[Locale.get().currency] || "$"}" aria-label="Maximum price" value="${esc(filters.max_price)}">
     <button class="btn sm ghost">Apply</button></form>`;
 function wireToolbar(reload) {
   const f = $('#tb'); if (!f) return;
@@ -419,7 +420,8 @@ function wireToolbar(reload) {
   f.sort.onchange = () => f.requestSubmit();
   f.onsubmit = (e) => { e.preventDefault(); filters = { sort: f.sort.value, min_price: f.min_price.value, max_price: f.max_price.value }; reload(); };
 }
-const catalogQuery = (extra) => new URLSearchParams({ limit: 100, sort: filters.sort, ...(filters.min_price ? { min_price: filters.min_price } : {}), ...(filters.max_price ? { max_price: filters.max_price } : {}), ...extra }).toString();
+const toBase = (v) => { const r = (cfg.fx && cfg.fx.rates && cfg.fx.rates[Locale.get().currency]) || 1; return String(Math.round((Number(v) / r) * 100) / 100); };
+const catalogQuery = (extra) => new URLSearchParams({ limit: 100, sort: filters.sort, ...(filters.min_price ? { min_price: toBase(filters.min_price) } : {}), ...(filters.max_price ? { max_price: toBase(filters.max_price) } : {}), ...extra }).toString();
 const emptyFiltered = () => filters.min_price || filters.max_price;
 
 async function home(q = '', category = '') {
@@ -691,7 +693,18 @@ async function checkout() {
       paintTotal();
     } catch {}
   };
-  $('#af').country_code.onchange = requote; requote();
+  $('#af').country_code.onchange = () => {
+    const f = $('#af'); const code = f.country_code.value;
+    if (code && currencyFor(code) !== Locale.get().currency) {
+      // New currency: keep what was typed and show every amount again in the new currency
+      const keep = Object.fromEntries(['name', 'phone', 'line1', 'line2', 'city', 'postal_code', 'state', 'country_code'].map((k) => [k, f[k] ? f[k].value : '']));
+      try { localStorage.setItem('kinan_addr', JSON.stringify({ ...savedAddress(), ...keep })); } catch {}
+      Locale.set({ country: code }); checkout(); return;
+    }
+    if (code) Locale.set({ country: code });
+    requote();
+  };
+  requote();
   $$('#af [name=packaging]').forEach((r) => r.onchange = paintTotal);
   $('#cpf').onsubmit = async (e) => {
     e.preventDefault(); const code = e.target.code.value.trim(); $('#cpm').textContent = '';
@@ -1061,6 +1074,9 @@ function wireInstall() {
   K.analyticsConsent(cfg.analytics);
   if (cfg.whatsapp) { const a = document.createElement('a'); a.className = 'wafab'; a.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent('Hello Kinan')}`; a.target = '_blank'; a.rel = 'noopener'; a.setAttribute('aria-label', 'WhatsApp'); a.innerHTML = WA; document.body.append(a); }
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
+  // First visit: ask where to deliver, so every price shows with shipping, in the right currency
+  let asked = false; try { asked = localStorage.getItem('kinan_country_asked') === '1'; } catch {}
+  if (!loginError && !asked && !Locale.get().chosen && !savedAddress().country_code) setTimeout(() => { try { localStorage.setItem('kinan_country_asked', '1'); } catch {} pickLocale(route, true); }, 1200);
   K.registerSW();
 })();
 </script>

@@ -99,3 +99,24 @@ test('card payment flow', async () => {
   const cp3 = (await api('POST', `/api/buyer/orders/${o3.id}/card-payment`, null, cust)).body;
   assert.notStrictEqual(cp3.client_secret, `${id3}_secret`);
 });
+
+test('customers in the UK pay in GBP and in Europe in EUR; the order keeps USD inside', async () => {
+  const fx = require('../src/services/fx');
+  db.settings.get('set_fx') ? db.settings.update('set_fx', { base: 'USD', rates: { CNY: 7.1, EUR: 0.9, GBP: 0.8 }, updated_at: Date.now() }) : db.settings.insert({ id: 'set_fx', base: 'USD', rates: { CNY: 7.1, EUR: 0.9, GBP: 0.8 }, updated_at: Date.now() });
+  assert.strictEqual(fx.chargeRate('EUR'), 0.909);
+  const cust = await login('c@x.com', 'buyerpass1');
+  const p = db.listings.find((l) => l.title === 'Lamp');
+  db.listings.update(p.id, (x) => ({ ...x, skus: x.skus.map((s) => ({ ...s, stock: 50 })) }));
+  const buy = (country) => api('POST', '/api/buyer/checkout', { items: [{ listing_id: p.id, mp_sku_id: p.skus[0].mp_sku_id, qty: 1 }], shipping_address: { name: 'C', phone: '+44', country_code: country, city: 'X', line1: 'St 1' } }, cust);
+  const uk = (await buy('GB')).body;
+  const o = db.orders.get(uk.id);
+  assert.strictEqual(o.currency, 'usd'); assert.strictEqual(o.charge.currency, 'gbp'); assert.strictEqual(o.charge.total, Math.round(o.total * 0.808 * 100) / 100);
+  const pi = Object.values(intents).find((x) => x.metadata.order_id === o.id);
+  assert.strictEqual(pi.currency, 'gbp'); assert.strictEqual(pi.amount, Math.round(o.charge.total * 100));
+  const view = (await api('GET', `/api/buyer/orders/${o.id}`, null, cust)).body;
+  assert.strictEqual(view.currency, 'gbp'); assert.strictEqual(view.total, o.charge.total);
+  succeed(pi.id); await hook(pi);
+  assert.notStrictEqual(db.orders.get(o.id).status, 'pending_payment', 'GBP payment accepted');
+  const eu = db.orders.get((await buy('MT')).body.id); assert.strictEqual(eu.charge.currency, 'eur');
+  const us = db.orders.get((await buy('SA')).body.id); assert.strictEqual(us.charge, undefined);
+});

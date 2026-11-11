@@ -40,11 +40,14 @@ async function stripe(path, params, idempotencyKey, method = 'POST') {
   return j;
 }
 
+/** What the customer pays: the order total in their currency (EUR / GBP) when it has one, else the sale currency. */
+function chargeOf(o) { return o.charge && o.charge.currency ? { amount: o.charge.total, currency: o.charge.currency, rate: o.charge.rate } : { amount: o.total, currency: o.currency, rate: 1 }; }
+
 async function createPaymentIntent(order, attempt = 0) {
   if (demoMode()) return { provider: 'demo', intent_id: `demo_${order.id}`, client_secret: null, status: 'requires_payment_method' };
   const pi = await stripe('/payment_intents', {
-    amount: toMinor(order.total, order.currency),
-    currency: order.currency,
+    amount: toMinor(chargeOf(order).amount, chargeOf(order).currency),
+    currency: chargeOf(order).currency,
     automatic_payment_methods: { enabled: true },
     metadata: { order_id: order.id, buyer_id: order.buyer_id }
   }, `pi_${order.id}${attempt ? `_${attempt}` : ''}`);
@@ -71,7 +74,8 @@ async function refundIntent(id, reason = 'requested_by_customer') {
 
 async function refund(order, amount) {
   if (demoMode() || order.payment?.provider !== 'stripe') return { demo: true };
-  return stripe('/refunds', { payment_intent: order.payment.intent_id, amount: amount ? toMinor(amount, order.currency) : undefined }, `rf_${order.id}_${amount || 'full'}`);
+  const c = chargeOf(order); // amounts are in the sale currency; the card was charged in the customer's currency
+  return stripe('/refunds', { payment_intent: order.payment.intent_id, amount: amount ? toMinor(Math.min(c.amount, Math.round(amount * c.rate * 100) / 100), c.currency) : undefined }, `rf_${order.id}_${amount || 'full'}`);
 }
 
 // ---------- automatic setup: webhook endpoint + Apple Pay / Google Pay domain ----------
@@ -139,4 +143,4 @@ function verifyWith(rawBody, header, secret, now) {
 /** Money that was not really received: the old test button, or a card paid with Stripe test keys. */
 const isTestPayment = (o) => o?.payment?.provider === 'demo' || (o?.payment?.provider === 'stripe' && o.payment.mode === 'test');
 
-module.exports = { isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };
+module.exports = { chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };

@@ -50,8 +50,9 @@ async function dailyBackup() {
 function invoiceHtml(o) {
   const buyer = db.users.get(o.buyer_id) || {};
   const a = o.shipping_address || {};
-  const cur = (o.currency || config.currency).toUpperCase();
-  const fmt = (n) => { try { return Number(n).toLocaleString('en-US', { style: 'currency', currency: cur }); } catch { return `${n} ${cur}`; } };
+  // Customers in the UK / Europe paid in GBP / EUR: the invoice is in what they paid
+  const cur = (o.charge?.currency || o.currency || config.currency).toUpperCase(); const rate = o.charge?.rate || 1;
+  const fmt = (n) => { const v = Math.round(Number(n) * rate * 100) / 100; try { return v.toLocaleString('en-US', { style: 'currency', currency: cur }); } catch { return `${v} ${cur}`; } };
   const no = `KN-${new Date(o.paid_at || o.created_at).getFullYear()}-${o.id.slice(-8).toUpperCase()}`;
   const op = config.operator;
   const rows = o.lines.map((l) => `<tr><td>${esc(l.title)}${l.props ? `<div class="m">${esc(String(l.props).slice(0, 80))}</div>` : ''}</td><td class="r">${l.qty}</td><td class="r">${fmt(l.price)}</td><td class="r">${fmt(l.price * l.qty)}</td></tr>`).join('');

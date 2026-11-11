@@ -63,6 +63,14 @@ function validateAddress(a) {
   return out;
 }
 
+/** Customers in the UK pay in GBP and in Europe in EUR; the order itself stays in the sale currency (USD). */
+function chargeFor(total, country) {
+  const fx = require('./fx'); const cur = fx.currencyFor(country);
+  if (cur === config.currency.toUpperCase()) return {};
+  const rate = fx.chargeRate(cur);
+  return rate ? { charge: { currency: cur.toLowerCase(), rate, total: money(total * rate) } } : {};
+}
+
 const PACKAGING = { standard: 0, no_boxes: 0, protect: Number(process.env.PACKAGING_PROTECT_FEE ?? 2) };
 const STORAGE_DAYS = Number(process.env.STORAGE_DAYS || 30);
 
@@ -110,7 +118,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     buyer_id: buyer.id, lines, currency: config.currency, subtotal, shipping_fee: shipping,
     ...(disc ? { discount, coupon_code: disc.code, coupon_id: disc.coupon_id } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
-    total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
+    total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     ...(cjShip ? { cj_shipping: { method: cjShip.method, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
   });
@@ -155,7 +163,7 @@ async function cardPayment(orderId, buyer) {
   if (o.status !== 'pending_payment') throw httpError(409, 'This order is already paid');
   if (stripe.demoMode()) throw httpError(409, 'Card payments are not switched on yet');
   const p = o.payment || {};
-  const want = stripe.toMinor(o.total, o.currency);
+  const want = stripe.toMinor(stripe.chargeOf(o).amount, stripe.chargeOf(o).currency);
   if (p.provider === 'stripe' && p.client_secret && (p.amount === undefined || p.amount === want)) {
     // Reuse it unless Stripe says it can no longer be paid
     const pi = await stripe.retrieveIntent(p.intent_id).catch(() => null);
@@ -176,7 +184,8 @@ async function stripePaid(pi) {
   const orderId = pi.metadata && pi.metadata.order_id;
   const o = orderId && db.orders.get(orderId);
   if (!o) { console.warn('[stripe] payment for unknown order', pi.id); return null; }
-  const amountOk = pi.amount_received === stripe.toMinor(o.total, o.currency) && String(pi.currency).toLowerCase() === String(o.currency).toLowerCase();
+  const ch = stripe.chargeOf(o);
+  const amountOk = pi.amount_received === stripe.toMinor(ch.amount, ch.currency) && String(pi.currency).toLowerCase() === String(ch.currency).toLowerCase();
   if (o.status === 'pending_payment' && amountOk) {
     if (o.payment?.intent_id !== pi.id) db.orders.update(o.id, (x) => ({ ...x, payment: { ...x.payment, provider: 'stripe', intent_id: pi.id } }));
     return markPaid(o.id, { provider: 'stripe', intent_id: pi.id });
@@ -499,6 +508,14 @@ function decorate(o) {
 
 /** Buyer view hides cost, Taobao IDs and seller-side details. */
 function buyerView(o) {
+  const v = buyerViewBase(o);
+  if (!o.charge) return v;
+  // The customer paid in EUR / GBP: show every amount in that currency, at the rate of the payment
+  const r = o.charge.rate; const c = (n) => (n ? money(n * r) : n);
+  return { ...v, currency: o.charge.currency, subtotal: c(v.subtotal), shipping_fee: c(v.shipping_fee), total: o.charge.total, discount: c(v.discount), packaging_fee: c(v.packaging_fee), shipping_due: c(v.shipping_due),
+    shipping_settled: v.shipping_settled ? { ...v.shipping_settled, diff: c(v.shipping_settled.diff) } : null, lines: v.lines.map((l) => ({ ...l, price: c(l.price) })), charged: { currency: o.charge.currency, total: o.charge.total } };
+}
+function buyerViewBase(o) {
   const shipment = o.shipment_id ? db.shipments.get(o.shipment_id) : null;
   return {
     id: o.id, status: o.status, status_label: ORDER_STATUS_LABEL[o.status], currency: o.currency,

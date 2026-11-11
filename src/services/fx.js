@@ -12,7 +12,7 @@ const db = require('../db');
 const { config } = require('../config');
 
 const SID = 'set_fx';
-const DISPLAY = ['USD', 'SAR', 'AED', 'KWD', 'QAR', 'BHD', 'OMR', 'JOD', 'IQD', 'EGP', 'MAD', 'DZD', 'TND', 'LYD', 'LBP', 'SYP', 'YER', 'SDG', 'TRY', 'EUR', 'GBP'];
+const DISPLAY = ['USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR', 'BHD', 'OMR', 'JOD', 'IQD', 'EGP', 'MAD', 'DZD', 'TND', 'LYD', 'LBP', 'SYP', 'YER', 'SDG', 'TRY', 'EUR', 'GBP'];
 const ENV_RATE = Number(process.env.CNY_PER_SALE_UNIT) || 0; // a fixed rate set by hand wins over the automatic one
 const BUFFER = Math.min(10, Math.max(0, Number(process.env.FX_CNY_BUFFER_PCT ?? 2))) / 100;
 const MAX_AGE = 20 * 3600e3;
@@ -47,8 +47,8 @@ function publicRates() {
   const s = saved();
   const base = config.currency.toUpperCase();
   const rates = { [base]: 1 };
-  if (s && s.base === base) for (const c of DISPLAY) if (s.rates[c] > 0) rates[c] = s.rates[c];
-  return { base, rates, updated_at: s ? s.updated_at : null };
+  for (const [c, v] of Object.entries(chargeRates())) rates[c] = v;
+  return { base, rates, currencies: CHARGE, updated_at: s ? s.updated_at : null };
 }
 
 function status() {
@@ -56,4 +56,28 @@ function status() {
   return { cny_market: s?.rates?.CNY || null, cny_used: config.cnyRate, buffer_pct: BUFFER * 100, fixed_by_env: Boolean(ENV_RATE), updated_at: s?.updated_at || null };
 }
 
-module.exports = { refresh, apply, publicRates, status, DISPLAY };
+// ---------------- the currency a customer pays in: USD, EUR or GBP by country ----------------
+const CHARGE = ['USD', 'EUR', 'GBP'];
+const EUR_COUNTRIES = new Set(['AT', 'BE', 'HR', 'CY', 'EE', 'FI', 'FR', 'DE', 'GR', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PT', 'SK', 'SI', 'ES', 'AD', 'MC', 'SM', 'VA', 'ME', 'XK',
+  'SE', 'DK', 'PL', 'CZ', 'HU', 'RO', 'BG', 'NO', 'CH', 'IS', 'LI', 'AL', 'BA', 'MK', 'RS', 'MD']); // other European countries pay in euros too
+/** United Kingdom → GBP, Europe → EUR, everyone else → USD. */
+function currencyFor(country) {
+  const c = String(country || '').toUpperCase();
+  if (['GB', 'GG', 'JE', 'IM', 'GI'].includes(c)) return 'GBP';
+  return EUR_COUNTRIES.has(c) ? 'EUR' : 'USD';
+}
+// Card payments in another currency cost a conversion fee: a small margin (FX_CHARGE_BUFFER_PCT, default 1%) covers it
+const CHARGE_BUFFER = Math.min(5, Math.max(0, Number(process.env.FX_CHARGE_BUFFER_PCT ?? 1))) / 100;
+/** How many units of `cur` one unit of the sale currency costs the customer (1 for the sale currency itself). */
+function chargeRate(cur) {
+  const base = config.currency.toUpperCase(); cur = String(cur || base).toUpperCase();
+  if (cur === base) return 1;
+  const s = saved();
+  const r = s && s.base === base ? s.rates[cur] : null;
+  if (!(r > 0)) return null;
+  return Math.round(r * (1 + CHARGE_BUFFER) * 1e6) / 1e6;
+}
+/** Rates the shop uses to show prices (same rates the customer is charged with). */
+function chargeRates() { return Object.fromEntries(CHARGE.map((c) => [c, chargeRate(c)]).filter(([, v]) => v > 0)); }
+
+module.exports = { refresh, apply, publicRates, status, DISPLAY, CHARGE, currencyFor, chargeRate, chargeRates };
