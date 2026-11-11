@@ -222,7 +222,7 @@ async function freightOptions(countryCode, items) {
  * otherwise CJ is asked in the background (1 request per second) and null is returned for now.
  */
 const SHIP_TTL = 3 * 86400e3;
-const warm = new Set(); let warming = false;
+const warm = new Set(); let warming = false; let stats = { done: 0, failed: 0, none: 0, last_error: null };
 const cheapestVid = (l) => [...(l.skus || [])].filter((x) => x.cj_vid).sort((a, b) => a.price - b.price)[0]?.cj_vid || null;
 function cachedFee(l, countryCode) {
   if (!countryCode || l.source !== 'cj') return null;
@@ -239,12 +239,18 @@ async function warmUp() {
       const [cc, id] = key.split('|'); const l = db.listings.get(id); const vid = l && cheapestVid(l);
       if (!vid) continue;
       const k = l.cj_ship && l.cj_ship[cc]; if (k && now() - k.at < SHIP_TTL && k.vid === vid) continue;
-      try {
-        const o = choose(await freightOptions(cc, [{ vid, qty: 1 }]));
-        db.listings.update(id, (x) => ({ ...x, cj_ship: { ...(x.cj_ship || {}), [cc]: { fee: o ? o.fee : FALLBACK, vid, at: now(), estimated: !o } } }));
-      } catch { /* try again on a later visit */ }
+      let fee = FALLBACK; let estimated = true;
+      try { const o = choose(await freightOptions(cc, [{ vid, qty: 1 }])); if (o) { fee = o.fee; estimated = false; } else stats.none++; }
+      catch (e) { stats.failed++; stats.last_error = e.message; }
+      // CJ has no price for it (or did not answer): use the same standard shipping the product page and checkout use
+      db.listings.update(id, (x) => ({ ...x, cj_ship: { ...(x.cj_ship || {}), [cc]: { fee, vid, at: estimated ? now() - SHIP_TTL + 3600e3 : now(), estimated } } }));
+      stats.done++;
     }
-  } finally { warming = false; }
+  } finally {
+    warming = false;
+    if (stats.done) console.log(`[cj] shipping prices worked out for ${stats.done} product(s)${stats.failed ? `, ${stats.failed} failed (${stats.last_error})` : ''}${stats.none ? `, ${stats.none} with no CJ method` : ''}`);
+    stats = { done: 0, failed: 0, none: 0, last_error: null };
+  }
 }
 /** A customer saved their address: work out CJ shipping to their country for every CJ product in the shop. */
 function prepareCountry(countryCode) {
