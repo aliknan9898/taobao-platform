@@ -69,8 +69,15 @@ const K = (() => {
     return m || '';
   }
 
+  // Kinan's own social accounts (shown in every footer)
+  const SOCIAL = [
+    ['Facebook', 'https://www.facebook.com/share/1EAZsSzckL/', '<path d="M14 8h3V4h-3a4 4 0 0 0-4 4v3H7v4h3v7h4v-7h3l1-4h-4V8z"/>'],
+    ['Instagram', 'https://www.instagram.com/kinanshop4u', '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.6"/>'],
+    ['TikTok', 'https://www.tiktok.com/@kinan.shop4u', '<path d="M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5"/><path d="M14 3c.5 3 2.5 5 5.5 5"/>']
+  ];
   function footer(owner = 'Ali Almadhoun Mohammed Kinan') {
-    return `<footer class="sitefoot"><div class="wrap"><nav aria-label="Legal"><a href="/terms">Terms</a><a href="/seller-terms">Seller Terms</a><a href="/privacy">Privacy</a><a href="/legal">Legal notice</a></nav>
+    const social = SOCIAL.map(([n, u, d]) => `<a href="${u}" target="_blank" rel="noopener" aria-label="Kinan on ${n}" title="${n}"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg></a>`).join('');
+    return `<footer class="sitefoot"><div class="wrap"><nav class="social" aria-label="Follow Kinan">${social}</nav><nav aria-label="Legal"><a href="/terms">Terms</a><a href="/seller-terms">Seller Terms</a><a href="/privacy">Privacy</a><a href="/legal">Legal notice</a></nav>
       <p>© ${new Date().getFullYear()} ${esc(owner)}. All rights reserved. Kinan is a trading name of ${esc(owner)}.</p></div></footer>`;
   }
 
@@ -200,5 +207,5 @@ const K = (() => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show); else setTimeout(show, 50);
   }
 
-  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
+  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, SOCIAL, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
 })();
