@@ -38,6 +38,7 @@ global.fetch = async (url, opts = {}) => {
     return ok({ sale_record_id: body.get('sale_record_id'), product_total: 1, success_total: 1, failure_total: 0, failure_list: [] });
   }
   if (u.pathname === '/order/getOrderInfo') return ok({ sale_record_id_list: [{ sale_record_id: q.sale_record_id, order_list: [{ order_id: '9001', status: orderState, total_amount: '21.00' }] }] });
+  if (u.pathname === '/order/getOrderHistory') { assert.strictEqual(q.order_id, '9001'); return ok({ track_number: orderState === 'Shipped' ? 'LX987654321GB' : '', order_history: [{ status: 'Payment Pending', date_add: '2026-11-11 10:00:00' }, ...(orderState === 'Shipped' ? [{ status: 'Shipped', date_add: '2026-11-12 09:00:00' }] : [])] }); }
   if (u.pathname === '/order/getTrackInfo') return ok({ track_info: orderState === 'Shipped' ? [{ event: 'Shipped with Royal Mail RR123456789GB', time: '2026-11-12 10:00:00' }] : [] });
   throw new Error(`unexpected ${u.pathname}`);
 };
@@ -92,7 +93,7 @@ test('Banggood: import, checkout shipping, order, paid by hand, tracking', async
   await require('../src/services/orders').syncSub(o.id, sub.outer_purchase_id);
   sub = db.orders.get(o.id).sub_orders.find((s) => s.source === 'banggood');
   assert.strictEqual(sub.status, 'AE_SHIPPED');
-  assert.strictEqual(sub.logistics[0].tracking, 'RR123456789GB');
+  assert.strictEqual(sub.logistics[0].tracking, 'LX987654321GB', 'tracking number from getOrderHistory');
   assert.strictEqual(tokens, 1, 'token reused');
 });
 
@@ -101,6 +102,7 @@ test('Banggood country names and status mapping', () => {
   assert.strictEqual(b.countryName('GB'), 'united kingdom');
   assert.strictEqual(b.countryName('SY'), 'syrian arab republic');
   assert.strictEqual(b.mapStatus('Unpaid'), 'AE_PLACED');
+  assert.strictEqual(b.mapStatus('Payment Pending'), 'AE_PLACED');
   assert.strictEqual(b.mapStatus('Processing'), 'AE_PAID');
   assert.strictEqual(b.mapStatus('Cancelled'), 'AE_CANCELLED');
   assert.strictEqual(b.parseRef('https://www.banggood.com/x-p-1234567.html?rmmds=x'), '1234567');

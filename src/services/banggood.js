@@ -331,7 +331,7 @@ function mapStatus(s) {
   if (/cancel|closed|refund/.test(t)) return 'AE_CANCELLED';
   if (/deliver|received|complete/.test(t)) return 'AE_DELIVERED';
   if (/ship|dispatch|transit/.test(t)) return 'AE_SHIPPED';
-  if (/unpaid|pending payment|wait.*pay|not paid|awaiting payment/.test(t)) return 'AE_PLACED';
+  if (/unpaid|payment pending|pending payment|wait.*pay|not paid|awaiting payment/.test(t)) return 'AE_PLACED';
   if (/paid|process|prepar|pack|confirm|pending/.test(t)) return 'AE_PAID';
   return null;
 }
@@ -351,6 +351,25 @@ async function sync(sub) {
     if (sts.length && sts.every((x) => x === 'AE_CANCELLED')) sub.status = 'AE_CANCELLED';
     else { const lowest = sts.filter((x) => x !== 'AE_CANCELLED').sort((a, b) => rank.indexOf(a) - rank.indexOf(b))[0]; if (lowest && rank.indexOf(lowest) > rank.indexOf(sub.status)) sub.status = lowest; }
   }
+  // Status history and the tracking number (getOrderHistory) for each Banggood order
+  const rank = ['AE_TO_BUY', 'AE_PLACED', 'AE_PAID', 'AE_SHIPPED', 'AE_DELIVERED'];
+  for (const id of sub.purchase_ids || []) {
+    try {
+      const h = await bg.call('GET', 'order/getOrderHistory', { sale_record_id: sub.sale_record_id, order_id: id });
+      const hist = arr(h.order_history).map((x) => ({ status: str(x.status, 120), at: str(x.date_add, 40) }));
+      if (hist.length) {
+        sub.bg_history = hist.slice(-30);
+        const latest = [...hist].sort((a, b) => String(a.at).localeCompare(String(b.at))).pop();
+        const st = mapStatus(latest.status);
+        if (st === 'AE_CANCELLED') sub.status = st;
+        else if (st && rank.indexOf(st) > rank.indexOf(sub.status)) sub.status = st;
+        sub.bg_status = latest.status;
+      }
+      const tn = str(h.track_number, 60);
+      if (tn && !(sub.logistics || []).some((x) => x.tracking === tn)) sub.logistics = [...(sub.logistics || []).filter((x) => x.order_id !== id), { carrier: 'Banggood', tracking: tn, url: `https://t.17track.net/en#nums=${encodeURIComponent(tn)}`, order_id: id }];
+      if (tn && ['AE_PLACED', 'AE_PAID'].includes(sub.status)) sub.status = 'AE_SHIPPED';
+    } catch { /* not available yet */ }
+  }
   // Tracking events for each Banggood order
   const events = [];
   for (const id of sub.purchase_ids || []) {
@@ -359,7 +378,7 @@ async function sync(sub) {
   if (events.length) {
     sub.track_events = events.slice(-40);
     const tn = events.map((e) => e.event.match(/\b([A-Z]{2}\d{9}[A-Z]{2}|[A-Z0-9]{10,30})\b/)).find(Boolean);
-    if (tn && !(sub.logistics || []).some((x) => x.tracking === tn[1])) sub.logistics = [{ carrier: 'Banggood', tracking: tn[1], url: `https://t.17track.net/en#nums=${tn[1]}` }];
+    if (tn && !(sub.logistics || []).length) sub.logistics = [{ carrier: 'Banggood', tracking: tn[1], url: `https://t.17track.net/en#nums=${tn[1]}` }];
     if (sub.status === 'AE_PAID' || sub.status === 'AE_PLACED') sub.status = 'AE_SHIPPED';
     if (events.some((e) => /deliver/i.test(e.event))) sub.status = 'AE_DELIVERED';
   }
