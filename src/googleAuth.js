@@ -10,7 +10,7 @@
 const crypto = require('crypto');
 const db = require('./db');
 const { config } = require('./config');
-const { httpError, createSession, isOwner } = require('./auth');
+const { httpError, createSession, isOwner, ownerEmail, secureOwnerLink } = require('./auth');
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -46,11 +46,14 @@ function adminUser(claims) {
   const email = String(claims.email || '').toLowerCase();
   if (!config.adminGoogleEmails.includes(email)) throw httpError(403, 'This Google account is not allowed to open the admin dashboard');
   const mine = db.users.all((x) => x.email === email);
-  let u = mine.find((x) => x.role === 'admin') || mine.find((x) => isOwner(x) && x.role !== 'buyer') || mine.find((x) => x.role === 'buyer') || mine[0];
+  // Google has confirmed the address, so every account with it is this person's (ownerEmail: they may not be linked yet)
+  let u = mine.find((x) => x.role === 'admin') || mine.find((x) => ownerEmail(x.email) && x.role !== 'buyer') || mine.find((x) => x.role === 'buyer') || mine[0];
+  if (u && u.google_sub && u.google_sub !== claims.sub) throw httpError(403, 'Google account mismatch');
+  if (u && !u.google_sub) u = secureOwnerLink(u); // first link: drop a password or sessions someone else may have set up on it
   // The owner often signs in to the shop first with the same Gmail: an allowlisted customer account becomes the admin account
   if (u && u.role === 'buyer') u = db.users.update(u.id, { role: 'admin' });
   // The owner keeps their existing role (e.g. seller) and still gets the admin dashboard — see requireRole
-  if (u && u.role !== 'admin' && !isOwner(u)) throw httpError(409, `${email} is already a ${u.role} account — use another Gmail for the admin dashboard`);
+  if (u && u.role !== 'admin' && !ownerEmail(u.email)) throw httpError(409, `${email} is already a ${u.role} account — use another Gmail for the admin dashboard`);
   if (u && u.google_sub && u.google_sub !== claims.sub) throw httpError(403, 'Google account mismatch');
   if (!u) u = db.users.insert({ email, name: String(claims.name || 'Admin').slice(0, 80), role: 'admin', status: 'active', pass: null, google_sub: claims.sub });
   else if (!u.google_sub) u = db.users.update(u.id, { google_sub: claims.sub });
@@ -64,8 +67,12 @@ function upsertUser(claims, app, lang) {
   const role = APPS[app].role;
   // The same Gmail can have a customer account and a seller account: use the one for this app
   const mine = db.users.all((x) => x.google_sub === claims.sub || x.email === email);
-  const owner = mine.find((x) => isOwner(x));
-  if (owner) return owner.google_sub ? owner : db.users.update(owner.id, { google_sub: claims.sub });
+  // The owner: Google confirms the address, so their accounts are found by it (and secured when first linked)
+  const owner = mine.find((x) => isOwner(x)) || (ownerEmail(email) && (mine.find((x) => x.role === role) || mine.find((x) => ['buyer', 'seller'].includes(x.role))));
+  if (owner) {
+    if (owner.google_sub && owner.google_sub !== claims.sub) throw httpError(403, 'Google account mismatch');
+    return owner.google_sub ? owner : db.users.update(secureOwnerLink(owner).id, { google_sub: claims.sub });
+  }
   if (mine.some((x) => !['buyer', 'seller'].includes(x.role))) throw httpError(403, 'Staff accounts must sign in with email and password');
   let u = mine.find((x) => x.role === role);
   if (u) {
@@ -113,4 +120,4 @@ async function finish(code, st, home) {
   return { token, role: st.app === 'seller' ? 'seller' : 'buyer', redirect: `${home}${st.app === 'admin' ? '' : st.next || (st.app === 'shop' ? '#/' : '')}` };
 }
 
-module.exports = { enabled, authorizeUrl, callback, safeNext };
+module.exports = { enabled, authorizeUrl, callback, safeNext, _upsertUser: upsertUser };

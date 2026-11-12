@@ -31,8 +31,14 @@ function checkPassword(pw, stored) {
 }
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
-/** The platform owner: an address on the admin allowlist (ADMIN_EMAIL / ADMIN_GOOGLE_EMAILS). Has full access to every app. */
-const isOwner = (u) => Boolean(u && u.email && config.adminGoogleEmails.includes(String(u.email).toLowerCase()));
+/** An address on the admin allowlist (ADMIN_EMAIL / ADMIN_GOOGLE_EMAILS). */
+const ownerEmail = (e) => Boolean(e && config.adminGoogleEmails.includes(String(e).trim().toLowerCase()));
+/**
+ * The platform owner: an allowlisted address that is PROVEN — the admin account, or an account Google has confirmed
+ * (signed in with Google at least once). An allowlisted email typed into a sign-up form proves nothing, so it gives no rights.
+ * Has full access to every app.
+ */
+const isOwner = (u) => Boolean(u && u.email && ownerEmail(u.email) && (u.role === 'admin' || u.google_sub));
 const publicUser = (u) => u && { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, seller_id: u.seller_id, owner: isOwner(u) || undefined };
 
 /** The owner's seller shop (created on first use, already approved). */
@@ -60,6 +66,8 @@ function register({ email, password, name, role, shop_name, lang }) {
   if (!validEmail(email)) throw httpError(400, 'Invalid email');
   if (!password || password.length < 8) throw httpError(400, 'Password must be at least 8 characters');
   email = email.trim().toLowerCase();
+  // The owner's addresses sign in with Google only: nobody can claim them with a password
+  if (ownerEmail(email)) throw httpError(409, 'This email signs in with Google — tap “Continue with Google”');
   const same = usersByEmail(email);
   if (same.some((u) => u.role === role || isStaff(u))) throw httpError(409, role === 'seller' ? 'This email already has a seller account — sign in instead' : 'This email already has a Kinan Shop account — sign in instead');
   const user = db.users.insert({ email, name: String(name || '').slice(0, 80), role, status: 'active', pass: hashPassword(password), lang: ['ar', 'en'].includes(lang) ? lang : null });
@@ -89,8 +97,10 @@ function login(email, password, app) {
   const role = APP_ROLE[app];
   // The app's own account first; staff and the owner can sign in anywhere
   const list = role ? all.filter((u) => u.role === role || isStaff(u) || isOwner(u)) : all;
-  const u = list.find((x) => x.pass && checkPassword(String(password || ''), x.pass));
+  // The owner's addresses (except the admin account set up with ADMIN_PASSWORD) sign in with Google only
+  const u = list.find((x) => x.pass && !(ownerEmail(x.email) && x.role !== 'admin') && checkPassword(String(password || ''), x.pass));
   if (!u) {
+    if (list.some((x) => ownerEmail(x.email) && x.role !== 'admin')) throw httpError(401, 'This account uses Google sign-in — tap “Continue with Google”');
     if (list.some((x) => !x.pass && x.google_sub)) throw httpError(401, 'This account uses Google sign-in — tap “Continue with Google”');
     if (role && !list.length && all.length) throw httpError(401, role === 'seller' ? 'This email has no seller account yet — tap “Open a shop”' : 'This email has no Kinan Shop account yet — tap “Create account”');
     throw httpError(401, 'Incorrect email or password');
@@ -176,6 +186,34 @@ function bootstrapAdmin() {
 // ---------- password reset ----------
 const RESET_TTL = 3600e3;
 /** One-hour, single-use reset token. Only its hash is stored. */
+/**
+ * Google has just confirmed this address for an account that was not linked to Google yet. For the owner's addresses,
+ * a password or sessions on it may have been set up by someone else (sign-ups were not checked before): drop them.
+ */
+function secureOwnerLink(u) {
+  if (!u || !ownerEmail(u.email) || u.role === 'admin') return u;
+  for (const x of db.sessions.all((t) => t.user_id === u.id)) db.sessions.remove(x.id);
+  return u.pass ? db.users.update(u.id, { pass: null }) : u;
+}
+
+/**
+ * Once, after the update that made Google the owner's only way in: owner-address accounts that Google never confirmed
+ * lose their password and sessions (they may not be the owner's). The owner signs in again with Google.
+ */
+function secureOwnerAccounts() {
+  if (db.settings.get('set_owner_secured_v1')) return 0;
+  let n = 0;
+  for (const u of db.users.all((x) => ownerEmail(x.email) && x.role !== 'admin')) {
+    const sessions = db.sessions.all((t) => t.user_id === u.id);
+    for (const x of sessions) db.sessions.remove(x.id);
+    if (u.pass) db.users.update(u.id, { pass: null });
+    if (sessions.length || u.pass) n++;
+  }
+  db.settings.insert({ id: 'set_owner_secured_v1', at: Date.now(), accounts: n });
+  if (n) console.log(`[auth] owner email accounts secured: ${n} (sign in with Google)`);
+  return n;
+}
+
 function createResetToken(user) {
   for (const t of db.tokens.all((x) => x.kind === 'reset' && x.user_id === user.id)) db.tokens.remove(t.id);
   const token = crypto.randomBytes(32).toString('base64url');
@@ -194,4 +232,4 @@ function resetPassword(token, password) {
   return createSession(db.users.get(u.id));
 }
 
-module.exports = { isOwner, isStaff, usersByEmail, APP_ROLE, cookieName, sellerContext, tokenFromRequest, STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };
+module.exports = { isOwner, ownerEmail, secureOwnerLink, secureOwnerAccounts, isStaff, usersByEmail, APP_ROLE, cookieName, sellerContext, tokenFromRequest, STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };
