@@ -45,6 +45,7 @@ function authUrl() {
   if (!configured()) throw httpError(503, 'eBay keys are not set yet (EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_RUNAME)');
   const state = crypto.randomBytes(16).toString('hex');
   db.oauthStates.insert({ state, kind: 'ebay', created_at: Date.now() });
+  console.log(`[ebay] Connect pressed — sending the admin to eBay (${env()}, RuName ${process.env.EBAY_RUNAME})`);
   // eBay wants spaces in scope as %20 (URLSearchParams would write "+")
   const enc = encodeURIComponent;
   return `${authBase()}/oauth2/authorize?client_id=${enc(process.env.EBAY_CLIENT_ID)}&redirect_uri=${enc(process.env.EBAY_RUNAME)}&response_type=code&scope=${enc(SCOPES.join(' '))}&state=${state}&prompt=login`;
