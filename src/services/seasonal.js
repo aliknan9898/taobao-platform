@@ -91,7 +91,7 @@ function groupFor(title, fallback) {
 }
 
 // ---------------- import ----------------
-const RULES = 3; // import rules version: a deploy with new rules tops the collection up once by itself
+const RULES = 4; // import rules version: a deploy with new rules tops the collection up once by itself
 const STATE = (id) => `set_collection_${id}`;
 const state = (id = 'christmas') => db.settings.get(STATE(id)) || { running: false };
 const setState = (id, patch) => (db.settings.get(STATE(id)) ? db.settings.update(STATE(id), patch) : db.settings.insert({ id: STATE(id), ...patch }));
@@ -107,19 +107,23 @@ function prefs(o = {}) {
 }
 
 /** Candidates for one keyword: products with stock in a European CJ warehouse, most-listed first. */
-async function candidates(cjc, keyword, p, have) {
+async function candidates(cjc, keyword, p, have, tried = new Set()) {
   const out = [];
   let lastFull = false;
-  for (const cc of WAREHOUSES()) for (const page of [1, 2]) {
+  // First CJ-verified stock, then (when still short) suppliers' stock kept in the same European/UK warehouses —
+  // every pick is still checked for stock in that warehouse and a real CJ shipping method before it is added.
+  const passes = VERIFIED ? [1, 0] : [0];
+  for (const verified of passes) for (const cc of WAREHOUSES()) for (const page of [1, 2]) {
     if (out.length >= PER_KEYWORD) break;
     if (page === 2 && !lastFull) continue; // a second page only when the first one was full
     let d;
-    try { d = await cjc.call('GET', '/product/listV2', { query: { keyWord: keyword, countryCode: cc, page, size: 50, orderBy: 1, sort: 'desc', verifiedWarehouse: VERIFIED ? 1 : undefined, startSellPrice: p.min_cost || undefined, endSellPrice: p.max_cost } }); }
+    try { d = await cjc.call('GET', '/product/listV2', { query: { keyWord: keyword, countryCode: cc, page, size: 50, orderBy: 1, sort: 'desc', verifiedWarehouse: verified ? 1 : undefined, startSellPrice: p.min_cost || undefined, endSellPrice: p.max_cost } }); }
     catch (e) { if (/limit|busy|429/i.test(e.message)) throw e; continue; }
     const found = list(d?.content).flatMap((c) => list(c.productList));
     lastFull = found.length >= 50;
     for (const x of found) {
       const pid = String(x.id || x.pid || ''); const title = x.nameEn || x.productNameEn || '';
+      if (tried.has(pid)) continue; // turned down before (no stock or no shipping from that warehouse)
       const cost = Number(String(x.sellPrice ?? '').split(/[-–]/)[0]);
       if (!pid || have.has(pid) || out.some((o) => o.pid === pid) || !XMAS_RE.test(title) || NOT_HERE.test(title) || require('./cj').BLOCK.test(title)) continue;
       if (!(cost >= p.min_cost && cost <= p.max_cost) || !(x.bigImage || x.productImage)) continue;
@@ -142,13 +146,15 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
   const already = members(id).filter((l) => l.status === 'active' || (l.status === 'pending_review' && l.review?.auto === 'ai')).length; // incl. ones waiting for the AI check
   const target = Math.max(0, p.count - already);
   const st = { v: RULES, running: true, started_at: now(), by, target: p.count, had: already, added: 0, checked: 0, skipped: 0, reasons: {}, error: null, prefs: p };
-  const skip = (why) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; };
+  const tried = new Set(list(s0.tried)); // CJ products turned down by earlier imports
+  const skip = (why, pid) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (pid) tried.add(pid); st.tried = [...tried].slice(-5000); };
+  st.tried = [...tried];
   setState(id, st);
   console.log(`[xmas] import started — ${target} to add (${already} already in the collection)`);
   try {
     // 1) candidates per keyword (round-robin later, so every group is represented)
     const pools = [];
-    for (const [group, g] of Object.entries(c.groups)) for (const kw of g.keywords) pools.push({ group, kw, items: await candidates(cjc, kw, p, have) });
+    for (const [group, g] of Object.entries(c.groups)) for (const kw of g.keywords) pools.push({ group, kw, items: await candidates(cjc, kw, p, have, tried) });
     st.candidates = pools.reduce((a, x) => a + x.items.length, 0); setState(id, { ...st });
     // 2) take them in turns
     for (let round = 0; st.added < target && pools.some((x) => x.items.length > round); round++) {
@@ -160,16 +166,16 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
         let l;
         try {
           l = await cj.publish(kinan, { ref: { pid: cand.pid }, from: cand.from, markup_pct: p.markup_pct, category: cj.guessCategory(`${cand.title}`) === 'other' ? 'home' : cj.guessCategory(cand.title), extra: { collections: [id], collection_group: group } });
-        } catch (e) { skip(/stock|price/i.test(e.message) ? 'no price' : 'not available'); st.last_item_error = e.message; continue; }
-        if (l.cj_from !== cand.from) { db.listings.remove(l.id); skip('not in a European warehouse'); continue; }
-        if (!l.skus.some((k) => k.stock >= p.min_stock) || NOT_HERE.test(`${l.title} ${l.description}`) || cj.BLOCK.test(`${l.title} ${l.description}`)) { db.listings.remove(l.id); skip('low stock or not suitable'); continue; }
+        } catch (e) { skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', cand.pid); st.last_item_error = e.message; continue; }
+        if (l.cj_from !== cand.from) { db.listings.remove(l.id); skip('not in a European warehouse', cand.pid); continue; }
+        if (!l.skus.some((k) => k.stock >= p.min_stock) || NOT_HERE.test(`${l.title} ${l.description}`) || cj.BLOCK.test(`${l.title} ${l.description}`)) { db.listings.remove(l.id); skip('low stock or not suitable', cand.pid); continue; }
         // a real CJ shipping method from that warehouse
         const vid = [...l.skus].filter((k) => k.stock > 0).sort((a, b) => a.price - b.price)[0]?.cj_vid;
         const dest = cand.from === 'GB' ? 'GB' : cand.from === 'DE' ? 'FR' : 'DE';
         let opt = null;
         const storage = [...new Set(l.skus.filter((k) => k.cj_vid === vid).flatMap((k) => k.cj_storage || []))];
         try { opt = cj.choose(await cj.freightOptions(dest, [{ vid, qty: 1 }], cand.from)); if (!opt && storage.length) opt = cj.choose(await cj.freightOptions(dest, [{ vid, qty: 1 }], cand.from, storage)); } catch (e) { st.last_item_error = e.message; }
-        if (!opt) { db.listings.remove(l.id); skip('no shipping from the warehouse'); continue; }
+        if (!opt) { db.listings.remove(l.id); skip('no shipping from the warehouse', cand.pid); continue; }
         const copy = templateCopy(l, group, cand.from);
         const cost = Math.min(...l.skus.map((k) => k.cost_sale));
         db.listings.update(l.id, (x) => ({
