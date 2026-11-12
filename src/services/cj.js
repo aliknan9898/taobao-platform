@@ -27,8 +27,10 @@ const PREFS = 'set_cj_prefs';
 const HOOKS = 'set_cj_webhooks';
 
 // ---------------- settings ----------------
+// Sent with every CJ order (CJ's "remark"): neutral, unbranded packing
+const ORDER_NOTE = "No logo, no brand, no invoice and no prices on the product or in the parcel — plain neutral packaging only. Do not add flyers or the supplier's name.";
 function prefs() {
-  return { shipping: 'cheapest', auto_pay: true, markup_pct: 40, max_days: 20, ...(db.settings.get(PREFS) || {}) };
+  return { shipping: 'cheapest', auto_pay: true, markup_pct: 40, max_days: 20, order_note: ORDER_NOTE, ...(db.settings.get(PREFS) || {}) };
 }
 function savePrefs(b = {}) {
   const p = prefs();
@@ -36,7 +38,8 @@ function savePrefs(b = {}) {
     shipping: ['cheapest', 'fastest', 'balanced'].includes(b.shipping) ? b.shipping : p.shipping,
     auto_pay: b.auto_pay === undefined ? p.auto_pay : Boolean(b.auto_pay),
     markup_pct: b.markup_pct === undefined ? p.markup_pct : Math.min(500, Math.max(0, Number(b.markup_pct) || 0)),
-    max_days: b.max_days === undefined ? p.max_days : Math.min(60, Math.max(3, Number(b.max_days) || 20))
+    max_days: b.max_days === undefined ? p.max_days : Math.min(60, Math.max(3, Number(b.max_days) || 20)),
+    order_note: b.order_note === undefined ? p.order_note : String(b.order_note).replace(/\s+/g, ' ').trim().slice(0, 400)
   };
   const { id, created_at, updated_at, ...cur } = db.settings.get(PREFS) || {};
   void id; void created_at; void updated_at; void cur;
@@ -359,7 +362,7 @@ async function place(o, sub, lines) {
     orderNumber: `${o.id}-${sub.seller_id.slice(-4)}${wh !== 'CN' ? `-${wh}` : ''}`.slice(0, 50), shippingCountryCode: a.country_code, shippingCountry: a.country || a.country_code,
     shippingProvince: str(a.state || a.city, 50), shippingCity: str(a.city, 50), shippingCustomerName: str(a.name, 50), shippingAddress: str(a.line1, 500),
     shippingAddress2: str(a.line2, 200), shippingZip: str(a.postal_code, 20), shippingPhone: str(a.phone, 30), logisticName: method, fromCountryCode: from,
-    payType: 3, remark: `Kinan ${o.id.slice(-8).toUpperCase()} — no invoice or prices in the parcel please`,
+    payType: 3, remark: `Kinan ${o.id.slice(-8).toUpperCase()} — ${prefs().order_note || ORDER_NOTE}`.slice(0, 500),
     products: lines.map((l) => ({ vid: l.cj_vid, quantity: l.qty, storeLineItemId: `${o.id}-${l.line_no}` })),
     ...(isTest(o) ? { isSandbox: 1 } : {})
   };

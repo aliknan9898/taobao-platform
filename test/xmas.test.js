@@ -122,6 +122,7 @@ test('Christmas import → collection → checkout splits CJ orders by warehouse
   await api('POST', `/api/buyer/orders/${o.id}/demo-pay`, null, cust);
   for (let i = 0; i < 50 && created.length < 2; i++) await new Promise((res) => setTimeout(res, 20));
   assert.deepStrictEqual(created.map((c) => [c.fromCountryCode, c.logisticName, c.products[0].vid]).sort(), [['CN', 'CJPacket', 'CN1-V1'], ['DE', 'DHL Paket DE', 'P1-V1']]);
+  assert.ok(created.every((c) => /No logo, no brand/.test(c.remark)), 'every CJ order asks for neutral packing');
   const subs = db.orders.get(o.id).sub_orders.filter((s) => s.source === 'cj');
   assert.strictEqual(subs.length, 2); assert.notStrictEqual(subs[0].outer_purchase_id, subs[1].outer_purchase_id);
 

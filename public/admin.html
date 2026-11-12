@@ -409,6 +409,7 @@ const VIEWS = {
           <label>Max days <input name="max_days" type="number" min="3" max="60" value="${esc(p.max_days)}" style="width:70px"></label>
           <label>Default markup % <input name="markup_pct" type="number" min="0" max="500" value="${esc(p.markup_pct)}" style="width:80px"></label>
           <label><input type="checkbox" name="auto_pay" ${p.auto_pay ? 'checked' : ''}> Pay CJ orders automatically</label>
+          <label style="flex-basis:100%">Note sent to CJ with every order <textarea name="order_note" rows="2" maxlength="400" style="width:100%">${esc(p.order_note || '')}</textarea></label>
           <button class="btn">Save</button><button class="btn ghost" type="button" id="cjhooks">Re-register webhooks</button><button class="btn ghost" type="button" id="cjsync">Check prices & stock now</button></form>` : ''}
         <div class="muted" id="cjmsg"></div></div>
       ${isAdmin() ? `<div class="card" id="cjbest"><h2>Best sellers, added automatically</h2><p class="muted">Loading…</p></div>` : ''}
@@ -419,7 +420,7 @@ const VIEWS = {
     const msg = (t) => { const m = $('#cjmsg'); if (m) m.textContent = t; };
     const f = $('#cjset');
     if (f) {
-      f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/cj/settings', 'PUT', { shipping: x.shipping, max_days: Number(x.max_days), markup_pct: Number(x.markup_pct), auto_pay: Boolean(x.auto_pay) }); msg('Saved.'); } catch (err) { msg(err.message); } };
+      f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/cj/settings', 'PUT', { shipping: x.shipping, max_days: Number(x.max_days), markup_pct: Number(x.markup_pct), auto_pay: Boolean(x.auto_pay), order_note: x.order_note }); msg('Saved.'); } catch (err) { msg(err.message); } };
       $('#cjhooks').onclick = async () => { try { const r = await api('/api/admin/cj/webhooks', 'POST'); msg(r.url ? `Webhooks registered: ${r.url}` : 'Skipped (the site needs an https address).'); } catch (err) { msg(err.message); } };
       $('#cjsync').onclick = async (e) => { e.target.disabled = true; msg('Checking… (CJ allows one request per second)'); try { const r = await api('/api/admin/cj/resync', 'POST'); msg(`Checked ${r.checked} product(s).`); } catch (err) { msg(err.message); } e.target.disabled = false; };
     }
