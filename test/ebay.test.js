@@ -15,12 +15,23 @@ delete process.env.CJ_API_KEY; delete process.env.ANTHROPIC_API_KEY; delete proc
 
 const calls = [];
 let ORDERS = [];
+const STORE = []; // [{ name, kids: [] }]
 global.fetch = async (url, opts = {}) => {
   const u = new URL(String(url)); const body = opts.body && String(opts.headers?.['Content-Type'] || '').includes('json') ? JSON.parse(opts.body) : opts.body;
   calls.push({ method: opts.method || 'GET', path: u.pathname, query: Object.fromEntries(u.searchParams), body, headers: opts.headers || {} });
   const J = (j, status = 200) => ({ ok: status < 300, status, json: async () => j, text: async () => JSON.stringify(j) });
   assert.ok(u.hostname.endsWith('sandbox.ebay.com'), `sandbox only: ${u.hostname}`);
   const p = u.pathname;
+  if (p === '/ws/api.dll') {
+    const call = opts.headers['X-EBAY-API-CALL-NAME']; const xml = String(opts.body);
+    assert.ok(opts.headers['X-EBAY-API-IAF-TOKEN']);
+    const X = (b) => ({ ok: true, status: 200, text: async () => `<?xml version="1.0"?><${call}Response xmlns="urn:ebay:apis:eBLBaseComponents"><Ack>Success</Ack>${b}</${call}Response>` });
+    if (call === 'GetStore') return X(`<Store><CustomCategories>${STORE.map((c, i) => `<CustomCategory><CategoryID>${i + 1}</CategoryID><Name>${c.name.replace(/&/g, '&amp;')}</Name>${c.kids.map((k) => `<ChildCategory><CategoryID>${i + 1}0</CategoryID><Name>${k}</Name></ChildCategory>`).join('')}</CustomCategory>`).join('')}</CustomCategories></Store>`);
+    if (call === 'SetStoreCategories') {
+      for (const m of xml.matchAll(/<CustomCategory><Name>([^<]+)<\/Name>((?:<ChildCategory><Name>[^<]+<\/Name><\/ChildCategory>)*)<\/CustomCategory>/g)) STORE.push({ name: m[1].replace(/&amp;/g, '&'), kids: [...m[2].matchAll(/<Name>([^<]+)<\/Name>/g)].map((k) => k[1]) });
+      return X('<TaskID>1</TaskID>');
+    }
+  }
   if (p === '/identity/v1/oauth2/token') {
     const f = new URLSearchParams(opts.body);
     if (f.get('grant_type') === 'authorization_code') assert.strictEqual(f.get('redirect_uri'), 'Kinan-RuName');
@@ -77,6 +88,9 @@ test('eBay: connect, list, sync, orders and tracking', async () => {
   assert.ok(ebayClient.connected());
 
   // List: policies made, item group with two variants, price = (10 + fallback ship) * 1.18 * GBP rate → .99
+  const store = await ebay.syncStore();
+  assert.strictEqual(store.has, true);
+  assert.deepStrictEqual(STORE, [{ name: 'Christmas Shop', kids: ['Gifts'] }]);
   const info = await ebay.listOne(l.id);
   assert.strictEqual(info.listing_id, '110555');
   assert.strictEqual(Object.keys(info.offers).length, 2);
@@ -86,6 +100,8 @@ test('eBay: connect, list, sync, orders and tracking', async () => {
   assert.strictEqual(offer.pricingSummary.price.currency, 'GBP');
   assert.match(offer.pricingSummary.price.value, /\.99$/);
   assert.strictEqual(offer.merchantLocationKey, 'kinan-de');
+  assert.deepStrictEqual(offer.storeCategoryNames, ['/Christmas Shop/Gifts']);
+  assert.strictEqual(info.store_path, '/Christmas Shop/Gifts');
   const item = calls.find((c) => c.path.startsWith('/sell/inventory/v1/inventory_item/') && c.method === 'PUT');
   assert.strictEqual(item.headers['Content-Language'], 'en-GB');
   assert.ok(calls.filter((c) => c.path.startsWith('/sell/')).every((c) => c.headers['Accept-Language'] && c.headers['Accept-Language'] !== '*'), 'every eBay call names a language');

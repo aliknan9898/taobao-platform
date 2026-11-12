@@ -137,9 +137,51 @@ function verificationToken() {
   return t.token;
 }
 
+// ---------------- Trading API (XML) — eBay Store categories have no REST API ----------------
+
+const SITE_ID = { EBAY_GB: 3, EBAY_DE: 77, EBAY_FR: 71, EBAY_IT: 101, EBAY_ES: 186, EBAY_US: 0 };
+const xmlEsc = (v) => String(v ?? '').replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
+
+/** Tiny XML reader: elements as { name, text, kids }. Enough for eBay's flat responses. */
+function parseXml(xml) {
+  const root = { name: '#root', kids: [], text: '' }; const stack = [root];
+  const re = /<(\/?)([A-Za-z_][\w:.-]*)([^>]*?)(\/?)>|([^<]+)/g; let m;
+  while ((m = re.exec(String(xml)))) {
+    if (m[5] !== undefined) { const t = m[5].trim(); if (t) stack[stack.length - 1].text += t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&'); continue; }
+    if (m[2].startsWith('?') || m[0].startsWith('<?') || m[0].startsWith('<!')) continue;
+    const name = m[2].replace(/^.*:/, '');
+    if (m[1]) { if (stack.length > 1) stack.pop(); continue; }
+    const el = { name, kids: [], text: '' }; stack[stack.length - 1].kids.push(el);
+    if (!m[4]) stack.push(el);
+  }
+  return root;
+}
+const kid = (el, name) => (el?.kids || []).find((k) => k.name === name);
+const kidsOf = (el, name) => (el?.kids || []).filter((k) => k.name === name);
+
+async function trading(call, inner, { marketplace = 'EBAY_GB' } = {}) {
+  const t = await userToken();
+  const res = await fetch(`${apiBase()}/ws/api.dll`, {
+    method: 'POST',
+    headers: { 'X-EBAY-API-CALL-NAME': call, 'X-EBAY-API-SITEID': String(SITE_ID[marketplace] ?? 3), 'X-EBAY-API-COMPATIBILITY-LEVEL': '1349', 'X-EBAY-API-IAF-TOKEN': t, 'Content-Type': 'text/xml', 'Accept-Language': 'en-GB' },
+    body: `<?xml version="1.0" encoding="utf-8"?><${call}Request xmlns="urn:ebay:apis:eBLBaseComponents"><ErrorLanguage>en_GB</ErrorLanguage><WarningLevel>High</WarningLevel>${inner}</${call}Request>`,
+    signal: AbortSignal.timeout(30000)
+  }).catch((e) => { throw httpError(502, `eBay could not be reached (${e.message})`); });
+  const doc = parseXml(await res.text());
+  const body = kid(doc, `${call}Response`) || doc;
+  const ack = kid(body, 'Ack')?.text || '';
+  const errs = kidsOf(body, 'Errors').map((e) => ({ code: kid(e, 'ErrorCode')?.text, severity: kid(e, 'SeverityCode')?.text, message: kid(e, 'LongMessage')?.text || kid(e, 'ShortMessage')?.text }));
+  if (!res.ok || ack === 'Failure') {
+    const msg = errs.filter((e) => e.severity !== 'Warning').map((e) => e.message).join(' · ') || `HTTP ${res.status}`;
+    console.warn(`[ebay] ${call} → ${msg}`.slice(0, 400));
+    const e = httpError(400, `eBay: ${msg}`.slice(0, 500)); e.errors = errs; throw e;
+  }
+  return body;
+}
+
 function status() {
   const s = saved();
   return { configured: configured(), env: env(), connected: connected(), connected_at: s?.connected_at || null, refresh_expires_at: s?.refresh_exp || null, deletion_token: verificationToken() };
 }
 
-module.exports = { pasteCode, checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };
+module.exports = { trading, parseXml, kid, kidsOf, xmlEsc, pasteCode, checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };

@@ -231,6 +231,84 @@ function description(l) {
   return `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">${paras.map((p) => `<p>${esc(p)}</p>`).join('')}${from}<p>Sold by Kinan · kinan.shop</p></div>`;
 }
 
+// ---------------- eBay Store categories: the same departments and sections as the Kinan shop ----------------
+
+const cut30 = (t) => String(t).replace(/\//g, '-').replace(/\s+/g, ' ').trim().slice(0, 30).trim();
+/** Where a product goes in the eBay Store: "/Department/Section" (eBay store category path). */
+function storePath(l) {
+  if (l.sourcing) {
+    const D = require('./sourcing').DEPARTMENTS[l.sourcing.dept];
+    if (D) return [cut30(D.en), cut30(D.groups[l.collection_group || l.sourcing.group]?.en || Object.values(D.groups)[0].en)];
+  }
+  if (list(l.collections).includes('christmas')) {
+    const g = require('./seasonal').CHRISTMAS.groups[l.collection_group];
+    return ['Christmas Shop', cut30(g?.en || 'Gifts')];
+  }
+  const c = require('./shipping').CATEGORIES.find(([id]) => id === (l.category || 'other'));
+  return [cut30(c ? c[1] : 'More'), 'All'];
+}
+const pathStr = (p) => `/${p.join('/')}`;
+
+/** Make the store categories the products need (Trading API); remembers which exist. No eBay Store → nothing to do. */
+async function syncStore() {
+  if (!ebay.connected()) return { skipped: 'not connected' };
+  const mk = prefs().marketplace;
+  const want = new Map();
+  for (const l of db.listings.all((x) => x.seller_id === KINAN && x.source === 'cj' && (x.ebay?.listing_id || !eligible(x)))) {
+    const [top, sub] = storePath(l); if (!want.has(top)) want.set(top, new Set()); want.get(top).add(sub);
+  }
+  const read = async () => {
+    const r = await ebay.trading('GetStore', '<CategoryStructureOnly>true</CategoryStructureOnly>', { marketplace: mk });
+    const cats = ebay.kid(ebay.kid(r, 'Store'), 'CustomCategories');
+    return new Map(ebay.kidsOf(cats, 'CustomCategory').map((c) => [ebay.kid(c, 'Name')?.text, { id: ebay.kid(c, 'CategoryID')?.text, kids: new Set(ebay.kidsOf(c, 'ChildCategory').map((k) => ebay.kid(k, 'Name')?.text)) }]));
+  };
+  let have;
+  try { have = await read(); }
+  catch (e) { saveState({ store: { has: false, at: now(), error: e.message } }); return { has: false, error: e.message }; }
+  const x = ebay.xmlEsc; let added = 0;
+  const newTops = [...want].filter(([top]) => !have.has(top) && top !== 'Other');
+  if (newTops.length) {
+    await ebay.trading('SetStoreCategories', `<Action>Add</Action><StoreCategories>${newTops.map(([top, subs]) => `<CustomCategory><Name>${x(top)}</Name>${[...subs].map((n) => `<ChildCategory><Name>${x(n)}</Name></ChildCategory>`).join('')}</CustomCategory>`).join('')}</StoreCategories>`, { marketplace: mk });
+    added += newTops.reduce((a, [, subs]) => a + 1 + subs.size, 0);
+  }
+  for (const [top, subs] of want) {
+    const h = have.get(top); if (!h) continue;
+    const miss = [...subs].filter((n) => !h.kids.has(n));
+    if (!miss.length) continue;
+    await ebay.trading('SetStoreCategories', `<Action>Add</Action><DestinationParentCategoryID>${x(h.id)}</DestinationParentCategoryID><StoreCategories>${miss.map((n) => `<CustomCategory><Name>${x(n)}</Name></CustomCategory>`).join('')}</StoreCategories>`, { marketplace: mk });
+    added += miss.length;
+  }
+  if (added) { await new Promise((r) => setTimeout(r, 1500)); have = await read().catch(() => have); }
+  const paths = [...have].flatMap(([top, h]) => [pathStr([top]), ...[...h.kids].map((k) => pathStr([top, k]))]);
+  saveState({ store: { has: true, at: now(), paths, tops: have.size, added } });
+  if (added) console.log(`[ebay] store categories: ${added} added`);
+  return { has: true, added, categories: paths.length };
+}
+function storeCategoryFor(l) {
+  const st = state().store;
+  if (!st?.has) return null;
+  const p = pathStr(storePath(l));
+  return list(st.paths).includes(p) ? [p] : null;
+}
+
+/** Put store categories on products already on eBay (background). */
+let organizing = false;
+async function organize() {
+  if (organizing) throw httpError(409, 'Already organising the eBay store');
+  organizing = true;
+  let done = 0; let failed = 0;
+  try {
+    const s = await syncStore();
+    if (!s.has) return { has: false, error: s.error || s.skipped };
+    for (const l of db.listings.all((x) => x.ebay?.listing_id && !eligible(x))) {
+      if (l.ebay.store_path === pathStr(storePath(l))) continue;
+      try { await listOne(l.id); done++; } catch (e) { failed++; console.warn('[ebay] organise', l.id, e.message); }
+    }
+  } finally { organizing = false; }
+  console.log(`[ebay] store organised: ${done} listing(s) moved into store categories${failed ? `, ${failed} failed` : ''}`);
+  return { done, failed };
+}
+
 // ---------------- listing ----------------
 
 async function offerFor(sku, body) {
@@ -263,6 +341,7 @@ async function listOne(listingId) {
   const multi = skus.length > 1 && skus.every((s) => list(s.opts).length);
   const lang = m.lang;
   const fee = await shipFee(l, skus.find((s) => s.stock > 0) || skus[0]);
+  const storeCats = storeCategoryFor(l);
   const listingPolicies = { paymentPolicyId: pol.payment, returnPolicyId: pol.return, fulfillmentPolicyId: from === m.country ? pol.ship_home : pol.ship_outside };
   const offers = {};
   const used = multi ? skus : [skus.find((s) => s.stock > 0) || skus[0]];
@@ -278,7 +357,8 @@ async function listOne(listingId) {
     }, { lang });
     offers[key] = await offerFor(key, {
       sku: key, marketplaceId: mk, format: 'FIXED_PRICE', availableQuantity: qtyOf(l, s), categoryId: cat.id, listingDescription: desc,
-      listingPolicies, merchantLocationKey: loc, pricingSummary: { price: { value: ebayPrice(s.price, fee), currency: m.currency } }
+      listingPolicies, merchantLocationKey: loc, pricingSummary: { price: { value: ebayPrice(s.price, fee), currency: m.currency } },
+      ...(storeCats ? { storeCategoryNames: storeCats } : {})
     });
   }
   let listing;
@@ -294,7 +374,7 @@ async function listOne(listingId) {
   } else {
     listing = await ebay.api('POST', `/sell/inventory/v1/offer/${Object.values(offers)[0]}/publish`, {});
   }
-  const info = { listing_id: listing.listingId, marketplace: mk, offers, group: multi ? groupKey(l) : null, category: cat.id, ship_fee: fee, listed_at: now(), synced_at: now(), error: null };
+  const info = { store_path: storeCats ? storeCats[0] : null, listing_id: listing.listingId, marketplace: mk, offers, group: multi ? groupKey(l) : null, category: cat.id, ship_fee: fee, listed_at: now(), synced_at: now(), error: null };
   db.listings.update(l.id, { ebay: info });
   return info;
 }
@@ -304,7 +384,8 @@ let running = false;
 async function listMany({ collection, ids, limit = 50 } = {}, by = 'admin') {
   if (running) throw httpError(409, 'eBay listing is already running');
   if (!ebay.connected()) throw httpError(409, 'eBay is not connected — press Connect eBay first');
-  const todo = candidates({ collection, ids }).slice(0, Math.min(400, Math.max(1, Number(limit) || 50)));
+  await syncStore().catch((e) => console.warn('[ebay] store', e.message));
+  const todo = candidates({ collection, ids }).sort((a, b) => pathStr(storePath(a)).localeCompare(pathStr(storePath(b)))).slice(0, Math.min(400, Math.max(1, Number(limit) || 50)));
   running = true;
   const job = { started_at: now(), by, total: todo.length, done: 0, listed: 0, failed: 0, errors: [], running: true };
   let same = 0; let lastErr = '';
@@ -494,14 +575,14 @@ function products({ filter = 'all' } = {}) {
     });
     const main = [...variants].sort((a, b) => (a.price ?? 1e9) - (b.price ?? 1e9))[0] || {};
     return {
-      id: l.id, title: l.title, image: (l.images || [])[0] || null, kinan_status: l.status, status, error: e.error || null,
+      id: l.id, title: l.title, image: (l.images || [])[0] || null, kinan_status: l.status, status, error: e.error || null, section: storePath(l).join(' › '), department: storePath(l)[0],
       warehouse: l.cj_from || 'CN', warehouse_name: COUNTRY[l.cj_from] || l.cj_from || 'China', collection: (l.collections || [])[0] || '',
       ebay_id: e.listing_id || null, ebay_url: e.listing_id ? url(e.listing_id, e.marketplace || p.marketplace) : null, category: e.category || null,
       listed_at: e.listed_at || null, synced_at: e.synced_at || null, ship_usd: ship, variants: variants.length, qty: variants.reduce((a, v) => a + (v.qty || 0), 0),
       price: main.price ?? null, profit: main.profit ?? null, margin_pct: main.margin_pct ?? null, cost: main.cost ?? null, fees: main.fees ?? null, all: variants
     };
   }).filter((x) => filter === 'all' || x.status === filter);
-  rows.sort((a, b) => ({ live: 0, failed: 1, ready: 2 }[a.status] - { live: 0, failed: 1, ready: 2 }[b.status]) || (b.listed_at || 0) - (a.listed_at || 0));
+  rows.sort((a, b) => a.section.localeCompare(b.section) || ({ live: 0, failed: 1, ready: 2 }[a.status] - { live: 0, failed: 1, ready: 2 }[b.status]) || (b.listed_at || 0) - (a.listed_at || 0));
   const orders = db.orders.all((o) => o.channel === 'ebay').sort((a, b) => b.created_at - a.created_at).slice(0, 200).map((o) => {
     const cost = list(o.sub_orders).reduce((a, s) => a + (Number(s.cj_amount) || 0), 0);
     const total = Number(o.ebay?.total) || 0; const c = o.ebay?.currency || cur;
@@ -545,6 +626,7 @@ function status() {
     deletion_endpoint: `${config.publicBaseUrl}/webhooks/ebay/deletion`, accept_url: `${config.publicBaseUrl}/oauth/ebay/callback`,
     live: live.length, ready: candidates({}).length, ready_christmas: candidates({ collection: 'christmas' }).length,
     listings: live.slice(0, 200).map((l) => ({ id: l.id, title: l.title.slice(0, 70), ebay_id: l.ebay.listing_id, url: `https://www.${ebay.env() === 'sandbox' ? 'sandbox.' : ''}ebay.${{ EBAY_GB: 'co.uk', EBAY_DE: 'de', EBAY_FR: 'fr', EBAY_IT: 'it', EBAY_ES: 'es' }[l.ebay.marketplace] || 'co.uk'}/itm/${l.ebay.listing_id}` })),
+    store: s.store ? { has: s.store.has, error: s.store.error || null, categories: list(s.store.paths).length, at: s.store.at } : null, organizing,
     failed, connect_error: ebay.connected() ? null : s.connect_error || null, job: s.job || null, last_sync: s.last_sync || null, last_orders: s.last_orders || null,
     orders: db.orders.all((o) => o.channel === 'ebay').length
   };
@@ -552,4 +634,4 @@ function status() {
 
 function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
 
-module.exports = { products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+module.exports = { storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
