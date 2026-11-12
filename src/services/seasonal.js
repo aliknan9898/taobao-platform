@@ -91,7 +91,7 @@ function groupFor(title, fallback) {
 }
 
 // ---------------- import ----------------
-const RULES = 4;
+const RULES = 5; // 5: CJ busy/limit errors no longer mark products as tried (the 12 Nov run lost 179 that way)
 const runningHere = new Set(); // imports running in this server process
 const STATE = (id) => `set_collection_${id}`;
 const state = (id = 'christmas') => db.settings.get(STATE(id)) || { running: false };
@@ -148,7 +148,7 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
   const already = members(id).filter((l) => l.status === 'active' || (l.status === 'pending_review' && l.review?.auto === 'ai')).length; // incl. ones waiting for the AI check
   const target = Math.max(0, p.count - already);
   const st = { v: RULES, running: true, started_at: now(), by, target: p.count, had: already, added: 0, checked: 0, skipped: 0, reasons: {}, error: null, prefs: p };
-  const tried = new Set(list(s0.tried)); // CJ products turned down by earlier imports
+  const tried = new Set((s0.v || 0) >= 5 ? list(s0.tried) : []); // CJ products turned down by earlier imports (cleared once: v4 also kept CJ-busy errors)
   const skip = (why, pid) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (pid) tried.add(pid); st.tried = [...tried].slice(-5000); };
   st.tried = [...tried];
   setState(id, st);
@@ -159,7 +159,8 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
     for (const [group, g] of Object.entries(c.groups)) for (const kw of g.keywords) pools.push({ group, kw, items: await candidates(cjc, kw, p, have, tried) });
     st.candidates = pools.reduce((a, x) => a + x.items.length, 0); setState(id, { ...st });
     // 2) take them in turns
-    for (let round = 0; st.added < target && pools.some((x) => x.items.length > round); round++) {
+    let busy = 0;
+    for (let round = 0; st.added < target && !st.retry_at && pools.some((x) => x.items.length > round); round++) {
       for (const pool of pools) {
         if (st.added >= target) break;
         const cand = pool.items[round]; if (!cand || have.has(cand.pid)) continue;
@@ -168,7 +169,18 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
         let l;
         try {
           l = await cj.publish(kinan, { ref: { pid: cand.pid }, from: cand.from, markup_pct: p.markup_pct, category: cj.guessCategory(`${cand.title}`) === 'other' ? 'home' : cj.guessCategory(cand.title), extra: { collections: [id], collection_group: group } });
-        } catch (e) { skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', cand.pid); st.last_item_error = e.message; continue; }
+        } catch (e) {
+          st.last_item_error = e.message;
+          st.errors = [...new Set([...(st.errors || []), String(e.message).slice(0, 160)])].slice(0, 5);
+          // CJ busy, its daily limit, or not reachable: not the product's fault — try it again next time, and stop after a run of them
+          if (e.status === 429 || e.status >= 500 || /busy|limit|too many|reach|timeout|fetch failed/i.test(e.message)) {
+            st.reasons['CJ busy or daily limit'] = (st.reasons['CJ busy or daily limit'] || 0) + 1; have.delete(cand.pid); st.checked--;
+            if ((busy = busy + 1) >= 6) { st.error = `CJ stopped answering (${e.message}) — the import continues automatically later`; st.retry_at = now() + 2 * 3600e3; break; }
+            continue;
+          }
+          busy = 0; skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', cand.pid); continue;
+        }
+        busy = 0;
         if (l.cj_from !== cand.from) { db.listings.remove(l.id); skip('not in a European warehouse', cand.pid); continue; }
         if (!l.skus.some((k) => k.stock >= p.min_stock) || NOT_HERE.test(`${l.title} ${l.description}`) || cj.BLOCK.test(`${l.title} ${l.description}`)) { db.listings.remove(l.id); skip('low stock or not suitable', cand.pid); continue; }
         // a real CJ shipping method from that warehouse
@@ -191,7 +203,7 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
   } catch (e) { st.error = e.message; }
   st.running = false; st.done_at = now(); runningHere.delete(id);
   setState(id, { ...st });
-  console.log(`[xmas] import done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}`);
+  console.log(`[xmas] import done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}${st.errors?.length ? ` errors: ${JSON.stringify(st.errors)}` : ''}`);
   if (st.added) try { require('../push').telegram(`🎄 Christmas Shop: ${st.added} products added from CJ's European and UK warehouses (${already + st.added} in total, each checked by the AI before it goes live).`); } catch { /* optional */ }
   polish(id).catch((e) => console.warn('[xmas] copy:', e.message));
   return st;
@@ -269,7 +281,7 @@ function autoStart() {
   if (!require('../cj/client').enabled()) return false;
   const s = state('christmas');
   // Start when the rules changed, or resume one that a restart interrupted (it was "running" in a process that is gone)
-  if (runningHere.has('christmas') || (s.done_at && s.v === RULES && !s.running)) return false;
+  if (runningHere.has('christmas') || (s.done_at && s.v === RULES && !s.running && !(s.retry_at && now() > s.retry_at))) return false;
   if (s.running) console.log('[xmas] resuming the import a restart interrupted');
   require('../cj/client').background(() => importCollection('christmas', {}, 'auto')).catch((e) => console.warn('[xmas] import:', e.message));
   return true;

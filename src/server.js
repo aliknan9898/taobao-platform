@@ -809,7 +809,7 @@ function startJobs() {
   every(3600e3, async () => { const b = require('./services/banggood'); await b.updateTick(); const h = new Date().getUTCHours(); if (h === 4) await b.resyncStale(300); if (h === 5) await b.refreshLimits(); });
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
   every(30 * 60e3, () => require('./services/nss').tick());
-  every(3600e3, () => require('./services/seasonal').polish('christmas', 40));
+  every(3600e3, async () => { const sz = require('./services/seasonal'); sz.autoStart(); await sz.polish('christmas', 40); }); // also resumes an import CJ's limits paused
   every(3600e3, () => require('./services/ai').tick());
   every(3 * 3600e3, () => seo.indexNowTick().catch((e) => console.warn('[seo] IndexNow:', e.message)));
   setTimeout(() => seo.indexNowTick().catch((e) => console.warn('[seo] IndexNow:', e.message)), 5 * 60e3).unref();
