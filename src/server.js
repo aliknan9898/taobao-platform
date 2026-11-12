@@ -739,7 +739,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/oauth/ebay/callback' && req.method === 'GET') {
       const q = url.searchParams;
-      console.log(`[ebay] sign-in returned: code ${q.get('code') ? 'yes' : 'no'}, state ${q.get('state') ? 'yes' : 'no'}${q.get('error') ? `, error ${q.get('error')}: ${q.get('error_description') || ''}` : ''}`);
+      console.log(`[ebay] sign-in returned (${req.method}, keys: ${[...q.keys()].join(',') || 'none'}, ref: ${String(req.headers.referer || '').split('?')[0]}): code ${q.get('code') ? 'yes' : 'no'}, state ${q.get('state') ? 'yes' : 'no'}${q.get('error') ? `, error ${q.get('error')}: ${q.get('error_description') || ''}` : ''}`);
       try { await require('./ebay/client').handleCallback(q.get('code'), q.get('state')); console.log('[ebay] connected'); res.writeHead(302, { Location: '/admin?ebay=connected#ebay' }); }
       catch (e) { console.warn('[ebay] connect failed:', e.message); require('./services/ebay').noteError?.(e.message); res.writeHead(302, { Location: `/admin?login_error=${encodeURIComponent(q.get('error_description') || e.message)}#ebay` }); }
       return res.end();
