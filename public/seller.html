@@ -54,6 +54,9 @@
   .prod:last-child { border-bottom: 0; }
   .prod img, .prod .thumb { width: 64px; height: 64px; border-radius: var(--r-md); object-fit: cover; background: var(--chip); }
   .prod .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Product list: when the list itself is narrow (tablet + sidebar, larger phone text), put the buttons under the title instead of squeezing it */
+  .prodlist { container-type: inline-size; }
+  @container (max-width: 760px) { .prod { grid-template-columns: 64px minmax(0, 1fr); } .prod .acts { grid-column: 2; } }
   @media (max-width: 560px) { .prod { grid-template-columns: 56px minmax(0, 1fr); } .prod .acts { grid-column: 1 / -1; } .prod img, .prod .thumb { width: 56px; height: 56px; } }
   .steps { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
   .steps b { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--chip); color: var(--ink-2); font-size: 12px; }
@@ -222,7 +225,7 @@ async function products() {
   const shown = list.filter((p) => prodFilter === 'all' || p.status === prodFilter);
   v.innerHTML = `<div class="head"><h1>Products</h1><a class="btn" href="#/add">Add product</a></div>
     <div class="tabs">${F.map(([k, t]) => `<button data-f="${k}" class="${k === prodFilter ? 'on' : ''}">${t} (${k === 'all' ? list.length : list.filter((p) => p.status === k).length})</button>`).join('')}</div>
-    <section class="panel">${shown.map((p) => {
+    <section class="panel prodlist">${shown.map((p) => {
       const img = [...(p.own_images || []), ...(p.images || [])][0];
       const [lab, cls] = PRODUCT_STATUS[p.status] || [p.status, ''];
       const prices = p.skus.map((s) => s.price); const lo = Math.min(...prices), hi = Math.max(...prices);
