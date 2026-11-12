@@ -88,6 +88,7 @@ test('eBay: connect, list, sync, orders and tracking', async () => {
   assert.strictEqual(offer.merchantLocationKey, 'kinan-de');
   const item = calls.find((c) => c.path.startsWith('/sell/inventory/v1/inventory_item/') && c.method === 'PUT');
   assert.strictEqual(item.headers['Content-Language'], 'en-GB');
+  assert.ok(calls.filter((c) => c.path.startsWith('/sell/')).every((c) => c.headers['Accept-Language'] && c.headers['Accept-Language'] !== '*'), 'every eBay call names a language');
   assert.deepStrictEqual(item.body.product.aspects.Material, ['Plastic']);
   assert.deepStrictEqual(item.body.product.aspects.Brand, ['Unbranded']);
   assert.ok(item.body.availability.shipToLocationAvailability.quantity <= 10);

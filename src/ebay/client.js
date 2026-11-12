@@ -99,7 +99,9 @@ async function api(method, path, body, { user = true, lang, marketplace, query }
   const t = user ? await userToken() : await appToken();
   const headers = { Authorization: `Bearer ${t}`, Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (lang) headers['Content-Language'] = lang; // eBay rejects Accept-Language on the Inventory API
+  // Node's fetch sends "Accept-Language: *" unless told otherwise, and eBay rejects that: always name a real language
+  headers['Accept-Language'] = lang || 'en-US';
+  if (lang) headers['Content-Language'] = lang;
   if (marketplace) headers['X-EBAY-C-MARKETPLACE-ID'] = marketplace;
   const url = `${apiBase()}${path}${query ? `?${new URLSearchParams(query)}` : ''}`;
   const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) })
@@ -110,6 +112,7 @@ async function api(method, path, body, { user = true, lang, marketplace, query }
   if (!res.ok) {
     const errs = j.errors || [];
     const msg = errs.map((x) => x.longMessage || x.message).filter(Boolean).join(' · ') || `HTTP ${res.status}`;
+    console.warn(`[ebay] ${method} ${path} → ${res.status}: ${msg}`.slice(0, 400));
     const e = httpError(res.status >= 500 ? 502 : res.status === 401 ? 409 : 400, `eBay: ${msg}`.slice(0, 600));
     e.errors = errs; e.ebayStatus = res.status;
     throw e;
