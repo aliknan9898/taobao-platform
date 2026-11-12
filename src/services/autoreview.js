@@ -28,8 +28,15 @@ const STATUSES = ['pending_review', 'active', 'paused', 'private'];
 const MAX_TRIES = 3;
 
 /** What the review looked at: text and photos. A different fingerprint means the product changed since. */
+const fpCache = new Map(); // id → { at: updated_at, fp }: products are only hashed again after they change
 function fingerprint(l) {
-  return crypto.createHash('sha1').update(JSON.stringify([l.title || '', l.description || '', l.images || [], l.own_images || []])).digest('hex').slice(0, 16);
+  // cheap key: when the product was saved plus the sizes of what is hashed (two saves in one millisecond still differ)
+  const key = `${l.updated_at}|${l.title}|${String(l.description || '').length}|${(l.images || []).join('|').length}|${(l.own_images || []).reduce((a, u) => a + String(u).length, 0)}`;
+  const c = l.id && fpCache.get(l.id);
+  if (c && c.key === key && l.updated_at) return c.fp;
+  const fp = crypto.createHash('sha1').update(JSON.stringify([l.title || '', l.description || '', l.images || [], l.own_images || []])).digest('hex').slice(0, 16);
+  if (l.id && l.updated_at) { if (fpCache.size > 50000) fpCache.clear(); fpCache.set(l.id, { key, fp }); }
+  return fp;
 }
 // Christmas Shop products get their copy from the Christmas job first; review them after that
 const waitingForXmasCopy = (l) => l.xmas && l.xmas.copy !== 'ai' && !l.xmas.copy_failed;
@@ -117,8 +124,9 @@ async function reviewListing(id, { force = false } = {}) {
     out = await ai.structured({ system: system(categories), name: 'product_review', description: 'Return the reviewed listing and the photo check.', schema: SCHEMA, text, images: photos.map((p) => p.u), maxTokens: 3000, timeoutMs: 90000, kind: 'review' });
   } catch (e) {
     if (e.status !== 429) {
-      const prev = l.ai_review || {};
-      db.listings.update(l.id, (x) => ({ ...x, ai_review: { ...prev, failed_fp: fp, tries: prev.failed_fp === fp ? (prev.tries || 0) + 1 : 1, error: s(e.message, 200), error_at: Date.now() } }));
+      const prev = l.ai_review || {}; const tries = prev.failed_fp === fp ? (prev.tries || 0) + 1 : 1;
+      db.listings.update(l.id, (x) => ({ ...x, ai_review: { ...prev, failed_fp: fp, tries, error: s(e.message, 200), error_at: Date.now() } }));
+      if (tries >= MAX_TRIES) release(l.id, 'the AI could not check it'); // don't keep a Kinan product hidden for ever
     }
     throw e;
   }
@@ -169,7 +177,7 @@ function apply(id, out, { fp, photos, categories }) {
   }
   const reason = block ? `AI check: ${s(out.block_reason, 300) || 'this product cannot be sold on Kinan'}` : allBad ? 'AI check: every photo has a problem (another shop’s watermark or logo, or a different product) — add clean photos' : null;
   // Kinan's own new products waiting only for this review go live when it passes
-  if (!reason && l.status === 'pending_review' && l.review?.auto === 'ai') { patch.status = 'active'; patch.review = { ...l.review, state: 'approved', decided_at: Date.now(), decided_by: 'ai', note: 'Checked by Kinan AI' }; changed.push('approved'); }
+  if (!reason && isHeld(l)) { patch.status = 'active'; patch.review = { ...l.review, state: 'approved', decided_at: Date.now(), decided_by: 'ai', note: 'Checked by Kinan AI' }; changed.push('approved'); }
   if (reason) { patch.status = 'rejected'; patch.review = { ...(l.review || {}), state: 'rejected', reason, decided_at: Date.now(), decided_by: 'ai' }; changed.push('stopped'); }
 
   const updated = db.listings.update(l.id, (x) => ({ ...x, ...patch }));
@@ -192,6 +200,16 @@ function apply(id, out, { fp, photos, categories }) {
 function holdOwn() {
   return on() ? { status: 'pending_review', review: { state: 'pending', submitted_at: Date.now(), auto: 'ai' } } : null;
 }
+
+const isHeld = (l) => l && l.status === 'pending_review' && l.review?.auto === 'ai';
+/** A Kinan product held for the AI goes live without the check (AI switched off, or it kept failing). */
+function release(id, why) {
+  const l = db.listings.get(id);
+  if (!isHeld(l)) return false;
+  db.listings.update(l.id, { status: 'active', review: { ...l.review, state: 'approved', decided_at: Date.now(), note: `Live without AI check: ${why}` } });
+  return true;
+}
+function releaseAll(why) { let n = 0; for (const l of db.listings.all(isHeld)) if (release(l.id, why)) n++; if (n) console.log(`[ai-review] ${n} held product(s) put live: ${why}`); return n; }
 
 /** Put a product back the way it was before the AI review, and don't review it again until it changes. */
 function revert(id) {
@@ -219,7 +237,10 @@ let running = false; let pauseUntil = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Review the next few products. Called every minute; stops for a while when the AI quota runs out. */
 async function tick({ max = 6 } = {}) {
-  if (running || !on() || Date.now() < pauseUntil) return 0;
+  if (!on()) { releaseAll('the automatic AI review is off'); return 0; }
+  // nothing stays hidden for more than a day waiting for the AI (quota used up, daily limit reached…)
+  for (const l of db.listings.all((x) => isHeld(x) && Date.now() - (x.review.submitted_at || 0) > 24 * 3600e3)) release(l.id, 'not checked within 24 hours');
+  if (running || Date.now() < pauseUntil) return 0;
   running = true; let n = 0;
   try {
     for (const l of queue().slice(0, max)) {
@@ -250,4 +271,4 @@ function status() {
   };
 }
 
-module.exports = { on, fingerprint, needsReview, reviewListing, apply, revert, holdOwn, tick, status, queue };
+module.exports = { on, release, releaseAll, fingerprint, needsReview, reviewListing, apply, revert, holdOwn, tick, status, queue };

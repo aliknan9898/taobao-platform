@@ -167,7 +167,7 @@ async function structured({ system, name, description = '', schema, text, images
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [...parts, { text }] }],
-      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: maxTokens }
+      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: Math.max(8192, maxTokens * 2) }
     }),
     signal: AbortSignal.timeout(timeoutMs)
   }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
@@ -178,6 +178,7 @@ async function structured({ system, name, description = '', schema, text, images
   }
   const um = j.usageMetadata || {};
   record(model(), { input_tokens: um.promptTokenCount || 0, output_tokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0) }, kind);
+  if (j.candidates?.[0]?.finishReason === 'MAX_TOKENS') throw httpError(502, 'The AI answer was too long — try again');
   const raw = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
   try { return JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw httpError(502, 'The AI assistant could not answer — try again'); }
 }
@@ -281,7 +282,7 @@ function savePrefs(b = {}) {
 /** Products of Kinan's own shop (CJ, Banggood, AliExpress, Taobao) whose copy has not been rewritten yet. */
 function pending() {
   const kinan = require('./buyforme').systemSeller();
-  return db.listings.all((l) => l.seller_id === kinan.id && l.status === 'active' && !l.ai_copy_at && !l.xmas); // seasonal products are written by seasonal.polish()
+  return db.listings.all((l) => l.seller_id === kinan.id && l.status === 'active' && !l.ai_copy_at && !l.ai_review?.at && !l.xmas); // products checked by the automatic review are done too // seasonal products are written by seasonal.polish()
 }
 let improving = false;
 /** Rewrite up to `max` Kinan products, 8 per call. The previous text is kept in ai_prev for undo. */

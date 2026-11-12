@@ -134,7 +134,7 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
   const p = prefs(opts);
   const kinan = require('./buyforme').systemSeller();
   const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
-  const already = members(id).filter((l) => l.status === 'active').length;
+  const already = members(id).filter((l) => l.status === 'active' || (l.status === 'pending_review' && l.review?.auto === 'ai')).length; // incl. ones waiting for the AI check
   const target = Math.max(0, p.count - already);
   const st = { v: RULES, running: true, started_at: now(), by, target: p.count, had: already, added: 0, checked: 0, skipped: 0, reasons: {}, error: null, prefs: p };
   const skip = (why) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; };

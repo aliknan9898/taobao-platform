@@ -20,6 +20,7 @@ global.fetch = async (url, opts = {}) => {
   if (u.startsWith('https://img.example.com/')) return new Response(Buffer.from('fakejpeg'), { status: 200, headers: { 'content-type': 'image/jpeg' } });
   if (!u.startsWith('https://generativelanguage.googleapis.com/')) return realFetch(url, opts);
   const body = JSON.parse(opts.body); calls.push({ url: u, headers: opts.headers, body });
+  if (mode === 'broken') return new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'API key not valid' } }), { status: 400 });
   if (mode === 'quota') return new Response(JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED', message: 'quota' } }), { status: 429 });
   const prompt = body.contents[0].parts.at(-1).text;
   const fake = /rolex/i.test(prompt)
@@ -126,6 +127,24 @@ test('every product is reviewed by the AI: text, photos, blocked items, own prod
   assert.strictEqual(await ar.tick(), 0);
   assert.strictEqual(db.listings.get(next.id).ai_review, undefined);
   assert.ok((await api('GET', '/api/admin/ai-review', null, boss)).body.paused_until > Date.now());
+
+  // Kinan products are never kept hidden for ever: after 3 failed checks, after 24 hours, or when the AI is switched off
+  mode = 'broken';
+  const held1 = db.listings.insert({ seller_id: kinan.id, source: 'cj', title: 'Held product one', images: [imgs[0]], currency: 'USD', skus: [sku(5)], ...ar.holdOwn() });
+  for (let i = 0; i < 3; i++) await ar.reviewListing(held1.id).catch(() => {});
+  assert.strictEqual(db.listings.get(held1.id).status, 'active', 'goes live after 3 failed checks');
+  assert.match(db.listings.get(held1.id).review.note, /without AI check/);
+  const held2 = db.listings.insert({ seller_id: kinan.id, source: 'cj', title: 'Held product two', images: [imgs[0]], currency: 'USD', skus: [sku(5)], ...ar.holdOwn() });
+  db.listings.update(held2.id, (x) => ({ ...x, review: { ...x.review, submitted_at: Date.now() - 25 * 3600e3 } }));
+  const held3 = db.listings.insert({ seller_id: kinan.id, source: 'cj', title: 'Held product three', images: [imgs[0]], currency: 'USD', skus: [sku(5)], ...ar.holdOwn() });
+  await ar.tick({ max: 0 });
+  assert.strictEqual(db.listings.get(held2.id).status, 'active', 'goes live after 24 hours');
+  assert.strictEqual(db.listings.get(held3.id).status, 'pending_review');
+  process.env.AI_AUTO_REVIEW = 'off';
+  assert.strictEqual(ar.holdOwn(), null, 'nothing is held when the review is off');
+  await ar.tick();
+  assert.strictEqual(db.listings.get(held3.id).status, 'active', 'held products go live when the review is switched off');
+  delete process.env.AI_AUTO_REVIEW;
 
   // Sellers cannot use the admin routes
   assert.strictEqual((await api('POST', '/api/admin/ai-review/run', null, sel)).status, 403);
