@@ -461,9 +461,11 @@ function status() {
     deletion_endpoint: `${config.publicBaseUrl}/webhooks/ebay/deletion`, accept_url: `${config.publicBaseUrl}/oauth/ebay/callback`,
     live: live.length, ready: candidates({}).length, ready_christmas: candidates({ collection: 'christmas' }).length,
     listings: live.slice(0, 200).map((l) => ({ id: l.id, title: l.title.slice(0, 70), ebay_id: l.ebay.listing_id, url: `https://www.${ebay.env() === 'sandbox' ? 'sandbox.' : ''}ebay.${{ EBAY_GB: 'co.uk', EBAY_DE: 'de', EBAY_FR: 'fr', EBAY_IT: 'it', EBAY_ES: 'es' }[l.ebay.marketplace] || 'co.uk'}/itm/${l.ebay.listing_id}` })),
-    failed, job: s.job || null, last_sync: s.last_sync || null, last_orders: s.last_orders || null,
+    failed, connect_error: ebay.connected() ? null : s.connect_error || null, job: s.job || null, last_sync: s.last_sync || null, last_orders: s.last_orders || null,
     orders: db.orders.all((o) => o.channel === 'ebay').length
   };
 }
 
-module.exports = { MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
+
+module.exports = { noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };

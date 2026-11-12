@@ -218,6 +218,7 @@ const VIEWS = {
       const p = e.prefs; const j = e.job;
       el.innerHTML = `<h2>eBay</h2>
         <p>${e.connected ? '<span class="pill ok">Connected</span>' : '<span class="pill bad">Not connected</span>'}${env} · ${esc(p.marketplace)} · <b>${e.live}</b> on eBay · ${e.ready} ready (${e.ready_christmas} Christmas) · ${e.orders} eBay order(s)</p>
+        ${e.connect_error ? `<p class="bad">Last connect attempt (${new Date(e.connect_error.at).toLocaleTimeString()}): ${esc(e.connect_error.message)}</p>` : ''}
         ${j ? `<p class="muted">${j.running ? '<span class="pill warn">Listing…</span> ' : ''}Last run: ${j.listed} listed, ${j.failed} failed of ${j.total}${j.errors?.length ? ` — <span class="bad">${esc(j.errors[j.errors.length - 1].error)}</span>` : ''}</p>` : ''}
         ${e.last_sync ? `<p class="muted small">Price/stock sync ${new Date(e.last_sync.at).toLocaleString()}: ${e.last_sync.ok}/${e.last_sync.items}${e.last_orders ? ` · orders checked ${new Date(e.last_orders.at).toLocaleString()} (+${e.last_orders.added})` : ''}</p>` : ''}
         ${isAdmin() ? `<p class="row">${e.connected ? '<button class="btn ghost" id="ebdis">Disconnect</button>' : '<button class="btn" id="ebcon">Connect eBay</button>'}
