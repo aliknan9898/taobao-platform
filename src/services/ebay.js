@@ -306,6 +306,7 @@ async function listMany({ collection, ids, limit = 50 } = {}, by = 'admin') {
   const todo = candidates({ collection, ids }).slice(0, Math.min(400, Math.max(1, Number(limit) || 50)));
   running = true;
   const job = { started_at: now(), by, total: todo.length, done: 0, listed: 0, failed: 0, errors: [], running: true };
+  let same = 0; let lastErr = '';
   saveState({ job });
   try {
     for (const l of todo) {
@@ -315,6 +316,9 @@ async function listMany({ collection, ids, limit = 50 } = {}, by = 'admin') {
         job.errors = [...job.errors, { id: l.id, title: l.title.slice(0, 60), error: e.message }].slice(-30);
         db.listings.update(l.id, (x) => ({ ...x, ebay: { ...(x.ebay || {}), error: e.message, tried_at: now() } }));
         if (/not connected|keys are not set|business policies|delivery \(postage\) policy/i.test(e.message)) break; // nothing else will work
+        // The same eBay error 5 times in a row is a setup problem, not the products: stop instead of failing all of them
+        same = e.message === lastErr ? same + 1 : 1; lastErr = e.message;
+        if (same >= 5) { job.stopped = `Stopped: the same eBay error 5 times — ${e.message}`; break; }
       }
       job.done += 1; saveState({ job });
     }
@@ -466,6 +470,7 @@ async function tick() {
 
 function status() {
   const s = state();
+  if (s.job?.running && !running) { s.job.running = false; s.job.stopped = s.job.stopped || 'Interrupted by a server restart — press List again'; }
   const live = db.listings.all((l) => l.ebay?.listing_id);
   const failed = db.listings.all((l) => l.ebay?.error && !l.ebay?.listing_id && l.status === 'active').slice(0, 30).map((l) => ({ id: l.id, title: l.title.slice(0, 70), error: l.ebay.error }));
   return {
