@@ -139,3 +139,14 @@ test('eBay account-deletion challenge', () => {
   assert.strictEqual(ebay.carrierCode('Royal Mail Tracked 48'), 'Royal Mail');
   assert.strictEqual(ebay.carrierCode('CJPacket'), 'Other');
 });
+
+test('eBay: finish connecting by pasting the eBay "Thank you" page address', async () => {
+  ebayClient.disconnect();
+  assert.ok(!ebayClient.connected());
+  await assert.rejects(ebayClient.pasteCode('hello'), /whole address/);
+  ebayClient.authUrl();
+  await ebayClient.pasteCode('https://auth2.ebay.com/oauth2/ThirdPartyAuthSucessFailure?isAuthSuccessful=true&code=v%5E1.1%23i%5E1%23abcdefghijklmnopqrstuvwxyz&expires_in=299');
+  assert.ok(ebayClient.connected());
+  const tokenCall = calls.filter((c) => c.path === '/identity/v1/oauth2/token').pop();
+  assert.strictEqual(new URLSearchParams(tokenCall.body).get('code'), 'v^1.1#i^1#abcdefghijklmnopqrstuvwxyz');
+});

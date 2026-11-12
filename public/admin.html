@@ -222,6 +222,7 @@ const VIEWS = {
         ${e.last_sync ? `<p class="muted small">Price/stock sync ${new Date(e.last_sync.at).toLocaleString()}: ${e.last_sync.ok}/${e.last_sync.items}${e.last_orders ? ` · orders checked ${new Date(e.last_orders.at).toLocaleString()} (+${e.last_orders.added})` : ''}</p>` : ''}
         ${isAdmin() ? `<p class="row">${e.connected ? '<button class="btn ghost" id="ebdis">Disconnect</button>' : '<button class="btn" id="ebcon">Connect eBay</button>'}
           ${e.connected ? `<button class="btn" id="eblist" data-c="christmas" ${j?.running ? 'disabled' : ''}>List Christmas products</button><button class="btn ghost" id="eball" ${j?.running ? 'disabled' : ''}>List all ready</button><button class="btn ghost" id="ebsync">Sync now</button>` : ''}<span class="muted" id="ebm"></span></p>
+          ${e.connected ? '' : `<form class="row" id="ebcode"><label style="flex:1">eBay showed its own “Thank you” page? Copy that page’s address and paste it here <input name="url" placeholder="https://auth2.ebay.com/oauth2/...code=..." style="width:100%"></label><button class="btn">Finish connecting</button></form>`}
           <form class="row" id="ebf"><label>Site <select name="marketplace">${e.markets.map((m) => `<option ${p.marketplace === m ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
           <label>eBay markup % <input type="number" name="markup_pct" min="0" max="200" value="${esc(p.markup_pct)}" style="width:64px"></label>
           <label>Max qty <input type="number" name="max_qty" min="1" max="50" value="${esc(p.max_qty)}" style="width:56px"></label>
@@ -232,6 +233,7 @@ const VIEWS = {
         ${setup}`;
       const m = (t) => { const x = $('#ebm'); if (x) x.textContent = t; };
       const c = $('#ebcon'); if (c) c.onclick = async () => { try { location.href = (await api('/api/admin/ebay/connect')).url; } catch (err) { m(err.message); } };
+      const ec = $('#ebcode'); if (ec) ec.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/admin/ebay/code', 'POST', { url: new FormData(ec).get('url') }); ebayCard(); } catch (err) { m(err.message); } };
       const d = $('#ebdis'); if (d) d.onclick = async () => { if (!confirm('Disconnect eBay? Listings stay on eBay but stop syncing.')) return; await api('/api/admin/ebay/disconnect', 'POST'); ebayCard(); };
       const run = async (body) => { try { m('Checking eBay policies…'); await api('/api/admin/ebay/setup', 'POST'); await api('/api/admin/ebay/list', 'POST', body); m('Started — about 20 seconds per product'); setTimeout(ebayCard, 15000); } catch (err) { m(err.message); } };
       const l = $('#eblist'); if (l) l.onclick = () => run({ collection: 'christmas', limit: 100 });

@@ -59,6 +59,20 @@ async function handleCallback(code, state) {
   return true;
 }
 
+/**
+ * When eBay shows its own "Thank you" page instead of returning to Kinan (no accept URL saved on the RuName),
+ * the sign-in code is in that page's address: the admin pastes it, within 5 minutes of a Connect click.
+ */
+async function pasteCode(text) {
+  const raw = String(text || '').trim();
+  let code = raw;
+  try { const u = new URL(raw); code = u.searchParams.get('code') || ''; if (u.searchParams.get('isAuthSuccessful') === 'false') throw httpError(400, 'eBay says the sign-in was declined — press Connect again'); } catch (e) { if (e.status) throw e; }
+  if (!code || code.length < 20) throw httpError(400, 'Paste the whole address of the eBay “Thank you” page (it contains code=…)');
+  const st = db.oauthStates.all((x) => x.kind === 'ebay' && Date.now() - x.created_at < 30 * 60e3).sort((a, b) => b.created_at - a.created_at)[0];
+  if (!st) throw httpError(400, 'Press Connect eBay first, then paste the address within a few minutes');
+  return handleCallback(code, st.state);
+}
+
 function disconnect() { const s = saved(); if (s) db.settings.update(SID, { access_token: null, refresh_token: null, refresh_exp: 0 }); }
 
 async function userToken() {
@@ -115,4 +129,4 @@ function status() {
   return { configured: configured(), env: env(), connected: connected(), connected_at: s?.connected_at || null, refresh_expires_at: s?.refresh_exp || null, deletion_token_set: Boolean(process.env.EBAY_VERIFICATION_TOKEN) };
 }
 
-module.exports = { checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };
+module.exports = { pasteCode, checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };

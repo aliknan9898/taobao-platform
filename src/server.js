@@ -515,6 +515,7 @@ r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${ne
 r('GET', '/api/admin/collections/:id', ADMIN, async ({ params }) => { const sz = require('./services/seasonal'); return { state: sz.state(params.id), rows: sz.rows(params.id) }; });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
 r('GET', '/api/admin/ebay/connect', ADMIN, async () => ({ url: require('./ebay/client').authUrl() }));
+r('POST', '/api/admin/ebay/code', ADMIN, async ({ req }) => { await require('./ebay/client').pasteCode((await readJson(req)).url); return require('./services/ebay').status(); });
 r('POST', '/api/admin/ebay/disconnect', ADMIN, async () => { require('./ebay/client').disconnect(); return require('./services/ebay').status(); });
 r('PUT', '/api/admin/ebay', ADMIN, async ({ req }) => { require('./services/ebay').savePrefs(await readJson(req)); return require('./services/ebay').status(); });
 r('POST', '/api/admin/ebay/setup', ADMIN, async () => require('./services/ebay').policies());
