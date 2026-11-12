@@ -31,7 +31,8 @@ function robots() {
 function sitemap() {
   const cats = new Set(liveProducts().map(({ l }) => l.category || 'other'));
   const xmas = require('./services/seasonal').publicInfo().length ? [['/christmas', 'daily', '0.9']] : [];
-  const urls = [['/', 'daily', '1.0'], ...xmas, ...[...cats].map((c) => [`/c/${c}`, 'daily', '0.7']), ['/download', 'monthly', '0.4'], ['/terms', 'yearly', '0.2'], ['/privacy', 'yearly', '0.2'], ['/legal', 'yearly', '0.2']]
+  const deps = require('./services/sourcing').publicDepartments().map((d) => [`/shop/${d.id}`, 'daily', '0.8']);
+  const urls = [['/', 'daily', '1.0'], ...xmas, ...deps, ...[...cats].map((c) => [`/c/${c}`, 'daily', '0.7']), ['/download', 'monthly', '0.4'], ['/terms', 'yearly', '0.2'], ['/privacy', 'yearly', '0.2'], ['/legal', 'yearly', '0.2']]
     .map(([u, f, p]) => ({ loc: abs(u), changefreq: f, priority: p }));
   const shops = new Set();
   for (const { l, s } of liveProducts()) { urls.push({ loc: abs(`/p/${l.id}`), lastmod: new Date(l.updated_at || l.created_at).toISOString().slice(0, 10), changefreq: 'weekly', priority: '0.8' }); if (!s.system) shops.add(s.id); }

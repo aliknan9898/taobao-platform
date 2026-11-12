@@ -100,6 +100,7 @@ function eligible(l) {
   if (!prefs().from.includes(String(l.cj_from || 'CN').toUpperCase())) return `Ships from ${l.cj_from || 'CN'} — not one of the eBay warehouses`;
   if (!list(l.skus).some((s) => s.stock > 0)) return 'Out of stock';
   if (!list(l.images).some((u) => /^https:/.test(u))) return 'No photos';
+  if (l.sourcing && l.sourcing.ebay_ok === false) return 'The AI or the UK delivery check says it is not for eBay UK';
   return null;
 }
 
@@ -256,7 +257,7 @@ async function listOne(listingId) {
   const cat = await category(l);
   const asp = await aspects(l, cat);
   const images = list(l.images).filter((u) => /^https:/.test(u)).slice(0, 12);
-  const title = String(l.title).replace(/\s+/g, ' ').trim().slice(0, 80);
+  const title = String(l.sourcing?.ebay_title || l.title).replace(/\s+/g, ' ').trim().slice(0, 80);
   const desc = description(l);
   const skus = list(l.skus).filter((s) => s.cj_vid);
   const multi = skus.length > 1 && skus.every((s) => list(s.opts).length);

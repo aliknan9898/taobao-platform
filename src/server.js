@@ -283,7 +283,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const extra = (c?.fee || 0) + (g?.fee || 0);
   return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note };
 });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), collections: require('./services/seasonal').publicInfo(), countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -514,6 +514,10 @@ r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${ne
 // Seasonal collections (Christmas Shop from CJ's European warehouses)
 r('GET', '/api/admin/collections/:id', ADMIN, async ({ params }) => { const sz = require('./services/seasonal'); return { state: sz.state(params.id), rows: sz.rows(params.id) }; });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
+r('GET', '/api/admin/sourcing', ADMIN, async () => require('./services/sourcing').status());
+r('PUT', '/api/admin/sourcing', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); sr.savePrefs(await readJson(req)); return sr.status(); });
+r('POST', '/api/admin/sourcing/start', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); const b = await readJson(req); sr.start({ count: b.count }, 'admin'); return sr.status(); });
+r('POST', '/api/admin/sourcing/stop', ADMIN, async () => { const sr = require('./services/sourcing'); sr.stop(); return sr.status(); });
 r('GET', '/api/admin/ebay/products', ADMIN, async ({ url }) => require('./services/ebay').products({ filter: url.searchParams.get('filter') || 'all' }));
 r('GET', '/api/admin/ebay/products.csv', ADMIN, async ({ res }) => { res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="kinan-ebay-products.csv"' }); res.end('\ufeff' + require('./services/ebay').csv()); return undefined; });
 r('GET', '/api/admin/ebay/connect', ADMIN, async () => ({ url: require('./ebay/client').authUrl() }));
@@ -658,6 +662,12 @@ const server = http.createServer(async (req, res) => {
       }
       const sh = p.match(/^\/(p|s)\/([\w-]{1,80})$/);
       if (sh) return sharePage(res, sh[1], sh[2]);
+      const dep = p.match(/^\/shop\/([a-z-]{2,30})$/);
+      if (dep && require('./services/sourcing').DEPARTMENTS[dep[1]]) {
+        const D = require('./services/sourcing').DEPARTMENTS[dep[1]];
+        const intro = `${D.en} on Kinan: ${Object.values(D.groups).map((g) => g.en.toLowerCase()).join(', ')} — shipped fast from European and UK warehouses.`;
+        return page(res, 'shop.html', { stripe: true, title: `${D.en} — fast delivery from Europe | Kinan`, body: seo.ssrList({ title: `Kinan ${D.en}`, intro, collection: dep[1] }), head: seo.listJsonLd(`Kinan ${D.en}`, seo.liveProducts().filter(({ l }) => (l.collections || []).includes(dep[1])), `/shop/${dep[1]}`) + shareHead({ title: `Kinan ${D.en} ${D.emoji}`, description: intro, url: `/shop/${dep[1]}`, hash: `#/x/${dep[1]}` }) });
+      }
       if (p === '/christmas' || p === '/xmas') return page(res, 'shop.html', { stripe: true, title: 'Christmas Shop — decorations, lights & gifts | Kinan', body: seo.ssrList({ title: 'Kinan Christmas Shop', intro: 'Christmas decorations, fairy lights, Christmas jumpers, gifts and baking tools — shipped from European warehouses so they arrive before Christmas. Code XMAS10 gives 10% off.', collection: 'christmas' }), head: seo.listJsonLd('Kinan Christmas Shop', seo.liveProducts().filter(({ l }) => (l.collections || []).includes('christmas')), '/christmas') + shareHead({ title: 'Kinan Christmas Shop 🎄 — decorations, lights & gifts', description: 'Christmas decorations, lights, jumpers and gifts — shipped from European warehouses so they arrive before Christmas. Use code XMAS10 for 10% off.', image: '/assets/xmas-og.png', url: '/christmas', hash: '#/x/christmas' }) });
       if (p === '/seller') return page(res, 'seller.html');
       if (p === '/admin') return page(res, 'admin.html');
@@ -809,7 +819,8 @@ function startJobs() {
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
   every(60e3, () => require('./services/autoreview').tick());
-  every(15 * 60e3, () => require('./services/ebay').tick()); // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
+  every(15 * 60e3, () => require('./services/ebay').tick());
+  every(3600e3, () => require('./services/sourcing').tick()); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
   every(3600e3, async () => { const b = require('./services/banggood'); await b.updateTick(); const h = new Date().getUTCHours(); if (h === 4) await b.resyncStale(300); if (h === 5) await b.refreshLimits(); });
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));

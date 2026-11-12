@@ -204,6 +204,24 @@
   .xmas-band b { font-size: clamp(18px, 4.6vw, 26px); letter-spacing: -.02em; line-height: 1.15; }
   .xmas-band .xb-sub { font-size: 13px; opacity: .88; }
   .xmas-band .xb-cta { flex: none; background: #f6c453; color: #3a1405; font-weight: 700; padding: 10px 14px; border-radius: 999px; font-size: 14px; }
+  .depts { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin: 10px 0 6px; }
+  @media (min-width: 760px) { .depts { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; } }
+  .dept { display: grid; justify-items: center; align-content: start; gap: 5px; padding: 10px 4px 8px; border-radius: 16px; background: var(--card, #fff); border: 1px solid var(--line, #e7e5e0); text-decoration: none; color: inherit; text-align: center; transition: transform .15s ease, box-shadow .15s ease; }
+  .dept:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+  .dept .di { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; background: var(--soft, #f3f1ec); overflow: hidden; }
+  .dept .di img { width: 100%; height: 100%; object-fit: cover; }
+  .dept b { font-size: 11.5px; line-height: 1.2; font-weight: 600; }
+  .dept span.n { font-size: 11px; color: var(--muted, #777); }
+  .aisle { margin: 18px 0 4px; }
+  .aisle .sechead a { font-size: 14px; font-weight: 600; text-decoration: none; }
+  .dept-hero { margin: 8px 0 10px; padding: 22px 20px 18px; border-radius: 22px; background: linear-gradient(135deg, var(--brand, #0f7a5c), #0b5240); color: #fff; display: grid; gap: 8px; position: relative; overflow: hidden; }
+  .dept-hero h1 { font-size: clamp(26px, 6vw, 42px); letter-spacing: -.03em; line-height: 1.05; color: #fff; }
+  .dept-hero p { opacity: .92; max-width: 60ch; }
+  .dept-hero .dh-emoji { position: absolute; inset-inline-end: 6px; bottom: -18px; font-size: 110px; opacity: .25; pointer-events: none; }
+  .dept-hero .xh-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dept-hero .pill { background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3); color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .dept-hero button.pill { cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; }
+  .dept-hero .pill::before { display: none; }
   .xstrip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 42%); gap: 12px; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: none; scroll-snap-type: x mandatory; }
   .xstrip::-webkit-scrollbar { display: none; }
   .xstrip > * { scroll-snap-align: start; }
@@ -542,6 +560,7 @@ function productCard(p) {
     <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.rating ? stars(p.rating, p.reviews) : ''}<div class="muted small" data-shipnote>${p.delivered_price != null ? 'Incl. shipping' : p.ship_pending ? 'Calculating shipping…' : '+ shipping'}</div>${p.ships_from && EU_WH.has(p.ships_from) ? '<div class="small euship">Ships from Europe</div>' : p.ships_from === 'GB' ? '<div class="small euship">Ships from the UK</div>' : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
 }
 const EU_WH = new Set(['DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'BE', 'AT', 'HU', 'PT', 'IE', 'SE', 'DK']);
+const depts = () => (cfg.collections || []).filter((c) => c.kind === 'department');
 const xmasLive = () => (cfg.collections || []).find((c) => c.id === 'christmas' && Date.now() < c.ends);
 const daysToXmas = () => Math.max(0, Math.ceil((Date.UTC(2026, 11, 25) - Date.now()) / 86400e3));
 const skeletonGrid = () => `<div class="grid">${Array.from({ length: 8 }, () => '<div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="height:14px;margin-top:10px;width:80%"></div></div>').join('')}</div>`;
@@ -569,6 +588,7 @@ async function home(q = '', category = '') {
   v.innerHTML = `${q || category ? `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a>${q ? `<h2 style="margin-top:6px">Results for “${esc(q)}”</h2>` : ''}</div></div>` : `
     `}
     ${!q && !category && xmasLive() ? `<a class="xmas-band" href="#/x/christmas"><div class="xb-text"><span class="xb-kicker">🎄 <span>Christmas Shop</span></span><b>Decorations, lights &amp; gifts</b><span class="xb-sub">Ships from Europe · arrives before Christmas</span></div><span class="xb-cta">Shop now</span></a><div class="xstrip" id="xstrip"></div>` : ''}
+    ${!q && !category && depts().length ? `<div class="sechead"><h2>${KinanLang.t('Shop by department')}</h2></div><div class="depts">${depts().map((d) => `<a class="dept" href="#/x/${esc(d.id)}"><span class="di">${d.image ? `<img src="${esc(d.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : d.emoji}</span><b>${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</b><span class="n">${d.count}</span></a>`).join('')}</div>${depts().slice(0, 4).map((d) => `<section class="aisle"><div class="sechead"><h2>${d.emoji} ${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</h2><a href="#/x/${esc(d.id)}">${KinanLang.t('See all')} →</a></div><div class="xstrip" data-aisle="${esc(d.id)}"></div></section>`).join('')}` : ''}
     <div class="cats" id="cats"></div>
     <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2></div>
     ${toolbar()}
@@ -583,6 +603,7 @@ async function home(q = '', category = '') {
       : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
   };
   wireToolbar(load); renderLocaleChip();
+  $$('[data-aisle]').forEach((el) => api(`/api/catalog?${catalogQuery({ collection: el.dataset.aisle, limit: 12 })}`).then((d) => { if (d.items.length) el.innerHTML = d.items.map(productCard).join(''); else el.closest('.aisle')?.remove(); }).catch(() => {}));
   if ($('#xstrip')) api(`/api/catalog?${catalogQuery({ collection: 'christmas', limit: 12 })}`).then((d) => { const el = $('#xstrip'); if (el && d.items.length) el.innerHTML = d.items.map(productCard).join(''); else if (el) el.remove(); }).catch(() => {});
   api('/api/categories').then((cs) => {
     const el = $('#cats'); if (!el) return; const shown = cs.filter((c) => c.count > 0);
@@ -595,6 +616,7 @@ async function collectionPage(id, group = '') {
   const c = (cfg.collections || []).find((x) => x.id === id);
   const v = $('#view');
   if (!c) { v.innerHTML = `<div class="empty"><h3>This collection has ended</h3><p>Browse everything else in the shop.</p><a class="btn ghost" href="#/">Back to shop</a></div>`; return; }
+  if (c.kind === 'department') return departmentPage(c, group);
   const d2x = daysToXmas();
   v.innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
     <section class="xmas-hero"><span class="xh-tree" aria-hidden="true">🎄</span>
@@ -611,6 +633,28 @@ async function collectionPage(id, group = '') {
   const load = async () => {
     $('#results').innerHTML = skeletonGrid();
     const query = catalogQuery({ collection: id, ...(group ? { group } : {}) });
+    const d = await api(`/api/catalog?${query}`); followPrices(query, d.items);
+    $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>No products match</h3><p>Try a different price range.</p></div>';
+  };
+  wireToolbar(load); await load();
+}
+
+async function departmentPage(c, group = '') {
+  const v = $('#view'); const ar = KinanLang.lang === 'ar';
+  const name = ar && c.name_ar ? c.name_ar : c.name;
+  v.innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
+    <section class="dept-hero"><span class="dh-emoji" aria-hidden="true">${c.emoji || ''}</span>
+      <h1>${esc(name)}</h1>
+      <p>${KinanLang.t('Popular products shipped fast from European and UK warehouses.')}</p>
+      <div class="xh-row"><span class="pill">🚚 ${KinanLang.t('Fast delivery in Europe & UK')}</span><span class="pill">📦 ${c.count} ${KinanLang.t('products')}</span><button class="pill" id="dshare" type="button">${ICONS.share} ${KinanLang.t('Share')}</button></div>
+    </section>
+    <div class="cats"><a class="chip ${group ? '' : 'on'}" href="#/x/${esc(c.id)}">${KinanLang.t('All')}</a>${c.groups.map((g) => `<a class="chip ${g.id === group ? 'on' : ''}" href="#/x/${esc(c.id)}/${esc(g.id)}">${esc(ar && g.ar ? g.ar : g.en)}</a>`).join('')}</div>
+    <div class="sechead"><h2>${group ? esc((ar && c.groups.find((g) => g.id === group)?.ar) || c.groups.find((g) => g.id === group)?.en || name) : esc(name)}</h2></div>
+    ${toolbar()}<div id="results">${skeletonGrid()}</div>`;
+  $('#dshare').onclick = () => shareLink(`${location.origin}/shop/${c.id}`, `Kinan ${c.name}`);
+  const load = async () => {
+    $('#results').innerHTML = skeletonGrid();
+    const query = catalogQuery({ collection: c.id, ...(group ? { group } : {}) });
     const d = await api(`/api/catalog?${query}`); followPrices(query, d.items);
     $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>No products match</h3><p>Try a different price range.</p></div>';
   };

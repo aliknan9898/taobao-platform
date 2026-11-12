@@ -183,6 +183,40 @@ function ebayCard() {
     }).catch(() => {});
 }
 
+function sourcingCard() {
+  return api('/api/admin/sourcing').then((d) => {
+    const el = $('#srccard'); if (!el) return;
+    const p = d.prefs; const r = d.run;
+    const reasons = r && Object.keys(r.reasons || {}).length ? Object.entries(r.reasons).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k)}: ${n}`).join(' · ') : '';
+    el.innerHTML = `<h2>🛍️ AI catalog builder</h2>
+      <p class="muted">Adds best-selling CJ products kept in European and UK warehouses, with fast delivery, department by department — like a big marketplace. The AI checks the photos and the product, keeps only good ones, puts each in the right department and section, writes an eBay title and keywords; the AI product review then polishes it before it goes live. Ready for eBay too.</p>
+      <p>${d.running ? '<span class="pill warn">Running…</span>' : r?.retry_at && Date.now() < r.retry_at ? '<span class="pill warn">Paused (CJ limit) — continues by itself</span>' : '<span class="pill ok">Ready</span>'} · <b>${d.total}</b> products added so far · <b>${d.added_today}</b> today${p.daily ? ` of ${p.per_day} a day (automatic)` : ''}${d.ai ? '' : ' · <span class="pill bad">AI is off — products still get the AI review later</span>'}</p>
+      ${r ? `<p class="muted small">Last run ${new Date(r.started_at).toLocaleString()}: <b>${r.added}</b> added of ${r.target}, ${r.checked} checked, ${r.skipped} turned down${reasons ? ` (${reasons})` : ''}${r.error ? ` — <span class="bad">${esc(r.error)}</span>` : ''}</p>` : ''}
+      ${r?.last?.length ? `<details><summary>Latest added</summary><ul class="small">${r.last.map((x) => `<li><a href="/p/${esc(x.id)}" target="_blank" rel="noopener">${esc(x.title)}</a> · ${esc(x.dept)}${x.quality ? ` · AI ${x.quality}/10` : ''}</li>`).join('')}</ul></details>` : ''}
+      <div style="overflow-x:auto"><table><thead><tr><th>On</th><th>Department</th><th>Live</th><th>AI checking</th><th>On eBay</th><th>Sections</th><th></th></tr></thead><tbody>${d.departments.map((x) => `<tr><td><input type="checkbox" data-dep="${esc(x.id)}" ${x.on ? 'checked' : ''}></td><td>${x.emoji} ${esc(x.en)}</td><td>${x.live}</td><td>${x.waiting}</td><td>${x.ebay}</td><td class="small muted">${x.groups.map((g) => esc(g.en)).join(', ')}</td><td>${x.live ? `<a href="/shop/${esc(x.id)}" target="_blank" rel="noopener">Shop page</a>` : ''}</td></tr>`).join('')}</tbody></table></div>
+      <form id="srcf" class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px">
+        <label>Products this run <input type="number" name="batch" min="1" max="1000" value="${p.batch}" style="width:80px"></label>
+        <label><input type="checkbox" name="daily" ${p.daily ? 'checked' : ''}> Every day, by itself:</label><label><input type="number" name="per_day" min="0" max="1000" value="${p.per_day}" style="width:72px"> a day</label>
+        <label>Markup % <input type="number" name="markup_pct" min="10" max="400" value="${p.markup_pct}" style="width:64px"></label>
+        <label>CJ cost $ <input type="number" name="min_cost" min="0" step="0.5" value="${p.min_cost}" style="width:60px"> – <input type="number" name="max_cost" min="2" value="${p.max_cost}" style="width:60px"></label>
+        <label title="How many shops already sell it on CJ: a sign of demand">Min. demand <input type="number" name="min_listed" min="0" value="${p.min_listed}" style="width:64px"></label>
+        <label>Max delivery days EU <input type="number" name="max_days_eu" min="2" max="30" value="${p.max_days_eu}" style="width:56px"></label>
+        <label>UK <input type="number" name="max_days_gb" min="2" max="30" value="${p.max_days_gb}" style="width:56px"></label>
+        <label title="The AI's score of the product and its photos">Min. AI quality <input type="number" name="min_quality" min="1" max="10" value="${p.min_quality}" style="width:52px">/10</label>
+        <label>Min. stock <input type="number" name="min_stock" min="1" value="${p.min_stock}" style="width:64px"></label>
+        <label>Warehouses <input name="warehouses" value="${esc(p.warehouses.join(','))}" style="width:190px"></label>
+      </form>
+      <p class="row"><button class="btn" id="srcgo" ${d.running ? 'disabled' : ''}>Save &amp; add products now</button><button class="btn ghost" id="srcsave">Save settings</button>${d.running ? '<button class="btn ghost" id="srcstop">Stop</button>' : ''}<span class="muted" id="srcm"></span></p>
+      <p class="muted small">Each product uses a few CJ API calls; CJ's daily limit pauses a run, which then continues by itself. New products wait for the AI product review before they go live.</p>`;
+    const m = (t) => { const x = $('#srcm'); if (x) x.textContent = t; };
+    const read = () => { const f = $('#srcf'); const x = Object.fromEntries(new FormData(f)); return { ...x, daily: f.daily.checked, departments: [...el.querySelectorAll('[data-dep]')].filter((c) => c.checked).map((c) => c.dataset.dep) }; };
+    $('#srcsave').onclick = async () => { try { await api('/api/admin/sourcing', 'PUT', read()); m('Saved'); sourcingCard(); } catch (e) { m(e.message); } };
+    $('#srcgo').onclick = async () => { try { const b = read(); await api('/api/admin/sourcing', 'PUT', b); await api('/api/admin/sourcing/start', 'POST', { count: Number(b.batch) }); m('Started'); setTimeout(sourcingCard, 4000); } catch (e) { m(e.message); } };
+    const st = $('#srcstop'); if (st) st.onclick = async () => { await api('/api/admin/sourcing/stop', 'POST'); m('Stopping after the current product…'); setTimeout(sourcingCard, 5000); };
+    if (d.running) setTimeout(sourcingCard, 10000);
+  }).catch((e) => { const el = $('#srccard'); if (el) el.innerHTML = `<h2>AI catalog builder</h2><p class="err">${esc(e.message)}</p>`; });
+}
+
 const VIEWS = {
   async overview(v) {
     const d = await api('/api/admin/overview'); const k = d.kpis; const c = d.currency;
@@ -442,6 +476,8 @@ const VIEWS = {
       ${list.flatMap((o) => o.parts.map((s) => `<tr data-id="${esc(o.id)}" style="cursor:pointer"><td><code>${esc(o.id.slice(-8))}</code><div class="muted">${date(o.created_at)}</div></td><td>${esc(o.country || '')}</td><td>${esc(s.cj_order || '—')}${s.sandbox ? ' <span class="pill bad">SANDBOX</span>' : ''}</td><td>${esc(s.method || o.cj_shipping?.method || '—')}</td><td>${s.amount ? fmtUsd(s.amount) : '—'}</td>
         <td><span class="pill ${s.status === 'AE_DELIVERED' ? 'ok' : s.error || s.status === 'AE_CANCELLED' ? 'bad' : 'warn'}">${esc(s.label)}</span>${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}</td><td>${s.tracking ? esc(s.tracking.tracking) : '—'}</td></tr>`)).join('') || '<tr><td colspan="7" class="muted">No CJ orders yet.</td></tr>'}</tbody></table>`;
     v.querySelectorAll('#cjorders tr[data-id]').forEach((tr) => tr.onclick = () => openOrder(tr.dataset.id));
+    v.insertAdjacentHTML('afterbegin', '<div class="card" id="srccard"><h2>AI catalog builder</h2><p class="muted">Loading…</p></div>');
+    sourcingCard();
   },
 
   async orders(v) {
