@@ -513,6 +513,14 @@ r('GET', '/api/admin/backup', ADMIN, async ({ res }) => { const f = ops.backupFi
 r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${new Date().toISOString().slice(0, 10)}`; for (const m of db.mail.all((x) => x.key === k)) db.mail.remove(m.id); return { ...(await ops.dailyBackup()), to: ops.backupRecipient() }; });
 // Seasonal collections (Christmas Shop from CJ's European warehouses)
 r('GET', '/api/admin/collections/:id', ADMIN, async ({ params }) => { const sz = require('./services/seasonal'); return { state: sz.state(params.id), rows: sz.rows(params.id) }; });
+r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
+r('GET', '/api/admin/ebay/connect', ADMIN, async () => ({ url: require('./ebay/client').authUrl() }));
+r('POST', '/api/admin/ebay/disconnect', ADMIN, async () => { require('./ebay/client').disconnect(); return require('./services/ebay').status(); });
+r('PUT', '/api/admin/ebay', ADMIN, async ({ req }) => { require('./services/ebay').savePrefs(await readJson(req)); return require('./services/ebay').status(); });
+r('POST', '/api/admin/ebay/setup', ADMIN, async () => require('./services/ebay').policies());
+r('POST', '/api/admin/ebay/list', ADMIN, async ({ req }) => { const e = require('./services/ebay'); const b = await readJson(req); if (b.listing_id) return e.listOne(String(b.listing_id)); if (e._running()) throw httpError(409, 'eBay listing is already running'); require('./cj/client').background(() => e.listMany({ collection: b.collection ? String(b.collection) : undefined, ids: Array.isArray(b.ids) ? b.ids.map(String) : undefined, limit: b.limit }, 'admin')).catch((x) => console.warn('[ebay]', x.message)); return { started: true }; });
+r('POST', '/api/admin/ebay/end/:id', ADMIN, async ({ params }) => require('./services/ebay').endOne(params.id));
+r('POST', '/api/admin/ebay/sync', ADMIN, async () => { const e = require('./services/ebay'); const orders = await e.importOrders(); const tracking = await e.pushTracking(); const stock = await e.sync(); return { orders, tracking, stock }; });
 r('POST', '/api/admin/collections/:id/import', ADMIN, async ({ req, params }) => { const sz = require('./services/seasonal'); const b = await readJson(req); if (!sz.COLLECTIONS[params.id]) throw httpError(404, 'Unknown collection'); require('./cj/client').background(() => sz.importCollection(params.id, b, 'admin')).catch((e) => console.warn('[xmas]', e.message)); return { started: true, state: sz.state(params.id) }; });
 r('POST', '/api/admin/collections/:id/polish', ADMIN, async ({ params }) => ({ rewritten: await require('./services/seasonal').polish(params.id) }));
 r('GET', '/api/admin/collections/:id/export.csv', ADMIN, async ({ params, res }) => {
@@ -690,6 +698,13 @@ const server = http.createServer(async (req, res) => {
       setImmediate(() => { try { const m = JSON.parse(raw.toString('utf8')); const out = cjs.handleWebhook(m); if (!out.ignored) console.log('[cj] webhook', m.type, JSON.stringify(out)); } catch (e) { console.error('[cj] webhook', e.message); } });
       return;
     }
+    if (p === '/webhooks/ebay/deletion') {
+      // eBay's marketplace account deletion notices: Kinan keeps no eBay member data beyond order addresses
+      const code = url.searchParams.get('challenge_code');
+      if (req.method === 'GET' && code) return send(res, 200, { challengeResponse: require('./ebay/client').challenge(code, `${config.publicBaseUrl}/webhooks/ebay/deletion`) });
+      if (req.method === 'POST') await readRaw(req).catch(() => null);
+      return send(res, 200, { ok: true });
+    }
     if (p === '/webhooks/nss') {
       if (req.method !== 'POST') return send(res, 200, { ok: true });
       const raw = await readRaw(req); const n = require('./services/nss');
@@ -719,6 +734,11 @@ const server = http.createServer(async (req, res) => {
         if ((e.status || 500) >= 500) console.error('[google]', e.message);
         res.writeHead(302, { Location: `${e.home || '/'}?login_error=${encodeURIComponent(e.message)}` });
       }
+      return res.end();
+    }
+    if (p === '/oauth/ebay/callback' && req.method === 'GET') {
+      try { await require('./ebay/client').handleCallback(url.searchParams.get('code'), url.searchParams.get('state')); res.writeHead(302, { Location: '/admin?ebay=connected#ebay' }); }
+      catch (e) { res.writeHead(302, { Location: `/admin?login_error=${encodeURIComponent(url.searchParams.get('error_description') || e.message)}` }); }
       return res.end();
     }
     if (p === '/oauth/aliexpress/callback' && req.method === 'GET') {
@@ -783,7 +803,8 @@ function startJobs() {
   every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); growth.cartReminders(); });
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
-  every(60e3, () => require('./services/autoreview').tick()); // AI review of new and changed products
+  every(60e3, () => require('./services/autoreview').tick());
+  every(15 * 60e3, () => require('./services/ebay').tick()); // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
   every(3600e3, async () => { const b = require('./services/banggood'); await b.updateTick(); const h = new Date().getUTCHours(); if (h === 4) await b.resyncStale(300); if (h === 5) await b.refreshLimits(); });
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));

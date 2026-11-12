@@ -164,6 +164,7 @@ const VIEWS = {
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
       <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
       <div class="card" id="aicard"><h2>AI assistant</h2><p class="muted">Loading…</p></div>
+      <div class="card" id="ebay"><h2>eBay</h2><p class="muted">Loading…</p></div>
       <div class="card" id="xmascard"><h2>🎄 Christmas Shop</h2><p class="muted">Loading…</p></div>
       <div class="card" id="bgcard"><h2>Banggood</h2><p class="muted">Loading…</p></div>
       <div class="card" id="nsscard"><h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Loading…</p></div>
@@ -206,6 +207,41 @@ const VIEWS = {
       if (st.running) setTimeout(xmas, 15000);
     }).catch(() => {});
     xmas();
+    const ebayCard = () => api('/api/admin/ebay').then((e) => {
+      const el = $('#ebay'); if (!el) return;
+      const env = e.env === 'sandbox' ? ' <span class="pill warn">Sandbox (test)</span>' : ' <span class="pill ok">Live</span>';
+      const setup = `<details ${e.configured ? '' : 'open'}><summary>Setup (eBay developer account)</summary><ol class="small">
+        <li>Render → Environment: <code>EBAY_CLIENT_ID</code> (App ID), <code>EBAY_CLIENT_SECRET</code> (Cert ID), <code>EBAY_RUNAME</code>, <code>EBAY_ENV</code> = sandbox or production, <code>EBAY_VERIFICATION_TOKEN</code> (32–80 letters/numbers you make up).</li>
+        <li>eBay developer → User Tokens → Get a Token from eBay via Your Application → add a redirect URL: “Your auth accepted URL” = <code>${esc(e.accept_url)}</code>. Its name (RuName) goes in <code>EBAY_RUNAME</code>.</li>
+        <li>Alerts &amp; Notifications → Marketplace account deletion: endpoint <code>${esc(e.deletion_endpoint)}</code> and the same verification token (needed for live keys).</li></ol></details>`;
+      if (!e.configured) { el.innerHTML = `<h2>eBay</h2><p class="muted">Sell Kinan’s European-warehouse products on eBay. eBay orders come back as Kinan orders and CJ ships them; tracking goes back to eBay.</p>${setup}`; return; }
+      const p = e.prefs; const j = e.job;
+      el.innerHTML = `<h2>eBay</h2>
+        <p>${e.connected ? '<span class="pill ok">Connected</span>' : '<span class="pill bad">Not connected</span>'}${env} · ${esc(p.marketplace)} · <b>${e.live}</b> on eBay · ${e.ready} ready (${e.ready_christmas} Christmas) · ${e.orders} eBay order(s)</p>
+        ${j ? `<p class="muted">${j.running ? '<span class="pill warn">Listing…</span> ' : ''}Last run: ${j.listed} listed, ${j.failed} failed of ${j.total}${j.errors?.length ? ` — <span class="bad">${esc(j.errors[j.errors.length - 1].error)}</span>` : ''}</p>` : ''}
+        ${e.last_sync ? `<p class="muted small">Price/stock sync ${new Date(e.last_sync.at).toLocaleString()}: ${e.last_sync.ok}/${e.last_sync.items}${e.last_orders ? ` · orders checked ${new Date(e.last_orders.at).toLocaleString()} (+${e.last_orders.added})` : ''}</p>` : ''}
+        ${isAdmin() ? `<p class="row">${e.connected ? '<button class="btn ghost" id="ebdis">Disconnect</button>' : '<button class="btn" id="ebcon">Connect eBay</button>'}
+          ${e.connected ? `<button class="btn" id="eblist" data-c="christmas" ${j?.running ? 'disabled' : ''}>List Christmas products</button><button class="btn ghost" id="eball" ${j?.running ? 'disabled' : ''}>List all ready</button><button class="btn ghost" id="ebsync">Sync now</button>` : ''}<span class="muted" id="ebm"></span></p>
+          <form class="row" id="ebf"><label>Site <select name="marketplace">${e.markets.map((m) => `<option ${p.marketplace === m ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+          <label>eBay markup % <input type="number" name="markup_pct" min="0" max="200" value="${esc(p.markup_pct)}" style="width:64px"></label>
+          <label>Max qty <input type="number" name="max_qty" min="1" max="50" value="${esc(p.max_qty)}" style="width:56px"></label>
+          <label>Warehouses <input name="from" value="${esc(p.from.join(','))}" style="width:180px"></label><button class="btn ghost">Save</button></form>` : ''}
+        <p class="muted small">eBay price = Kinan price + CJ delivery to the site’s country + markup (eBay takes ~13%), free delivery for the buyer. Only Kinan’s own CJ products from these warehouses are listed.</p>
+        ${e.failed.length ? `<details><summary class="bad">Not listed (${e.failed.length})</summary><ul class="small">${e.failed.map((x) => `<li>${esc(x.title)} — ${esc(x.error)}</li>`).join('')}</ul></details>` : ''}
+        ${e.listings.length ? `<details><summary>On eBay (${e.live})</summary><ul class="small">${e.listings.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a> ${isAdmin() ? `<button class="btn ghost" data-ebend="${esc(x.id)}">End</button>` : ''}</li>`).join('')}</ul></details>` : ''}
+        ${setup}`;
+      const m = (t) => { const x = $('#ebm'); if (x) x.textContent = t; };
+      const c = $('#ebcon'); if (c) c.onclick = async () => { try { location.href = (await api('/api/admin/ebay/connect')).url; } catch (err) { m(err.message); } };
+      const d = $('#ebdis'); if (d) d.onclick = async () => { if (!confirm('Disconnect eBay? Listings stay on eBay but stop syncing.')) return; await api('/api/admin/ebay/disconnect', 'POST'); ebayCard(); };
+      const run = async (body) => { try { m('Checking eBay policies…'); await api('/api/admin/ebay/setup', 'POST'); await api('/api/admin/ebay/list', 'POST', body); m('Started — about 20 seconds per product'); setTimeout(ebayCard, 15000); } catch (err) { m(err.message); } };
+      const l = $('#eblist'); if (l) l.onclick = () => run({ collection: 'christmas', limit: 100 });
+      const a = $('#eball'); if (a) a.onclick = () => run({ limit: 100 });
+      const s = $('#ebsync'); if (s) s.onclick = async () => { m('Syncing…'); try { const r = await api('/api/admin/ebay/sync', 'POST'); m(`Orders +${r.orders.added || 0} · tracking ${r.tracking.sent || 0} · stock ${r.stock.ok || 0}/${r.stock.items || 0}`); } catch (err) { m(err.message); } };
+      const f = $('#ebf'); if (f) f.onsubmit = async (ev) => { ev.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/ebay', 'PUT', { ...x, markup_pct: Number(x.markup_pct), max_qty: Number(x.max_qty) }); m('Saved'); ebayCard(); } catch (err) { m(err.message); } };
+      el.querySelectorAll('[data-ebend]').forEach((b2) => b2.onclick = async () => { if (!confirm('End this eBay listing?')) return; try { await api(`/api/admin/ebay/end/${b2.dataset.ebend}`, 'POST'); ebayCard(); } catch (err) { alert(err.message); } });
+      if (j?.running) setTimeout(ebayCard, 15000);
+    }).catch(() => {});
+    ebayCard();
     const aiReviewCard = () => api('/api/admin/ai-review').then((a) => {
       const el = $('#aireview'); if (!el) return;
       if (!a.enabled) { el.innerHTML = '<h2>🤖 AI product review</h2><p class="muted">Off. Add <code>GEMINI_API_KEY</code> (free from aistudio.google.com) or <code>ANTHROPIC_API_KEY</code> in Render → Environment. Every product — imported or added by hand — is then checked automatically: title, description, keywords (English + Arabic), category and photos.</p>'; return; }
