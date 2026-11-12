@@ -231,6 +231,7 @@ async function products() {
           <div class="row">${pill(lab, cls)}<span class="muted">${money(lo, p.currency)}${hi !== lo ? ` – ${money(hi, p.currency)}` : ''} · ${p.skus.length} option${p.skus.length > 1 ? 's' : ''}</span></div>
           ${p.status === 'rejected' && p.review?.reason ? `<div class="small bad">Kinan’s note: ${esc(p.review.reason)}</div>` : ''}
           ${p.sync_error ? `<div class="small warn">${esc(p.sync_error)}</div>` : ''}
+          ${p.ai_review?.at && p.ai_review.decision === 'ok' ? `<div class="small muted">✓ Checked by Kinan AI${[p.ai_review.removed_photos ? `${p.ai_review.removed_photos} photo(s) taken off` : '', (p.ai_review.photo_issues || []).some((x) => x.verdict === 'fix') ? 'some photos have text or blur — upload cleaner ones if you can' : ''].filter(Boolean).map((x) => ` · ${x}`).join('')}</div>` : ''}
           ${p.price_alert?.skus?.length ? `<div class="small bad">Supplier price went up — ${p.price_alert.skus.map((s) => `${esc(s.props || 'Standard')}: price ${money(s.price, p.currency)} < cost ${money(s.cost, p.currency)}`).join('; ')}.${p.price_alert.paused ? ' Paused to avoid a loss.' : ''} Raise the price.</div>` : ''}</div>
         <div class="row acts">
           <a class="btn sm ghost" href="${['manual', 'aliexpress'].includes(p.source) ? '#/manual/' : '#/edit/'}${esc(p.id)}">Edit</a>

@@ -2,27 +2,35 @@
 // Proprietary and confidential. See LICENSE.
 'use strict';
 /**
- * AI listing assistant for sellers (Claude, Anthropic API).
- * From what the seller typed (title, description, options, category) and their photos it suggests:
- * a clear English title and description, Arabic versions, search keywords, a category, and a check of
- * every photo (watermarks, other shops' logos, Chinese text, blur, collages, brand logos, photos that
- * don't match the product). The seller decides what to use — nothing is saved until they press Save.
- * Settings: ANTHROPIC_API_KEY (required), AI_MODEL (default claude-haiku-5-5 — about 20× cheaper than Sonnet),
- * AI_DAILY_LIMIT per shop (default 40). Every call's tokens are counted per day/month for the admin page (usage()).
+ * AI for product listings. Two providers:
+ * - Google Gemini (GEMINI_API_KEY, free tier from Google AI Studio; GEMINI_MODEL, default gemini-3.5-flash-lite)
+ * - Anthropic Claude (ANTHROPIC_API_KEY; AI_MODEL, default claude-haiku-5-5 — about 20× cheaper than Sonnet)
+ * With both keys, Gemini is used unless AI_PROVIDER=claude.
+ * Used by: the seller's listing assistant (suggestions only — nothing is saved until they press Save),
+ * the automatic product review (services/autoreview.js), Kinan's catalogue copy and the Christmas Shop copy.
+ * AI_DAILY_LIMIT: listing-assistant uses per shop per day (default 40). Every call's tokens are counted per day/month (usage()).
  */
 const db = require('../db');
 const { httpError } = require('../auth');
 
 const API = 'https://api.anthropic.com/v1/messages';
-const enabled = () => Boolean(process.env.ANTHROPIC_API_KEY);
-const model = () => process.env.AI_MODEL || 'claude-haiku-5-5';
+const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
+function provider() {
+  const want = String(process.env.AI_PROVIDER || '').toLowerCase();
+  const gem = Boolean(process.env.GEMINI_API_KEY); const cla = Boolean(process.env.ANTHROPIC_API_KEY);
+  if (want === 'claude' && cla) return 'claude';
+  if (want === 'gemini' && gem) return 'gemini';
+  return gem ? 'gemini' : cla ? 'claude' : null;
+}
+const enabled = () => Boolean(provider());
+const model = () => (provider() === 'gemini' ? process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' : process.env.AI_MODEL || 'claude-haiku-5-5');
 const limit = () => Math.max(1, Number(process.env.AI_DAILY_LIMIT) || 40);
 const IMG_RE = /^data:image\/(jpeg|png|webp|gif);base64,([A-Za-z0-9+/=]+)$/;
 const s = (v, n) => String(v ?? '').trim().slice(0, n);
 
 // ---------- usage & cost (USD per million tokens: input / output) ----------
-const PRICES = { haiku: [0.10, 0.50], sonnet: [2, 10], opus: [4, 20] };
-const priceOf = (m) => PRICES[(String(m).match(/haiku|sonnet|opus/) || ['sonnet'])[0]];
+const PRICES = { haiku: [0.10, 0.50], sonnet: [2, 10], opus: [4, 20], gemini: [0, 0] }; // Gemini: free tier
+const priceOf = (m) => PRICES[(String(m).match(/haiku|sonnet|opus|gemini/) || ['sonnet'])[0]];
 function record(m, usage, kind) {
   if (!usage) return;
   const [pi, po] = priceOf(m);
@@ -98,7 +106,6 @@ function system(lang, categories) {
     '- Photo check, for each photo: "remove" for another shop\'s watermark or logo, a counterfeit brand logo, explicit or offensive content, a photo that shows a different product, or a mostly-text advert; "fix" for Chinese or other foreign-language text on the image, blur or very low resolution, heavy collage, busy background that hides the product, or borders/stickers; otherwise "good".',
     `- Write photo issues and tips in ${lang === 'ar' ? 'Arabic' : 'English'}.`,
     `- Category ids you may use: ${categories.join(', ')}.`,
-    'Always answer by calling the listing_suggestions tool.'
   ].join('\n');
 }
 
@@ -107,6 +114,72 @@ function imageBlock(u) {
   if (m) return { type: 'image', source: { type: 'base64', media_type: `image/${m[1]}`, data: m[2] } };
   if (/^https:\/\/[^\s"'<>]{8,500}$/.test(u)) return { type: 'image', source: { type: 'url', url: u } };
   return null;
+}
+
+/** Image bytes for Gemini, which needs them inline: data URLs as they are, HTTPS photos downloaded (up to 4 MB). */
+async function inlineImage(u) {
+  const m = String(u).match(IMG_RE);
+  if (m) return { inline_data: { mime_type: `image/${m[1]}`, data: m[2] } };
+  if (!/^https:\/\/[^\s"'<>]{8,500}$/.test(u)) return null;
+  try {
+    const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
+    const type = String(r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!r.ok || !/^image\/(jpeg|png|webp|gif)$/.test(type)) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (!buf.length || buf.length > 4 * 1024 * 1024) return null;
+    return { inline_data: { mime_type: type, data: buf.toString('base64') } };
+  } catch { return null; }
+}
+
+/**
+ * Ask the configured AI for an answer that follows `schema` (JSON Schema).
+ * images: data URLs or HTTPS links (bad ones are skipped). Returns the parsed object.
+ * Errors carry status 429 when the AI is busy or the free quota is used up.
+ */
+async function structured({ system, name, description = '', schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
+  const p = provider();
+  if (!p) throw httpError(503, 'The AI assistant is not switched on yet');
+  if (p === 'claude') {
+    const blocks = images.map(imageBlock).filter(Boolean);
+    const tool = { name, description: description || 'Return the answer.', input_schema: schema };
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: model(), max_tokens: maxTokens, system: `${system}\nAlways answer by calling the ${name} tool.`, tools: [tool], tool_choice: { type: 'tool', name }, messages: [{ role: 'user', content: [...blocks, { type: 'text', text }] }] }),
+      signal: AbortSignal.timeout(timeoutMs)
+    }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error('[ai] claude', res.status, j.error?.type, j.error?.message);
+      throw httpError(res.status === 429 || res.status === 529 ? 429 : 502, res.status === 429 || res.status === 529 ? 'The AI assistant is busy — try again in a minute' : 'The AI assistant could not answer — try again');
+    }
+    record(model(), j.usage, kind);
+    const out = (j.content || []).find((c) => c.type === 'tool_use')?.input;
+    if (!out) throw httpError(502, 'The AI assistant could not answer — try again');
+    return out;
+  }
+  // Gemini takes up to ~20 MB per request: keep the photos under 14 MB together
+  let total = 0;
+  const parts = (await Promise.all(images.map(inlineImage))).filter((x) => x && (total += x.inline_data.data.length) <= 14 * 1024 * 1024);
+  const res = await fetch(`${GEMINI_API}/${encodeURIComponent(model())}:generateContent`, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [...parts, { text }] }],
+      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: maxTokens }
+    }),
+    signal: AbortSignal.timeout(timeoutMs)
+  }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error('[ai] gemini', res.status, j.error?.status, j.error?.message);
+    throw httpError(res.status === 429 || res.status === 503 ? 429 : 502, res.status === 429 ? 'The free AI quota is used up for now — try again later' : 'The AI assistant could not answer — try again');
+  }
+  const um = j.usageMetadata || {};
+  record(model(), { input_tokens: um.promptTokenCount || 0, output_tokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0) }, kind);
+  const raw = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
+  try { return JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw httpError(502, 'The AI assistant could not answer — try again'); }
 }
 
 function useToday(sellerId) {
@@ -123,7 +196,7 @@ function useToday(sellerId) {
 async function assist(seller, b = {}) {
   if (!enabled()) throw httpError(503, 'The AI assistant is not switched on yet');
   const title = s(b.title, 300); const description = s(b.description, 5000);
-  const images = (Array.isArray(b.images) ? b.images : []).slice(0, 6).map(imageBlock).filter(Boolean);
+  const images = (Array.isArray(b.images) ? b.images : []).slice(0, 6).map(imageBlock).filter(Boolean); // valid photos (for counting)
   if (title.length < 3 && !description && !images.length) throw httpError(400, 'Write a title or add a photo first');
   const lang = b.lang === 'ar' ? 'ar' : 'en';
   const categories = require('./shipping').CATEGORIES.map(([id]) => id);
@@ -136,24 +209,8 @@ async function assist(seller, b = {}) {
     b.category ? `Category chosen: ${s(b.category, 40)}` : '',
     `Photos attached: ${images.length}`
   ].filter(Boolean).join('\n');
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: model(), max_tokens: 2500, system: system(lang, categories),
-      tools: [TOOL], tool_choice: { type: 'tool', name: TOOL.name },
-      messages: [{ role: 'user', content: [...images, { type: 'text', text }] }]
-    }),
-    signal: AbortSignal.timeout(60000)
-  }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    console.error('[ai]', res.status, j.error?.type, j.error?.message);
-    throw httpError(502, res.status === 429 || res.status === 529 ? 'The AI assistant is busy — try again in a minute' : 'The AI assistant could not answer — try again');
-  }
-  record(model(), j.usage, 'seller');
-  const out = (j.content || []).find((c) => c.type === 'tool_use')?.input;
-  if (!out) throw httpError(502, 'The AI assistant could not answer — try again');
+  const imgs = (Array.isArray(b.images) ? b.images : []).slice(0, 6).map(String).filter((u) => imageBlock(u));
+  const out = await structured({ system: system(lang, categories), name: TOOL.name, description: TOOL.description, schema: TOOL.input_schema, text, images: imgs, maxTokens: 2500, kind: 'seller' });
   const cat = categories.includes(out.category) ? out.category : null;
   return {
     title: s(out.title, 200), description: s(out.description, 5000).replace(/<[^>]*>/g, ''),
@@ -198,28 +255,15 @@ const COPY_TOOL = {
 async function copywrite(items, theme = '') {
   if (!enabled()) throw httpError(503, 'The AI assistant is not switched on yet');
   const text = items.slice(0, 10).map((it, i) => `#${i + 1}\nSupplier title: ${s(it.title, 300)}\nSupplier description: ${s(it.description, 1500)}\nOptions: ${(it.options || []).slice(0, 12).join(' | ')}`).join('\n\n');
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: model(), max_tokens: 6000,
-      system: [
+  const res = await structured({ name: COPY_TOOL.name, description: COPY_TOOL.description, schema: COPY_TOOL.input_schema, text, maxTokens: 6000, timeoutMs: 120000, kind: 'copy',
+    system: [
         `You write product copy for Kinan, an online shop for families in Europe and the UK.${theme ? ` Collection: ${theme}.` : ''}`,
         '- Use only facts in the supplier text. Never invent materials, sizes, certifications, brands or numbers; leave unknown facts out.',
         '- Do not mention China, CJ, dropshipping, suppliers, factories, "wholesale", "cross-border", Amazon or other shops.',
         '- No brand or trademark names, no prices, no delivery promises, no ALL CAPS. Plain text.',
-        '- Arabic versions say the same thing naturally. Keywords: 8–12, English first then a few Arabic, lower case.',
-        'Always answer by calling the product_copy tool.'
-      ].join('\n'),
-      tools: [COPY_TOOL], tool_choice: { type: 'tool', name: COPY_TOOL.name },
-      messages: [{ role: 'user', content: text }]
-    }),
-    signal: AbortSignal.timeout(120000)
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw httpError(502, `AI copy failed (${res.status} ${j.error?.message || ''})`);
-  record(model(), j.usage, 'copy');
-  const out = (j.content || []).find((c) => c.type === 'tool_use')?.input?.products || [];
+        '- Arabic versions say the same thing naturally. Keywords: 8–12, English first then a few Arabic, lower case.'
+      ].join('\n') });
+  const out = res?.products || [];
   return items.slice(0, 10).map((_, i) => {
     const o = out.find((x) => Number(x.index) === i + 1) || out[i];
     return o ? { title: s(o.title, 120), description: s(o.description, 3000).replace(/<[^>]*>/g, ''), title_ar: s(o.title_ar, 200), description_ar: s(o.description_ar, 4000).replace(/<[^>]*>/g, ''), keywords: cleanKeywords(o.keywords), ad_line: s(o.ad_line, 90) } : null;
@@ -271,6 +315,9 @@ function undo(listingId) {
 }
 function status() { return { ...usage(), prefs: prefs(), pending: pending().length, running: improving }; }
 /** Hourly: when switched on, rewrite new Kinan products a few at a time. */
-async function tick() { if (enabled() && prefs().auto) return improveKinan(40); return null; }
+async function tick() {
+  if (require('./autoreview').on()) return null; // the automatic review (services/autoreview.js) rewrites every product, Kinan's included
+  if (enabled() && prefs().auto) return improveKinan(40); return null;
+}
 
-module.exports = { enabled, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };
+module.exports = { enabled, provider, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };

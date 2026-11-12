@@ -195,7 +195,7 @@ async function publish(seller, { ref, prices = {}, title, description, category,
     taobao_item_id: null, mp_id: null, item_type: 'BANGGOOD', title: newTitle, description: newDesc, custom_description: true, ...(keywords ? { keywords: require('./ai').cleanKeywords(keywords) } : {}),
     images: p.images, own_images: existing?.own_images || [], weight_kg: p.weight_kg, begin_amount: 1, currency: config.currency, skus,
     last_synced_at: now(), sync_error: null,
-    ...(own ? { status: 'active', review: { state: 'approved', decided_at: now(), note: 'Kinan shop (Banggood)' } } : keep ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: now() } })
+    ...(own ? (existing && existing.status === 'active' ? { status: 'active' } : require('./autoreview').holdOwn() || { status: 'active', review: { state: 'approved', decided_at: now(), note: 'Kinan shop (Banggood)' } }) : keep ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: now() } })
   };
   const saved = existing ? db.listings.update(existing.id, doc) : db.listings.insert(doc);
   // Arabic from Banggood itself, when the shop kept Banggood's title (no translation service needed)
