@@ -388,6 +388,10 @@ r('POST', '/api/seller/products/aliexpress/preview', SELLER, async ({ req, selle
 r('POST', '/api/seller/products/aliexpress', SELLER, async ({ req, seller }) => aliexpress.publish(seller, await readJson(req)));
 r('POST', '/api/seller/products/manual', SELLER, async ({ req, seller }) => catalog.publishManual(seller, await readJson(req)));
 r('PUT', '/api/seller/products/:id/manual', SELLER, async ({ req, seller, params }) => catalog.publishManual(seller, await readJson(req), params.id));
+r('GET', '/api/admin/ai', ADMIN, async () => require('./services/ai').status());
+r('PUT', '/api/admin/ai', ADMIN, async ({ req }) => require('./services/ai').savePrefs(await readJson(req)));
+r('POST', '/api/admin/ai/improve', ADMIN, async () => require('./services/ai').improveKinan(40));
+r('POST', '/api/admin/ai/undo/:id', ADMIN, async ({ params }) => { require('./services/ai').undo(params.id); return { ok: true }; });
 r('POST', '/api/seller/ai/listing', SELLER, async ({ req, seller }) => { throttleLight(req); const b = await readJson(req); return require('./services/ai').assist(seller, { ...b, lang: b.lang || reqLang(req) }); });
 r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id));
 r('PATCH', '/api/seller/products/:id', SELLER, async ({ req, seller, params }) => {
@@ -469,7 +473,8 @@ r('POST', '/api/admin/banggood/resync', ADMIN, async () => ({ checked: await bgs
 r('GET', '/api/banggood/categories', SELLER_OR_STAFF, async () => bgs.categories());
 r('GET', '/api/banggood/products', SELLER_OR_STAFF, async ({ url }) => bgs.listProducts({ cat_id: url.searchParams.get('cat_id'), page: url.searchParams.get('page') }));
 r('POST', '/api/seller/products/banggood/preview', SELLER, async ({ req, seller }) => bgs.preview(seller, (await readJson(req)).ref));
-r('POST', '/api/seller/products/banggood', SELLER, async ({ req, seller }) => bgs.publish(seller, await readJson(req)));
+const pickPublish = (b) => ({ ref: b.ref, prices: b.prices, title: b.title, description: b.description, category: b.category, keywords: b.keywords }); // sellers cannot set other fields
+r('POST', '/api/seller/products/banggood', SELLER, async ({ req, seller }) => bgs.publish(seller, pickPublish(await readJson(req))));
 r('POST', '/api/admin/banggood/preview', ADMIN, async ({ req }) => bgs.preview(require('./services/buyforme').systemSeller(), (await readJson(req)).ref));
 r('POST', '/api/admin/banggood/import', ADMIN, async ({ req }) => bgs.publish(require('./services/buyforme').systemSeller(), await readJson(req)));
 r('GET', '/api/admin/banggood/orders', STAFF, async () => db.orders.all((o) => (o.sub_orders || []).some((s) => s.source === 'banggood')).sort((a, b) => b.created_at - a.created_at).slice(0, 200)
@@ -481,7 +486,7 @@ r('POST', '/api/admin/cj/resync', ADMIN, async () => ({ checked: await cjs.resyn
 r('GET', '/api/cj/search', SELLER_OR_STAFF, async ({ url }) => cjs.search({ q: url.searchParams.get('q'), page: url.searchParams.get('page'), category: url.searchParams.get('category'), country: url.searchParams.get('country') }));
 r('GET', '/api/cj/categories', SELLER_OR_STAFF, async () => cjs.categories());
 r('POST', '/api/seller/products/cj/preview', SELLER, async ({ req, seller }) => cjs.preview(seller, (await readJson(req)).ref));
-r('POST', '/api/seller/products/cj', SELLER, async ({ req, seller }) => cjs.publish(seller, await readJson(req)));
+r('POST', '/api/seller/products/cj', SELLER, async ({ req, seller }) => cjs.publish(seller, pickPublish(await readJson(req))));
 r('POST', '/api/admin/cj/preview', ADMIN, async ({ req }) => cjs.preview(require('./services/buyforme').systemSeller(), (await readJson(req)).ref));
 r('POST', '/api/admin/cj/import', ADMIN, async ({ req }) => cjs.publish(require('./services/buyforme').systemSeller(), await readJson(req)));
 r('GET', '/api/admin/cj/bestsellers', ADMIN, async () => ({ prefs: cjs.autoPrefs(), state: cjs.autoState(), count: db.listings.all((l) => l.cj_auto).length }));
@@ -779,6 +784,7 @@ function startJobs() {
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
   every(30 * 60e3, () => require('./services/nss').tick());
   every(3600e3, () => require('./services/seasonal').polish('christmas', 40));
+  every(3600e3, () => require('./services/ai').tick());
   every(3 * 3600e3, () => seo.indexNowTick().catch((e) => console.warn('[seo] IndexNow:', e.message)));
   setTimeout(() => seo.indexNowTick().catch((e) => console.warn('[seo] IndexNow:', e.message)), 5 * 60e3).unref();
   setTimeout(() => require('./cj/client').background(() => cjs.autoTick()).catch((e) => console.warn('[cj] best sellers:', e.message)), 90e3).unref();

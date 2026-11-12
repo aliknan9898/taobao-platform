@@ -7,17 +7,42 @@
  * a clear English title and description, Arabic versions, search keywords, a category, and a check of
  * every photo (watermarks, other shops' logos, Chinese text, blur, collages, brand logos, photos that
  * don't match the product). The seller decides what to use — nothing is saved until they press Save.
- * Settings: ANTHROPIC_API_KEY (required), AI_MODEL (default claude-sonnet-5-5), AI_DAILY_LIMIT per shop (default 40).
+ * Settings: ANTHROPIC_API_KEY (required), AI_MODEL (default claude-haiku-5-5 — about 20× cheaper than Sonnet),
+ * AI_DAILY_LIMIT per shop (default 40). Every call's tokens are counted per day/month for the admin page (usage()).
  */
 const db = require('../db');
 const { httpError } = require('../auth');
 
 const API = 'https://api.anthropic.com/v1/messages';
 const enabled = () => Boolean(process.env.ANTHROPIC_API_KEY);
-const model = () => process.env.AI_MODEL || 'claude-sonnet-5-5';
+const model = () => process.env.AI_MODEL || 'claude-haiku-5-5';
 const limit = () => Math.max(1, Number(process.env.AI_DAILY_LIMIT) || 40);
 const IMG_RE = /^data:image\/(jpeg|png|webp|gif);base64,([A-Za-z0-9+/=]+)$/;
 const s = (v, n) => String(v ?? '').trim().slice(0, n);
+
+// ---------- usage & cost (USD per million tokens: input / output) ----------
+const PRICES = { haiku: [0.10, 0.50], sonnet: [2, 10], opus: [4, 20] };
+const priceOf = (m) => PRICES[(String(m).match(/haiku|sonnet|opus/) || ['sonnet'])[0]];
+function record(m, usage, kind) {
+  if (!usage) return;
+  const [pi, po] = priceOf(m);
+  const inT = (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0) + (usage.cache_read_input_tokens || 0);
+  const outT = usage.output_tokens || 0;
+  const cost = (inT * pi + outT * po) / 1e6;
+  const now = new Date();
+  for (const id of [`set_ai_usage_d_${now.toISOString().slice(0, 10)}`, `set_ai_usage_m_${now.toISOString().slice(0, 7)}`]) {
+    const cur = db.settings.get(id) || { calls: 0, input: 0, output: 0, cost: 0, kinds: {} };
+    const doc = { calls: cur.calls + 1, input: cur.input + inT, output: cur.output + outT, cost: Math.round((cur.cost + cost) * 1e6) / 1e6, kinds: { ...(cur.kinds || {}), [kind]: ((cur.kinds || {})[kind] || 0) + 1 } };
+    db.settings.get(id) ? db.settings.update(id, doc) : db.settings.insert({ id, ...doc });
+  }
+}
+/** Today's and this month's AI calls, tokens and estimated cost (USD). */
+function usage() {
+  const now = new Date(); const blank = { calls: 0, input: 0, output: 0, cost: 0, kinds: {} };
+  const pick = (id) => { const x = db.settings.get(id); return x ? { calls: x.calls, input: x.input, output: x.output, cost: x.cost, kinds: x.kinds || {} } : blank; };
+  return { enabled: enabled(), model: model(), price_per_million: { input: priceOf(model())[0], output: priceOf(model())[1] }, daily_limit_per_shop: limit(),
+    today: pick(`set_ai_usage_d_${now.toISOString().slice(0, 10)}`), month: pick(`set_ai_usage_m_${now.toISOString().slice(0, 7)}`) };
+}
 
 /** Search keywords as stored on a listing: lower case, unique, at most 15 of up to 40 characters. */
 function cleanKeywords(v) {
@@ -126,6 +151,7 @@ async function assist(seller, b = {}) {
     console.error('[ai]', res.status, j.error?.type, j.error?.message);
     throw httpError(502, res.status === 429 || res.status === 529 ? 'The AI assistant is busy — try again in a minute' : 'The AI assistant could not answer — try again');
   }
+  record(model(), j.usage, 'seller');
   const out = (j.content || []).find((c) => c.type === 'tool_use')?.input;
   if (!out) throw httpError(502, 'The AI assistant could not answer — try again');
   const cat = categories.includes(out.category) ? out.category : null;
@@ -192,6 +218,7 @@ async function copywrite(items, theme = '') {
   });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw httpError(502, `AI copy failed (${res.status} ${j.error?.message || ''})`);
+  record(model(), j.usage, 'copy');
   const out = (j.content || []).find((c) => c.type === 'tool_use')?.input?.products || [];
   return items.slice(0, 10).map((_, i) => {
     const o = out.find((x) => Number(x.index) === i + 1) || out[i];
@@ -199,4 +226,51 @@ async function copywrite(items, theme = '') {
   });
 }
 
-module.exports = { enabled, assist, cleanKeywords, copywrite };
+// ---------- Kinan's own catalogue: rewrite supplier titles/descriptions once ----------
+const SETTINGS = 'set_ai_prefs';
+const prefs = () => ({ auto: true, ...(db.settings.get(SETTINGS) || {}) });
+function savePrefs(b = {}) {
+  const doc = { auto: b.auto !== false, updated_at: Date.now() };
+  db.settings.get(SETTINGS) ? db.settings.update(SETTINGS, doc) : db.settings.insert({ id: SETTINGS, ...doc });
+  return prefs();
+}
+/** Products of Kinan's own shop (CJ, Banggood, AliExpress, Taobao) whose copy has not been rewritten yet. */
+function pending() {
+  const kinan = require('./buyforme').systemSeller();
+  return db.listings.all((l) => l.seller_id === kinan.id && l.status === 'active' && !l.ai_copy_at && !l.xmas); // seasonal products are written by seasonal.polish()
+}
+let improving = false;
+/** Rewrite up to `max` Kinan products, 8 per call. The previous text is kept in ai_prev for undo. */
+async function improveKinan(max = 40) {
+  if (!enabled() || improving) return { done: 0, left: pending().length };
+  improving = true; let done = 0;
+  try {
+    const todo = pending().slice(0, max);
+    for (let i = 0; i < todo.length; i += 8) {
+      const batch = todo.slice(i, i + 8);
+      let out;
+      try { out = await copywrite(batch.map((l) => ({ title: l.title, description: String(l.description || '').replace(/<[^>]*>/g, ' '), options: (l.skus || []).map((k) => k.props).filter(Boolean) }))); }
+      catch (e) { console.warn('[ai] catalogue copy:', e.message); break; }
+      batch.forEach((l, k) => {
+        const o = out[k];
+        if (!o || o.title.length < 10) { db.listings.update(l.id, { ai_copy_at: Date.now(), ai_copy_failed: true }); return; }
+        const upd = db.listings.update(l.id, (x) => ({ ...x, ai_prev: { title: x.title, description: x.description, keywords: x.keywords || [] }, title: o.title, description: o.description, keywords: o.keywords.length ? o.keywords : x.keywords, ...(o.title_ar ? { title_ar: o.title_ar, description_ar: o.description_ar } : {}), ai_copy_at: Date.now() }));
+        if (o.title_ar) db.listings.update(upd.id, { ar_src: require('./translate').fingerprint(upd), ar_auto: true });
+        done++;
+      });
+    }
+  } finally { improving = false; }
+  if (done) console.log(`[ai] shop copy rewritten for ${done} Kinan product(s)`);
+  return { done, left: pending().length };
+}
+/** Put back the supplier text of one product. */
+function undo(listingId) {
+  const l = db.listings.get(listingId);
+  if (!l || !l.ai_prev) throw httpError(404, 'Nothing to undo');
+  return db.listings.update(l.id, (x) => ({ ...x, title: x.ai_prev.title, description: x.ai_prev.description, keywords: x.ai_prev.keywords, ai_prev: null, ai_undone: true }));
+}
+function status() { return { ...usage(), prefs: prefs(), pending: pending().length, running: improving }; }
+/** Hourly: when switched on, rewrite new Kinan products a few at a time. */
+async function tick() { if (enabled() && prefs().auto) return improveKinan(40); return null; }
+
+module.exports = { enabled, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };

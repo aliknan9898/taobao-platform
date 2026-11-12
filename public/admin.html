@@ -162,6 +162,7 @@ const VIEWS = {
       <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
       <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
+      <div class="card" id="aicard"><h2>AI assistant</h2><p class="muted">Loading…</p></div>
       <div class="card" id="xmascard"><h2>🎄 Christmas Shop</h2><p class="muted">Loading…</p></div>
       <div class="card" id="bgcard"><h2>Banggood</h2><p class="muted">Loading…</p></div>
       <div class="card" id="nsscard"><h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Loading…</p></div>
@@ -171,6 +172,25 @@ const VIEWS = {
         <p class="muted">Taobao Callback URL: <code>${esc(d.webhook_urls.oauth_callback)}</code><br>
         Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
         Messages waiting to be processed: ${d.inbox_backlog}</p></div>${isAdmin() ? '' : '-->'}`;
+    const aiCard = () => api('/api/admin/ai').then((st) => {
+      const el = $('#aicard'); if (!el) return;
+      const usd = (n) => `$${Number(n || 0).toFixed(n < 1 ? 3 : 2)}`;
+      if (!st.enabled) {
+        el.innerHTML = `<h2>AI assistant</h2><p><span class="pill warn">Not switched on</span></p>
+          <p class="muted">Everything is ready: sellers get “Improve with AI” (title, description, Arabic, keywords and a photo check) when adding or editing a product from Taobao, CJ, Banggood or by hand, and Kinan’s own products — including the Christmas Shop — are rewritten automatically.</p>
+          <p class="muted">To switch it on: create an API key at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> → Keys, then add <code>ANTHROPIC_API_KEY</code> in Render → Environment. Optional: <code>AI_MODEL</code> (default <code>${esc(st.model)}</code>).</p>
+          <p class="muted small">${esc(st.pending)} Kinan products are waiting to be rewritten. With ${esc(st.model)} that costs about ${usd(st.pending * (st.price_per_million.input * 0.0015 + st.price_per_million.output * 0.0006))}.</p>`;
+        return;
+      }
+      el.innerHTML = `<h2>AI assistant</h2>
+        <p><span class="pill ok">On</span> · model <b>${esc(st.model)}</b> · ${esc(st.daily_limit_per_shop)} uses per shop per day</p>
+        <div class="row" style="gap:18px;flex-wrap:wrap"><div><div class="muted small">Today</div><b>${st.today.calls} calls · ${usd(st.today.cost)}</b></div><div><div class="muted small">This month</div><b>${st.month.calls} calls · ${usd(st.month.cost)}</b></div><div><div class="muted small">Kinan products waiting</div><b>${st.pending}</b></div></div>
+        ${isAdmin() ? `<div class="row" style="margin-top:10px;gap:10px;flex-wrap:wrap"><label class="row" style="gap:6px"><input type="checkbox" id="aiauto" ${st.prefs.auto ? 'checked' : ''}> Rewrite new Kinan products automatically (hourly)</label><button class="btn sm" id="aigo2" ${st.running || !st.pending ? 'disabled' : ''}>Rewrite 40 now</button><span class="muted small" id="aim"></span></div>` : ''}
+        <p class="muted small">Estimated cost from Anthropic’s list prices (${usd(st.price_per_million.input)} in / ${usd(st.price_per_million.output)} out per million tokens). Your real bill is in the Claude Console.</p>`;
+      const auto = $('#aiauto'); if (auto) auto.onchange = () => api('/api/admin/ai', 'PUT', { auto: auto.checked }).then(() => toast('Saved'));
+      const go = $('#aigo2'); if (go) go.onclick = async () => { go.disabled = true; $('#aim').textContent = 'Working… about a minute'; try { const r = await api('/api/admin/ai/improve', 'POST', {}); $('#aim').textContent = `Rewritten ${r.done}, ${r.left} left`; aiCard(); } catch (e) { $('#aim').textContent = e.message; go.disabled = false; } };
+    }).catch(() => {});
+    aiCard();
     const xmas = () => api('/api/admin/collections/christmas').then(({ state: st, rows }) => {
       const el = $('#xmascard'); if (!el) return;
       const live = rows.filter((r) => r.status === 'active');

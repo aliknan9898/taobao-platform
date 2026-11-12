@@ -339,15 +339,19 @@ function addStart(err = '') {
     $('#bggo').disabled = true; $('#bggo').textContent = 'Loading from Banggood…';
     try {
       const p = await api('/api/seller/products/banggood/preview', 'POST', { ref });
-      $('#bgprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="bgt" value="${esc(p.title)}" maxlength="200"></label></div>
+      $('#bgprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="bgt" value="${esc(p.title)}" maxlength="200"></label></div><label class="field">Description<textarea id="bgd" rows="5" maxlength="5000">${esc(plain(p.description))}</textarea></label><input type="hidden" id="bgk" value=""><div class="panel flat stack aibox" id="bgai"></div>
         <p class="muted small" style="margin:0">Ships from the <b>${esc(p.warehouse)}</b> warehouse${p.warehouses.length > 1 ? ` (also in ${esc(p.warehouses.filter((w) => w !== p.warehouse).join(', '))})` : ''}.</p><div id="bgcat">${catSelect('')}</div>
         <div class="scroll"><table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>Banggood cost</th><th>Stock</th><th>Your price</th></tr></thead><tbody>${p.skus.map((k) => `<tr><td>${esc(k.props || 'Standard')}</td><td style="text-align:center">$${Number(k.cost_sale).toFixed(2)}</td><td style="text-align:center">${k.stock}</td><td><input type="number" step="0.01" min="0" data-bgp="${esc(k.mp_sku_id)}" value="${k.suggested_price}" style="min-height:34px"></td></tr>`).join('')}</tbody></table></div>
         <button class="btn" id="bgpub">Submit for review</button></div>`;
+      aiBox($('#bgai'), {
+        read: () => ({ title: $('#bgt').value, description: $('#bgd').value, category: $('#bgcat select').value, options: p.skus.map((k) => k.props).filter(Boolean), images: (p.images || []).slice(0, 6) }),
+        apply: (k, v) => { if (k === 'title') $('#bgt').value = v; else if (k === 'description') $('#bgd').value = v; else if (k === 'keywords') $('#bgk').value = v; else if (k === 'category') $('#bgcat select').value = v; }
+      });
       $('#bgpub').onclick = async () => {
         const prices = Object.fromEntries($$('[data-bgp]').map((i) => [i.dataset.bgp, Number(i.value)]));
         const category = $('#bgcat select').value; if (!category) { $('#bge').textContent = 'Choose a category'; return; }
         $('#bgpub').disabled = true;
-        try { await api('/api/seller/products/banggood', 'POST', { ref: p.bg_pid, title: $('#bgt').value, prices, category }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
+        try { await api('/api/seller/products/banggood', 'POST', { ref: p.bg_pid, title: $('#bgt').value, description: $('#bgd').value, keywords: $('#bgk').value || undefined, prices, category }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
         catch (err) { $('#bge').textContent = err.message; $('#bgpub').disabled = false; }
       };
     } catch (err) { $('#bgprev').innerHTML = ''; $('#bge').textContent = err.message; }
@@ -358,14 +362,18 @@ function addStart(err = '') {
     $('#cje').textContent = ''; $('#cjprev').innerHTML = '<p class="muted small">Loading from CJ…</p>';
     try {
       const p = await api('/api/seller/products/cj/preview', 'POST', { ref });
-      $('#cjprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="cjt" value="${esc(p.title)}" maxlength="200"></label></div><div id="cjcat">${catSelect('')}</div>
+      $('#cjprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="cjt" value="${esc(p.title)}" maxlength="200"></label></div><label class="field">Description<textarea id="cjd" rows="5" maxlength="5000">${esc(plain(p.description))}</textarea></label><input type="hidden" id="cjk" value=""><div class="panel flat stack aibox" id="cjai"></div><div id="cjcat">${catSelect('')}</div>
         <table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>CJ cost</th><th>Stock</th><th>Your price</th></tr></thead><tbody>${p.skus.map((k) => `<tr><td>${esc(k.props || 'Standard')}</td><td style="text-align:center">$${Number(k.cost_sale).toFixed(2)}</td><td style="text-align:center">${k.stock}</td><td><input type="number" step="0.01" min="0" data-cjp="${esc(k.mp_sku_id)}" value="${k.suggested_price}" style="min-height:34px"></td></tr>`).join('')}</tbody></table>
         <button class="btn" id="cjpub">Submit for review</button></div>`;
+      aiBox($('#cjai'), {
+        read: () => ({ title: $('#cjt').value, description: $('#cjd').value, category: $('#cjcat select').value, options: p.skus.map((k) => k.props).filter(Boolean), images: (p.images || []).slice(0, 6) }),
+        apply: (k, v) => { if (k === 'title') $('#cjt').value = v; else if (k === 'description') $('#cjd').value = v; else if (k === 'keywords') $('#cjk').value = v; else if (k === 'category') $('#cjcat select').value = v; }
+      });
       $('#cjpub').onclick = async () => {
         const prices = Object.fromEntries($$('[data-cjp]').map((i) => [i.dataset.cjp, Number(i.value)]));
         const category = $('#cjcat select').value; if (!category) { $('#cje').textContent = 'Choose a category'; return; }
         $('#cjpub').disabled = true;
-        try { await api('/api/seller/products/cj', 'POST', { ref: p.cj_pid, title: $('#cjt').value, prices, category }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
+        try { await api('/api/seller/products/cj', 'POST', { ref: p.cj_pid, title: $('#cjt').value, description: $('#cjd').value, keywords: $('#cjk').value || undefined, prices, category }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
         catch (err) { $('#cje').textContent = err.message; $('#cjpub').disabled = false; }
       };
     } catch (err) { $('#cjprev').innerHTML = ''; $('#cje').textContent = err.message; }

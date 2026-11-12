@@ -169,7 +169,7 @@ async function categories() {
 }
 
 /** Import (or re-import) a CJ product for a shop. Kinan's own shop goes live at once; sellers' products are reviewed. */
-async function publish(seller, { ref, prices = {}, title, description, category, markup_pct, from, extra = {} } = {}) {
+async function publish(seller, { ref, prices = {}, title, description, category, markup_pct, from, keywords, extra = {} } = {}) {
   if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
   const p = await fetchProduct(ref, { from });
   const existing = db.listings.find((l) => l.seller_id === seller.id && l.source === 'cj' && l.cj_pid === p.cj_pid);
@@ -186,7 +186,7 @@ async function publish(seller, { ref, prices = {}, title, description, category,
   const doc = {
     category: require('./shipping').cleanCategory(category ?? existing?.category),
     seller_id: seller.id, source: 'cj', fulfillment: 'direct', cj_pid: p.cj_pid, cj_sku: p.cj_sku, source_link: p.source_link,
-    taobao_item_id: null, mp_id: null, item_type: 'CJ', title: newTitle, description: newDesc, custom_description: true,
+    taobao_item_id: null, mp_id: null, item_type: 'CJ', title: newTitle, description: newDesc, custom_description: true, ...(keywords ? { keywords: require('./ai').cleanKeywords(keywords) } : {}),
     images: p.images, own_images: existing?.own_images || [], weight_kg: p.weight_kg, begin_amount: 1, currency: config.currency, skus,
     last_synced_at: now(), sync_error: null, cj_from: p.from || null, ...extra,
     ...(own ? { status: 'active', review: { state: 'approved', decided_at: now(), note: 'Kinan shop (CJ)' } } : keep ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: now() } })
