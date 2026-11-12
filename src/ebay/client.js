@@ -120,15 +120,23 @@ async function api(method, path, body, { user = true, lang, marketplace, query }
 
 /** eBay's Marketplace Account Deletion check: sha256(challengeCode + verificationToken + endpoint). */
 function challenge(code, endpoint) {
-  return crypto.createHash('sha256').update(String(code)).update(String(process.env.EBAY_VERIFICATION_TOKEN || '')).update(endpoint).digest('hex');
+  return crypto.createHash('sha256').update(String(code)).update(verificationToken()).update(endpoint).digest('hex');
 }
 
 /** Ask eBay for an application token: proves the App ID + Cert ID pair is right for this environment. */
 async function checkKeys() { app = null; await appToken(); return `keys accepted by eBay (${env()})`; }
 
+/** The token eBay checks the account-deletion endpoint with: EBAY_VERIFICATION_TOKEN, or one Kinan makes once and keeps (shown to the admin only). */
+function verificationToken() {
+  if (process.env.EBAY_VERIFICATION_TOKEN) return String(process.env.EBAY_VERIFICATION_TOKEN).trim();
+  let t = db.settings.get('ebay_verify');
+  if (!t) t = db.settings.insert({ id: 'ebay_verify', token: crypto.randomBytes(32).toString('hex') });
+  return t.token;
+}
+
 function status() {
   const s = saved();
-  return { configured: configured(), env: env(), connected: connected(), connected_at: s?.connected_at || null, refresh_expires_at: s?.refresh_exp || null, deletion_token_set: Boolean(process.env.EBAY_VERIFICATION_TOKEN) };
+  return { configured: configured(), env: env(), connected: connected(), connected_at: s?.connected_at || null, refresh_expires_at: s?.refresh_exp || null, deletion_token: verificationToken() };
 }
 
 module.exports = { pasteCode, checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };
