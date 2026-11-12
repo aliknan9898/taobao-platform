@@ -468,6 +468,72 @@ async function tick() {
   if (prefs().auto_sync && ticks % 4 === 1) await sync().catch((e) => console.warn('[ebay] sync', e.message)); // hourly (tick = 15 min)
 }
 
+// ---------------- admin eBay tab: products, prices, profit, orders ----------------
+
+const FEE_PCT = () => Math.max(0, Number(process.env.EBAY_FEE_PCT ?? 12.8)); // eBay UK final value fee (most categories), % of the total
+const FEE_FIXED = () => Math.max(0, Number(process.env.EBAY_FEE_FIXED ?? 0.3)); // per order, in the site's currency
+const COUNTRY = { GB: 'United Kingdom', DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy', PL: 'Poland', CZ: 'Czechia', NL: 'Netherlands', BE: 'Belgium', AT: 'Austria', HU: 'Hungary', PT: 'Portugal', IE: 'Ireland', SE: 'Sweden', DK: 'Denmark', CN: 'China' };
+const r2 = (v) => Math.round(Number(v) * 100) / 100;
+
+/** One row per Kinan product that is (or could be) on eBay, with the money worked out in the eBay site's currency. */
+function products({ filter = 'all' } = {}) {
+  const p = prefs(); const m = market(); const cur = m.currency;
+  let fx = null; try { fx = rate(cur); } catch { fx = null; }
+  const url = (id, mk) => `https://www.${ebay.env() === 'sandbox' ? 'sandbox.' : ''}ebay.${{ EBAY_GB: 'co.uk', EBAY_DE: 'de', EBAY_FR: 'fr', EBAY_IT: 'it', EBAY_ES: 'es' }[mk] || 'co.uk'}/itm/${id}`;
+  const rows = db.listings.all((l) => l.seller_id === KINAN && l.source === 'cj' && l.fulfillment === 'direct' && (l.ebay || !eligible(l))).map((l) => {
+    const e = l.ebay || {};
+    const status = e.listing_id ? 'live' : e.error ? 'failed' : 'ready';
+    const ship = Number(e.ship_fee) || 0;
+    const variants = list(l.skus).filter((s) => s.cj_vid).map((s) => {
+      let price = null; try { price = Number(ebayPrice(s.price, ship)); } catch { price = null; }
+      const cost = fx ? (Number(s.cost_sale || 0) + ship) * fx : null; // CJ product + CJ delivery, in the site's currency
+      const fees = price != null ? price * FEE_PCT() / 100 + FEE_FIXED() : null;
+      const profit = price != null && cost != null ? price - fees - cost : null;
+      return { props: s.props || '', stock: s.stock, qty: qtyOf(l, s), kinan_usd: s.price, cj_cost_usd: s.cost_sale, price: price != null ? r2(price) : null, fees: fees != null ? r2(fees) : null, cost: cost != null ? r2(cost) : null, profit: profit != null ? r2(profit) : null, margin_pct: profit != null && price ? Math.round(profit / price * 100) : null };
+    });
+    const main = [...variants].sort((a, b) => (a.price ?? 1e9) - (b.price ?? 1e9))[0] || {};
+    return {
+      id: l.id, title: l.title, image: (l.images || [])[0] || null, kinan_status: l.status, status, error: e.error || null,
+      warehouse: l.cj_from || 'CN', warehouse_name: COUNTRY[l.cj_from] || l.cj_from || 'China', collection: (l.collections || [])[0] || '',
+      ebay_id: e.listing_id || null, ebay_url: e.listing_id ? url(e.listing_id, e.marketplace || p.marketplace) : null, category: e.category || null,
+      listed_at: e.listed_at || null, synced_at: e.synced_at || null, ship_usd: ship, variants: variants.length, qty: variants.reduce((a, v) => a + (v.qty || 0), 0),
+      price: main.price ?? null, profit: main.profit ?? null, margin_pct: main.margin_pct ?? null, cost: main.cost ?? null, fees: main.fees ?? null, all: variants
+    };
+  }).filter((x) => filter === 'all' || x.status === filter);
+  rows.sort((a, b) => ({ live: 0, failed: 1, ready: 2 }[a.status] - { live: 0, failed: 1, ready: 2 }[b.status]) || (b.listed_at || 0) - (a.listed_at || 0));
+  const orders = db.orders.all((o) => o.channel === 'ebay').sort((a, b) => b.created_at - a.created_at).slice(0, 200).map((o) => {
+    const cost = list(o.sub_orders).reduce((a, s) => a + (Number(s.cj_amount) || 0), 0);
+    const total = Number(o.ebay?.total) || 0; const c = o.ebay?.currency || cur;
+    let fxo = null; try { fxo = rate(c); } catch { fxo = null; }
+    const fees = total ? total * FEE_PCT() / 100 + FEE_FIXED() : 0;
+    return {
+      id: o.id, ebay_order: o.ebay?.order_id, buyer: o.ebay?.buyer || '', created: o.created_at, status: o.status, currency: c, total, fees: r2(fees),
+      cj_cost: cost ? r2(cost * (fxo || 0)) : null, profit: cost && fxo ? r2(total - fees - cost * fxo) : null,
+      items: o.lines.map((x) => `${x.qty}× ${x.title}${x.props ? ` (${x.props})` : ''}`).join(', '), country: o.shipping_address?.country_code || '',
+      tracking: list(o.sub_orders).flatMap((s) => list(s.logistics).map((t) => t.tracking)).filter(Boolean), tracking_sent: list(o.ebay?.tracking_sent).length
+    };
+  });
+  const live = rows.filter((x) => x.status === 'live');
+  const avg = (arr) => (arr.length ? Math.round(arr.reduce((a, x) => a + x, 0) / arr.length) : 0);
+  return {
+    currency: cur, fee_pct: FEE_PCT(), fee_fixed: FEE_FIXED(), markup_pct: p.markup_pct, rate: fx,
+    summary: {
+      live: live.length, ready: rows.filter((x) => x.status === 'ready').length, failed: rows.filter((x) => x.status === 'failed').length,
+      avg_margin_pct: avg(live.map((x) => x.margin_pct).filter((x) => x != null)), avg_profit: live.length ? r2(live.reduce((a, x) => a + (x.profit || 0), 0) / live.length) : 0,
+      orders: orders.length, sales: r2(orders.reduce((a, o) => a + o.total, 0)), profit: r2(orders.reduce((a, o) => a + (o.profit || 0), 0)),
+      warehouses: Object.entries(live.reduce((a, x) => ({ ...a, [x.warehouse_name]: (a[x.warehouse_name] || 0) + 1 }), {})).map(([k, v]) => ({ name: k, n: v }))
+    },
+    rows, orders
+  };
+}
+
+function csv() {
+  const d = products();
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = ['Kinan ID', 'Title', 'Status', 'Warehouse', `eBay price (${d.currency})`, `eBay fees (${d.currency})`, `Cost incl. delivery (${d.currency})`, `Profit (${d.currency})`, 'Margin %', 'Qty on eBay', 'eBay item', 'eBay link', 'Error'];
+  return [head.map(q).join(','), ...d.rows.map((r) => [r.id, r.title, r.status, r.warehouse_name, r.price, r.fees, r.cost, r.profit, r.margin_pct, r.qty, r.ebay_id, r.ebay_url, r.error].map(q).join(','))].join('\n');
+}
+
 function status() {
   const s = state();
   if (s.job?.running && !running) { s.job.running = false; s.job.stopped = s.job.stopped || 'Interrupted by a server restart — press List again'; }
@@ -485,4 +551,4 @@ function status() {
 
 function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
 
-module.exports = { noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+module.exports = { products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };

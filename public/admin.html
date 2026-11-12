@@ -115,7 +115,7 @@ function showLogin(msg = '') {
 let googleSignin = false;
 // [tab, label, roles that see it]
 const ALL_TABS = [['overview','Overview','*'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['listings','Products','admin'],
-  ['cj','CJdropshipping','admin procurement'],['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
+  ['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
 const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
 let TABS = ALL_TABS;
@@ -141,6 +141,46 @@ async function render() {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.t === tab));
   const v = $('#view'); v.innerHTML = '<p class="muted">Loading…</p>';
   try { await VIEWS[tab](v); } catch (e) { v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+
+function ebayCard() {
+  return api('/api/admin/ebay').then((e) => {
+      const el = $('#ebay'); if (!el) return;
+      const env = e.env === 'sandbox' ? ' <span class="pill warn">Sandbox (test)</span>' : ' <span class="pill ok">Live</span>';
+      const setup = `<details ${e.configured ? '' : 'open'}><summary>Setup (eBay developer account)</summary><ol class="small">
+        <li>Render → Environment: <code>EBAY_CLIENT_ID</code> (App ID), <code>EBAY_CLIENT_SECRET</code> (Cert ID), <code>EBAY_RUNAME</code>, <code>EBAY_ENV</code> = sandbox or production.</li>
+        <li>eBay developer → User Tokens → Get a Token from eBay via Your Application → add a redirect URL: “Your auth accepted URL” = <code>${esc(e.accept_url)}</code>. Its name (RuName) goes in <code>EBAY_RUNAME</code>.</li>
+        <li>Alerts &amp; Notifications (Production) → Marketplace account deletion: endpoint <code>${esc(e.deletion_endpoint)}</code>, verification token <code style="word-break:break-all">${esc(e.deletion_token || '')}</code> (needed for live keys).</li></ol></details>`;
+      if (!e.configured) { el.innerHTML = `<h2>eBay</h2><p class="muted">Sell Kinan’s European-warehouse products on eBay. eBay orders come back as Kinan orders and CJ ships them; tracking goes back to eBay.</p>${setup}`; return; }
+      const p = e.prefs; const j = e.job;
+      el.innerHTML = `<h2>eBay</h2>
+        <p>${e.connected ? '<span class="pill ok">Connected</span>' : '<span class="pill bad">Not connected</span>'}${env} · ${esc(p.marketplace)} · <b>${e.live}</b> on eBay · ${e.ready} ready (${e.ready_christmas} Christmas) · ${e.orders} eBay order(s)</p>
+        ${e.connect_error ? `<p class="bad">Last connect attempt (${new Date(e.connect_error.at).toLocaleTimeString()}): ${esc(e.connect_error.message)}</p>` : ''}
+        ${j ? `<p class="muted">${j.running ? '<span class="pill warn">Listing…</span> ' : ''}Last run: ${j.listed} listed, ${j.failed} failed of ${j.total}${j.stopped ? ` · <b>${esc(j.stopped)}</b>` : ''}${j.errors?.length ? ` — <span class="bad">${esc(j.errors[j.errors.length - 1].error)}</span>` : ''}</p>` : ''}
+        ${e.last_sync ? `<p class="muted small">Price/stock sync ${new Date(e.last_sync.at).toLocaleString()}: ${e.last_sync.ok}/${e.last_sync.items}${e.last_orders ? ` · orders checked ${new Date(e.last_orders.at).toLocaleString()} (+${e.last_orders.added})` : ''}</p>` : ''}
+        ${isAdmin() ? `<p class="row">${e.connected ? '<button class="btn ghost" id="ebdis">Disconnect</button>' : '<button class="btn" id="ebcon">Connect eBay</button>'}
+          ${e.connected ? `<button class="btn" id="eblist" data-c="christmas" ${j?.running ? 'disabled' : ''}>List Christmas products</button><button class="btn ghost" id="eball" ${j?.running ? 'disabled' : ''}>List all ready</button><button class="btn ghost" id="ebsync">Sync now</button>` : ''}<span class="muted" id="ebm"></span></p>
+          ${e.connected ? '' : `<form class="row" id="ebcode"><label style="flex:1">eBay showed its own “Thank you” page? Copy that page’s address and paste it here <input name="url" placeholder="https://auth2.ebay.com/oauth2/...code=..." style="width:100%"></label><button class="btn">Finish connecting</button></form>`}
+          <form class="row" id="ebf"><label>Site <select name="marketplace">${e.markets.map((m) => `<option ${p.marketplace === m ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+          <label>eBay markup % <input type="number" name="markup_pct" min="0" max="200" value="${esc(p.markup_pct)}" style="width:64px"></label>
+          <label>Max qty <input type="number" name="max_qty" min="1" max="50" value="${esc(p.max_qty)}" style="width:56px"></label>
+          <label>Warehouses <input name="from" value="${esc(p.from.join(','))}" style="width:180px"></label><button class="btn ghost">Save</button></form>` : ''}
+        <p class="muted small">eBay price = Kinan price + CJ delivery to the site’s country + markup (eBay takes ~13%), free delivery for the buyer. Only Kinan’s own CJ products from these warehouses are listed.</p>
+        ${e.failed.length ? `<details><summary class="bad">Not listed (${e.failed.length})</summary><ul class="small">${e.failed.map((x) => `<li>${esc(x.title)} — ${esc(x.error)}</li>`).join('')}</ul></details>` : ''}
+        ${e.listings.length ? `<details><summary>On eBay (${e.live})</summary><ul class="small">${e.listings.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a> ${isAdmin() ? `<button class="btn ghost" data-ebend="${esc(x.id)}">End</button>` : ''}</li>`).join('')}</ul></details>` : ''}
+        ${setup}`;
+      const m = (t) => { const x = $('#ebm'); if (x) x.textContent = t; };
+      const c = $('#ebcon'); if (c) c.onclick = async () => { try { location.href = (await api('/api/admin/ebay/connect')).url; } catch (err) { m(err.message); } };
+      const ec = $('#ebcode'); if (ec) ec.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/admin/ebay/code', 'POST', { url: new FormData(ec).get('url') }); ebayCard(); } catch (err) { m(err.message); } };
+      const d = $('#ebdis'); if (d) d.onclick = async () => { if (!confirm('Disconnect eBay? Listings stay on eBay but stop syncing.')) return; await api('/api/admin/ebay/disconnect', 'POST'); ebayCard(); };
+      const run = async (body) => { try { m('Checking eBay policies…'); await api('/api/admin/ebay/setup', 'POST'); await api('/api/admin/ebay/list', 'POST', body); m('Started — about 20 seconds per product'); setTimeout(ebayCard, 15000); } catch (err) { m(err.message); } };
+      const l = $('#eblist'); if (l) l.onclick = () => run({ collection: 'christmas', limit: 100 });
+      const a = $('#eball'); if (a) a.onclick = () => run({ limit: 100 });
+      const s = $('#ebsync'); if (s) s.onclick = async () => { m('Syncing…'); try { const r = await api('/api/admin/ebay/sync', 'POST'); m(`Orders +${r.orders.added || 0} · tracking ${r.tracking.sent || 0} · stock ${r.stock.ok || 0}/${r.stock.items || 0}`); } catch (err) { m(err.message); } };
+      const f = $('#ebf'); if (f) f.onsubmit = async (ev) => { ev.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/ebay', 'PUT', { ...x, markup_pct: Number(x.markup_pct), max_qty: Number(x.max_qty) }); m('Saved'); ebayCard(); } catch (err) { m(err.message); } };
+      el.querySelectorAll('[data-ebend]').forEach((b2) => b2.onclick = async () => { if (!confirm('End this eBay listing?')) return; try { await api(`/api/admin/ebay/end/${b2.dataset.ebend}`, 'POST'); ebayCard(); } catch (err) { alert(err.message); } });
+      if (j?.running) setTimeout(ebayCard, 15000);
+    }).catch(() => {});
 }
 
 const VIEWS = {
@@ -207,43 +247,6 @@ const VIEWS = {
       if (st.running) setTimeout(xmas, 15000);
     }).catch(() => {});
     xmas();
-    const ebayCard = () => api('/api/admin/ebay').then((e) => {
-      const el = $('#ebay'); if (!el) return;
-      const env = e.env === 'sandbox' ? ' <span class="pill warn">Sandbox (test)</span>' : ' <span class="pill ok">Live</span>';
-      const setup = `<details ${e.configured ? '' : 'open'}><summary>Setup (eBay developer account)</summary><ol class="small">
-        <li>Render → Environment: <code>EBAY_CLIENT_ID</code> (App ID), <code>EBAY_CLIENT_SECRET</code> (Cert ID), <code>EBAY_RUNAME</code>, <code>EBAY_ENV</code> = sandbox or production.</li>
-        <li>eBay developer → User Tokens → Get a Token from eBay via Your Application → add a redirect URL: “Your auth accepted URL” = <code>${esc(e.accept_url)}</code>. Its name (RuName) goes in <code>EBAY_RUNAME</code>.</li>
-        <li>Alerts &amp; Notifications (Production) → Marketplace account deletion: endpoint <code>${esc(e.deletion_endpoint)}</code>, verification token <code style="word-break:break-all">${esc(e.deletion_token || '')}</code> (needed for live keys).</li></ol></details>`;
-      if (!e.configured) { el.innerHTML = `<h2>eBay</h2><p class="muted">Sell Kinan’s European-warehouse products on eBay. eBay orders come back as Kinan orders and CJ ships them; tracking goes back to eBay.</p>${setup}`; return; }
-      const p = e.prefs; const j = e.job;
-      el.innerHTML = `<h2>eBay</h2>
-        <p>${e.connected ? '<span class="pill ok">Connected</span>' : '<span class="pill bad">Not connected</span>'}${env} · ${esc(p.marketplace)} · <b>${e.live}</b> on eBay · ${e.ready} ready (${e.ready_christmas} Christmas) · ${e.orders} eBay order(s)</p>
-        ${e.connect_error ? `<p class="bad">Last connect attempt (${new Date(e.connect_error.at).toLocaleTimeString()}): ${esc(e.connect_error.message)}</p>` : ''}
-        ${j ? `<p class="muted">${j.running ? '<span class="pill warn">Listing…</span> ' : ''}Last run: ${j.listed} listed, ${j.failed} failed of ${j.total}${j.stopped ? ` · <b>${esc(j.stopped)}</b>` : ''}${j.errors?.length ? ` — <span class="bad">${esc(j.errors[j.errors.length - 1].error)}</span>` : ''}</p>` : ''}
-        ${e.last_sync ? `<p class="muted small">Price/stock sync ${new Date(e.last_sync.at).toLocaleString()}: ${e.last_sync.ok}/${e.last_sync.items}${e.last_orders ? ` · orders checked ${new Date(e.last_orders.at).toLocaleString()} (+${e.last_orders.added})` : ''}</p>` : ''}
-        ${isAdmin() ? `<p class="row">${e.connected ? '<button class="btn ghost" id="ebdis">Disconnect</button>' : '<button class="btn" id="ebcon">Connect eBay</button>'}
-          ${e.connected ? `<button class="btn" id="eblist" data-c="christmas" ${j?.running ? 'disabled' : ''}>List Christmas products</button><button class="btn ghost" id="eball" ${j?.running ? 'disabled' : ''}>List all ready</button><button class="btn ghost" id="ebsync">Sync now</button>` : ''}<span class="muted" id="ebm"></span></p>
-          ${e.connected ? '' : `<form class="row" id="ebcode"><label style="flex:1">eBay showed its own “Thank you” page? Copy that page’s address and paste it here <input name="url" placeholder="https://auth2.ebay.com/oauth2/...code=..." style="width:100%"></label><button class="btn">Finish connecting</button></form>`}
-          <form class="row" id="ebf"><label>Site <select name="marketplace">${e.markets.map((m) => `<option ${p.marketplace === m ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
-          <label>eBay markup % <input type="number" name="markup_pct" min="0" max="200" value="${esc(p.markup_pct)}" style="width:64px"></label>
-          <label>Max qty <input type="number" name="max_qty" min="1" max="50" value="${esc(p.max_qty)}" style="width:56px"></label>
-          <label>Warehouses <input name="from" value="${esc(p.from.join(','))}" style="width:180px"></label><button class="btn ghost">Save</button></form>` : ''}
-        <p class="muted small">eBay price = Kinan price + CJ delivery to the site’s country + markup (eBay takes ~13%), free delivery for the buyer. Only Kinan’s own CJ products from these warehouses are listed.</p>
-        ${e.failed.length ? `<details><summary class="bad">Not listed (${e.failed.length})</summary><ul class="small">${e.failed.map((x) => `<li>${esc(x.title)} — ${esc(x.error)}</li>`).join('')}</ul></details>` : ''}
-        ${e.listings.length ? `<details><summary>On eBay (${e.live})</summary><ul class="small">${e.listings.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a> ${isAdmin() ? `<button class="btn ghost" data-ebend="${esc(x.id)}">End</button>` : ''}</li>`).join('')}</ul></details>` : ''}
-        ${setup}`;
-      const m = (t) => { const x = $('#ebm'); if (x) x.textContent = t; };
-      const c = $('#ebcon'); if (c) c.onclick = async () => { try { location.href = (await api('/api/admin/ebay/connect')).url; } catch (err) { m(err.message); } };
-      const ec = $('#ebcode'); if (ec) ec.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/admin/ebay/code', 'POST', { url: new FormData(ec).get('url') }); ebayCard(); } catch (err) { m(err.message); } };
-      const d = $('#ebdis'); if (d) d.onclick = async () => { if (!confirm('Disconnect eBay? Listings stay on eBay but stop syncing.')) return; await api('/api/admin/ebay/disconnect', 'POST'); ebayCard(); };
-      const run = async (body) => { try { m('Checking eBay policies…'); await api('/api/admin/ebay/setup', 'POST'); await api('/api/admin/ebay/list', 'POST', body); m('Started — about 20 seconds per product'); setTimeout(ebayCard, 15000); } catch (err) { m(err.message); } };
-      const l = $('#eblist'); if (l) l.onclick = () => run({ collection: 'christmas', limit: 100 });
-      const a = $('#eball'); if (a) a.onclick = () => run({ limit: 100 });
-      const s = $('#ebsync'); if (s) s.onclick = async () => { m('Syncing…'); try { const r = await api('/api/admin/ebay/sync', 'POST'); m(`Orders +${r.orders.added || 0} · tracking ${r.tracking.sent || 0} · stock ${r.stock.ok || 0}/${r.stock.items || 0}`); } catch (err) { m(err.message); } };
-      const f = $('#ebf'); if (f) f.onsubmit = async (ev) => { ev.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/ebay', 'PUT', { ...x, markup_pct: Number(x.markup_pct), max_qty: Number(x.max_qty) }); m('Saved'); ebayCard(); } catch (err) { m(err.message); } };
-      el.querySelectorAll('[data-ebend]').forEach((b2) => b2.onclick = async () => { if (!confirm('End this eBay listing?')) return; try { await api(`/api/admin/ebay/end/${b2.dataset.ebend}`, 'POST'); ebayCard(); } catch (err) { alert(err.message); } });
-      if (j?.running) setTimeout(ebayCard, 15000);
-    }).catch(() => {});
     ebayCard();
     const aiReviewCard = () => api('/api/admin/ai-review').then((a) => {
       const el = $('#aireview'); if (!el) return;
@@ -304,6 +307,52 @@ const VIEWS = {
       <div class="row">${aeS.api_configured && isAdmin() ? `<button class="btn" id="aeconn">${aeS.connected ? 'Reconnect' : 'Connect AliExpress account'}</button>` : ''}${aeS.connected && isAdmin() ? '<button class="btn ghost" id="aedis">Disconnect</button>' : ''}</div>`;
     const aeC = $('#aeconn'); if (aeC) aeC.onclick = async () => { try { location.href = (await api('/api/admin/aliexpress/connect', 'POST')).url; } catch (e) { alert(e.message); } };
     const x = $('#aedis'); if (x) x.onclick = async () => { if (confirm('Disconnect AliExpress? New AliExpress orders will need to be placed by hand.')) { await api('/api/admin/aliexpress/disconnect', 'POST'); render(); } };
+  },
+
+  async ebay(v) {
+    const d = await api('/api/admin/ebay/products');
+    const c = d.currency === 'GBP' ? '£' : d.currency === 'EUR' ? '€' : '$';
+    const money = (n) => (n == null ? '—' : `${n < 0 ? '−' : ''}${c}${Math.abs(n).toFixed(2)}`);
+    const S = d.summary;
+    const pill = { live: '<span class="pill ok">On eBay</span>', ready: '<span class="pill">Ready</span>', failed: '<span class="pill bad">Not listed</span>' };
+    let filter = 'all';
+    const table = () => {
+      const rows = d.rows.filter((r) => filter === 'all' || r.status === filter);
+      return rows.length ? `<div style="overflow-x:auto"><table><thead><tr><th></th><th>Product</th><th>Status</th><th>Warehouse</th><th>eBay price</th><th>eBay fees</th><th>Cost + delivery</th><th>Profit</th><th>Margin</th><th>Qty</th><th></th></tr></thead><tbody>${rows.map((r) => `<tr>
+        <td>${r.image ? `<img src="${esc(r.image)}" alt="" width="44" height="44" style="object-fit:cover;border-radius:6px" referrerpolicy="no-referrer" loading="lazy">` : ''}</td>
+        <td><a href="/p/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.title.slice(0, 80))}</a>${r.variants > 1 ? `<div class="muted small">${r.variants} options · from</div>` : ''}${r.error && r.status !== 'live' ? `<div class="small bad">${esc(r.error)}</div>` : ''}</td>
+        <td>${pill[r.status]}${r.kinan_status !== 'active' ? ` <span class="pill warn">${esc(r.kinan_status)} on Kinan</span>` : ''}</td>
+        <td>${esc(r.warehouse_name)}</td><td><b>${money(r.price)}</b></td><td>${money(r.fees)}</td><td>${money(r.cost)}</td>
+        <td class="${r.profit != null && r.profit < 0 ? 'bad' : ''}"><b>${money(r.profit)}</b></td><td>${r.margin_pct != null ? `${r.margin_pct}%` : '—'}</td><td>${r.qty}</td>
+        <td>${r.ebay_url ? `<a href="${esc(r.ebay_url)}" target="_blank" rel="noopener">eBay</a>` : ''}${r.status === 'live' ? ` <button class="btn ghost" data-ebend="${esc(r.id)}">End</button>` : `<button class="btn ghost" data-eblist="${esc(r.id)}">List</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Nothing here yet.</p>';
+    };
+    v.innerHTML = `
+      <div class="card"><h2>eBay — overview</h2>
+        <div class="row" style="gap:24px;flex-wrap:wrap">
+          <div><div class="muted small">On eBay</div><b style="font-size:1.4em">${S.live}</b></div>
+          <div><div class="muted small">Ready to list</div><b style="font-size:1.4em">${S.ready}</b></div>
+          <div><div class="muted small">Not listed</div><b style="font-size:1.4em" class="${S.failed ? 'bad' : ''}">${S.failed}</b></div>
+          <div><div class="muted small">Average profit / item</div><b style="font-size:1.4em">${money(S.avg_profit)}</b> <span class="muted">(${S.avg_margin_pct}%)</span></div>
+          <div><div class="muted small">eBay orders</div><b style="font-size:1.4em">${S.orders}</b></div>
+          <div><div class="muted small">Sales</div><b style="font-size:1.4em">${money(S.sales)}</b></div>
+          <div><div class="muted small">Profit from orders</div><b style="font-size:1.4em">${money(S.profit)}</b></div>
+        </div>
+        ${S.warehouses.length ? `<p class="muted">Warehouses: ${S.warehouses.map((w) => `${esc(w.name)} ${w.n}`).join(' · ')}</p>` : ''}
+        <p class="muted small">Profit = eBay price − eBay fees (${d.fee_pct}% + ${money(d.fee_fixed)} per order, estimate) − CJ product cost − CJ delivery. Prices in ${esc(d.currency)}${d.rate ? ` (1 USD = ${d.rate} ${esc(d.currency)})` : ''}; eBay markup ${d.markup_pct}%.</p>
+      </div>
+      <div class="card" id="ebay"><h2>eBay</h2><p class="muted">Loading…</p></div>
+      <div class="card"><h2>eBay products</h2>
+        <div class="row"><select id="ebfilter"><option value="all">All (${d.rows.length})</option><option value="live">On eBay (${S.live})</option><option value="ready">Ready (${S.ready})</option><option value="failed">Not listed (${S.failed})</option></select>
+          <a href="/api/admin/ebay/products.csv" download><button type="button" class="btn ghost">Download CSV</button></a><span class="muted" id="ebpm"></span></div>
+        <div id="ebrows">${table()}</div></div>
+      <div class="card"><h2>eBay orders</h2>${d.orders.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>eBay order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Fees</th><th>CJ cost</th><th>Profit</th><th>Status</th><th>Tracking</th></tr></thead><tbody>${d.orders.map((o) => `<tr><td>${new Date(o.created).toLocaleString()}</td><td>${esc(o.ebay_order)}</td><td>${esc(o.buyer)} ${esc(o.country)}</td><td class="small">${esc(o.items)}</td><td>${money(o.total)}</td><td>${money(o.fees)}</td><td>${money(o.cj_cost)}</td><td><b>${money(o.profit)}</b></td><td>${esc(o.status)}</td><td class="small">${o.tracking.map(esc).join(', ') || '—'}${o.tracking_sent ? ' ✓ sent to eBay' : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No eBay orders yet. Paid eBay orders appear here within 15 minutes and are sent to CJ automatically.</p>'}</div>`;
+    ebayCard();
+    const bind = () => {
+      v.querySelectorAll('[data-eblist]').forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = 'Listing…'; try { await api('/api/admin/ebay/list', 'POST', { listing_id: b.dataset.eblist }); VIEWS.ebay(v); } catch (err) { alert(err.message); b.disabled = false; b.textContent = 'List'; } });
+      v.querySelectorAll('#ebrows [data-ebend]').forEach((b) => b.onclick = async () => { if (!confirm('End this eBay listing?')) return; try { await api(`/api/admin/ebay/end/${b.dataset.ebend}`, 'POST'); VIEWS.ebay(v); } catch (err) { alert(err.message); } });
+    };
+    $('#ebfilter').onchange = (ev) => { filter = ev.target.value; $('#ebrows').innerHTML = table(); bind(); };
+    bind();
   },
 
   async cj(v) {

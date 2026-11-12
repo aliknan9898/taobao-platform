@@ -514,6 +514,8 @@ r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${ne
 // Seasonal collections (Christmas Shop from CJ's European warehouses)
 r('GET', '/api/admin/collections/:id', ADMIN, async ({ params }) => { const sz = require('./services/seasonal'); return { state: sz.state(params.id), rows: sz.rows(params.id) }; });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
+r('GET', '/api/admin/ebay/products', ADMIN, async ({ url }) => require('./services/ebay').products({ filter: url.searchParams.get('filter') || 'all' }));
+r('GET', '/api/admin/ebay/products.csv', ADMIN, async ({ res }) => { res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="kinan-ebay-products.csv"' }); res.end('\ufeff' + require('./services/ebay').csv()); return undefined; });
 r('GET', '/api/admin/ebay/connect', ADMIN, async () => ({ url: require('./ebay/client').authUrl() }));
 r('POST', '/api/admin/ebay/code', ADMIN, async ({ req }) => { await require('./ebay/client').pasteCode((await readJson(req)).url); return require('./services/ebay').status(); });
 r('POST', '/api/admin/ebay/disconnect', ADMIN, async () => { require('./ebay/client').disconnect(); return require('./services/ebay').status(); });

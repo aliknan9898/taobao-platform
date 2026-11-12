@@ -127,6 +127,16 @@ test('eBay: connect, list, sync, orders and tracking', async () => {
   assert.deepStrictEqual(sf.lineItems, [{ lineItemId: 'LI1', quantity: 2 }]);
   assert.strictEqual(sf.shippingCarrierCode, 'DHL');
 
+  const tab = ebay.products();
+  assert.strictEqual(tab.currency, 'GBP');
+  assert.strictEqual(tab.summary.live, 1);
+  const row = tab.rows.find((r) => r.id === l.id);
+  assert.strictEqual(row.status, 'live');
+  assert.strictEqual(row.warehouse_name, 'Germany');
+  assert.ok(row.price > 0 && row.fees > 0 && row.cost > 0);
+  assert.strictEqual(row.profit, Math.round((row.price - row.fees - row.cost) * 100) / 100);
+  assert.strictEqual(tab.orders.length, 1);
+  assert.match(ebay.csv(), /Kinan ID.*Profit/);
   const st = ebay.status();
   assert.strictEqual(st.live, 1);
   assert.strictEqual(st.orders, 1);
