@@ -36,7 +36,7 @@ async function stripe(path, params, idempotencyKey, method = 'POST') {
     signal: AbortSignal.timeout(20000)
   });
   const j = await res.json();
-  if (!res.ok) throw Object.assign(new Error(j.error?.message || 'Stripe error'), { status: 402 });
+  if (!res.ok) throw Object.assign(new Error(j.error?.message || 'Stripe error'), { status: 402, code: j.error?.code, param: j.error?.param });
   return j;
 }
 
@@ -149,21 +149,52 @@ const isTestPayment = (o) => o?.payment?.provider === 'demo' || (o?.payment?.pro
 // on a Stripe customer. Kinan stores only the customer id and shows the brand, last 4 digits and expiry.
 const bad = (status, message) => Object.assign(new Error(message), { status });
 
-/** The buyer's Stripe customer (created the first time). */
+/** Stripe says the customer is gone: deleted, or it lives in another Stripe account / test-vs-live mode. */
+const missingCustomer = (e) => e && (e.code === 'resource_missing' || /no such customer/i.test(e.message || ''));
+
+/**
+ * The buyer's Stripe customer (created the first time). A saved id is tied to the Stripe key that made it:
+ * after a switch from test to live keys (or to another Stripe account) the old id does not exist there, so it is
+ * checked once against the current key and replaced if Stripe no longer knows it.
+ */
 async function customerFor(user, create = true) {
   const u = db.users.get(user.id) || user;
-  if (u.stripe_customer_id) return u.stripe_customer_id;
-  if (!create || demoMode()) return null;
-  const c = await stripe('/customers', { email: u.email || undefined, name: u.name || undefined, metadata: { user_id: u.id } }, `cus_${u.id}`);
-  db.users.update(u.id, { stripe_customer_id: c.id });
+  if (demoMode()) return u.stripe_customer_id || null;
+  const fp = keyFingerprint();
+  if (u.stripe_customer_id && u.stripe_customer_key === fp) return u.stripe_customer_id;
+  let replacing = false;
+  if (u.stripe_customer_id) {
+    try {
+      const c = await stripe(`/customers/${u.stripe_customer_id}`, null, null, 'GET');
+      if (!c.deleted) { db.users.update(u.id, { stripe_customer_key: fp }); return c.id; }
+      replacing = true;
+    } catch (e) {
+      if (!missingCustomer(e)) throw e;
+      replacing = true;
+    }
+    console.warn(`[stripe] customer ${u.stripe_customer_id} of user ${u.id} not found with the current key — replacing it`);
+    db.users.update(u.id, { stripe_customer_id: null, stripe_customer_key: null });
+  }
+  if (!create) return null;
+  const c = await stripe('/customers', { email: u.email || undefined, name: u.name || undefined, metadata: { user_id: u.id } }, `cus_${u.id}_${fp}${replacing ? `_${Date.now()}` : ''}`);
+  db.users.update(u.id, { stripe_customer_id: c.id, stripe_customer_key: fp });
   return c.id;
+}
+
+/** Forget a customer id Stripe rejected, so the next call makes a fresh one. */
+function forgetCustomer(user) {
+  db.users.update(user.id, { stripe_customer_id: null, stripe_customer_key: null });
 }
 
 /** Start adding a card: Stripe's secure form confirms this SetupIntent in the browser. */
 async function cardSetup(user) {
   if (demoMode()) throw bad(409, 'Card payments are not switched on yet');
-  const customer = await customerFor(user);
-  const si = await stripe('/setup_intents', { customer, automatic_payment_methods: { enabled: true, allow_redirects: 'never' }, usage: 'on_session', metadata: { user_id: user.id } });
+  const make = async () => stripe('/setup_intents', { customer: await customerFor(user), automatic_payment_methods: { enabled: true, allow_redirects: 'never' }, usage: 'on_session', metadata: { user_id: user.id } });
+  let si;
+  try { si = await make(); } catch (e) {
+    if (!missingCustomer(e)) throw e;
+    forgetCustomer(user); si = await make();
+  }
   return { client_secret: si.client_secret };
 }
 
@@ -173,8 +204,14 @@ async function listCards(user) {
   if (demoMode()) return [];
   const customer = await customerFor(user, false);
   if (!customer) return [];
-  const j = await stripe(`/customers/${customer}/payment_methods?type=card&limit=10`, null, null, 'GET');
-  return (j.data || []).map(cardView);
+  try {
+    const j = await stripe(`/customers/${customer}/payment_methods?type=card&limit=10`, null, null, 'GET');
+    return (j.data || []).map(cardView);
+  } catch (e) {
+    if (!missingCustomer(e)) throw e;
+    forgetCustomer(user); // a customer Stripe does not know has no saved cards
+    return [];
+  }
 }
 
 async function removeCard(user, id) {
