@@ -518,7 +518,7 @@ r('GET', '/api/admin/ebay/connect', ADMIN, async () => ({ url: require('./ebay/c
 r('POST', '/api/admin/ebay/code', ADMIN, async ({ req }) => { await require('./ebay/client').pasteCode((await readJson(req)).url); return require('./services/ebay').status(); });
 r('POST', '/api/admin/ebay/disconnect', ADMIN, async () => { require('./ebay/client').disconnect(); return require('./services/ebay').status(); });
 r('PUT', '/api/admin/ebay', ADMIN, async ({ req }) => { require('./services/ebay').savePrefs(await readJson(req)); return require('./services/ebay').status(); });
-r('POST', '/api/admin/ebay/setup', ADMIN, async () => require('./services/ebay').policies());
+r('POST', '/api/admin/ebay/setup', ADMIN, async () => require('./services/ebay').policies().catch((e) => { console.warn('[ebay] setup', e.message); throw e; }));
 r('POST', '/api/admin/ebay/list', ADMIN, async ({ req }) => { const e = require('./services/ebay'); const b = await readJson(req); if (b.listing_id) return e.listOne(String(b.listing_id)); if (e._running()) throw httpError(409, 'eBay listing is already running'); require('./cj/client').background(() => e.listMany({ collection: b.collection ? String(b.collection) : undefined, ids: Array.isArray(b.ids) ? b.ids.map(String) : undefined, limit: b.limit }, 'admin')).catch((x) => console.warn('[ebay]', x.message)); return { started: true }; });
 r('POST', '/api/admin/ebay/end/:id', ADMIN, async ({ params }) => require('./services/ebay').endOne(params.id));
 r('POST', '/api/admin/ebay/sync', ADMIN, async () => { const e = require('./services/ebay'); const orders = await e.importOrders(); const tracking = await e.pushTracking(); const stock = await e.sync(); return { orders, tracking, stock }; });

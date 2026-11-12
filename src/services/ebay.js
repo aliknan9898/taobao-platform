@@ -19,11 +19,13 @@ const SID = 'ebay_state';
 const KINAN = 'sel_kinan';
 
 const MARKETS = {
-  EBAY_GB: { currency: 'GBP', lang: 'en-GB', country: 'GB', domestic: 'UK_OtherCourier3Days', outside: 'UK_StandardShippingFromOutside' },
-  EBAY_DE: { currency: 'EUR', lang: 'de-DE', country: 'DE', domestic: 'DE_SonstigeDomestic', outside: 'DE_StandardInternational' },
-  EBAY_FR: { currency: 'EUR', lang: 'fr-FR', country: 'FR', domestic: 'FR_AutreModeEnvoiDeColis', outside: 'FR_StandardInternational' },
-  EBAY_IT: { currency: 'EUR', lang: 'it-IT', country: 'IT', domestic: 'IT_CorriereEspresso', outside: 'IT_StandardInternational' },
-  EBAY_ES: { currency: 'EUR', lang: 'es-ES', country: 'ES', domestic: 'ES_OtrosCourier24', outside: 'ES_StandardInternational' }
+  // Delivery services from eBay's ShippingServiceCodeType list: a tracked courier from a warehouse in the site's country,
+  // and eBay's "tracked delivery from abroad" for items sent from another European warehouse (CJ always gives tracking)
+  EBAY_GB: { currency: 'GBP', lang: 'en-GB', country: 'GB', domestic: 'UK_OtherCourier5Days', outside: 'UK_TrackedDeliveryFromAbroad' },
+  EBAY_DE: { currency: 'EUR', lang: 'de-DE', country: 'DE', domestic: 'DE_Paket', outside: 'DE_TrackedDeliveryFromAbroad' },
+  EBAY_FR: { currency: 'EUR', lang: 'fr-FR', country: 'FR', domestic: 'FR_TrackedDeliveryFromAbroad', outside: 'FR_TrackedDeliveryFromAbroad' },
+  EBAY_IT: { currency: 'EUR', lang: 'it-IT', country: 'IT', domestic: 'IT_TrackedDeliveryFromAbroad', outside: 'IT_TrackedDeliveryFromAbroad' },
+  EBAY_ES: { currency: 'EUR', lang: 'es-ES', country: 'ES', domestic: 'ES_TrackedDeliveryFromAbroad', outside: 'ES_TrackedDeliveryFromAbroad' }
 };
 const EUROPE = ['GB', 'DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'BE', 'AT', 'HU', 'PT', 'IE', 'SE', 'DK'];
 // eBay needs a place for each warehouse (city + postcode). CJ's exact addresses are not published: the main city of each country by default,
@@ -129,12 +131,22 @@ async function policies() {
   if (!ret) ret = await ebay.api('POST', '/sell/account/v1/return_policy', { name: 'Kinan 30-day returns', marketplaceId: mk, categoryTypes: cat, returnsAccepted: true, returnPeriod: { value: 30, unit: 'DAY' }, refundMethod: 'MONEY_BACK', returnShippingCostPayer: 'BUYER' });
   // Two delivery policies: from a warehouse in the site's own country, and from elsewhere in Europe
   const ship = async (name, code) => {
+    const body = {
+      name, description: 'Free tracked delivery. Dispatched from our European warehouse within the handling time.', marketplaceId: mk, categoryTypes: cat,
+      handlingTime: { value: prefs().handling_days, unit: 'DAY' }, localPickup: false, freightShipping: false,
+      shippingOptions: [{ optionType: 'DOMESTIC', costType: 'FLAT_RATE', shippingServices: [{ shippingServiceCode: code, freeShipping: true, buyerResponsibleForShipping: false, shippingCost: { value: '0.00', currency: m.currency }, sortOrder: 1 }] }]
+    };
     const have = fp.find((x) => x.name === name);
-    if (have) return have.fulfillmentPolicyId;
-    const made = await ebay.api('POST', '/sell/account/v1/fulfillment_policy', {
-      name, marketplaceId: mk, categoryTypes: cat, handlingTime: { value: prefs().handling_days, unit: 'DAY' },
-      shippingOptions: [{ optionType: 'DOMESTIC', costType: 'FLAT_RATE', shippingServices: [{ shippingServiceCode: code, freeShipping: true, shippingCost: { value: '0.00', currency: m.currency }, sortOrder: 1 }] }]
-    }).catch((e) => {
+    if (have) {
+      // Bring a policy Kinan made earlier up to date (service, handling time)
+      const cur = have.shippingOptions?.[0]?.shippingServices?.[0]?.shippingServiceCode;
+      if (cur !== code || have.handlingTime?.value !== prefs().handling_days) {
+        await ebay.api('PUT', `/sell/account/v1/fulfillment_policy/${have.fulfillmentPolicyId}`, body).catch((e) => console.warn('[ebay] update delivery policy', name, e.message));
+      }
+      return have.fulfillmentPolicyId;
+    }
+    const made = await ebay.api('POST', '/sell/account/v1/fulfillment_policy', body).catch((e) => {
+      console.warn('[ebay] delivery policy', name, code, e.message);
       if (fp[0]) return fp[0];
       throw httpError(400, `${e.message} — create a delivery (postage) policy with free delivery in eBay Seller Hub › Account › Business policies, then try again`);
     });
@@ -299,7 +311,7 @@ async function listMany({ collection, ids, limit = 50 } = {}, by = 'admin') {
     for (const l of todo) {
       try { await listOne(l.id); job.listed += 1; }
       catch (e) {
-        job.failed += 1;
+        job.failed += 1; console.warn('[ebay] list', l.id, e.message);
         job.errors = [...job.errors, { id: l.id, title: l.title.slice(0, 60), error: e.message }].slice(-30);
         db.listings.update(l.id, (x) => ({ ...x, ebay: { ...(x.ebay || {}), error: e.message, tried_at: now() } }));
         if (/not connected|keys are not set|business policies|delivery \(postage\) policy/i.test(e.message)) break; // nothing else will work
