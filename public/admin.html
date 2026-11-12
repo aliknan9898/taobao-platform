@@ -160,6 +160,7 @@ const VIEWS = {
       <div class="card"><h2>Daily revenue (14 days)</h2>
         <div class="bars">${d.daily.map((x) => `<div title="${esc(x.date)}: ${fmt(x.revenue, c)}"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(3))}</small></div>`).join('')}</div></div>
       <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
+      <div class="card" id="aireview"><h2>🤖 AI product review</h2><p class="muted">Loading…</p></div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
       <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
       <div class="card" id="aicard"><h2>AI assistant</h2><p class="muted">Loading…</p></div>
@@ -186,7 +187,7 @@ const VIEWS = {
         <p><span class="pill ok">On</span> · model <b>${esc(st.model)}</b> · ${esc(st.daily_limit_per_shop)} uses per shop per day</p>
         <div class="row" style="gap:18px;flex-wrap:wrap"><div><div class="muted small">Today</div><b>${st.today.calls} calls · ${usd(st.today.cost)}</b></div><div><div class="muted small">This month</div><b>${st.month.calls} calls · ${usd(st.month.cost)}</b></div><div><div class="muted small">Kinan products waiting</div><b>${st.pending}</b></div></div>
         ${isAdmin() ? `<div class="row" style="margin-top:10px;gap:10px;flex-wrap:wrap"><label class="row" style="gap:6px"><input type="checkbox" id="aiauto" ${st.prefs.auto ? 'checked' : ''}> Rewrite new Kinan products automatically (hourly)</label><button class="btn sm" id="aigo2" ${st.running || !st.pending ? 'disabled' : ''}>Rewrite 40 now</button><span class="muted small" id="aim"></span></div>` : ''}
-        <p class="muted small">Estimated cost from Anthropic’s list prices (${usd(st.price_per_million.input)} in / ${usd(st.price_per_million.output)} out per million tokens). Your real bill is in the Claude Console.</p>`;
+        ${/^gemini/.test(st.model) ? '<p class="muted small">Google Gemini free tier — no cost. The “AI product review” card below now checks every product (Kinan’s included), so the hourly rewrite here waits while it is on.</p>' : `<p class="muted small">Estimated cost from Anthropic’s list prices (${usd(st.price_per_million.input)} in / ${usd(st.price_per_million.output)} out per million tokens). Your real bill is in the Claude Console.</p>`}`;
       const auto = $('#aiauto'); if (auto) auto.onchange = () => api('/api/admin/ai', 'PUT', { auto: auto.checked }).then(() => toast('Saved'));
       const go = $('#aigo2'); if (go) go.onclick = async () => { go.disabled = true; $('#aim').textContent = 'Working… about a minute'; try { const r = await api('/api/admin/ai/improve', 'POST', {}); $('#aim').textContent = `Rewritten ${r.done}, ${r.left} left`; aiCard(); } catch (e) { $('#aim').textContent = e.message; go.disabled = false; } };
     }).catch(() => {});
@@ -205,6 +206,19 @@ const VIEWS = {
       if (st.running) setTimeout(xmas, 15000);
     }).catch(() => {});
     xmas();
+    const aiReviewCard = () => api('/api/admin/ai-review').then((a) => {
+      const el = $('#aireview'); if (!el) return;
+      if (!a.enabled) { el.innerHTML = '<h2>🤖 AI product review</h2><p class="muted">Off. Add <code>GEMINI_API_KEY</code> (free from aistudio.google.com) or <code>ANTHROPIC_API_KEY</code> in Render → Environment. Every product — imported or added by hand — is then checked automatically: title, description, keywords (English + Arabic), category and photos.</p>'; return; }
+      const CH = { title: 'title', description: 'description', keywords: 'keywords', category: 'category', arabic: 'Arabic', photos_removed: 'photos removed', photos_ordered: 'photos reordered', stopped: 'stopped', approved: 'went live' };
+      el.innerHTML = `<h2>🤖 AI product review</h2>
+        <p>${a.running ? '<span class="pill ok">On</span>' : '<span class="pill warn">Paused (AI_AUTO_REVIEW=off)</span>'} ${esc(a.provider === 'gemini' ? 'Google Gemini' : 'Claude')} <span class="muted">${esc(a.model || '')}</span> · ${a.reviewed} reviewed · <b>${a.waiting}</b> waiting · today ${a.today}/${a.daily_cap}${a.stopped ? ` · <span class="bad">${a.stopped} stopped</span>` : ''}${a.paused_until ? ` · <span class="warn">AI quota reached, retrying at ${new Date(a.paused_until).toLocaleTimeString()}</span>` : ''}</p>
+        <p class="muted">Checks every new or changed product a few at a time. Kinan’s own new imports go live after the check; sellers’ products still wait for your approval. Undo puts a product back as it was.</p>
+        ${isAdmin() ? '<p><button class="btn ghost" id="airun">Review the next 10 now</button> <span class="muted" id="airm"></span></p>' : ''}
+        ${a.recent.length ? `<details><summary>Latest reviews (${a.recent.length})</summary><div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Result</th><th>Changed</th><th></th></tr></thead><tbody>${a.recent.map((r) => `<tr><td><b>${esc(r.title)}</b>${r.before_title && r.before_title !== r.title ? `<div class="muted small">was: ${esc(r.before_title)}</div>` : ''}${r.notes.length ? `<div class="small warn">${r.notes.map(esc).join(' · ')}</div>` : ''}</td><td>${r.decision === 'stopped' ? `<span class="pill bad">Stopped</span><div class="small">${esc(r.reason || '')}</div>` : '<span class="pill ok">OK</span>'}</td><td class="small">${r.changed.map((c) => esc(CH[c] || c)).join(', ')}${r.removed_photos ? ` (${r.removed_photos})` : ''}</td><td>${isAdmin() && r.can_undo ? `<button class="btn ghost" data-aiundo="${esc(r.id)}">Undo</button>` : ''}</td></tr>`).join('')}</tbody></table></div></details>` : ''}`;
+      const b = $('#airun'); if (b) b.onclick = async () => { b.disabled = true; $('#airm').textContent = 'Reviewing… this takes a minute or two'; try { const x = await api('/api/admin/ai-review/run', 'POST'); $('#airm').textContent = `${x.reviewed} reviewed`; aiReviewCard(); } catch (err) { $('#airm').textContent = err.message; b.disabled = false; } };
+      el.querySelectorAll('[data-aiundo]').forEach((u) => u.onclick = async () => { if (!confirm('Put this product back as it was before the AI review?')) return; u.disabled = true; try { await api(`/api/admin/listings/${u.dataset.aiundo}/ai-undo`, 'POST'); aiReviewCard(); } catch (err) { alert(err.message); u.disabled = false; } });
+    }).catch(() => {});
+    aiReviewCard();
     api('/api/admin/banggood').then((g) => {
       const el = $('#bgcard'); if (!el) return;
       if (!g.configured) { el.innerHTML = '<h2>Banggood</h2><p class="muted">Not connected. Add <code>BANGGOOD_APP_ID</code> and <code>BANGGOOD_APP_SECRET</code> (Banggood Open Platform → Dropship), and register the server’s outbound IP addresses there.</p>'; return; }

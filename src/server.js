@@ -393,7 +393,7 @@ r('PUT', '/api/admin/ai', ADMIN, async ({ req }) => require('./services/ai').sav
 r('POST', '/api/admin/ai/improve', ADMIN, async () => require('./services/ai').improveKinan(40));
 r('POST', '/api/admin/ai/undo/:id', ADMIN, async ({ params }) => { require('./services/ai').undo(params.id); return { ok: true }; });
 r('POST', '/api/seller/ai/listing', SELLER, async ({ req, seller }) => { throttleLight(req); const b = await readJson(req); return require('./services/ai').assist(seller, { ...b, lang: b.lang || reqLang(req) }); });
-r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id));
+r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id).map((l) => (l.ai_review ? { ...l, ai_review: { ...l.ai_review, before: undefined } } : l)));
 r('PATCH', '/api/seller/products/:id', SELLER, async ({ req, seller, params }) => {
   const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found');
   const b = await readJson(req); const patch = {};
@@ -479,6 +479,10 @@ r('POST', '/api/admin/banggood/preview', ADMIN, async ({ req }) => bgs.preview(r
 r('POST', '/api/admin/banggood/import', ADMIN, async ({ req }) => bgs.publish(require('./services/buyforme').systemSeller(), await readJson(req)));
 r('GET', '/api/admin/banggood/orders', STAFF, async () => db.orders.all((o) => (o.sub_orders || []).some((s) => s.source === 'banggood')).sort((a, b) => b.created_at - a.created_at).slice(0, 200)
   .map((o) => ({ id: o.id, status: o.status, created_at: o.created_at, country: o.shipping_address?.country_code, parts: o.sub_orders.filter((s) => s.source === 'banggood').map((s) => ({ outer_purchase_id: s.outer_purchase_id, sale_record_id: s.sale_record_id || null, purchase_ids: s.purchase_ids, status: s.status, label: bgs.LABEL[s.status] || s.status, bg_status: s.bg_status || null, amount: s.bg_amount || null, error: s.error || null, logistics: s.logistics || [] })) })));
+r('GET', '/api/admin/ai-review', STAFF, async () => require('./services/autoreview').status());
+r('POST', '/api/admin/ai-review/run', ADMIN, async () => ({ reviewed: await require('./services/autoreview').tick({ max: 10 }) }));
+r('POST', '/api/admin/listings/:id/ai-review', ADMIN, async ({ params }) => require('./services/autoreview').reviewListing(params.id, { force: true }).then((l) => ({ id: l.id, ai_review: { ...l.ai_review, before: undefined } })));
+r('POST', '/api/admin/listings/:id/ai-undo', ADMIN, async ({ params }) => { const l = require('./services/autoreview').revert(params.id); return { id: l.id, title: l.title }; });
 r('GET', '/api/admin/cj', STAFF, async () => cjs.status());
 r('PUT', '/api/admin/cj/settings', ADMIN, async ({ req }) => cjs.savePrefs(await readJson(req)));
 r('POST', '/api/admin/cj/webhooks', ADMIN, async () => { db.settings.remove('set_cj_webhooks'); return cjs.registerWebhooks(); });
@@ -779,6 +783,7 @@ function startJobs() {
   every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); growth.cartReminders(); });
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
+  every(60e3, () => require('./services/autoreview').tick()); // AI review of new and changed products
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
   every(3600e3, async () => { const b = require('./services/banggood'); await b.updateTick(); const h = new Date().getUTCHours(); if (h === 4) await b.resyncStale(300); if (h === 5) await b.refreshLimits(); });
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
