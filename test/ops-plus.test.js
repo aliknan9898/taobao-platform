@@ -68,6 +68,6 @@ test('ops features', async () => {
   const data = JSON.parse(zlib.gunzipSync(bk.body));
   assert.ok(data.collections.orders.length === 1 && !data.collections.sessions);
   const sent = await ops.dailyBackup();
-  assert.strictEqual(sent.status, 'sent'); assert.match(mailed.attachment[0].name, /kinan-backup-.*\.json\.gz/);
+  assert.strictEqual(sent.status, 'sent'); assert.match(mailed.attachment[0].name, /kinan-backup-.*\.zip$/); assert.strictEqual(Buffer.from(mailed.attachment[0].content, 'base64').readUInt32LE(0), 0x04034b50, 'a real zip (Brevo refuses .gz)');
   assert.strictEqual((await ops.dailyBackup()).skipped, 'already sent today');
 });

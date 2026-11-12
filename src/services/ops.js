@@ -25,6 +25,27 @@ function backupFile({ withIdPhotos = true } = {}) {
   return { name: `kinan-backup-${day()}.json.gz`, body: gz, counts: Object.fromEntries(Object.entries(data.collections).map(([k, v]) => [k, v.length])) };
 }
 
+// A one-file .zip (Brevo refuses .gz attachments). Stored with deflate; CRC-32 computed here (no packages needed).
+const CRC = (() => { const t = new Int32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
+function crc32(buf) { let c = -1; for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ -1) >>> 0; }
+function zipOne(name, data) {
+  const fname = Buffer.from(name, 'utf8'); const comp = zlib.deflateRawSync(data, { level: 9 }); const crc = crc32(data);
+  const d = new Date(); const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1); const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6); local.writeUInt16LE(8, 8); local.writeUInt16LE(time, 10); local.writeUInt16LE(date, 12);
+  local.writeUInt32LE(crc, 14); local.writeUInt32LE(comp.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(fname.length, 26); local.writeUInt16LE(0, 28);
+  const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(0x0800, 8); central.writeUInt16LE(8, 10); central.writeUInt16LE(time, 12); central.writeUInt16LE(date, 14);
+  central.writeUInt32LE(crc, 16); central.writeUInt32LE(comp.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(fname.length, 28); central.writeUInt32LE(0, 42);
+  const offset = local.length + fname.length + comp.length;
+  const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10); end.writeUInt32LE(central.length + fname.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([local, fname, comp, central, fname, end]);
+}
+/** The emailed backup: the same data as backupFile(), as a .zip. */
+function backupZip(opts) {
+  const f = backupFile(opts);
+  const json = zlib.gunzipSync(f.body);
+  return { name: f.name.replace(/\.json\.gz$/, '.zip'), body: zipOne(f.name.replace(/\.gz$/, ''), json), counts: f.counts };
+}
+
 function backupRecipient() {
   return process.env.BACKUP_EMAIL || config.adminGoogleEmails?.[0] || config.bootstrapAdminEmail || '';
 }
@@ -34,8 +55,8 @@ async function dailyBackup() {
   const to = backupRecipient();
   if (!to || !mailer.enabled()) return { skipped: 'email not set up' };
   const key = `backup:${day()}`;
-  if (db.mail.find((m) => m.key === key)) return { skipped: 'already sent today' };
-  const f = backupFile({ withIdPhotos: false });
+  if (db.mail.find((m) => m.key === key && m.status !== 'failed')) return { skipped: 'already sent today' }; // a failed send is tried again
+  const f = backupZip({ withIdPhotos: false });
   if (f.body.length > 8 * 1024 * 1024) {
     require('../push').telegram(`⚠️ Today's backup is ${(f.body.length / 1048576).toFixed(1)} MB — too big for email. Download it from the admin dashboard.`);
     return { skipped: 'too big', size: f.body.length };
@@ -334,4 +355,4 @@ function bulkUpload(seller, rows) {
   return { created: out.filter((x) => x.ok).length, failed: out.filter((x) => !x.ok).length, results: out };
 }
 
-module.exports = { backupFile, dailyBackup, backupRecipient, invoiceHtml, invoicePdf, invoiceNo, sellerStatementPdf, statementPeriod, countView, sellerStats, bulkUpload };
+module.exports = { backupZip, zipOne, backupFile, dailyBackup, backupRecipient, invoiceHtml, invoicePdf, invoiceNo, sellerStatementPdf, statementPeriod, countView, sellerStats, bulkUpload };
