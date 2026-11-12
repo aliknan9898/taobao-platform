@@ -21,15 +21,16 @@ const CHRISTMAS = {
   id: 'christmas', name: 'Christmas Shop', name_ar: 'متجر الكريسمس',
   ends: Date.UTC(2026, 11, 27), order_by: '15 December',
   groups: {
-    decor: { en: 'Decorations', ar: 'زينة', keywords: ['christmas ornament', 'christmas tree decoration', 'christmas wreath', 'christmas garland', 'christmas stocking', 'christmas pillow cover', 'christmas tablecloth', 'snowman decoration'] },
-    lights: { en: 'Lights', ar: 'إضاءة', keywords: ['christmas lights', 'led fairy lights', 'christmas string lights', 'christmas projector light', 'led candle christmas', 'christmas star light'] },
-    clothing: { en: 'Clothing', ar: 'ملابس', keywords: ['christmas sweater', 'christmas pajamas', 'santa hat', 'christmas socks', 'christmas headband', 'family matching christmas'] },
-    gifts: { en: 'Gifts', ar: 'هدايا', keywords: ['christmas gift box', 'advent calendar', 'christmas mug', 'christmas blanket', 'christmas plush toy', 'christmas gift'] },
-    kitchen: { en: 'Kitchen', ar: 'المطبخ', keywords: ['christmas cookie cutter', 'christmas baking mold', 'christmas apron', 'christmas plate', 'christmas napkin', 'christmas cake decoration'] }
+    decor: { en: 'Decorations', ar: 'زينة', keywords: ['christmas ornament', 'christmas tree decoration', 'christmas wreath', 'christmas garland', 'christmas stocking', 'christmas pillow cover', 'christmas tablecloth', 'snowman decoration', 'christmas tree topper', 'christmas door hanger', 'christmas table runner', 'christmas window sticker', 'christmas bauble', 'christmas village house'] },
+    lights: { en: 'Lights', ar: 'إضاءة', keywords: ['christmas lights', 'led fairy lights', 'christmas string lights', 'christmas projector light', 'led candle christmas', 'christmas star light', 'christmas curtain light', 'light up christmas decoration', 'christmas night light', 'snowflake light'] },
+    clothing: { en: 'Clothing', ar: 'ملابس', keywords: ['christmas sweater', 'christmas pajamas', 'santa hat', 'christmas socks', 'christmas headband', 'family matching christmas', 'ugly christmas sweater', 'christmas dress', 'christmas t-shirt', 'christmas scarf', 'christmas gloves', 'kids christmas outfit'] },
+    gifts: { en: 'Gifts', ar: 'هدايا', keywords: ['christmas gift box', 'advent calendar', 'christmas mug', 'christmas blanket', 'christmas plush toy', 'christmas gift', 'christmas candle', 'christmas jewelry', 'christmas keychain', 'christmas snow globe', 'christmas music box', 'christmas gift bag'] },
+    kitchen: { en: 'Kitchen', ar: 'المطبخ', keywords: ['christmas cookie cutter', 'christmas baking mold', 'christmas apron', 'christmas plate', 'christmas napkin', 'christmas cake decoration', 'christmas cupcake', 'christmas cutlery', 'christmas placemat', 'christmas oven mitt', 'christmas cup', 'gingerbread house kit'] }
   }
 };
 const COLLECTIONS = { christmas: CHRISTMAS };
 const WAREHOUSES = () => String(process.env.XMAS_WAREHOUSES || 'DE,FR,ES,IT,PL,CZ,NL,GB').split(',').map((x) => x.trim().toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
+const PER_KEYWORD = Math.max(5, Number(process.env.XMAS_PER_KEYWORD) || 16);
 const VERIFIED = process.env.XMAS_VERIFIED !== '0'; // only stock CJ has checked in its own warehouses
 const EU = new Set(['DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'BE', 'AT', 'HU', 'PT', 'IE', 'SE', 'DK']);
 const WAREHOUSE_NAME = { DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy', PL: 'Poland', CZ: 'Czechia', NL: 'Netherlands', GB: 'United Kingdom', BE: 'Belgium', CN: 'China', US: 'USA' };
@@ -90,7 +91,7 @@ function groupFor(title, fallback) {
 }
 
 // ---------------- import ----------------
-const RULES = 2; // import rules version: a deploy with new rules tops the collection up once by itself
+const RULES = 3; // import rules version: a deploy with new rules tops the collection up once by itself
 const STATE = (id) => `set_collection_${id}`;
 const state = (id = 'christmas') => db.settings.get(STATE(id)) || { running: false };
 const setState = (id, patch) => (db.settings.get(STATE(id)) ? db.settings.update(STATE(id), patch) : db.settings.insert({ id: STATE(id), ...patch }));
@@ -98,7 +99,7 @@ const members = (id = 'christmas') => db.listings.all((l) => list(l.collections)
 
 function prefs(o = {}) {
   return {
-    count: Math.min(200, Math.max(1, Math.floor(Number(o.count) || 100))),
+    count: Math.min(400, Math.max(1, Math.floor(Number(o.count) || Number(process.env.XMAS_COUNT) || 200))),
     markup_pct: Math.min(400, Math.max(10, Number(o.markup_pct) || Number(process.env.XMAS_MARKUP_PCT) || 100)),
     max_cost: Math.min(200, Math.max(2, Number(o.max_cost) || 35)), min_cost: Math.max(0, Number(o.min_cost ?? 1.5)),
     min_stock: Math.max(1, Math.floor(Number(o.min_stock) || 10))
@@ -108,12 +109,16 @@ function prefs(o = {}) {
 /** Candidates for one keyword: products with stock in a European CJ warehouse, most-listed first. */
 async function candidates(cjc, keyword, p, have) {
   const out = [];
-  for (const cc of WAREHOUSES()) {
-    if (out.length >= 10) break;
+  let lastFull = false;
+  for (const cc of WAREHOUSES()) for (const page of [1, 2]) {
+    if (out.length >= PER_KEYWORD) break;
+    if (page === 2 && !lastFull) continue; // a second page only when the first one was full
     let d;
-    try { d = await cjc.call('GET', '/product/listV2', { query: { keyWord: keyword, countryCode: cc, page: 1, size: 50, orderBy: 1, sort: 'desc', verifiedWarehouse: VERIFIED ? 1 : undefined, startSellPrice: p.min_cost || undefined, endSellPrice: p.max_cost } }); }
+    try { d = await cjc.call('GET', '/product/listV2', { query: { keyWord: keyword, countryCode: cc, page, size: 50, orderBy: 1, sort: 'desc', verifiedWarehouse: VERIFIED ? 1 : undefined, startSellPrice: p.min_cost || undefined, endSellPrice: p.max_cost } }); }
     catch (e) { if (/limit|busy|429/i.test(e.message)) throw e; continue; }
-    for (const x of list(d?.content).flatMap((c) => list(c.productList))) {
+    const found = list(d?.content).flatMap((c) => list(c.productList));
+    lastFull = found.length >= 50;
+    for (const x of found) {
       const pid = String(x.id || x.pid || ''); const title = x.nameEn || x.productNameEn || '';
       const cost = Number(String(x.sellPrice ?? '').split(/[-–]/)[0]);
       if (!pid || have.has(pid) || out.some((o) => o.pid === pid) || !XMAS_RE.test(title) || NOT_HERE.test(title) || require('./cj').BLOCK.test(title)) continue;
@@ -121,7 +126,7 @@ async function candidates(cjc, keyword, p, have) {
       out.push({ pid, from: cc, title, listed: Number(x.listedNum) || 0 });
     }
   }
-  return out.sort((a, b) => (EU.has(b.from) - EU.has(a.from)) || b.listed - a.listed);
+  return out.sort((a, b) => b.listed - a.listed); // European and UK warehouses side by side, best sellers first
 }
 
 /** Import the collection (runs in the background on the server; progress in state()). */
@@ -179,7 +184,7 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
   st.running = false; st.done_at = now();
   setState(id, { ...st });
   console.log(`[xmas] import done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}`);
-  if (st.added) try { require('../push').telegram(`🎄 Christmas Shop: ${st.added} products added from CJ's European warehouses (${already + st.added} in total).`); } catch { /* optional */ }
+  if (st.added) try { require('../push').telegram(`🎄 Christmas Shop: ${st.added} products added from CJ's European and UK warehouses (${already + st.added} in total, each checked by the AI before it goes live).`); } catch { /* optional */ }
   polish(id).catch((e) => console.warn('[xmas] copy:', e.message));
   return st;
 }
