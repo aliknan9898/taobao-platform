@@ -107,9 +107,12 @@ function challenge(code, endpoint) {
   return crypto.createHash('sha256').update(String(code)).update(String(process.env.EBAY_VERIFICATION_TOKEN || '')).update(endpoint).digest('hex');
 }
 
+/** Ask eBay for an application token: proves the App ID + Cert ID pair is right for this environment. */
+async function checkKeys() { app = null; await appToken(); return `keys accepted by eBay (${env()})`; }
+
 function status() {
   const s = saved();
   return { configured: configured(), env: env(), connected: connected(), connected_at: s?.connected_at || null, refresh_expires_at: s?.refresh_exp || null, deletion_token_set: Boolean(process.env.EBAY_VERIFICATION_TOKEN) };
 }
 
-module.exports = { api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };
+module.exports = { checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };
