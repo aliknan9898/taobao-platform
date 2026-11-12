@@ -145,7 +145,7 @@ async function structured({ system, name, description = '', schema, text, images
     const res = await fetch(API, {
       method: 'POST',
       headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: model(), max_tokens: maxTokens, system: `${system}\nAlways answer by calling the ${name} tool.`, tools: [tool], tool_choice: { type: 'tool', name }, messages: [{ role: 'user', content: [...blocks, { type: 'text', text }] }] }),
+      body: JSON.stringify({ model: model(), max_tokens: maxTokens, system: `${system}\nAlways answer by calling the ${name} tool.`, tools: [tool], tool_choice: { type: 'tool', name }, messages: [{ role: 'user', content: blocks.length ? [...blocks, { type: 'text', text }] : text }] }),
       signal: AbortSignal.timeout(timeoutMs)
     }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
     const j = await res.json().catch(() => ({}));
