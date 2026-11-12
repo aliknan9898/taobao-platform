@@ -91,7 +91,8 @@ function groupFor(title, fallback) {
 }
 
 // ---------------- import ----------------
-const RULES = 4; // import rules version: a deploy with new rules tops the collection up once by itself
+const RULES = 4;
+const runningHere = new Set(); // imports running in this server process
 const STATE = (id) => `set_collection_${id}`;
 const state = (id = 'christmas') => db.settings.get(STATE(id)) || { running: false };
 const setState = (id, patch) => (db.settings.get(STATE(id)) ? db.settings.update(STATE(id), patch) : db.settings.insert({ id: STATE(id), ...patch }));
@@ -139,7 +140,8 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
   const cjc = require('../cj/client'); const cj = require('./cj');
   if (!cjc.enabled()) throw httpError(503, 'CJdropshipping is not connected');
   const s0 = state(id);
-  if (s0.running && now() - (s0.started_at || 0) < 3 * 3600e3) return s0;
+  if (runningHere.has(id)) return s0; // a server restart ends an import, so only this process's flag counts
+  runningHere.add(id);
   const p = prefs(opts);
   const kinan = require('./buyforme').systemSeller();
   const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
@@ -187,7 +189,7 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
       }
     }
   } catch (e) { st.error = e.message; }
-  st.running = false; st.done_at = now();
+  st.running = false; st.done_at = now(); runningHere.delete(id);
   setState(id, { ...st });
   console.log(`[xmas] import done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}`);
   if (st.added) try { require('../push').telegram(`🎄 Christmas Shop: ${st.added} products added from CJ's European and UK warehouses (${already + st.added} in total, each checked by the AI before it goes live).`); } catch { /* optional */ }
@@ -266,7 +268,9 @@ function autoStart() {
   if (process.env.XMAS_AUTO === '0' || now() > CHRISTMAS.ends) return false;
   if (!require('../cj/client').enabled()) return false;
   const s = state('christmas');
-  if ((s.done_at && s.v === RULES) || (s.running && now() - (s.started_at || 0) < 3 * 3600e3)) return false;
+  // Start when the rules changed, or resume one that a restart interrupted (it was "running" in a process that is gone)
+  if (runningHere.has('christmas') || (s.done_at && s.v === RULES && !s.running)) return false;
+  if (s.running) console.log('[xmas] resuming the import a restart interrupted');
   require('../cj/client').background(() => importCollection('christmas', {}, 'auto')).catch((e) => console.warn('[xmas] import:', e.message));
   return true;
 }
