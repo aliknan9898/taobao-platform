@@ -799,6 +799,7 @@ function startJobs() {
 if (require.main === module) (async () => {
   try { await db.init(); } catch (e) { console.error('[db] could not connect to PostgreSQL:', e.message); process.exit(1); }
   auth.bootstrapAdmin();
+  try { auth.secureOwnerAccounts(); } catch (e) { console.error('[auth] securing owner accounts:', e.message); }
   fx.apply();
   growth.ensureWelcome();
   const problems = configProblems();

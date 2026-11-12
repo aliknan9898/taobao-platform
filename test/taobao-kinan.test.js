@@ -14,7 +14,7 @@ const db = require('../src/db');
 const ta = require('../src/taobao/sellerAuth');
 
 test('Kinan account: used for every seller, adopted from the owner shop, auto-pay setting', async () => {
-  const owner = db.users.insert({ email: 'boss@x.com', role: 'seller', status: 'active' });
+  const owner = db.users.insert({ email: 'boss@x.com', role: 'seller', status: 'active', google_sub: 'g-boss' }); // the owner has signed in with Google
   const os1 = db.sellers.insert({ user_id: owner.id, shop_name: 'Ali', taobao: { access_token: 'OWNER', refresh_token: 'r', expires_at: Date.now() + 90 * 86400e3, refresh_expires_at: Date.now() + 200 * 86400e3, account: 'kinan_tb' } });
   const other = db.sellers.insert({ user_id: 'u2', shop_name: 'Other', taobao: null });
   assert.strictEqual(ta.platformConnected(), false);
