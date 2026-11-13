@@ -327,10 +327,11 @@ function toBuyerView(l, seller) {
     id: l.id, title: l.title, images: visibleImages(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(['cj', 'banggood'].includes(l.source) ? { ship_extra: true } : {}), category: l.category || 'other', ...((l.collections || []).length ? { collections: l.collections } : {}), ...(l.cj_from && l.cj_from !== 'CN' ? { ships_from: l.cj_from } : {}),
-    min_price: Math.min(...l.skus.map((s) => s.price)), ...require('./growth').ratingFor(l.id),
+    min_price: Math.min(...l.skus.map((s) => require('./deals').priceOf(l, s))), ...require('./growth').ratingFor(l.id),
+    ...(() => { const d = require('./deals').dealFor(l); return d ? { deal: d, was_min_price: Math.min(...l.skus.map((s) => s.price)) } : {}; })(),
     ...(() => { const og = optionGroups(l.skus); return {
       option_groups: og ? og.groups : null,
-      skus: l.skus.map((s, i) => ({ mp_sku_id: s.mp_sku_id, props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), price: s.price, in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
+      skus: l.skus.map((s, i) => ({ mp_sku_id: s.mp_sku_id, props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), price: require('./deals').priceOf(l, s), ...(require('./deals').dealFor(l) ? { was: s.price } : {}), in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
     }; })()
   };
 }

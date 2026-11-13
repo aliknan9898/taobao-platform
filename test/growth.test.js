@@ -77,11 +77,17 @@ test('growth features', async () => {
   assert.strictEqual(growth.wishlistAlerts(), 1);
   assert.strictEqual(growth.wishlistAlerts(), 0, 'not twice for the same price');
 
-  // cart reminder after 24h
+  // abandoned cart: a reminder after 1 hour, a personal 5% code after a day, then nothing more
   await api('PUT', '/api/buyer/cart', { items: [{ listing_id: p.id, mp_sku_id: 'x', qty: 1, title: 'Lamp' }] }, a);
   assert.strictEqual(growth.cartReminders(), 0, 'too early');
+  assert.strictEqual(growth.cartReminders(Date.now() + 2 * 3600e3), 1);
+  assert.strictEqual(growth.cartReminders(Date.now() + 3 * 3600e3), 0, 'the second waits a day');
   assert.strictEqual(growth.cartReminders(Date.now() + 25 * 3600e3), 1);
   assert.strictEqual(growth.cartReminders(Date.now() + 26 * 3600e3), 0);
+  const cartDoc = db.carts.all((c) => c.reminder_code)[0];
+  const code = db.coupons.find((c) => c.code === cartDoc.reminder_code);
+  assert.strictEqual(code.value, 5);
+  assert.strictEqual(code.owner_id, cartDoc.user_id);
 });
 
 test('address book: several delivery addresses, one chosen', async () => {

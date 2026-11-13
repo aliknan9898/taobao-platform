@@ -105,7 +105,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       ...(l.fulfillment === 'direct' && !['cj', 'banggood'].includes(l.source) ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
       image: (l.own_images || []).length ? catalog.photoUrl(l, 0, l.own_images[0]) : (l.images || [])[0] || null,
       ...(l.source === 'manual' || (l.source === 'aliexpress' && !sku.ae_sku_id) ? { own_stock: true } : {}), // typed-in stock, not synced from an API
-      qty, price: sku.price, cost_cny: sku.cost_cny
+      qty, price: require('./deals').priceOf(l, sku), ...(require('./deals').dealFor(l) ? { deal_pct: require('./deals').dealFor(l).pct, list_price: sku.price } : {}), cost_cny: sku.cost_cny
     });
   }
   const subtotal = money(lines.reduce((s, x) => s + x.price * x.qty, 0));

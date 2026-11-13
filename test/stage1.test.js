@@ -132,3 +132,30 @@ test('free delivery from European warehouses above the threshold; similar and re
   assert.deepStrictEqual(catalog.similar(eu.id).items.map((p) => p.id), [cn.id]);
   assert.deepStrictEqual(catalog.many(`${cn.id},nope,${eu.id}`).items.map((p) => p.id), [cn.id, eu.id]);
 });
+
+test("today's deals: AI picks, 10–20% off within the margin, shown and charged, ends at midnight Malta time", async () => {
+  const deals = require('../src/services/deals');
+  const catalog = require('../src/services/catalog');
+  const seller = require('../src/services/buyforme').systemSeller();
+  for (const l of db.listings.all(() => true)) db.listings.update(l.id, { status: 'paused' }); // only the products below
+  const a = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Deal Lamp', images: ['https://x/a.jpg'], skus: [{ mp_sku_id: 'a1', price: 20, cost_sale: 8, stock: 50 }] });
+  const b = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Thin Margin Mug', images: ['https://x/b.jpg'], skus: [{ mp_sku_id: 'b1', price: 10, cost_sale: 8.5, stock: 50 }] });
+  const c = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Deal Rug', images: ['https://x/c.jpg'], skus: [{ mp_sku_id: 'c1', price: 30, cost_sale: 21, stock: 50 }] });
+  const ids = deals.candidates().map((x) => x.l.id);
+  assert.ok(ids.includes(a.id) && !ids.includes(b.id), 'no deal without margin');
+  assert.strictEqual(deals.candidates().find((x) => x.l.id === a.id).pct, 20);
+  AI = () => ({ picks: [0, 1] });
+  const d = await deals.tick({ force: true });
+  assert.deepStrictEqual(d.items.map((x) => x.id).sort(), [a.id, c.id].sort());
+  assert.ok(d.ends > Date.now() && d.ends - Date.now() <= 86400e3);
+  const view = catalog.buyerListing(a.id);
+  assert.strictEqual(view.min_price, 16);
+  assert.strictEqual(view.was_min_price, 20);
+  assert.strictEqual(view.skus[0].was, 20);
+  assert.strictEqual(view.deal.pct, 20);
+  assert.strictEqual(catalog.buyerListing(c.id).deal.pct, 15);
+  assert.strictEqual(catalog.buyerListing(c.id).min_price, 25.5);
+  assert.strictEqual(deals.priceOf(db.listings.get(b.id), db.listings.get(b.id).skus[0]), 10, 'no deal, normal price');
+  assert.strictEqual((await deals.tick()).at, d.at, 'same day: same deals');
+  assert.strictEqual(deals.publicDeals().count, 2);
+});

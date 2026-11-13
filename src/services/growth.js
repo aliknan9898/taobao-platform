@@ -202,21 +202,46 @@ function saveCart(user, items) {
   const clean = (Array.isArray(items) ? items : []).slice(0, 100).map((x) => ({ listing_id: str(x.listing_id, 40), mp_sku_id: str(x.mp_sku_id, 60), qty: Math.max(1, Math.min(999, Math.floor(Number(x.qty) || 1))), title: str(x.title, 120) })).filter((x) => x.listing_id);
   const id = `crt_${user.id}`;
   const ex = db.carts.get(id);
-  const doc = { user_id: user.id, items: clean, changed_at: Date.now(), reminded_at: null };
+  const doc = { user_id: user.id, items: clean, changed_at: Date.now(), reminded_at: null, reminded_step: 0 };
   if (ex) db.carts.update(id, doc); else db.carts.insert({ id, ...doc });
   return { saved: clean.length };
 }
 
-/** One reminder, 24 hours after the cart last changed, if no order was placed since. */
+/**
+ * Abandoned cart, in two steps (if no order was placed since the cart last changed):
+ *  1. after 1 hour: email + phone notification "you left something"
+ *  2. after 24 hours: email + notification with a personal 5% code for 72 hours (CART_COUPON_PCT, 0 = no code)
+ */
+const HOUR = 3600e3;
 function cartReminders(now = Date.now()) {
+  const push = require('../push');
+  const pct = Math.max(0, Math.min(30, Number(process.env.CART_COUPON_PCT ?? 5)));
   let n = 0;
-  for (const c of db.carts.all((x) => x.items.length && !x.reminded_at && now - x.changed_at > DAY && now - x.changed_at < 7 * DAY)) {
+  for (const c of db.carts.all((x) => x.items.length && now - x.changed_at > HOUR && now - x.changed_at < 7 * DAY && (x.reminded_step || 0) < 2 && !x.reminded_at)) {
     const u = db.users.get(c.user_id);
-    if (!u || db.orders.find((o) => o.buyer_id === u.id && o.created_at > c.changed_at)) { db.carts.update(c.id, { reminded_at: now }); continue; }
-    fire(mailer.send({ to: u.email, key: `cart:${c.id}:${c.changed_at}`, kind: 'growth', subject: 'You left something in your Kinan cart', title: 'Still thinking about it?',
-      lines: [`${c.items.length} item(s) are waiting in your cart: ${c.items.map((x) => x.title).filter(Boolean).slice(0, 3).join(', ')}.`, 'Prices and stock can change, so complete your order soon.'],
-      button: { text: 'Go to your cart', url: `${base()}/#/cart` } }));
-    db.carts.update(c.id, { reminded_at: now }); n++;
+    if (!u || db.orders.find((o) => o.buyer_id === u.id && o.created_at > c.changed_at)) { db.carts.update(c.id, { reminded_step: 2 }); continue; }
+    const step = (c.reminded_step || 0) + 1;
+    if (step === 2 && now - c.changed_at < DAY) continue; // second reminder waits a day
+    const names = c.items.map((x) => x.title).filter(Boolean).slice(0, 3).join(', ');
+    let code = null;
+    if (step === 2 && pct > 0) {
+      do { code = `CART-${crypto.randomBytes(3).toString('hex').toUpperCase()}`; } while (db.coupons.find((x) => x.code === code));
+      db.coupons.insert({ code, kind: 'percent', value: pct, min_subtotal: 0, max_discount: 30, max_uses: 1, first_order_only: false, expires_at: now + 3 * DAY, active: true, owner_id: u.id, note: `Cart reminder for ${(u.email || '').split('@')[0]}`, uses: 0, used_by: [] });
+    }
+    fire(mailer.send({
+      to: u.email, key: `cart:${c.id}:${c.changed_at}:${step}`, kind: 'growth',
+      subject: step === 1 ? 'You left something in your Kinan cart' : code ? `${pct}% off your cart — 72 hours only` : 'Your Kinan cart is waiting',
+      title: step === 1 ? 'Still thinking about it?' : code ? `Here is ${pct}% off to finish your order` : 'Your cart is waiting',
+      lines: [`${c.items.length} item(s) are waiting in your cart: ${names}.`, ...(code ? [`Use code ${code} at checkout — ${pct}% off, valid for 72 hours.`] : ['Prices and stock can change, so complete your order soon.'])],
+      button: { text: 'Go to your cart', url: `${base()}/#/cart` }
+    }));
+    try {
+      push.toUser(u.id, step === 1
+        ? { title: 'Still in your cart 🛒', body: names || 'Your items are waiting', url: '/#/cart', tag: `cart-${c.id}`, ar: { title: 'ما زالت في سلتك 🛒', body: names || 'منتجاتك بانتظارك' } }
+        : { title: code ? `${pct}% off your cart 🎁` : 'Your cart is waiting', body: code ? `Code ${code} — 72 hours` : names, url: '/#/cart', tag: `cart-${c.id}`, ar: { title: code ? `خصم ${pct}% على سلتك 🎁` : 'سلتك بانتظارك', body: code ? `الكود ${code} — لمدة 72 ساعة` : names } });
+    } catch { /* push is optional */ }
+    db.carts.update(c.id, { reminded_step: step, reminded_last: now, ...(code ? { reminder_code: code } : {}) });
+    n++;
   }
   return n;
 }

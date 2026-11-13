@@ -24,6 +24,11 @@
   .search:focus-within > .sico svg { color: var(--jade); }
   .search input { flex: 1; min-width: 0; border: 0; background: transparent; min-height: 38px; padding: 0; font-size: 15px; box-shadow: none !important; outline: none; }
   .search input::-webkit-search-cancel-button { display: none; }
+  .dealbadge { position: absolute; top: 8px; inset-inline-start: 8px; background: #e0352b; color: #fff; font-weight: 700; font-size: 12.5px; padding: 3px 8px; border-radius: 99px; z-index: 1; }
+  .dealtxt { color: #e0352b; }
+  .deals-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .countdown { font-variant-numeric: tabular-nums; font-weight: 700; background: #e0352b; color: #fff; padding: 4px 10px; border-radius: 10px; font-size: 14px; }
+  .dealline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
   .freebar { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--soft, #f3f1ec); margin-bottom: 4px; font-size: 13.5px; }
   .freebar.done { background: color-mix(in srgb, var(--brand, #0f7a5c) 12%, transparent); }
   .freebar .fbtrack { height: 6px; border-radius: 99px; background: var(--line, #e3e1dc); overflow: hidden; }
@@ -572,8 +577,8 @@ function followPrices(query, items, tries = 0) {
 function productCard(p) {
   const img = p.images[0];
   return `<a class="card" href="#/p/${esc(p.id)}" data-pid="${esc(p.id)}">
-    <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}<span class="tag" data-price>${money(p.delivered_price ?? p.min_price, p.currency)}</span></div>
-    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.rating ? stars(p.rating, p.reviews) : ''}<div class="muted small" data-shipnote>${p.delivered_price != null ? 'Incl. shipping' : p.ship_pending ? 'Calculating shipping…' : '+ shipping'}</div>${p.ships_from && EU_WH.has(p.ships_from) ? '<div class="small euship">Ships from Europe</div>' : p.ships_from === 'GB' ? '<div class="small euship">Ships from the UK</div>' : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
+    <div class="ph">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : noImg}${p.deal ? `<span class="dealbadge">−${p.deal.pct}%</span>` : ''}<span class="tag" data-price>${money(p.delivered_price ?? p.min_price, p.currency)}</span></div>
+    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.deal && p.was_min_price ? `<div class="small"><s class="muted">${money(p.was_min_price, p.currency)}</s> <b class="dealtxt">${KinanLang.t('Deal')}</b></div>` : ''}${p.rating ? stars(p.rating, p.reviews) : ''}<div class="muted small" data-shipnote>${p.delivered_price != null ? 'Incl. shipping' : p.ship_pending ? 'Calculating shipping…' : '+ shipping'}</div>${p.ships_from && EU_WH.has(p.ships_from) ? '<div class="small euship">Ships from Europe</div>' : p.ships_from === 'GB' ? '<div class="small euship">Ships from the UK</div>' : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
 }
 const EU_WH = new Set(['DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'BE', 'AT', 'HU', 'PT', 'IE', 'SE', 'DK']);
 const depts = () => (cfg.collections || []).filter((c) => c.kind === 'department');
@@ -604,6 +609,7 @@ async function home(q = '', category = '') {
   v.innerHTML = `${q || category ? `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a>${q ? `<h2 style="margin-top:6px">Results for “${esc(q)}”</h2>` : ''}</div></div>` : `
     `}
     ${!q && !category && xmasLive() ? `<a class="xmas-band" href="#/x/christmas"><div class="xb-text"><span class="xb-kicker">🎄 <span>Christmas Shop</span></span><b>Decorations, lights &amp; gifts</b><span class="xb-sub">Ships from Europe · arrives before Christmas</span></div><span class="xb-cta">Shop now</span></a><div class="xstrip" id="xstrip"></div>` : ''}
+    ${!q && !category && cfg.deals ? `<section class="aisle" id="dealsrow"><div class="sechead deals-head"><h2>🔥 ${KinanLang.t('Today’s deals')}</h2><span class="countdown" data-countdown="${cfg.deals.ends}" data-no-tr></span></div><div class="xstrip" id="dealstrip">${Array.from({ length: 4 }, () => '<div class="skeleton" style="aspect-ratio:1"></div>').join('')}</div></section>` : ''}
     ${!q && !category ? '<div id="seenrow"></div>' : ''}
     ${!q && !category && depts().length ? `<div class="sechead"><h2>${KinanLang.t('Shop by department')}</h2></div><div class="depts">${depts().map((d) => `<a class="dept" href="#/x/${esc(d.id)}"><span class="di">${d.image ? `<img src="${esc(d.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : d.emoji}</span><b>${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</b><span class="n">${d.count}</span></a>`).join('')}</div>${depts().slice(0, 4).map((d) => `<section class="aisle"><div class="sechead"><h2>${d.emoji} ${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</h2><a href="#/x/${esc(d.id)}">${KinanLang.t('See all')} →</a></div><div class="xstrip" data-aisle="${esc(d.id)}"></div></section>`).join('')}` : ''}
     <div class="cats" id="cats"></div>
@@ -620,6 +626,7 @@ async function home(q = '', category = '') {
       : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
   };
   wireToolbar(load); renderLocaleChip();
+  if ($('#dealstrip')) api(`/api/catalog/many?ids=${encodeURIComponent(cfg.deals.ids.join(','))}`).then((d) => { if (d.items.length) $('#dealstrip').innerHTML = d.items.map(productCard).join(''); else $('#dealsrow')?.remove(); }).catch(() => $('#dealsrow')?.remove());
   if ($('#seenrow')) fillSeen($('#seenrow'));
   $$('[data-aisle]').forEach((el) => api(`/api/catalog?${catalogQuery({ collection: el.dataset.aisle, limit: 12 })}`).then((d) => { if (d.items.length) el.innerHTML = d.items.map(productCard).join(''); else el.closest('.aisle')?.remove(); }).catch(() => {}));
   if ($('#xstrip')) api(`/api/catalog?${catalogQuery({ collection: 'christmas', limit: 12 })}`).then((d) => { const el = $('#xstrip'); if (el && d.items.length) el.innerHTML = d.items.map(productCard).join(''); else if (el) el.remove(); }).catch(() => {});
@@ -725,6 +732,7 @@ async function product(id) {
           ${p.shop ? `<a href="#/s/${esc(p.shop.id)}" class="muted row" style="text-decoration:none;gap:8px">${shopLogo(p.shop, 'sm')}<span>Sold by <b>${esc(p.shop.name)}</b></span></a>` : ''}
           <h1 style="font-size:clamp(22px,3.4vw,30px)" dir="auto">${esc(T(p))}</h1>
           <div id="price"></div>
+          ${p.deal ? `<div class="dealline"><span class="dealbadge" style="position:static">−${p.deal.pct}%</span><span>${KinanLang.t('Today’s deal · ends in')}</span><span class="countdown" data-countdown="${p.deal.ends}" data-no-tr></span></div>` : ''}
           <div id="ptsline" class="ptsline"></div>
           ${p.ships_from && Number(cfg.free_shipping_over) > 0 ? `<div class="small muted">🚚 ${KinanLang.t('Free delivery from European warehouses over')} ${money(cfg.free_shipping_over, p.currency)}</div>` : ''}
           <div id="klarna" class="klarna-msg"></div>
@@ -1306,6 +1314,15 @@ async function savedPage() {
     : `<div class="empty"><h3>Nothing saved yet</h3><p>Tap Save on any product to keep it here.</p><a class="btn" href="#/">Browse products</a></div>`}`;
   $$('[data-unsave]').forEach((b) => b.onclick = async () => { await api(`/api/buyer/wishlist/${b.dataset.unsave}`, 'DELETE').catch(() => {}); savedPage(); });
 }
+
+// Countdown clocks (today's deals)
+setInterval(() => {
+  for (const el of document.querySelectorAll('[data-countdown]')) {
+    const left = Math.max(0, Number(el.dataset.countdown) - Date.now());
+    const h = Math.floor(left / 3600e3), m = Math.floor(left % 3600e3 / 60e3), sec = Math.floor(left % 60e3 / 1000);
+    el.textContent = left ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : '00:00:00';
+  }
+}, 1000);
 
 // ---------- recently viewed & similar ----------
 const Seen = {
