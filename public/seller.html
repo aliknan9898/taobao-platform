@@ -75,6 +75,8 @@
   .preview-card .tag { position: absolute; inset-inline-start: 10px; bottom: 10px; }
   .vrow { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; align-items: end; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   @media (max-width: 600px) { .vrow { grid-template-columns: 1fr 1fr 1fr auto; } .vrow .vname { grid-column: 1 / -1; } }
+  .ebaycta { display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; margin-bottom: 14px; max-width: 1100px; border: 1.5px solid var(--jade, #0e7c66); }
+  .ebaycta > div { flex: 1; } .ebayico { background: #2b2b2b; color: #fff; font-size: 13px; font-weight: 800; letter-spacing: -.3px; }
   .srcgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; max-width: 1100px; }
   .srchead { display: flex; gap: 12px; align-items: flex-start; }
   .srcico { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; color: #fff; }
@@ -257,6 +259,7 @@ function addStart(err = '') {
   const v = $('#view');
   const connected = cfg.taobao_kinan || shop.taobao?.connected;
   v.innerHTML = `<div class="head"><div><h1>Add product</h1><p class="muted">Choose where your product comes from.</p></div></div>
+    <a class="panel ebaycta" href="#/ebay"><span class="srcico ebayico">eBay</span><div><b>Sell on eBay</b><div class="muted small">Your CJ products from European and UK warehouses can also be sold on eBay — on Kinan’s eBay shop or your own eBay account. Kinan ships every order.</div><div class="small" id="ebaystat"></div></div><span class="btn sm">Open</span></a>
     <div class="srcgrid">
       <section class="panel stack srccard"><div class="srchead"><span class="srcico tb">淘</span><div><b>From Taobao</b><div class="muted small">Ships to Kinan’s China warehouse, is checked, then sent with the customer’s other items.</div></div></div>
         ${connected ? `<form class="stack" id="lf"><label class="field">Taobao or Tmall link<input name="link" required placeholder="https://item.taobao.com/item.htm?id=…" autocomplete="off"></label>
@@ -285,6 +288,8 @@ function addStart(err = '') {
         <div id="csvout"></div>
       </section>
     </div>`;
+  api('/api/seller/ebay').then((d) => { const el = $('#ebaystat'); if (!el) return; const live = d.products.filter((p) => p.status === 'live').length; const ready = d.products.filter((p) => p.status === 'ready').length;
+    el.innerHTML = !d.enabled ? '<span class="pill">Off</span>' : d.mode === 'own' ? (d.own?.connected ? `<span class="pill ok">Your eBay account</span> ${live} on eBay · ${ready} ready` : '<span class="pill warn">Connect your eBay account</span>') : d.approved ? `<span class="pill ok">Kinan’s eBay shop</span> ${live} on eBay · ${ready} ready` : '<span class="pill warn">Waiting for Kinan’s approval</span>'; }).catch(() => {});
   $('#csvtpl').href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\ufefftitle,price,stock,option,cost_cny,category,weight_kg,source_link,image_urls,description\nWaterproof jacket,39,20,Black / L,129,men,0.9,https://item.taobao.com/item.htm?id=123,https://img.alicdn.com/example1.jpg,Warm fleece lining\nWaterproof jacket,39,15,Black / XL,129,men,0.9,,,\n');
   $('#csvf').onchange = async (e) => {
     const file = e.target.files[0]; if (!file) return;
