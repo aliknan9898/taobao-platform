@@ -483,7 +483,7 @@ async function bestPicks({ collection = 'christmas', n = 5, list: doList = true 
       const d = await ai.structured({
         system: sys, name: 'ebay_review', schema: REVIEW, kind: 'ebay', maxTokens: 500, timeoutMs: 60000, images: list(fresh.images).filter((u) => /^https:/.test(u)).slice(0, 4),
         text: `Product: ${fresh.title}\nPrice on eBay: about £${c.x.s.price} with free UK delivery\nShips from: ${c.from}\nOptions: ${[...new Set(list(fresh.skus).map((k) => k.props).filter(Boolean))].slice(0, 12).join(', ') || 'one'}\n` +
-          `${searches.length ? `What UK shoppers search on Google: ${searches.join('; ')}\n` : ''}Search words: ${list(fresh.keywords).slice(0, 15).join(', ')}\nDetails:\n${String(fresh.description || '').replace(/<[^>]+>/g, ' ').slice(0, 1500)}`
+          `${searches.length ? `What UK shoppers search on Google: ${searches.join('; ')}\n` : ''}Search words: ${list(fresh.keywords).filter((k) => /^[\x20-\x7E]+$/.test(k)).slice(0, 15).join(', ')}\nDetails:\n${String(fresh.description || '').replace(/<[^>]+>/g, ' ').slice(0, 1500)}`
       });
       let title = String(d.ebay_title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
       if (title === title.toLowerCase()) title = title.replace(/\b([a-z])/g, (c) => c.toUpperCase()); // eBay titles read better in Title Case
