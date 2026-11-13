@@ -240,6 +240,7 @@ const VIEWS = {
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
       <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
       <div class="card" id="aicard"><h2>AI assistant</h2><p class="muted">Loading…</p></div>
+      <div class="card" id="qacard" hidden></div>
       <div class="card" id="ebay"><h2>eBay</h2><p class="muted">Loading…</p></div>
       <div class="card" id="xmascard"><h2>🎄 Christmas Shop</h2><p class="muted">Loading…</p></div>
       <div class="card" id="bgcard"><h2>Banggood</h2><p class="muted">Loading…</p></div>
@@ -284,6 +285,16 @@ const VIEWS = {
     }).catch(() => {});
     xmas();
     ebayCard();
+    api('/api/admin/questions').then((qs) => {
+      const el = $('#qacard'); if (!el || !qs.length) return; el.hidden = false;
+      el.innerHTML = `<h2>Customer questions (${qs.length})</h2><p class="muted">The AI could not answer these from the product details. Your answer is shown on the product page and the customer gets a notification. Leave it empty and press Hide to remove a question.</p>
+        ${qs.map((q) => `<form class="stack" data-q="${esc(q.id)}" style="border-top:1px solid var(--line);padding-top:10px"><div class="small"><a href="/p/${esc(q.listing_id)}" target="_blank" rel="noopener">${esc(q.title.slice(0, 80))}</a> · ${esc(q.name)} · ${new Date(q.at).toLocaleString()}</div><b dir="auto">${esc(q.question)}</b><div class="row"><input name="a" placeholder="Your answer" style="flex:1"><button class="btn">Answer</button><button class="btn ghost" type="button" data-hide>Hide</button></div></form>`).join('')}`;
+      el.querySelectorAll('form[data-q]').forEach((f) => {
+        const send = async (a) => { try { await api(`/api/admin/questions/${f.dataset.q}`, 'POST', { answer: a }); f.remove(); } catch (e) { alert(e.message); } };
+        f.onsubmit = (e) => { e.preventDefault(); if (f.a.value.trim()) send(f.a.value); };
+        f.querySelector('[data-hide]').onclick = () => send('');
+      });
+    }).catch(() => {});
     const aiReviewCard = () => api('/api/admin/ai-review').then((a) => {
       const el = $('#aireview'); if (!el) return;
       if (!a.enabled) { el.innerHTML = '<h2>🤖 AI product review</h2><p class="muted">Off. Add <code>GEMINI_API_KEY</code> (free from aistudio.google.com) or <code>ANTHROPIC_API_KEY</code> in Render → Environment. Every product — imported or added by hand — is then checked automatically: title, description, keywords (English + Arabic), category and photos.</p>'; return; }

@@ -24,6 +24,23 @@
   .search:focus-within > .sico svg { color: var(--jade); }
   .search input { flex: 1; min-width: 0; border: 0; background: transparent; min-height: 38px; padding: 0; font-size: 15px; box-shadow: none !important; outline: none; }
   .search input::-webkit-search-cancel-button { display: none; }
+  .asbtn { position: fixed; inset-inline-end: 17px; bottom: calc(148px + env(safe-area-inset-bottom)); z-index: 60; width: 54px; height: 54px; border-radius: 50%; border: 0; background: var(--brand, #0f7a5c); color: #fff; font-size: 24px; box-shadow: 0 8px 24px rgba(0,0,0,.2); cursor: pointer; }
+  @media (min-width: 761px) { .asbtn { bottom: 86px; } }
+  .aspanel { position: fixed; inset-inline-end: 12px; bottom: calc(210px + env(safe-area-inset-bottom)); z-index: 61; width: min(400px, calc(100vw - 24px)); height: min(560px, calc(100dvh - 260px)); display: grid; grid-template-rows: auto 1fr auto; background: var(--surface, #fff); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 16px 48px rgba(0,0,0,.22); overflow: hidden; }
+  .aspanel[hidden] { display: none; }
+  @media (min-width: 761px) { .aspanel { bottom: 150px; height: min(560px, calc(100dvh - 190px)); } }
+  .ashead { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .ashead button { border: 0; background: none; font-size: 22px; cursor: pointer; color: var(--muted); }
+  .asbody { overflow-y: auto; padding: 12px; display: grid; gap: 8px; align-content: start; }
+  .asmsg { padding: 9px 12px; border-radius: 14px; max-width: 88%; line-height: 1.4; font-size: 14.5px; }
+  .asmsg.bot { background: var(--soft, #f3f1ec); justify-self: start; }
+  .asmsg.me { background: var(--brand, #0f7a5c); color: #fff; justify-self: end; }
+  .asitems { display: grid; gap: 6px; }
+  .asitem { display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: inherit; }
+  .asitem img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; }
+  .asitem > span { display: grid; gap: 2px; }
+  .asform { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); }
+  .asform input { flex: 1; min-width: 0; }
   .dealbadge { position: absolute; top: 8px; inset-inline-start: 8px; background: #e0352b; color: #fff; font-weight: 700; font-size: 12.5px; padding: 3px 8px; border-radius: 99px; z-index: 1; }
   .dealtxt { color: #e0352b; }
   .deals-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -754,17 +771,20 @@ async function product(id) {
         ${p.return_policy !== undefined ? `<details class="panel flat small"><summary><b>Returns</b></summary><p class="desc" style="margin-top:8px">${esc(p.return_policy || 'Returns are accepted only for items that arrive damaged or different from the listing. Contact Kinan support within 7 days of delivery with photos.')}</p></details>` : ''}
         ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc" dir="auto">${esc(desc)}</p></div>` : ''}
         <div class="stack" id="reviews"></div>
+        <div class="stack" id="qa"></div>
       </div>
     </div>
     <div id="similar"></div><div id="seenrow"></div>`;
   Seen.add(p.id);
+  loadQA(p);
   api(`/api/catalog/${encodeURIComponent(p.id)}/similar`).then((d) => { const el = $('#similar'); if (el && d.items.length) el.innerHTML = stripSection(KinanLang.t('Similar products'), d.items); }).catch(() => {});
   fillSeen($('#seenrow'), p.id);
   api(`/api/catalog/${encodeURIComponent(p.id)}/reviews`).then((r) => {
     if (!r.count) return;
-    $('#reviews').innerHTML = `<h3>Reviews ${stars(r.average, r.count)}</h3><div>${r.reviews.map((x) => `<div class="rev"><div class="row between"><b>${esc(x.name)}</b><span>${'★'.repeat(x.rating)}<span class="muted">${'★'.repeat(5 - x.rating)}</span></span></div>
+    const shots = r.reviews.flatMap((x) => x.photos).slice(0, 12);
+    $('#reviews').innerHTML = `<h3>Reviews ${stars(r.average, r.count)}</h3>${shots.length ? `<div class="muted small">${KinanLang.t('Customer photos')}</div><div class="row" style="gap:6px;overflow-x:auto">${shots.map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" alt="" loading="lazy" style="width:72px;height:72px;object-fit:cover;border-radius:10px"></a>`).join('')}</div>` : ''}<div>${r.reviews.map((x) => `<div class="rev"><div class="row between"><b>${esc(x.name)}</b><span>${'★'.repeat(x.rating)}<span class="muted">${'★'.repeat(5 - x.rating)}</span></span></div>
       ${x.text ? `<div dir="auto">${esc(x.text)}</div>` : ''}${x.photos.length ? `<div class="ph">${x.photos.map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" alt="" loading="lazy"></a>`).join('')}</div>` : ''}
-      <span class="muted small">Verified purchase · ${date(x.at, false)}</span></div>`).join('')}</div>`;
+      <span class="small"><b style="color:var(--brand,#0f7a5c)">✓</b> <span style="color:var(--brand,#0f7a5c)">Verified purchase</span> <span class="muted">· ${date(x.at, false)}</span></span></div>`).join('')}</div>`;
   }).catch(() => {});
   const sv = $('#save');
   const paintSave = (on) => { sv.classList.toggle('on', on); sv.querySelector('span').textContent = on ? 'Saved' : 'Save'; };
@@ -1190,7 +1210,7 @@ async function orderDetail(id) {
       f.querySelectorAll('[data-n]').forEach((b) => b.onclick = () => { rating = Number(b.dataset.n); f.querySelectorAll('[data-n]').forEach((x) => x.classList.toggle('on', Number(x.dataset.n) <= rating)); });
       f.querySelector('input[type=file]').onchange = async (e) => { for (const file of [...e.target.files].slice(0, 3 - photos.length)) { try { photos.push(await shrink(file)); } catch {} } f.querySelector('[data-pc]').textContent = photos.length ? `${photos.length} photo(s)` : ''; };
       f.onsubmit = async (e) => { e.preventDefault(); if (!rating) { toast('Choose 1 to 5 stars'); return; }
-        try { await api(`/api/buyer/orders/${o.id}/reviews`, 'POST', { listing_id: f.dataset.rev, rating, text: f.text.value, photos }); toast('Thanks for your review!'); orderDetail(o.id); } catch (err) { toast(err.message); } };
+        try { const rv = await api(`/api/buyer/orders/${o.id}/reviews`, 'POST', { listing_id: f.dataset.rev, rating, text: f.text.value, photos }); toast(rv.points ? `Thanks for your review! +${rv.points} Kinan points` : 'Thanks for your review!'); orderDetail(o.id); } catch (err) { toast(err.message); } };
     });
   }).catch(() => {});
   const sn = $('#shipnow'); if (sn) sn.onclick = async () => { sn.disabled = true; try { const r = await api('/api/buyer/ship-stored', 'POST'); toast(`${r.released} order(s) will ship together`); orderDetail(o.id); } catch (e) { toast(e.message); sn.disabled = false; } };
@@ -1337,6 +1357,55 @@ async function fillSeen(el, skip) {
   if (!el || ids.length < 2) return;
   const d = await api(`/api/catalog/many?ids=${encodeURIComponent(ids.join(','))}`).catch(() => ({ items: [] }));
   if (d.items.length >= 2) el.innerHTML = stripSection(KinanLang.t('Recently viewed'), d.items);
+}
+
+// ---------- questions & answers ----------
+async function loadQA(p) {
+  const el = $('#qa'); if (!el) return;
+  const d = await api(`/api/catalog/${encodeURIComponent(p.id)}/questions`).catch(() => ({ questions: [] }));
+  el.innerHTML = `<h3>${KinanLang.t('Questions & answers')}</h3>
+    <form class="row" id="qaf" style="gap:8px"><input name="q" maxlength="400" placeholder="${KinanLang.t('Ask about size, material, delivery…')}" style="flex:1;min-width:0" required><button class="btn">${KinanLang.t('Ask')}</button></form>
+    <p class="muted small">${KinanLang.t('Kinan’s assistant answers right away from the product details; if it cannot, Kinan answers soon.')}</p>
+    <div class="stack">${d.questions.map((q) => `<div class="rev"><div><b>Q:</b> <span dir="auto">${esc(q.question)}</span></div>${q.answer ? `<div><b>A:</b> <span dir="auto">${esc(q.answer)}</span> <span class="muted small">· ${q.by === 'ai' ? KinanLang.t('Answered by Kinan’s assistant') : KinanLang.t('Answered by Kinan')}</span></div>` : `<div class="muted small">${KinanLang.t('Waiting for an answer')}</div>`}</div>`).join('')}</div>`;
+  $('#qaf').onsubmit = async (e) => {
+    e.preventDefault();
+    if (!me || me.role !== 'buyer') { signin(encodeURIComponent(`/p/${p.id}`)); return; }
+    const b = e.target.querySelector('button'); b.disabled = true; b.textContent = KinanLang.t('Thinking…');
+    try { await api(`/api/catalog/${encodeURIComponent(p.id)}/questions`, 'POST', { question: e.target.q.value }); loadQA(p); }
+    catch (err) { toast(err.message); b.disabled = false; b.textContent = KinanLang.t('Ask'); }
+  };
+}
+
+// ---------- shopping assistant ----------
+const Assist = { msgs: [], open: false, busy: false };
+function assistantButton() {
+  if (!cfg.ai || document.getElementById('asbtn')) return;
+  document.body.insertAdjacentHTML('beforeend', `<button id="asbtn" class="asbtn" type="button" aria-label="${KinanLang.t('Shopping assistant')}">✨</button>
+    <div id="aspanel" class="aspanel" hidden role="dialog" aria-label="${KinanLang.t('Shopping assistant')}">
+      <div class="ashead"><b>✨ ${KinanLang.t('Shopping assistant')}</b><button type="button" id="asclose" aria-label="Close">×</button></div>
+      <div class="asbody" id="asbody"></div>
+      <form class="asform" id="asform"><input name="m" maxlength="600" autocomplete="off" placeholder="${KinanLang.t('e.g. a gift for my mum under €30')}" required><button class="btn" aria-label="Send">➤</button></form>
+    </div>`);
+  $('#asbtn').onclick = () => { Assist.open = !Assist.open; $('#aspanel').hidden = !Assist.open; if (Assist.open) { renderAssist(); $('#asform').m.focus(); } };
+  $('#asclose').onclick = () => { Assist.open = false; $('#aspanel').hidden = true; };
+  $('#asform').onsubmit = async (e) => {
+    e.preventDefault(); if (Assist.busy) return;
+    const text = e.target.m.value.trim(); if (!text) return;
+    e.target.m.value = ''; Assist.msgs.push({ role: 'user', text }); Assist.busy = true; renderAssist();
+    try {
+      const r = await api('/api/assistant', 'POST', { messages: Assist.msgs.map(({ role, text: t }) => ({ role, text: t })), currency: Locale.get().currency, lang: KinanLang.lang });
+      Assist.msgs.push({ role: 'assistant', text: r.reply, items: r.items || [] });
+    } catch (err) { Assist.msgs.push({ role: 'assistant', text: err.message, items: [] }); }
+    Assist.busy = false; renderAssist();
+  };
+}
+function renderAssist() {
+  const b = $('#asbody'); if (!b) return;
+  const hello = `<div class="asmsg bot">${KinanLang.t('Hi! Tell me what you are looking for — a gift, a budget, a room to decorate — and I will find it on Kinan.')}</div>`;
+  b.innerHTML = hello + Assist.msgs.map((m) => m.role === 'user' ? `<div class="asmsg me" dir="auto">${esc(m.text)}</div>`
+    : `<div class="asmsg bot" dir="auto">${esc(m.text)}</div>${(m.items || []).length ? `<div class="asitems">${m.items.map((p) => `<a href="#/p/${esc(p.id)}" class="asitem">${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}<span><b dir="auto">${esc(T(p)).slice(0, 70)}</b><span class="small">${money(p.min_price, p.currency)}</span>${p.why ? `<span class="muted small" dir="auto">${esc(p.why)}</span>` : ''}</span></a>`).join('')}</div>` : ''}`).join('')
+    + (Assist.busy ? `<div class="asmsg bot muted">${KinanLang.t('Thinking…')}</div>` : '');
+  b.scrollTop = b.scrollHeight;
 }
 
 // ---------- Kinan points ----------
@@ -1530,6 +1599,7 @@ function wireInstall() {
   Cart.sync(); Book.sync();
   K.analyticsConsent(cfg.analytics);
   if (cfg.whatsapp) { const a = document.createElement('a'); a.className = 'wafab'; a.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent('Hello Kinan')}`; a.target = '_blank'; a.rel = 'noopener'; a.setAttribute('aria-label', 'WhatsApp'); a.innerHTML = WA; document.body.append(a); }
+  assistantButton();
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
   K.registerSW();
 })();

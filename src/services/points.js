@@ -83,4 +83,12 @@ function redeem(userId, pts) {
   return { ...info(userId), code: c.code, value, expires_at: c.expires_at };
 }
 
-module.exports = { settle, info, redeem, forOrder, forPrice, VALUE, PER_UNIT };
+/** Points for a review: REVIEW_POINTS (50), twice that with a photo. */
+function forReview(review) {
+  const base = Math.max(0, Math.floor(Number(process.env.REVIEW_POINTS ?? 50)));
+  const pts = (review.photos || []).length ? base * 2 : base;
+  if (pts) add(review.user_id, pts, (review.photos || []).length ? 'Review with photos' : 'Review', { review_id: review.id });
+  return pts;
+}
+
+module.exports = { settle, info, redeem, forOrder, forPrice, forReview, add, VALUE, PER_UNIT };

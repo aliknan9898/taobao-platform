@@ -159,3 +159,45 @@ test("today's deals: AI picks, 10–20% off within the margin, shown and charged
   assert.strictEqual((await deals.tick()).at, d.at, 'same day: same deals');
   assert.strictEqual(deals.publicDeals().count, 2);
 });
+
+test('shopping assistant, product questions, points for reviews', async () => {
+  const assistant = require('../src/services/assistant');
+  const seller = require('../src/services/buyforme').systemSeller();
+  for (const l of db.listings.all(() => true)) db.listings.update(l.id, { status: 'paused' });
+  const scarf = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Cashmere Feel Winter Scarf Women', keywords: ['scarf', 'gift for her'], description: 'Material: acrylic. Size: 180 x 70 cm.', images: ['https://x/s.jpg'], skus: [{ mp_sku_id: 's1', price: 18, stock: 30 }] });
+  db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Luxury Scarf Silk', images: ['https://x/l.jpg'], skus: [{ mp_sku_id: 'l1', price: 90, stock: 30 }] });
+  db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Car Phone Holder', images: ['https://x/c.jpg'], skus: [{ mp_sku_id: 'c1', price: 9, stock: 30 }] });
+  AI = (text, body) => {
+    const sys = body.system_instruction?.parts?.map((p) => p.text).join(' ') || '';
+    if (/Products Kinan has/.test(text)) return { reply: 'Ein schöner Schal für deine Mutter:', picks: [{ i: 0, why: 'Weich und warm' }] };
+    if (/shopping/i.test(sys) || /Shopper:/.test(text)) return { searches: ['winter scarf', 'scarf women'], max_price: 30, min_price: 0, reply_if_no_products: '' };
+    return {};
+  };
+  const r = await assistant.chat({ messages: [{ role: 'user', text: 'Ein Geschenk für meine Mutter unter 30 €' }], currency: 'USD', lang: 'de' });
+  assert.strictEqual(r.reply, 'Ein schöner Schal für deine Mutter:');
+  assert.deepStrictEqual(r.items.map((p) => p.title), ['Cashmere Feel Winter Scarf Women'], 'the €90 scarf is over budget');
+  assert.strictEqual(r.items[0].why, 'Weich und warm');
+  await assert.rejects(assistant.chat({ messages: [] }), /Write a message/);
+
+  // questions: the AI answers from the details, or leaves it for Kinan
+  const buyer = db.users.insert({ email: 'qa@x.com', role: 'buyer', name: 'Lena' });
+  AI = (text) => (/How long/.test(text) ? { allowed: true, can_answer: true, answer: 'It is 180 × 70 cm.' } : { allowed: true, can_answer: false, answer: '' });
+  const q1 = await assistant.ask(buyer, scarf.id, 'How long is the scarf?');
+  assert.strictEqual(q1.answer, 'It is 180 × 70 cm.');
+  assert.strictEqual(q1.by, 'ai');
+  const q2 = await assistant.ask(buyer, scarf.id, 'Is it machine washable?');
+  assert.strictEqual(q2.answer, null);
+  assert.deepStrictEqual(assistant.pending().map((q) => q.id), [q2.id]);
+  assistant.answer(q2.id, 'Yes, at 30 °C.');
+  assert.strictEqual(assistant.pending().length, 0);
+  assert.deepStrictEqual(assistant.questionsFor(scarf.id).questions.map((q) => q.by).sort(), ['ai', 'kinan']);
+  AI = () => ({ allowed: false, can_answer: false, answer: '' });
+  await assert.rejects(assistant.ask(buyer, scarf.id, 'call me on 0123 456'), /about the product/);
+
+  // a review with a photo earns points
+  const growth = require('../src/services/growth');
+  const o = db.orders.insert({ buyer_id: buyer.id, status: 'delivered', lines: [{ listing_id: scarf.id, seller_id: seller.id, qty: 1, price: 18 }], subtotal: 18, total: 18 });
+  const rv = growth.addReview(db.users.get(buyer.id), o.id, { listing_id: scarf.id, rating: 5, text: 'Lovely', photos: ['data:image/jpeg;base64,/9j/4AAQ'] });
+  assert.strictEqual(rv.points, 100);
+  assert.strictEqual(require('../src/services/points').info(buyer.id).balance, 100);
+});

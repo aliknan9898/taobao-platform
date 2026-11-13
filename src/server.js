@@ -274,6 +274,11 @@ r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
 r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntries(url.searchParams)));
 r('GET', '/api/catalog/many', null, async ({ url }) => catalog.many(url.searchParams.get('ids')));
 r('GET', '/api/catalog/:id/similar', null, async ({ params }) => catalog.similar(params.id));
+r('GET', '/api/catalog/:id/questions', null, async ({ params }) => require('./services/assistant').questionsFor(params.id));
+r('POST', '/api/catalog/:id/questions', BUYER, async ({ req, params, user }) => { throttleLight(req); return require('./services/assistant').ask(db.users.get(user.id), params.id, (await readJson(req)).question); });
+r('POST', '/api/assistant', null, async ({ req }) => { throttleLight(req); photoLimit(req); const b = await readJson(req); return require('./services/assistant').chat({ messages: b.messages, currency: b.currency, lang: b.lang }); });
+r('GET', '/api/admin/questions', ADMIN, async () => require('./services/assistant').pending());
+r('POST', '/api/admin/questions/:id', ADMIN, async ({ req, params }) => require('./services/assistant').answer(params.id, (await readJson(req)).answer));
 r('GET', '/api/catalog/:id', null, async ({ req, params }) => { const out = catalog.buyerListing(params.id); try { ops.countView(db.listings.get(params.id), clientIp(req)); } catch { /* stats are best effort */ } return out; });
 r('GET', '/api/catalog/:id/reviews', null, async ({ params }) => growth.reviewsFor(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
@@ -337,7 +342,7 @@ r('GET', '/api/buyer/wishlist', BUYER, async ({ user }) => growth.wishlist(user)
 r('POST', '/api/buyer/wishlist/:id', BUYER, async ({ user, params }) => growth.save(user, params.id));
 r('DELETE', '/api/buyer/wishlist/:id', BUYER, async ({ user, params }) => growth.unsave(user, params.id));
 r('GET', '/api/buyer/wishlist/:id', BUYER, async ({ user, params }) => ({ saved: growth.isSaved(user, params.id) }));
-r('POST', '/api/buyer/orders/:id/reviews', BUYER, async ({ req, user, params }) => growth.publicReview(growth.addReview(db.users.get(user.id), params.id, await readJson(req))));
+r('POST', '/api/buyer/orders/:id/reviews', BUYER, async ({ req, user, params }) => { const r = growth.addReview(db.users.get(user.id), params.id, await readJson(req)); return { ...growth.publicReview(r), points: r.points || 0 }; });
 r('GET', '/api/buyer/reviews', BUYER, async ({ user }) => db.reviews.all((x) => x.user_id === user.id).map((x) => ({ order_id: x.order_id, listing_id: x.listing_id, rating: x.rating })));
 r('PUT', '/api/buyer/cart', BUYER, async ({ req, user }) => growth.saveCart(user, (await readJson(req)).items));
 r('GET', '/api/push/key', null, async () => ({ key: require('./push').vapid().publicKey }));
