@@ -409,6 +409,92 @@ async function listMany({ collection, ids, limit = 50 } = {}, by = 'admin') {
   return job;
 }
 
+// ---------------- AI: the best few products of a collection, reviewed and titled for eBay UK ----------------
+
+const SHORTLIST = {
+  type: 'object',
+  properties: { picks: { type: 'array', items: { type: 'integer' }, description: 'Numbers from the list, best first.' } },
+  required: ['picks']
+};
+const REVIEW = {
+  type: 'object',
+  properties: {
+    ok: { type: 'boolean', description: 'false if it should NOT go on eBay UK: brand/character/logo or copied design, unsafe or regulated (weapons, medical claims, mains plugs that are not UK, loose button batteries for children), adult, poor or misleading photos, watermarks/Chinese text on the main photo, or low value that will get bad reviews.' },
+    score: { type: 'integer', description: '1–10: how well this will sell on eBay UK this Christmas (demand, gift appeal, photo quality, value for the price, low return risk).' },
+    reason: { type: 'string', description: 'One short sentence: why.' },
+    ebay_title: { type: 'string', description: 'eBay UK title, max 80 characters, British English. Lead with the words UK shoppers search most (use the Google searches given when they fit), then the key features (size, material, quantity, colour). No brand names, no ALL CAPS, no symbols or emojis, no "free shipping", no "2024/2025", no words that are not true of the product.' }
+  },
+  required: ['ok', 'score', 'reason', 'ebay_title']
+};
+
+/** Pick the best `n` products of a collection for eBay UK (AI review of details and photos), give each an eBay title with the
+ *  best search words, and list them. */
+async function bestPicks({ collection = 'christmas', n = 5, list: doList = true } = {}) {
+  if (!ebay.connected()) throw httpError(409, 'eBay is not connected — press Connect eBay first');
+  const ai = require('./ai');
+  if (!ai.enabled()) throw httpError(503, 'The AI assistant is not switched on');
+  n = Math.min(20, Math.max(1, Math.floor(Number(n) || 5)));
+  const home = market().country;
+  const info = (l) => {
+    const s = [...list(l.skus)].filter((k) => k.stock > 0).sort((a, b) => a.price - b.price)[0] || {};
+    const margin = s.cost_sale ? Math.round((1 - s.cost_sale / s.price) * 100) : null;
+    return { s, margin, photos: list(l.images).filter((u) => /^https:/.test(u)).length, stock: list(l.skus).reduce((a, k) => a + (Number(k.stock) || 0), 0) };
+  };
+  // Rule-based first cut: ships from the eBay site's own country, enough photos, stock, margin, the sourcing AI's quality mark
+  const pool = candidates({ collection }).map((l) => {
+    const x = info(l);
+    const from = String(l.cj_from || 'CN').toUpperCase();
+    const sc = (from === home ? 3 : 1) + Math.min(x.photos, 6) / 3 + Math.min(x.stock, 50) / 50 + (x.margin != null ? Math.min(x.margin, 60) / 30 : 0.5)
+      + (Number(l.sourcing?.quality) || 5) / 3 + (Number(l.rating) || 0) / 5;
+    return { l, x, from, sc };
+  }).filter((c) => c.x.photos >= 2 && c.x.s.price > 0).sort((a, b) => b.sc - a.sc).slice(0, 40);
+  if (!pool.length) throw httpError(404, `No ${collection} products are ready for eBay`);
+  const sys = 'You are the senior eBay UK merchandiser of Kinan, an online shop. You choose products that sell well on eBay UK in the Christmas season and you are strict about quality, safety and eBay rules.';
+  let order = pool.map((_, i) => i);
+  try {
+    const r = await ai.structured({
+      system: sys, name: 'shortlist', schema: SHORTLIST, kind: 'ebay', maxTokens: 300, timeoutMs: 45000,
+      text: `Shortlist the ${Math.min(pool.length, n * 3)} products most likely to sell on eBay UK for Christmas ${new Date().getFullYear()}, varied (not two alike).\n` +
+        pool.map((c, i) => `${i}. ${c.l.title.slice(0, 110)} · £${c.x.s.price} · ships from ${c.from} · ${c.x.photos} photos${c.x.margin != null ? ` · margin ${c.x.margin}%` : ''}`).join('\n')
+    });
+    const seen = new Set(); const p = (r.picks || []).map(Number).filter((i) => pool[i] && !seen.has(i) && seen.add(i));
+    if (p.length >= n) order = [...p, ...order.filter((i) => !seen.has(i))];
+  } catch (e) { console.warn('[ebay] best picks shortlist:', e.message); }
+  const kw = require('./keywords');
+  const reviewed = [];
+  for (const i of order.slice(0, Math.min(pool.length, n * 3))) {
+    const c = pool[i]; const l = c.l;
+    if (kw.connected()) await kw.improve(l.id).catch((e) => console.warn('[ebay] best picks keywords:', e.message));
+    const fresh = db.listings.get(l.id);
+    const searches = list(fresh.kw_stats?.top).slice(0, 8).map((t) => `${t.text} (${t.volume}/month)`);
+    try {
+      const d = await ai.structured({
+        system: sys, name: 'ebay_review', schema: REVIEW, kind: 'ebay', maxTokens: 500, timeoutMs: 60000, images: list(fresh.images).filter((u) => /^https:/.test(u)).slice(0, 4),
+        text: `Product: ${fresh.title}\nPrice on eBay: about £${c.x.s.price} with free UK delivery\nShips from: ${c.from}\nOptions: ${[...new Set(list(fresh.skus).map((k) => k.props).filter(Boolean))].slice(0, 12).join(', ') || 'one'}\n` +
+          `${searches.length ? `What UK shoppers search on Google: ${searches.join('; ')}\n` : ''}Search words: ${list(fresh.keywords).slice(0, 15).join(', ')}\nDetails:\n${String(fresh.description || '').replace(/<[^>]+>/g, ' ').slice(0, 1500)}`
+      });
+      const title = String(d.ebay_title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      reviewed.push({ id: l.id, ok: d.ok !== false && title.length >= 20, score: Number(d.score) || 0, reason: String(d.reason || '').slice(0, 200), title, was: fresh.title });
+    } catch (e) { console.warn('[ebay] best picks review:', l.id, e.message); }
+  }
+  const chosen = reviewed.filter((x) => x.ok).sort((a, b) => b.score - a.score).slice(0, n);
+  for (const x of chosen) { const l = db.listings.get(x.id); db.listings.update(x.id, { sourcing: { ...(l.sourcing || {}), ebay_title: x.title, ebay_pick: { at: now(), score: x.score, reason: x.reason } } }); }
+  for (const x of reviewed) console.log(`[ebay] best picks: ${x.ok && chosen.includes(x) ? 'PICK' : x.ok ? 'next' : 'NO  '} ${x.score}/10 ${x.id} "${x.title}" — ${x.reason}`);
+  saveState({ best_picks: { at: now(), collection, picks: chosen, rejected: reviewed.filter((x) => !chosen.includes(x)).slice(0, 20) } });
+  if (doList && chosen.length) await listMany({ ids: chosen.map((x) => x.id), limit: chosen.length }, 'ai');
+  return { picks: chosen, reviewed: reviewed.length };
+}
+
+/** At start-up: EBAY_AUTOPICK=christmas:5 runs bestPicks once for that value (lets the owner ask for it without the admin). */
+async function autopick() {
+  const v = String(process.env.EBAY_AUTOPICK || '').trim();
+  if (!v || state().autopick_done === v || !ebay.connected()) return;
+  saveState({ autopick_done: v });
+  const [collection, n] = v.split(':');
+  try { const r = await bestPicks({ collection: collection || 'christmas', n: Number(n) || 5 }); console.log(`[ebay] autopick ${v}: ${r.picks.length} picked from ${r.reviewed} reviewed`); }
+  catch (e) { console.warn('[ebay] autopick:', e.message); }
+}
+
 /** Take a product off eBay. */
 async function endOne(listingId) {
   const l = db.listings.get(listingId);
@@ -634,4 +720,4 @@ function status() {
 
 function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
 
-module.exports = { storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+module.exports = { bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };

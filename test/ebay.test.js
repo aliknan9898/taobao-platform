@@ -49,6 +49,7 @@ global.fetch = async (url, opts = {}) => {
   if (p.startsWith('/sell/inventory/v1/inventory_item')) return J({}, 204);
   if (p === '/sell/inventory/v1/offer' && opts.method === 'POST') return J({ offerId: `OF-${body.sku.slice(-4)}` });
   if (p === '/sell/inventory/v1/offer/publish_by_inventory_item_group') return J({ listingId: '110555' });
+  if (/^\/sell\/inventory\/v1\/offer\/[^/]+\/publish$/.test(p)) return J({ listingId: '110777' });
   if (p === '/sell/inventory/v1/bulk_update_price_quantity') return J({ responses: body.requests.map((r) => ({ sku: r.sku, statusCode: 200 })) });
   if (p === '/sell/fulfillment/v1/order') return J({ orders: ORDERS });
   if (/shipping_fulfillment$/.test(p)) return J({}, 201);
@@ -176,4 +177,35 @@ test('eBay: finish connecting by pasting the eBay "Thank you" page address', asy
   assert.ok(ebayClient.connected());
   const tokenCall = calls.filter((c) => c.path === '/identity/v1/oauth2/token').pop();
   assert.strictEqual(new URLSearchParams(tokenCall.body).get('code'), 'v^1.1#i^1#abcdefghijklmnopqrstuvwxyz');
+});
+
+test('eBay: AI best picks — reviews a collection, keeps the good ones, gives them eBay titles, lists them', async () => {
+  const ai = require('../src/services/ai');
+  const orig = { enabled: ai.enabled, structured: ai.structured };
+  const mk = (title, extra = {}) => db.listings.insert({
+    seller_id: 'sel_kinan', source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'GB', cj_pid: `P-${title}`, title, description: 'Material: Felt',
+    images: ['https://img.example/a.jpg', 'https://img.example/b.jpg', 'https://img.example/c.jpg'], collections: ['christmas'],
+    skus: [{ cj_vid: `V-${title.length}`, mp_sku_id: `cj_${title.length}`, props: '', price: 15, cost_sale: 4, stock: 30 }], ...extra
+  });
+  const good = mk('Felt Christmas Stocking Large Personalisable'); const bad = mk('Cartoon Mouse Character Lamp'); const ok2 = mk('Advent Calendar Wooden Reusable Drawers');
+  const seen = [];
+  ai.enabled = () => true;
+  ai.structured = async ({ name, text, images }) => {
+    seen.push(name);
+    if (name === 'shortlist') return { picks: [0, 1, 2] };
+    assert.ok(images.length >= 1, 'photos are reviewed');
+    if (/Mouse/.test(text)) return { ok: false, score: 2, reason: 'Character design', ebay_title: 'Mouse Lamp Night Light Kids Bedroom Cartoon Character' };
+    if (/Stocking/.test(text)) return { ok: true, score: 9, reason: 'Classic gift', ebay_title: 'Large Felt Christmas Stocking Personalised Xmas Stocking Fireplace Decoration' };
+    return { ok: true, score: 7, reason: 'Seasonal', ebay_title: 'Wooden Advent Calendar Reusable 24 Drawers Christmas Countdown Decoration' };
+  };
+  try {
+    const r = await ebay.bestPicks({ collection: 'christmas', n: 2 });
+    assert.deepStrictEqual(r.picks.map((x) => x.id), [good.id, ok2.id]);
+    assert.ok(seen.includes('shortlist') && seen.filter((x) => x === 'ebay_review').length === 3);
+    assert.match(db.listings.get(good.id).sourcing.ebay_title, /^Large Felt Christmas Stocking/);
+    assert.ok(db.listings.get(good.id).ebay?.listing_id, 'listed on eBay');
+    assert.ok(!db.listings.get(bad.id).ebay?.listing_id, 'the rejected one is not listed');
+    const offer = calls.filter((c) => c.path.startsWith('/sell/inventory/v1/inventory_item/')).map((c) => c.body?.product?.title).filter(Boolean);
+    assert.ok(offer.some((t) => /Wooden Advent Calendar/.test(t)), 'the eBay title is used');
+  } finally { Object.assign(ai, orig); }
 });
