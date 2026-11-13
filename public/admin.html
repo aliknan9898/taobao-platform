@@ -241,6 +241,7 @@ const VIEWS = {
       <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
       <div class="card" id="aicard"><h2>AI assistant</h2><p class="muted">Loading…</p></div>
       <div class="card" id="qacard" hidden></div>
+      <div class="card" id="keywords"><h2>Google Keyword Planner</h2><p class="muted">Loading…</p></div>
       <div class="card" id="ebay"><h2>eBay</h2><p class="muted">Loading…</p></div>
       <div class="card" id="xmascard"><h2>🎄 Christmas Shop</h2><p class="muted">Loading…</p></div>
       <div class="card" id="bgcard"><h2>Banggood</h2><p class="muted">Loading…</p></div>
@@ -285,6 +286,28 @@ const VIEWS = {
     }).catch(() => {});
     xmas();
     ebayCard();
+    const kwCard = () => api('/api/admin/keywords').then((k) => {
+      const el = $('#keywords'); if (!el) return;
+      const setup = `<details ${k.configured ? '' : 'open'}><summary>Setup</summary><ol class="small">
+        <li>Google Ads account (free) — note its 10-digit customer ID. If it sits under a manager account, note that ID too.</li>
+        <li>Google Cloud Console → the project of Kinan's Google sign-in → enable <b>Google Ads API</b> and request production access (Explorer or Basic) on the Google Ads API page.</li>
+        <li>Same project → Credentials → Kinan's OAuth client → add the redirect URL <code>${esc(k.redirect)}</code>.</li>
+        <li>Render → Environment: <code>GOOGLE_ADS_CUSTOMER_ID</code> (and <code>GOOGLE_ADS_LOGIN_CUSTOMER_ID</code> for a manager account). Then press Connect here.</li></ol></details>`;
+      el.innerHTML = `<h2>🔎 Google Keyword Planner</h2>
+        <p class="muted">Real Google searches with their monthly volume (United Kingdom, English) become each product's search keywords — for the shop search, Google Shopping, ChatGPT and eBay.</p>
+        <p>${k.connected ? '<span class="pill ok">Connected</span>' : k.configured ? '<span class="pill bad">Not connected</span>' : '<span class="pill">Not set up</span>'}${k.customer ? ` · account ${esc(k.customer)}` : ''} · <b>${k.products_done}</b> of ${k.products_live} live products done · ${k.used_today}/${k.daily} calls today</p>
+        ${k.last_error ? `<p class="small bad">${esc(k.last_error)}</p>` : ''}
+        ${k.configured ? `<p class="row">${k.connected ? '<button class="btn" id="kwrun">Update keywords now</button><button class="btn ghost" id="kwdis">Disconnect</button>' : '<button class="btn" id="kwcon">Connect Google Ads</button>'}<span class="muted" id="kwm"></span></p>` : ''}
+        ${k.connected ? `<form class="row" id="kwf"><input name="seeds" placeholder="Try: christmas lights, dog harness" style="flex:1"><button class="btn ghost">Search volumes</button></form><div id="kwres" class="small"></div>` : ''}
+        ${k.top.length ? `<details><summary>Busiest searches found</summary><table><tr><th>Search</th><th>Monthly</th><th>Competition</th><th>Product</th></tr>${k.top.map((x) => `<tr><td>${esc(x.text)}</td><td>${x.volume.toLocaleString()}</td><td>${esc(x.competition)}</td><td><a href="/p/${esc(x.id)}" target="_blank" rel="noopener">${esc(x.product)}</a></td></tr>`).join('')}</table></details>` : ''}
+        ${setup}`;
+      const m = (t) => { const x = $('#kwm'); if (x) x.textContent = t; };
+      const c = $('#kwcon'); if (c) c.onclick = async () => { try { location.href = (await api('/api/admin/keywords/connect')).url; } catch (e) { m(e.message); } };
+      const d = $('#kwdis'); if (d) d.onclick = async () => { await api('/api/admin/keywords/disconnect', 'POST'); kwCard(); };
+      const r = $('#kwrun'); if (r) r.onclick = async () => { await api('/api/admin/keywords/run', 'POST'); m('Started — about 40 products a minute'); setTimeout(kwCard, 30000); };
+      const f = $('#kwf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); $('#kwres').textContent = 'Asking Google…'; try { const x = await api('/api/admin/keywords/ideas', 'POST', { seeds: f.seeds.value }); $('#kwres').innerHTML = `<table><tr><th>Search</th><th>Monthly</th><th>Competition</th><th>Top-of-page bid</th></tr>${x.ideas.slice(0, 40).map((i) => `<tr><td>${esc(i.text)}</td><td>${i.volume.toLocaleString()}</td><td>${esc(i.competition)}</td><td>${i.bid_high ? `${i.bid_low.toFixed(2)}–${i.bid_high.toFixed(2)}` : '—'}</td></tr>`).join('')}</table>`; } catch (err) { $('#kwres').textContent = err.message; } };
+    }).catch(() => {});
+    kwCard();
     api('/api/admin/questions').then((qs) => {
       const el = $('#qacard'); if (!el || !qs.length) return; el.hidden = false;
       el.innerHTML = `<h2>Customer questions (${qs.length})</h2><p class="muted">The AI could not answer these from the product details. Your answer is shown on the product page and the customer gets a notification. Leave it empty and press Hide to remove a question.</p>

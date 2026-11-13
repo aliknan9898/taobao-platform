@@ -532,6 +532,12 @@ r('GET', '/api/admin/backup', ADMIN, async ({ res }) => { const f = ops.backupFi
 r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${new Date().toISOString().slice(0, 10)}`; for (const m of db.mail.all((x) => x.key === k)) db.mail.remove(m.id); return { ...(await ops.dailyBackup()), to: ops.backupRecipient() }; });
 // Seasonal collections (Christmas Shop from CJ's European warehouses)
 r('GET', '/api/admin/collections/:id', ADMIN, async ({ params }) => { const sz = require('./services/seasonal'); return { state: sz.state(params.id), rows: sz.rows(params.id) }; });
+r('GET', '/api/admin/keywords', ADMIN, async () => require('./services/keywords').status());
+r('GET', '/api/admin/keywords/connect', ADMIN, async () => ({ url: require('./services/keywords').authUrl() }));
+r('POST', '/api/admin/keywords/disconnect', ADMIN, async () => { require('./services/keywords').disconnect(); return require('./services/keywords').status(); });
+r('POST', '/api/admin/keywords/run', ADMIN, async () => { const k = require('./services/keywords'); require('./cj/client').background(() => k.tick({ max: 100 })).catch(() => {}); return { started: true }; });
+r('POST', '/api/admin/keywords/ideas', ADMIN, async ({ req }) => { const b = await readJson(req); return { ideas: (await require('./services/keywords').ideas(String(b.seeds || '').split(/[,\n]+/))).sort((a, c) => c.volume - a.volume).slice(0, 100) }; });
+r('POST', '/api/admin/keywords/product/:id', ADMIN, async ({ params }) => require('./services/keywords').improve(params.id));
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
 r('GET', '/api/admin/sourcing', ADMIN, async () => require('./services/sourcing').status());
 r('PUT', '/api/admin/sourcing', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); sr.savePrefs(await readJson(req)); return sr.status(); });
@@ -771,6 +777,11 @@ const server = http.createServer(async (req, res) => {
       }
       return res.end();
     }
+    if (p === '/oauth/google-ads/callback' && req.method === 'GET') {
+      try { await require('./services/keywords').handleCallback(url.searchParams.get('code'), url.searchParams.get('state')); res.writeHead(302, { Location: '/admin?gads=connected#keywords' }); }
+      catch (e) { console.warn('[keywords] connect failed:', e.message); res.writeHead(302, { Location: `/admin?login_error=${encodeURIComponent(url.searchParams.get('error') || e.message)}` }); }
+      return res.end();
+    }
     if (p === '/oauth/ebay/callback' && req.method === 'GET') {
       const q = url.searchParams;
       console.log(`[ebay] sign-in returned (${req.method}, keys: ${[...q.keys()].join(',') || 'none'}, ref: ${String(req.headers.referer || '').split('?')[0]}): code ${q.get('code') ? 'yes' : 'no'}, state ${q.get('state') ? 'yes' : 'no'}${q.get('error') ? `, error ${q.get('error')}: ${q.get('error_description') || ''}` : ''}`);
@@ -846,6 +857,7 @@ function startJobs() {
   every(60e3, () => require('./services/autoreview').tick());
   every(15 * 60e3, () => require('./services/ebay').tick());
   every(3600e3, () => require('./services/points').settle()); // Kinan points for delivered orders
+  every(3600e3, () => require('./services/keywords').tick()); // Google Keyword Planner: real search keywords for products
   every(10 * 60e3, () => require('./services/uilang').tick()); // French, German, Italian, Spanish
   setTimeout(() => require('./services/uilang').tick().catch(() => {}), 90e3); // start translating soon after a deploy
   every(3600e3, () => require('./services/sourcing').tick()); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
