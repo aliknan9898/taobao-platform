@@ -104,7 +104,15 @@ async function appToken() {
 }
 
 /** One API call. Errors carry eBay's own message and error ids (e.errors). */
-async function api(method, path, body, { user = true, lang, marketplace, query } = {}) {
+async function api(method, path, body, opts = {}) {
+  try { return await api1(method, path, body, opts); }
+  catch (e) {
+    // eBay's "system error" (5xx) is usually gone a moment later: try once more for calls that are safe to repeat
+    if (e.ebayStatus >= 500 && ['GET', 'PUT', 'DELETE'].includes(method) && !opts._retried) { await new Promise((r) => setTimeout(r, opts.retryMs ?? 3000)); return api1(method, path, body, { ...opts, _retried: true }); }
+    throw e;
+  }
+}
+async function api1(method, path, body, { user = true, lang, marketplace, query } = {}) {
   const t = user ? await userToken() : await appToken();
   const headers = { Authorization: `Bearer ${t}`, Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';

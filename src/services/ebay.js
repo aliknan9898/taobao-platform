@@ -104,7 +104,19 @@ function eligible(l) {
   return null;
 }
 
+/** Moving from the eBay test site (sandbox) to the real one: listings, policies and warehouses made on the test site do not
+ *  exist on the real one, so forget them once (kept as ebay_sandbox for reference). */
+function ensureEnv() {
+  const e = ebay.env();
+  if (!ebay.configured() || state().env === e) return;
+  let moved = 0;
+  for (const l of db.listings.all((x) => x.ebay && (x.ebay.env || 'sandbox') !== e)) { db.listings.update(l.id, { ebay: null, [`ebay_${l.ebay.env || 'sandbox'}`]: l.ebay }); moved++; }
+  saveState((x) => ({ ...x, env: e, policies: null, locations: list(x.locations).filter((k) => k.startsWith(`${e}:`)), job: null }));
+  console.log(`[ebay] now on the ${e} site: ${moved} listing(s) from the other site set aside`);
+}
+
 function candidates({ collection, ids } = {}) {
+  ensureEnv();
   const want = ids && ids.length ? new Set(ids) : null;
   return db.listings.all((l) => (want ? want.has(l.id) : (!collection || list(l.collections).includes(collection))) && !l.ebay?.listing_id && !eligible(l));
 }
@@ -154,7 +166,7 @@ async function policies() {
     return made.fulfillmentPolicyId;
   };
   const out = {
-    marketplace: mk,
+    marketplace: mk, env: ebay.env(),
     payment: payment.paymentPolicyId, return: ret.returnPolicyId,
     ship_home: await ship('Kinan free delivery', process.env.EBAY_SHIPPING_SERVICE || m.domestic),
     ship_outside: await ship('Kinan free delivery from Europe', process.env.EBAY_SHIPPING_SERVICE_OUTSIDE || m.outside),
@@ -167,14 +179,14 @@ async function policies() {
 async function location(cc) {
   const key = `kinan-${cc.toLowerCase()}`;
   const s = state();
-  if (list(s.locations).includes(key)) return key;
+  if (list(s.locations).includes(`${ebay.env()}:${key}`)) return key;
   let over = {}; try { over = JSON.parse(process.env.EBAY_LOCATIONS || '{}')[cc] || {}; } catch { over = {}; }
   const [city, postalCode] = CITY[cc] || [cc, ''];
   await ebay.api('POST', `/sell/inventory/v1/location/${key}`, {
     location: { address: { city: over.city || city, postalCode: over.postalCode || postalCode, country: cc } },
     locationTypes: ['WAREHOUSE'], name: `Kinan warehouse ${cc}`, merchantLocationStatus: 'ENABLED'
   }).catch((e) => { if (!/already exists|25803/i.test(`${e.message} ${list(e.errors).map((x) => x.errorId).join(' ')}`)) throw e; });
-  saveState((x) => ({ ...x, locations: [...new Set([...list(x.locations), key])] }));
+  saveState((x) => ({ ...x, locations: [...new Set([...list(x.locations), `${ebay.env()}:${key}`])] }));
   return key;
 }
 
@@ -329,7 +341,7 @@ async function listOne(listingId) {
   const why = eligible(l);
   if (why) throw httpError(400, why);
   const p = prefs(); const m = market(); const mk = p.marketplace;
-  const pol = state().policies?.marketplace === mk ? state().policies : await policies();
+  const pol = state().policies?.marketplace === mk && state().policies?.env === ebay.env() ? state().policies : await policies();
   const from = String(l.cj_from || 'CN').toUpperCase();
   const loc = await location(from);
   const cat = await category(l);
@@ -374,7 +386,7 @@ async function listOne(listingId) {
   } else {
     listing = await ebay.api('POST', `/sell/inventory/v1/offer/${Object.values(offers)[0]}/publish`, {});
   }
-  const info = { store_path: storeCats ? storeCats[0] : null, listing_id: listing.listingId, marketplace: mk, offers, group: multi ? groupKey(l) : null, category: cat.id, ship_fee: fee, listed_at: now(), synced_at: now(), error: null };
+  const info = { env: ebay.env(), store_path: storeCats ? storeCats[0] : null, listing_id: listing.listingId, marketplace: mk, offers, group: multi ? groupKey(l) : null, category: cat.id, ship_fee: fee, listed_at: now(), synced_at: now(), error: null };
   db.listings.update(l.id, { ebay: info });
   return info;
 }
@@ -422,7 +434,7 @@ const REVIEW = {
     ok: { type: 'boolean', description: 'false if it should NOT go on eBay UK: brand/character/logo or copied design, unsafe or regulated (weapons, medical claims, mains plugs that are not UK, loose button batteries for children), adult, poor or misleading photos, watermarks/Chinese text on the main photo, or low value that will get bad reviews.' },
     score: { type: 'integer', description: '1–10: how well this will sell on eBay UK this Christmas (demand, gift appeal, photo quality, value for the price, low return risk).' },
     reason: { type: 'string', description: 'One short sentence: why.' },
-    ebay_title: { type: 'string', description: 'eBay UK title, max 80 characters, British English. Lead with the words UK shoppers search most (use the Google searches given when they fit), then the key features (size, material, quantity, colour). No brand names, no ALL CAPS, no symbols or emojis, no "free shipping", no "2024/2025", no words that are not true of the product.' }
+    ebay_title: { type: 'string', description: 'eBay UK title, max 80 characters, British English. Lead with the words UK shoppers search most (use the Google searches given when they fit), then the key features (size, material, quantity, colour). Title Case. No brand names, no ALL CAPS, no symbols or emojis, no "free shipping", no "2024/2025", no words that are not true of the product.' }
   },
   required: ['ok', 'score', 'reason', 'ebay_title']
 };
@@ -454,7 +466,7 @@ async function bestPicks({ collection = 'christmas', n = 5, list: doList = true 
   try {
     const r = await ai.structured({
       system: sys, name: 'shortlist', schema: SHORTLIST, kind: 'ebay', maxTokens: 300, timeoutMs: 45000,
-      text: `Shortlist the ${Math.min(pool.length, n * 3)} products most likely to sell on eBay UK for Christmas ${new Date().getFullYear()}, varied (not two alike).\n` +
+      text: `Shortlist the ${Math.min(pool.length, n * 3)} products most likely to sell on eBay UK for Christmas ${new Date().getFullYear()}. They must be varied: never two of the same kind of product (e.g. only one gift-box set, one string-lights item).\n` +
         pool.map((c, i) => `${i}. ${c.l.title.slice(0, 110)} · £${c.x.s.price} · ships from ${c.from} · ${c.x.photos} photos${c.x.margin != null ? ` · margin ${c.x.margin}%` : ''}`).join('\n')
     });
     const seen = new Set(); const p = (r.picks || []).map(Number).filter((i) => pool[i] && !seen.has(i) && seen.add(i));
@@ -473,11 +485,16 @@ async function bestPicks({ collection = 'christmas', n = 5, list: doList = true 
         text: `Product: ${fresh.title}\nPrice on eBay: about £${c.x.s.price} with free UK delivery\nShips from: ${c.from}\nOptions: ${[...new Set(list(fresh.skus).map((k) => k.props).filter(Boolean))].slice(0, 12).join(', ') || 'one'}\n` +
           `${searches.length ? `What UK shoppers search on Google: ${searches.join('; ')}\n` : ''}Search words: ${list(fresh.keywords).slice(0, 15).join(', ')}\nDetails:\n${String(fresh.description || '').replace(/<[^>]+>/g, ' ').slice(0, 1500)}`
       });
-      const title = String(d.ebay_title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      let title = String(d.ebay_title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (title === title.toLowerCase()) title = title.replace(/\b([a-z])/g, (c) => c.toUpperCase()); // eBay titles read better in Title Case
       reviewed.push({ id: l.id, ok: d.ok !== false && title.length >= 20, score: Number(d.score) || 0, reason: String(d.reason || '').slice(0, 200), title, was: fresh.title });
     } catch (e) { console.warn('[ebay] best picks review:', l.id, e.message); }
   }
-  const chosen = reviewed.filter((x) => x.ok).sort((a, b) => b.score - a.score).slice(0, n);
+  // Varied picks: skip one that is the same kind of product as a better one already chosen (e.g. two gift-box sets)
+  const kw2 = (t) => new Set(String(t).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !/^(christmas|xmas|festive|holiday|gift|gifts|decoration|decorations|set|pcs|with|for)$/.test(w)).map((w) => w.replace(/(es|s)$/, '')));
+  const alike = (a, b) => { const A = kw2(a); const B = kw2(b); const both = [...A].filter((w) => B.has(w)).length; return both >= 2 && both / Math.min(A.size || 1, B.size || 1) >= 0.34; };
+  const chosen = [];
+  for (const x of reviewed.filter((r) => r.ok).sort((a, b) => b.score - a.score)) { if (chosen.length >= n) break; if (!chosen.some((c) => alike(c.was, x.was) || alike(c.title, x.title))) chosen.push(x); }
   for (const x of chosen) { const l = db.listings.get(x.id); db.listings.update(x.id, { sourcing: { ...(l.sourcing || {}), ebay_title: x.title, ebay_pick: { at: now(), score: x.score, reason: x.reason } } }); }
   for (const x of reviewed) console.log(`[ebay] best picks: ${x.ok && chosen.includes(x) ? 'PICK' : x.ok ? 'next' : 'NO  '} ${x.score}/10 ${x.id} "${x.title}" — ${x.reason}`);
   saveState({ best_picks: { at: now(), collection, picks: chosen, rejected: reviewed.filter((x) => !chosen.includes(x)).slice(0, 20) } });
@@ -630,6 +647,7 @@ async function pushTracking() {
 let ticks = 0;
 async function tick() {
   if (!ebay.connected()) return;
+  ensureEnv();
   ticks += 1;
   await importOrders().catch((e) => console.warn('[ebay] orders', e.message));
   await pushTracking().catch((e) => console.warn('[ebay] tracking', e.message));
@@ -645,6 +663,7 @@ const r2 = (v) => Math.round(Number(v) * 100) / 100;
 
 /** One row per Kinan product that is (or could be) on eBay, with the money worked out in the eBay site's currency. */
 function products({ filter = 'all' } = {}) {
+  ensureEnv();
   const p = prefs(); const m = market(); const cur = m.currency;
   let fx = null; try { fx = rate(cur); } catch { fx = null; }
   const url = (id, mk) => `https://www.${ebay.env() === 'sandbox' ? 'sandbox.' : ''}ebay.${{ EBAY_GB: 'co.uk', EBAY_DE: 'de', EBAY_FR: 'fr', EBAY_IT: 'it', EBAY_ES: 'es' }[mk] || 'co.uk'}/itm/${id}`;
@@ -720,4 +739,4 @@ function status() {
 
 function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
 
-module.exports = { bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+module.exports = { ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
