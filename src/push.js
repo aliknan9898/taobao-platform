@@ -106,7 +106,8 @@ function toUser(userId, { title, body, url, tag, ar }) {
 // ---------------- Telegram (owner alerts) ----------------
 // The chat is TELEGRAM_CHAT_ID, or the one linked from the admin (the owner sends the bot a one-time code)
 const tgChat = () => process.env.TELEGRAM_CHAT_ID || db.settings.get('telegram')?.chat_id || null;
-const tgOn = () => Boolean(process.env.TELEGRAM_BOT_TOKEN && tgChat());
+const tgToken = () => String(process.env.TELEGRAM_BOT_TOKEN || '').replace(/\s+/g, '').replace(/^bot/i, '');
+const tgOn = () => Boolean(tgToken() && tgChat());
 const tgQueue = []; let tgTimer = null;
 /** Telegram allows about one message per second to a chat: queue and send in order. */
 function telegram(text) {
@@ -118,7 +119,7 @@ function telegram(text) {
 function drain() {
   const text = tgQueue.shift();
   if (text === undefined) { tgTimer = null; return; }
-  fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  fetch(`https://api.telegram.org/bot${tgToken()}/sendMessage`, {
     method: 'POST', signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: tgChat(), text, disable_web_page_preview: true })
   }).then((r) => { if (!r.ok) console.warn('[telegram]', r.status); }).catch((e) => console.warn('[telegram]', e.message));

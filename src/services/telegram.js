@@ -15,14 +15,19 @@ const { httpError } = require('../auth');
 
 const SID = 'telegram';
 const TZ = 'Europe/Malta';
-const token = () => process.env.TELEGRAM_BOT_TOKEN || '';
+// Pasted tokens often carry spaces or a "bot" prefix: keep only the token itself (digits:letters)
+const token = () => String(process.env.TELEGRAM_BOT_TOKEN || '').replace(/\s+/g, '').replace(/^bot/i, '');
 const st = () => db.settings.get(SID) || {};
 function save(p) { return db.settings.get(SID) ? db.settings.update(SID, p) : db.settings.insert({ id: SID, ...p }); }
 
 async function tg(method, body) {
   const r = await fetch(`https://api.telegram.org/bot${token()}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(15000) });
   const j = await r.json().catch(() => ({}));
-  if (!j.ok) throw httpError(r.status === 401 || r.status === 404 ? 400 : 502, `Telegram: ${j.description || r.status}`);
+  if (!j.ok) {
+    const bad = r.status === 401 || r.status === 404;
+    const hint = bad ? (/^\d{6,}:[\w-]{30,}$/.test(token()) ? ' — this token is not valid (revoked?). Get the current one from @BotFather.' : ' — the token does not look right: it should be digits, a colon, then about 35 letters, with no spaces.') : '';
+    throw httpError(bad ? 400 : 502, `Telegram: ${j.description || r.status}${hint}`);
+  }
   return j.result;
 }
 
