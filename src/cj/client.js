@@ -25,17 +25,27 @@ const ctx = new AsyncLocalStorage();
 // CJ gives each account a number of API points a day. Background work (imports, price checks, shipping prices) may use
 // at most CJ_BACKGROUND_CALLS_PER_DAY calls, so points are always left for customers' checkouts and their CJ orders;
 // once CJ says the points are gone, background work waits until CJ's new day (taken as midnight in China).
-const BG_MAX = () => Math.max(0, Number(process.env.CJ_BACKGROUND_CALLS_PER_DAY ?? 6000));
+const BG_MAX = () => Math.max(0, Number(process.env.CJ_BACKGROUND_CALLS_PER_DAY ?? 2500));
 const nextReset = (now = Date.now()) => { const t = now + 8 * 3600e3; return t - (t % 86400e3) + 86400e3 - 8 * 3600e3; };
-let pointsOutUntil = 0; const bgUse = { reset: 0, n: 0 };
+// Kept in the database so a restart or a new deploy does not hand out a fresh day's budget (many deploys a day used to)
+const BGID = 'cj_bg_use';
+const bgUse = { reset: 0, n: 0, out: 0, loaded: false, savedN: -1 };
+function loadUse() { if (bgUse.loaded) return; bgUse.loaded = true; try { const d = db.settings.get(BGID); if (d) { bgUse.reset = d.reset || 0; bgUse.n = d.n || 0; bgUse.out = d.out || 0; } } catch { /* not ready */ } }
+function saveUse(force = false) {
+  if (!force && bgUse.n - bgUse.savedN < 20) return; bgUse.savedN = bgUse.n;
+  try { const doc = { reset: bgUse.reset, n: bgUse.n, out: bgUse.out }; if (db.settings.get(BGID)) db.settings.update(BGID, doc); else db.settings.insert({ id: BGID, ...doc }); } catch { /* best effort */ }
+}
+let pointsOutUntil = 0;
 function bgBudget() {
   const now = Date.now();
-  if (now >= bgUse.reset) { bgUse.reset = nextReset(now); bgUse.n = 0; }
+  loadUse();
+  if (bgUse.out > pointsOutUntil) pointsOutUntil = bgUse.out;
+  if (now >= bgUse.reset) { bgUse.reset = nextReset(now); bgUse.n = 0; saveUse(true); }
   if (now < pointsOutUntil) throw new CjError('CJ: no API points left today — background work waits for CJ’s new day', 'POINTS', 429);
   if (bgUse.n >= BG_MAX()) throw new CjError(`CJ: today's background limit (${BG_MAX()} calls) is used — the rest is kept for orders`, 'BUDGET', 429);
-  bgUse.n++;
+  bgUse.n++; saveUse();
 }
-const usage = () => ({ background_calls: bgUse.n, background_limit: BG_MAX(), resets_at: bgUse.reset || nextReset(), points_out_until: pointsOutUntil > Date.now() ? pointsOutUntil : null });
+const usage = () => (loadUse(), { background_calls: bgUse.n, background_limit: BG_MAX(), resets_at: bgUse.reset || nextReset(), points_out_until: pointsOutUntil > Date.now() ? pointsOutUntil : null });
 /** Run fn as background work: its CJ calls go after interactive ones. */
 const background = (fn) => ctx.run({ bg: true }, fn);
 const GAP = Number(process.env.CJ_MIN_GAP_MS ?? 1100);
@@ -76,7 +86,7 @@ async function raw(method, path, { query, body, token } = {}) {
   let j; try { j = await r.json(); } catch { throw new CjError(`CJ answered ${r.status}`, r.status); }
   if (r.status === 429 || j.code === 1600200) throw new CjError('CJ is busy (too many requests) — try again in a moment', j.code, 429);
   if (!(j.result === true || j.code === 200) || (j.success === false)) {
-    if (/Insufficient API points/i.test(j.message || '')) { pointsOutUntil = nextReset(); throw new CjError(`CJ: ${j.message}`, j.code, 429); }
+    if (/Insufficient API points/i.test(j.message || '')) { pointsOutUntil = nextReset(); bgUse.out = pointsOutUntil; saveUse(true); throw new CjError(`CJ: ${j.message}`, j.code, 429); }
     throw new CjError(`CJ: ${j.message || 'request failed'}`, j.code);
   }
   return j.data;

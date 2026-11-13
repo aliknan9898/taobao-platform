@@ -54,6 +54,7 @@ async function handleCallback(code, s) {
   if (!r.ok || !j.refresh_token) throw httpError(400, `Google did not connect: ${j.error_description || j.error || 'no refresh token — remove Kinan in your Google account’s third-party access and connect again'}`);
   const doc = { refresh_token: j.refresh_token, access_token: j.access_token, access_exp: Date.now() + (j.expires_in - 120) * 1000, connected_at: Date.now() };
   if (auth()) db.settings.update(SID, doc); else db.settings.insert({ id: SID, ...doc });
+  saveState({ blocked_until: 0 });
   return true;
 }
 function disconnect() { if (auth()) db.settings.update(SID, { refresh_token: null, access_token: null }); }
@@ -88,6 +89,9 @@ async function ideas(seeds, { geos = GEOS(), lang = LANG() } = {}) {
   if (!kw.length) return [];
   const key = `${geos.join(',')}|${lang}|${kw.sort().join('|')}`;
   const c = cache.get(key); if (c && Date.now() - c.at < 7 * 86400e3) return c.v;
+  // An account Google has not switched on yet (or no API access) answers the same for hours: wait instead of asking again
+  const st = state();
+  if (st.blocked_until > Date.now() && st.blocked_for === customer()) throw httpError(409, st.last_error || 'Google Ads is not ready yet');
   spend();
   const headers = { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' };
   if (loginCustomer()) headers['login-customer-id'] = loginCustomer();
@@ -102,7 +106,8 @@ async function ideas(seeds, { geos = GEOS(), lang = LANG() } = {}) {
     const msg = det?.message || j.error?.message || `HTTP ${r.status}`;
     console.warn('[keywords] Google Ads:', r.status, msg);
     const e = httpError(r.status === 429 || /RESOURCE_EXHAUSTED/.test(JSON.stringify(j)) ? 429 : r.status === 401 || r.status === 403 ? 409 : 502, `Google Ads: ${msg}`.slice(0, 400));
-    saveState({ last_error: e.message, last_error_at: Date.now() });
+    const blocked = r.status === 403 || /not yet enabled|deactivated|DEVELOPER_TOKEN|PERMISSION_DENIED|not.*approved/i.test(msg);
+    saveState({ last_error: e.message, last_error_at: Date.now(), ...(blocked ? { blocked_until: Date.now() + 3 * 3600e3, blocked_for: customer() } : {}) });
     throw e;
   }
   const out = (j.results || []).map((x) => ({
