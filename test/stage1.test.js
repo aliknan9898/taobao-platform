@@ -10,7 +10,7 @@ const path = require('path');
 const vm = require('vm');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'stage1-'));
-Object.assign(process.env, { GEMINI_API_KEY: 'g-test', AI_AUTO_REVIEW: 'off', XMAS_AUTO: '0' });
+Object.assign(process.env, { GEMINI_API_KEY: 'g-test', AI_AUTO_REVIEW: 'off', XMAS_AUTO: '0', CAMPAIGNS_JSON: '[]' });
 delete process.env.STRIPE_SECRET_KEY; delete process.env.ANTHROPIC_API_KEY; delete process.env.CJ_API_KEY;
 
 let AI = () => ({});
@@ -241,4 +241,44 @@ test('NSS receiving orders: Taobao parcels on their way are listed with SKU, bar
   nss.receivingDone(p.id);
   assert.strictEqual(nss.receivings().filter((x) => x.order_id === o.id).length, 0);
   assert.strictEqual(nss.warehouseAddress().name, '智选云仓+NSS40735');
+});
+
+
+test('sale campaign (Black Friday): bigger deals, still above cost, banner info, one notification', async () => {
+  const deals = require('../src/services/deals');
+  const campaigns = require('../src/services/campaigns');
+  const catalog = require('../src/services/catalog');
+  const seller = require('../src/services/buyforme').systemSeller();
+  // Malta-time parsing (winter = UTC+1)
+  assert.strictEqual(campaigns.maltaTime('2026-11-27T00:00'), Date.UTC(2026, 10, 26, 23, 0));
+  assert.strictEqual(campaigns.maltaTime('2026-07-01T00:00'), Date.UTC(2026, 5, 30, 22, 0));
+  const fmt = (t) => new Date(t + 3600e3).toISOString().slice(0, 16); // Malta winter time
+  process.env.CAMPAIGNS_JSON = JSON.stringify([{ id: 'bf-test', name: 'Black Friday', name_ar: 'الجمعة السوداء', start: fmt(Date.now() - 3600e3), end: fmt(Date.now() + 3 * 86400e3), count: 30, max_pct: 35, min_margin: 1.1 }]);
+  for (const l of db.listings.all(() => true)) db.listings.update(l.id, { status: 'paused' });
+  const big = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Big Margin Throw', images: ['https://x/t.jpg'], skus: [{ mp_sku_id: 't1', price: 40, cost_sale: 10, stock: 50 }] });
+  const tight = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Tighter Lamp', images: ['https://x/l.jpg'], skus: [{ mp_sku_id: 'l1', price: 20, cost_sale: 15, stock: 50 }] });
+  db.push_subs.insert({ user_id: 'usr_a', endpoint: 'https://push.example/a', keys: {} });
+  db.push_subs.insert({ user_id: 'usr_a', endpoint: 'https://push.example/a2', keys: {} });
+  const push = require('../src/push'); const sent = []; const orig = push.toUser; push.toUser = (u, m) => sent.push([u, m]);
+  try {
+    const info = campaigns.publicInfo();
+    assert.ok(info.live && info.name === 'Black Friday' && info.max_pct === 35);
+    assert.strictEqual(deals.candidates().find((x) => x.l.id === big.id).pct, 35, 'the campaign allows deeper discounts');
+    assert.strictEqual(deals.candidates().find((x) => x.l.id === tight.id).pct, 15, 'floor: 110% of cost');
+    AI = () => ({ picks: [0, 1] });
+    const d = await deals.tick({ force: true });
+    assert.strictEqual(d.campaign, 'bf-test');
+    assert.strictEqual(catalog.buyerListing(big.id).min_price, 26);
+    assert.ok(catalog.buyerListing(tight.id).min_price >= 16.5, 'never below 110% of cost');
+    assert.strictEqual(deals.publicDeals().campaign, 'bf-test');
+    assert.strictEqual(sent.length, 1, 'one notification per shopper');
+    assert.match(sent[0][1].title, /Black Friday/);
+    await deals.tick({ force: true });
+    assert.strictEqual(sent.length, 1, 'announced only once');
+    // after the campaign: back to normal deals on the next tick
+    process.env.CAMPAIGNS_JSON = '[]';
+    assert.strictEqual(campaigns.publicInfo(), null);
+    const n = await deals.tick();
+    assert.strictEqual(n.campaign, null, 'a new normal set replaces the campaign set');
+  } finally { push.toUser = orig; process.env.CAMPAIGNS_JSON = '[]'; }
 });

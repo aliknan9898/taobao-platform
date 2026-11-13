@@ -143,6 +143,18 @@ async function render() {
   try { await VIEWS[tab](v); } catch (e) { v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 
+function gpsrCard() {
+  return api('/api/admin/gpsr').then((g) => {
+    const el = $('#gpsrcard'); if (!el) return;
+    const f = (k, label, ph = '') => `<label class="small">${label}<input name="${k}" value="${esc(g[k] || '')}" placeholder="${esc(ph)}"></label>`;
+    el.innerHTML = `<h2>Product safety (EU GPSR) ${g.ready ? '<span class="pill ok">Shown on every product</span>' : '<span class="pill warn">Not filled in</span>'}</h2>
+      <p class="muted small">EU law: products sold to EU shoppers must name a company in the EU responsible for their safety, with a postal address and email. Kinan is in Malta, so Kinan is that “EU responsible person”. These details appear on every product page and on eBay, together with general safety warnings for the kind of product.</p>
+      <form id="gpsrf" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 12px">${f('company', 'Company name', 'Kinan Ltd')}${f('email', 'Safety contact email', 'support@kinan.shop')}${f('address', 'Street address')}${f('city', 'Town / city')}${f('postal_code', 'Postcode')}${f('country', 'Country (2 letters)', 'MT')}${f('phone', 'Phone (optional)')}
+      <details style="grid-column:1/-1"><summary class="small">Default manufacturer (optional — only if you know the real one)</summary>${f('manufacturer_name', 'Manufacturer name')}${f('manufacturer_address', 'Manufacturer address')}${f('manufacturer_email', 'Manufacturer email')}</details>
+      <div style="grid-column:1/-1"><button class="btn">Save</button> <span class="muted small" id="gpsrm">${g.ready ? '' : `Missing: ${g.missing.join(', ')}`}</span></div></form>`;
+    $('#gpsrf').onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/admin/gpsr', 'PUT', Object.fromEntries(new FormData(ev.target))); gpsrCard(); } catch (err) { $('#gpsrm').textContent = err.message; } };
+  }).catch(() => {});
+}
 function ebayCard() {
   return api('/api/admin/ebay').then((e) => {
       const el = $('#ebay'); if (!el) return;
@@ -245,6 +257,7 @@ const VIEWS = {
       <div class="card" id="qacard" hidden></div>
       <div class="card" id="keywords"><h2>Google Keyword Planner</h2><p class="muted">Loading…</p></div>
       <div class="card" id="ebay"><h2>eBay</h2><p class="muted">Loading…</p></div>
+      <div class="card" id="gpsrcard"><h2>Product safety (EU GPSR)</h2><p class="muted">Loading…</p></div>
       <div class="card" id="xmascard"><h2>🎄 Christmas Shop</h2><p class="muted">Loading…</p></div>
       <div class="card" id="bgcard"><h2>Banggood</h2><p class="muted">Loading…</p></div>
       <div class="card" id="nsscard"><h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Loading…</p></div>
@@ -287,6 +300,7 @@ const VIEWS = {
       if (st.running) setTimeout(xmas, 15000);
     }).catch(() => {});
     xmas();
+    gpsrCard();
     ebayCard();
     const kwCard = () => api('/api/admin/keywords').then((k) => {
       const el = $('#keywords'); if (!el) return;

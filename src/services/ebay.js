@@ -240,7 +240,9 @@ const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 function description(l) {
   const paras = String(l.description || l.title).split(/\n+/).map((x) => x.trim()).filter(Boolean).slice(0, 30);
   const from = l.cj_from && l.cj_from !== 'CN' ? `<p><b>Ships from a warehouse in ${esc(require('../countries').countryName?.(l.cj_from) || l.cj_from)}</b> — free tracked delivery.</p>` : '';
-  return `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">${paras.map((p) => `<p>${esc(p)}</p>`).join('')}${from}<p>Sold by Kinan · kinan.shop</p></div>`;
+  const g = require('./gpsr').forListing(l);
+  const safety = g ? `<p><b>Safety information</b></p><ul>${g.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><p><b>EU responsible person:</b> ${esc(g.responsible.name)}, ${esc(g.responsible.address)}, ${esc(g.responsible.email)}</p>${g.manufacturer ? `<p><b>Manufacturer:</b> ${esc(g.manufacturer.name)}${g.manufacturer.address ? `, ${esc(g.manufacturer.address)}` : ''}</p>` : ''}` : '';
+  return `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">${paras.map((p) => `<p>${esc(p)}</p>`).join('')}${from}${safety}<p>Sold by Kinan · kinan.shop</p></div>`;
 }
 
 // ---------------- eBay Store categories: the same departments and sections as the Kinan shop ----------------
@@ -326,6 +328,8 @@ async function organize() {
 async function offerFor(sku, body) {
   try { const j = await ebay.api('POST', '/sell/inventory/v1/offer', body, { lang: market().lang }); return j.offerId; }
   catch (e) {
+    // eBay did not take the product-safety (GPSR) block: list without it (the safety details stay in the description)
+    if (body.regulatory && /regulator|responsible ?person|manufacturer|productSafety/i.test(e.message)) { console.warn('[ebay] GPSR block refused:', e.message); const { regulatory, ...rest } = body; return offerFor(sku, rest); }
     // The offer already exists (listed before): update it
     const have = await ebay.api('GET', '/sell/inventory/v1/offer', undefined, { query: { sku, marketplace_id: body.marketplaceId } }).catch(() => ({}));
     const o = list(have.offers)[0];
@@ -354,6 +358,7 @@ async function listOne(listingId) {
   const lang = m.lang;
   const fee = await shipFee(l, skus.find((s) => s.stock > 0) || skus[0]);
   const storeCats = storeCategoryFor(l);
+  const reg = require('./gpsr').ebayRegulatory(l);
   const listingPolicies = { paymentPolicyId: pol.payment, returnPolicyId: pol.return, fulfillmentPolicyId: from === m.country ? pol.ship_home : pol.ship_outside };
   const offers = {};
   const used = multi ? skus : [skus.find((s) => s.stock > 0) || skus[0]];
@@ -370,7 +375,8 @@ async function listOne(listingId) {
     offers[key] = await offerFor(key, {
       sku: key, marketplaceId: mk, format: 'FIXED_PRICE', availableQuantity: qtyOf(l, s), categoryId: cat.id, listingDescription: desc,
       listingPolicies, merchantLocationKey: loc, pricingSummary: { price: { value: ebayPrice(s.price, fee), currency: m.currency } },
-      ...(storeCats ? { storeCategoryNames: storeCats } : {})
+      ...(storeCats ? { storeCategoryNames: storeCats } : {}),
+      ...(reg ? { regulatory: reg } : {})
     });
   }
   let listing;

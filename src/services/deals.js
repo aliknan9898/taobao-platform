@@ -11,9 +11,11 @@ const db = require('../db');
 
 const SID = 'deals';
 const TZ = 'Europe/Malta';
-const COUNT = () => Math.min(40, Math.max(0, Math.floor(Number(process.env.DEALS_COUNT ?? 12))));
-const MAX_PCT = () => Math.min(50, Math.max(5, Number(process.env.DEALS_MAX_PCT ?? 20)));
-const MIN_MARGIN = () => Math.max(1.05, Number(process.env.DEALS_MIN_MARGIN ?? 1.2));
+// During a sale campaign (Black Friday…) the campaign's bigger numbers apply
+const camp = () => require('./campaigns').active();
+const COUNT = () => camp()?.count ?? Math.min(40, Math.max(0, Math.floor(Number(process.env.DEALS_COUNT ?? 12))));
+const MAX_PCT = () => camp()?.max_pct ?? Math.min(50, Math.max(5, Number(process.env.DEALS_MAX_PCT ?? 20)));
+const MIN_MARGIN = () => camp()?.min_margin ?? Math.max(1.05, Number(process.env.DEALS_MIN_MARGIN ?? 1.2));
 const money = (v) => Math.round(Number(v) * 100) / 100;
 
 /** The day in Malta and the moment it ends. */
@@ -33,7 +35,7 @@ function current() {
 function dealFor(l) {
   const d = current(); if (!d || !l) return null;
   const x = (d.items || []).find((i) => i.id === l.id);
-  return x ? { pct: x.pct, ends: d.ends } : null;
+  return x ? { pct: x.pct, ends: d.ends, campaign: d.campaign || null, min_margin: d.min_margin || null } : null;
 }
 /** The price a shopper pays for this option right now. */
 function priceOf(l, s) {
@@ -41,10 +43,10 @@ function priceOf(l, s) {
   if (!d) return s.price;
   const cost = Number(s.cost_sale) || 0;
   const p = money(s.price * (1 - d.pct / 100));
-  return cost ? Math.max(p, money(cost * MIN_MARGIN())) : p;
+  return cost ? Math.max(p, money(cost * (d.min_margin || MIN_MARGIN()))) : p;
 }
 
-const sameDay = (d) => d && d.day === dayInfo().day;
+const sameDay = (d) => d && d.day === dayInfo().day && (d.campaign || null) === (camp()?.id || null);
 
 /** Products that can be a deal: live, in stock, photos, enough margin for at least 10% off. */
 function candidates() {
@@ -83,7 +85,7 @@ async function pick() {
         system: 'You are the merchandiser of Kinan, an online marketplace for the UK and Europe. Pick today\'s deals: products most shoppers would want right now (season, gifting, usefulness, wow factor), varied across departments, no two alike.',
         name: 'todays_deals', kind: 'deals', maxTokens: 400,
         schema: { type: 'object', properties: { picks: { type: 'array', items: { type: 'integer' }, description: `Exactly ${n} different numbers from the list.` } }, required: ['picks'] },
-        text: `Today is ${dayInfo().day}. Choose ${n}:\n${cands.map((c, i) => `${i}. ${c.l.title.slice(0, 90)} — ${c.dept}, -${c.pct}%`).join('\n')}`
+        text: `Today is ${dayInfo().day}.${camp() ? ` It is ${camp().name}: pick the strongest, most wanted products for the sale.` : ''} Choose ${n}:\n${cands.map((c, i) => `${i}. ${c.l.title.slice(0, 90)} — ${c.dept}, -${c.pct}%`).join('\n')}`
       });
       const chosen = [...new Set((r.picks || []).map(Number))].filter((i) => cands[i]).slice(0, n).map((i) => cands[i]);
       if (chosen.length >= Math.min(n, 4)) return [...chosen, ...mix(cands.filter((c) => !chosen.includes(c)), n - chosen.length)];
@@ -104,9 +106,11 @@ async function tick({ force = false } = {}) {
     const chosen = await pick();
     const items = chosen.map((c) => ({ id: c.l.id, pct: c.pct }));
     const history = [items.map((x) => x.id), ...((d?.history) || [])].slice(0, 3); // not the same products three days running
-    const doc = { day, ends, items, history, at: Date.now() };
+    const c = camp();
+    const doc = { day, ends: c ? Math.min(ends, c.ends) : ends, items, history, at: Date.now(), campaign: c?.id || null, min_margin: c?.min_margin || null };
     if (d) db.settings.update(SID, doc); else db.settings.insert({ id: SID, ...doc });
-    console.log(`[deals] ${day}: ${items.length} deal(s)`);
+    console.log(`[deals] ${day}: ${items.length} deal(s)${c ? ` — ${c.name}` : ''}`);
+    if (c && items.length) { try { require('./campaigns').announce(c); } catch (e) { console.warn('[campaigns] announce:', e.message); } }
     return doc;
   } finally { busy = false; }
 }
@@ -114,7 +118,7 @@ async function tick({ force = false } = {}) {
 function publicDeals() {
   const d = current();
   if (!d || !d.items.length) return null;
-  return { ends: d.ends, ids: d.items.map((x) => x.id), count: d.items.length, max_pct: Math.max(...d.items.map((x) => x.pct)) };
+  return { ends: d.ends, ids: d.items.map((x) => x.id), count: d.items.length, max_pct: Math.max(...d.items.map((x) => x.pct)), campaign: d.campaign || null };
 }
 
 module.exports = { tick, current, dealFor, priceOf, publicDeals, dayInfo, candidates };

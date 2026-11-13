@@ -340,7 +340,7 @@ function buyerListing(id) {
   const l = db.listings.get(id);
   const s = l && db.sellers.get(l.seller_id);
   if (!l || !['active', 'private'].includes(l.status) || !s || s.status !== 'active') throw httpError(404, 'Product not available');
-  return { ...toBuyerView(l, s), return_policy: s.return_policy || null };
+  return { ...toBuyerView(l, s), return_policy: s.return_policy || null, safety: require('./gpsr').forListing(l) };
 }
 
 /** Admin moderation. Only approved listings can ever become visible to buyers. */

@@ -209,3 +209,28 @@ test('eBay: AI best picks — reviews a collection, keeps the good ones, gives t
     assert.ok(offer.some((t) => /Wooden Advent Calendar/.test(t)), 'the eBay title is used');
   } finally { Object.assign(ai, orig); }
 });
+
+test('GPSR: Kinan as the EU responsible person, warnings by kind of product, on the product page and on eBay', async () => {
+  const gpsr = require('../src/services/gpsr');
+  const catalog = require('../src/services/catalog');
+  const toy = db.listings.insert({
+    seller_id: 'sel_kinan', source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'DE', cj_pid: 'P-toy', title: 'Kids LED Night Light Plush Toy', description: 'Soft plush',
+    images: ['https://img.example/t1.jpg', 'https://img.example/t2.jpg'], skus: [{ cj_vid: 'VT1', mp_sku_id: 'cj_VT1', props: '', price: 14, cost_sale: 4, stock: 20 }]
+  });
+  assert.strictEqual(gpsr.forListing(toy), null, 'nothing until Kinan’s details are filled in');
+  assert.throws(() => gpsr.save({ email: 'nope' }), /valid email/);
+  const st = gpsr.save({ company: 'Kinan Ltd', address: '1 Triq il-Kbira', city: 'Valletta', postal_code: 'VLT 1000', country: 'mt', email: 'safety@kinan.example' });
+  assert.ok(st.ready);
+  const g = gpsr.forListing(toy);
+  assert.match(g.responsible.address, /Valletta, MT$/);
+  assert.ok(g.warnings.some((w) => /under 3 years/.test(w)) && g.warnings.some((w) => /Batteries/.test(w)), 'toy + electrical warnings');
+  assert.strictEqual(g.manufacturer, null, 'no made-up manufacturer');
+  assert.deepStrictEqual(catalog.buyerListing(toy.id).safety.responsible.name, 'Kinan Ltd');
+  calls.length = 0;
+  await ebay.listOne(toy.id);
+  const offer = calls.find((c) => c.method === 'POST' && c.path === '/sell/inventory/v1/offer');
+  assert.deepStrictEqual(offer.body.regulatory.responsiblePersons[0].types, ['EUResponsiblePerson']);
+  assert.strictEqual(offer.body.regulatory.responsiblePersons[0].country, 'MT');
+  assert.ok(!offer.body.regulatory.manufacturer);
+  assert.match(offer.body.listingDescription, /Safety information/);
+});
