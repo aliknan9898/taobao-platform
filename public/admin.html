@@ -143,6 +143,23 @@ async function render() {
   try { await VIEWS[tab](v); } catch (e) { v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 
+function tgCard() {
+  return api('/api/admin/telegram').then((t) => {
+    const el = $('#tgcard'); if (!el) return;
+    const m = (x) => { const e = $('#tgm'); if (e) e.textContent = x; };
+    let body;
+    if (!t.token) body = `<p class="muted small">Alerts on your phone (new orders, problems) and a short report every morning.</p><ol class="small"><li>In Telegram open <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> → <code>/newbot</code> → give it a name (e.g. Kinan Alerts) and a username ending in “bot”.</li><li>BotFather sends a token. Put it on the server yourself: Render → Environment → <code>TELEGRAM_BOT_TOKEN</code>. (It is secret — do not paste it in chats.)</li><li>Come back here: a “Connect” link appears.</li></ol>`;
+    else if (t.error) body = `<p class="pill bad">${esc(t.error)}</p><p class="muted small">Check TELEGRAM_BOT_TOKEN in Render.</p>`;
+    else if (!t.linked) body = `<p>Bot: <b>@${esc(t.bot)}</b></p><p><a class="btn" href="${esc(t.link)}" target="_blank" rel="noopener">Connect Telegram</a> <button class="btn ghost" id="tgchk">I pressed Start</button></p><p class="muted small">Opens Telegram → press <b>Start</b>. Kinan links within a minute.</p>`;
+    else body = `<p><span class="pill ok">Connected</span>${t.bot ? ` · @${esc(t.bot)}` : ''} · morning report at ${t.report_hour}:00 (Malta)${t.last_report ? ` · last ${esc(t.last_report)}` : ''}</p><p><button class="btn ghost" id="tgtest">Send a test</button> <button class="btn ghost" id="tgrep">Send today’s report</button>${t.from_env ? '' : ' <button class="btn ghost" id="tgun">Unlink</button>'}</p>`;
+    el.innerHTML = `<h2>Telegram</h2>${body}<span class="muted small" id="tgm"></span>`;
+    const on = (id, fn) => { const b = $(id); if (b) b.onclick = async () => { try { await fn(); } catch (err) { m(err.message); } }; };
+    on('#tgchk', async () => { m('Checking…'); const r = await api('/api/admin/telegram/check', 'POST'); if (r.linked) tgCard(); else m('Not yet — open the link, press Start, then try again.'); });
+    on('#tgtest', async () => { await api('/api/admin/telegram/test', 'POST'); m('Sent'); });
+    on('#tgrep', async () => { await api('/api/admin/telegram/report', 'POST'); m('Sent'); });
+    on('#tgun', async () => { if (!confirm('Stop Telegram alerts?')) return; await api('/api/admin/telegram/unlink', 'POST'); tgCard(); });
+  }).catch(() => {});
+}
 function gpsrCard() {
   return api('/api/admin/gpsr').then((g) => {
     const el = $('#gpsrcard'); if (!el) return;
@@ -257,6 +274,7 @@ const VIEWS = {
       <div class="card" id="qacard" hidden></div>
       <div class="card" id="keywords"><h2>Google Keyword Planner</h2><p class="muted">Loading…</p></div>
       <div class="card" id="ebay"><h2>eBay</h2><p class="muted">Loading…</p></div>
+      <div class="card" id="tgcard"><h2>Telegram</h2><p class="muted">Loading…</p></div>
       <div class="card" id="gpsrcard"><h2>Product safety (EU GPSR)</h2><p class="muted">Loading…</p></div>
       <div class="card" id="xmascard"><h2>🎄 Christmas Shop</h2><p class="muted">Loading…</p></div>
       <div class="card" id="bgcard"><h2>Banggood</h2><p class="muted">Loading…</p></div>
@@ -300,6 +318,7 @@ const VIEWS = {
       if (st.running) setTimeout(xmas, 15000);
     }).catch(() => {});
     xmas();
+    tgCard();
     gpsrCard();
     ebayCard();
     const kwCard = () => api('/api/admin/keywords').then((k) => {

@@ -540,6 +540,11 @@ r('POST', '/api/admin/keywords/disconnect', ADMIN, async () => { require('./serv
 r('POST', '/api/admin/keywords/run', ADMIN, async () => { const k = require('./services/keywords'); require('./cj/client').background(() => k.tick({ max: 100 })).catch(() => {}); return { started: true }; });
 r('POST', '/api/admin/keywords/ideas', ADMIN, async ({ req }) => { const b = await readJson(req); return { ideas: (await require('./services/keywords').ideas(String(b.seeds || '').split(/[,\n]+/))).sort((a, c) => c.volume - a.volume).slice(0, 100) }; });
 r('POST', '/api/admin/keywords/product/:id', ADMIN, async ({ params }) => require('./services/keywords').improve(params.id));
+r('GET', '/api/admin/telegram', ADMIN, async () => require('./services/telegram').status());
+r('POST', '/api/admin/telegram/check', ADMIN, async () => { await require('./services/telegram').poll(); return require('./services/telegram').status(); });
+r('POST', '/api/admin/telegram/test', ADMIN, async () => require('./services/telegram').test());
+r('POST', '/api/admin/telegram/report', ADMIN, async () => { const p = require('./push'); if (!p.tgOn()) throw httpError(409, 'Telegram is not linked yet'); p.telegram(require('./services/telegram').report()); return { sent: true }; });
+r('POST', '/api/admin/telegram/unlink', ADMIN, async () => require('./services/telegram').unlink());
 r('GET', '/api/admin/gpsr', ADMIN, async () => require('./services/gpsr').status());
 r('PUT', '/api/admin/gpsr', ADMIN, async ({ req }) => require('./services/gpsr').save(await readJson(req)));
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
@@ -855,7 +860,8 @@ function startJobs() {
   every(3600e3, async () => warehouse.releaseExpired());
   every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); });
   every(15 * 60e3, async () => growth.cartReminders());
-  every(5 * 60e3, () => require('./services/deals').tick()); // today's deals: new ones at midnight (Malta)
+  every(5 * 60e3, () => require('./services/deals').tick());
+  every(60e3, () => require('./services/telegram').tick()); // link the owner's Telegram; morning report // today's deals: new ones at midnight (Malta)
   setTimeout(() => require('./services/deals').tick().catch(() => {}), 20e3); // abandoned cart: after 1 hour, then after a day with a code
   every(3600e3, async () => { if (new Date().getUTCHours() === 2) await ops.dailyBackup(); });
   every(10 * 60e3, () => require('./services/translate').translatePending());
