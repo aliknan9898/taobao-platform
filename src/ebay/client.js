@@ -57,8 +57,17 @@ async function handleCallback(code, state) {
   db.oauthStates.remove(st.id);
   if (!code) throw httpError(400, 'eBay did not send a sign-in code');
   const j = await token({ grant_type: 'authorization_code', code, redirect_uri: process.env.EBAY_RUNAME });
-  save({ env: env(), access_token: j.access_token, access_exp: Date.now() + (j.expires_in - 120) * 1000, refresh_token: j.refresh_token, refresh_exp: Date.now() + (j.refresh_token_expires_in || 47304000) * 1000, connected_at: Date.now() });
+  save({ env: env(), access_token: j.access_token, access_exp: Date.now() + (j.expires_in - 120) * 1000, refresh_token: j.refresh_token, refresh_exp: Date.now() + (j.refresh_token_expires_in || 47304000) * 1000, connected_at: Date.now(), account: null });
+  whoAmI().catch((e) => console.warn('[ebay] GetUser:', e.message));
   return true;
+}
+
+/** The eBay user ID Kinan is signed in as (Trading GetUser), kept so the admin can see which account is linked. */
+async function whoAmI() {
+  const r = await trading('GetUser', '');
+  const id = kid(kid(r, 'User'), 'UserID')?.text || null;
+  if (id) { save({ account: id }); console.log(`[ebay] signed in as ${id} (${env()})`); }
+  return id;
 }
 
 /**
@@ -181,7 +190,7 @@ async function trading(call, inner, { marketplace = 'EBAY_GB' } = {}) {
 
 function status() {
   const s = saved();
-  return { configured: configured(), env: env(), connected: connected(), connected_at: s?.connected_at || null, refresh_expires_at: s?.refresh_exp || null, deletion_token: verificationToken() };
+  return { configured: configured(), env: env(), connected: connected(), connected_at: s?.connected_at || null, account: s?.account || null, refresh_expires_at: s?.refresh_exp || null, deletion_token: verificationToken() };
 }
 
-module.exports = { trading, parseXml, kid, kidsOf, xmlEsc, pasteCode, checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };
+module.exports = { whoAmI, trading, parseXml, kid, kidsOf, xmlEsc, pasteCode, checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };

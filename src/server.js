@@ -909,7 +909,7 @@ if (require.main === module) (async () => {
   { const near = Object.keys(process.env).filter((k) => /ebay/i.test(k));
     if (near.length) {
       console.log(`[ebay] keys found: ${near.map((k) => JSON.stringify(k)).join(', ')} · missing: ${['EBAY_CLIENT_ID', 'EBAY_CLIENT_SECRET', 'EBAY_RUNAME'].filter((k) => !String(process.env[k] || '').trim()).join(', ') || 'none'}`);
-      if (require('./ebay/client').configured()) require('./ebay/client').checkKeys().then((r) => console.log(`[ebay] ${r}`)).catch((e) => console.warn(`[ebay] key check: ${e.message}`));
+      if (require('./ebay/client').configured()) require('./ebay/client').checkKeys().then((r) => { console.log(`[ebay] ${r}`); const c = require('./ebay/client'); if (c.connected()) c.whoAmI().catch((e) => console.warn('[ebay] GetUser:', e.message)); }).catch((e) => console.warn(`[ebay] key check: ${e.message}`));
     } }
   try { require('./services/seasonal').ensureCoupon(); } catch (e) { console.warn('[xmas] coupon:', e.message); }
   setTimeout(() => { try { if (require('./services/seasonal').autoStart()) console.log('[xmas] Christmas Shop import queued'); } catch (e) { console.warn('[xmas]', e.message); } }, 20e3).unref();
