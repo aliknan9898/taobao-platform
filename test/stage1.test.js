@@ -116,3 +116,19 @@ test('languages: phrases translated by the AI (blanks kept), served per language
   vm.runInNewContext(code, sb3);
   assert.strictEqual(sb3.window.KinanLang.lang, 'en');
 });
+
+test('free delivery from European warehouses above the threshold; similar and recently viewed', () => {
+  const cj = require('../src/services/cj');
+  const catalog = require('../src/services/catalog');
+  const seller = require('../src/services/buyforme').systemSeller();
+  const eu = db.listings.insert({ seller_id: seller.id, source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'DE', title: 'Garden Solar Lights Warm White', keywords: ['solar lights'], category: 'home', collections: ['garden-outdoor'], collection_group: 'solar', images: ['https://x/1.jpg'], skus: [{ mp_sku_id: 'e1', price: 20, stock: 9, cj_vid: 'V' }] });
+  const cn = db.listings.insert({ seller_id: seller.id, source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'CN', title: 'Solar Lights Outdoor Garden Path', keywords: ['solar lights'], category: 'home', collections: ['garden-outdoor'], collection_group: 'solar', images: ['https://x/2.jpg'], skus: [{ mp_sku_id: 'c1', price: 30, stock: 9, cj_vid: 'W' }] });
+  const q = { fee: 11, fees: { DE: 4, CN: 7 } };
+  assert.strictEqual(cj.prefs().free_ship_over, 45);
+  assert.deepStrictEqual(cj.freeEu([{ listing_id: eu.id, mp_sku_id: 'e1', qty: 2 }, { listing_id: cn.id, mp_sku_id: 'c1', qty: 1 }], q), { over: 45, eu_subtotal: 40, free: 0 });
+  assert.deepStrictEqual(cj.freeEu([{ listing_id: eu.id, mp_sku_id: 'e1', qty: 3 }, { listing_id: cn.id, mp_sku_id: 'c1', qty: 1 }], q), { over: 45, eu_subtotal: 60, free: 4 }, 'only the European parcel is free');
+  cj.savePrefs({ free_ship_over: 0 });
+  assert.strictEqual(cj.freeEu([{ listing_id: eu.id, mp_sku_id: 'e1', qty: 9 }], q).free, 0, '0 switches it off');
+  assert.deepStrictEqual(catalog.similar(eu.id).items.map((p) => p.id), [cn.id]);
+  assert.deepStrictEqual(catalog.many(`${cn.id},nope,${eu.id}`).items.map((p) => p.id), [cn.id, eu.id]);
+});

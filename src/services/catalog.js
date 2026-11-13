@@ -373,5 +373,33 @@ function sellerSetStatus(l, status) {
   return status;
 }
 
-module.exports = {
+/** Live products in the order of `ids` (recently viewed). */
+function many(ids) {
+  const want = [...new Set(String(ids || '').split(',').map((x) => x.trim()).filter((x) => /^[\w-]{3,40}$/.test(x)))].slice(0, 30);
+  if (!want.length) return { items: [] };
+  const all = new Map(browse({ limit: 100000 }).items.filter((p) => want.includes(p.id)).map((p) => [p.id, p]));
+  return { items: want.map((id) => all.get(id)).filter(Boolean) };
+}
+
+/** Products like this one: same section/collection first, then shared title words and keywords, same category. */
+function similar(id, limit = 12) {
+  const l = db.listings.get(id);
+  if (!l) return { items: [] };
+  const words = (t) => new Set(String(t || '').toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').split(/\s+/).filter((w) => w.length > 2 && !['the', 'and', 'for', 'with', 'set', 'pcs', 'new'].includes(w)));
+  const mine = words(`${l.title} ${(l.keywords || []).join(' ')}`);
+  const out = [];
+  for (const p of browse({ limit: 100000 }).items) {
+    if (p.id === id) continue;
+    const o = db.listings.get(p.id); if (!o) continue;
+    let sc = 0;
+    if (l.collection_group && o.collection_group === l.collection_group && (o.collections || []).some((c) => (l.collections || []).includes(c))) sc += 4;
+    else if ((o.collections || []).some((c) => (l.collections || []).includes(c))) sc += 1;
+    if ((o.category || 'other') === (l.category || 'other')) sc += 1;
+    for (const w of words(`${o.title} ${(o.keywords || []).join(' ')}`)) if (mine.has(w)) sc += 2;
+    if (sc >= 3) out.push({ p, sc });
+  }
+  return { items: out.sort((a, b) => b.sc - a.sc || b.p.listed_at - a.p.listed_at).slice(0, limit).map((x) => x.p) };
+}
+
+module.exports = { many, similar,
   optionGroups, checkMargins, photoUrl, imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };

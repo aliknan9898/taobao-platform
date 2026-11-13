@@ -24,6 +24,11 @@
   .search:focus-within > .sico svg { color: var(--jade); }
   .search input { flex: 1; min-width: 0; border: 0; background: transparent; min-height: 38px; padding: 0; font-size: 15px; box-shadow: none !important; outline: none; }
   .search input::-webkit-search-cancel-button { display: none; }
+  .freebar { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--soft, #f3f1ec); margin-bottom: 4px; font-size: 13.5px; }
+  .freebar.done { background: color-mix(in srgb, var(--brand, #0f7a5c) 12%, transparent); }
+  .freebar .fbtrack { height: 6px; border-radius: 99px; background: var(--line, #e3e1dc); overflow: hidden; }
+  .freebar .fbtrack span { display: block; height: 100%; border-radius: 99px; background: var(--brand, #0f7a5c); transition: width .3s ease; }
+  .klarna-msg { min-height: 0; }
   .search .scam { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
   .search .scam:hover { background: var(--chip); color: var(--ink, inherit); }
   .search .scam svg { width: 21px; height: 21px; }
@@ -599,6 +604,7 @@ async function home(q = '', category = '') {
   v.innerHTML = `${q || category ? `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a>${q ? `<h2 style="margin-top:6px">Results for “${esc(q)}”</h2>` : ''}</div></div>` : `
     `}
     ${!q && !category && xmasLive() ? `<a class="xmas-band" href="#/x/christmas"><div class="xb-text"><span class="xb-kicker">🎄 <span>Christmas Shop</span></span><b>Decorations, lights &amp; gifts</b><span class="xb-sub">Ships from Europe · arrives before Christmas</span></div><span class="xb-cta">Shop now</span></a><div class="xstrip" id="xstrip"></div>` : ''}
+    ${!q && !category ? '<div id="seenrow"></div>' : ''}
     ${!q && !category && depts().length ? `<div class="sechead"><h2>${KinanLang.t('Shop by department')}</h2></div><div class="depts">${depts().map((d) => `<a class="dept" href="#/x/${esc(d.id)}"><span class="di">${d.image ? `<img src="${esc(d.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : d.emoji}</span><b>${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</b><span class="n">${d.count}</span></a>`).join('')}</div>${depts().slice(0, 4).map((d) => `<section class="aisle"><div class="sechead"><h2>${d.emoji} ${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</h2><a href="#/x/${esc(d.id)}">${KinanLang.t('See all')} →</a></div><div class="xstrip" data-aisle="${esc(d.id)}"></div></section>`).join('')}` : ''}
     <div class="cats" id="cats"></div>
     <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2></div>
@@ -614,6 +620,7 @@ async function home(q = '', category = '') {
       : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
   };
   wireToolbar(load); renderLocaleChip();
+  if ($('#seenrow')) fillSeen($('#seenrow'));
   $$('[data-aisle]').forEach((el) => api(`/api/catalog?${catalogQuery({ collection: el.dataset.aisle, limit: 12 })}`).then((d) => { if (d.items.length) el.innerHTML = d.items.map(productCard).join(''); else el.closest('.aisle')?.remove(); }).catch(() => {}));
   if ($('#xstrip')) api(`/api/catalog?${catalogQuery({ collection: 'christmas', limit: 12 })}`).then((d) => { const el = $('#xstrip'); if (el && d.items.length) el.innerHTML = d.items.map(productCard).join(''); else if (el) el.remove(); }).catch(() => {});
   api('/api/categories').then((cs) => {
@@ -719,6 +726,8 @@ async function product(id) {
           <h1 style="font-size:clamp(22px,3.4vw,30px)" dir="auto">${esc(T(p))}</h1>
           <div id="price"></div>
           <div id="ptsline" class="ptsline"></div>
+          ${p.ships_from && Number(cfg.free_shipping_over) > 0 ? `<div class="small muted">🚚 ${KinanLang.t('Free delivery from European warehouses over')} ${money(cfg.free_shipping_over, p.currency)}</div>` : ''}
+          <div id="klarna" class="klarna-msg"></div>
         </div>
         ${p.option_groups ? `<div class="stack" id="optgroups">${p.option_groups.map((g, gi) => `<div class="optgroup"><div class="oghead"><b>${esc(optName(g.name))}:</b><span data-ogsel="${gi}"></span></div>
           <div class="variants">${g.values.map((v) => `<button type="button" data-og="${gi}" data-ov="${esc(v.value)}" class="${v.image ? 'pic' : ''}">${v.image ? `<img src="${esc(v.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}<span>${esc(v.value)}</span></button>`).join('')}</div></div>`).join('')}</div>`
@@ -738,7 +747,11 @@ async function product(id) {
         ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc" dir="auto">${esc(desc)}</p></div>` : ''}
         <div class="stack" id="reviews"></div>
       </div>
-    </div>`;
+    </div>
+    <div id="similar"></div><div id="seenrow"></div>`;
+  Seen.add(p.id);
+  api(`/api/catalog/${encodeURIComponent(p.id)}/similar`).then((d) => { const el = $('#similar'); if (el && d.items.length) el.innerHTML = stripSection(KinanLang.t('Similar products'), d.items); }).catch(() => {});
+  fillSeen($('#seenrow'), p.id);
   api(`/api/catalog/${encodeURIComponent(p.id)}/reviews`).then((r) => {
     if (!r.count) return;
     $('#reviews').innerHTML = `<h3>Reviews ${stars(r.average, r.count)}</h3><div>${r.reviews.map((x) => `<div class="rev"><div class="row between"><b>${esc(x.name)}</b><span>${'★'.repeat(x.rating)}<span class="muted">${'★'.repeat(5 - x.rating)}</span></span></div>
@@ -764,6 +777,7 @@ async function product(id) {
     $('#qv').value = qty;
     const pts = cfg.points?.per_unit ? Math.floor(sku.price * qty * cfg.points.per_unit) : 0;
     $('#ptsline').textContent = pts ? `★ Earn ${pts} Kinan points` : '';
+    klarnaMsg(sku.price * qty, p.currency);
   };
   // The price shown is the full price to the customer's address: item + shipping for this quantity
   let lq = 0;
@@ -832,6 +846,17 @@ async function product(id) {
   paint();
 }
 
+/** "Add €8 more for free delivery" — items from European/UK warehouses (Kinan pays that delivery above the threshold). */
+function freeBar(items, byId) {
+  const over = Number(cfg.free_shipping_over) || 0;
+  const eu = items.filter((x) => byId.get(x.listing_id)?.ships_from);
+  if (!over || !eu.length) return '';
+  const sub = eu.reduce((a, x) => a + x.price * x.qty, 0);
+  const pct = Math.min(100, Math.round(sub / over * 100));
+  const cur = eu[0].currency || cfg.currency;
+  return `<div class="freebar ${pct >= 100 ? 'done' : ''}"><div class="fbtext">${pct >= 100 ? `🎉 ${KinanLang.t('Free delivery on items from European warehouses')}` : `🚚 ${KinanLang.t('Add')} <b>${money(over - sub, cur)}</b> ${KinanLang.t('more for free delivery on items from European warehouses')}`}</div><div class="fbtrack"><span style="width:${pct}%"></span></div></div>`;
+}
+
 async function cart() {
   const v = $('#view'); let items = Cart.get();
   if (!items.length) { v.innerHTML = `<div class="empty"><h3>Your cart is empty</h3><p>Find something you like and add it here.</p><a class="btn" href="#/">Browse products</a></div>`; return; }
@@ -858,6 +883,7 @@ async function cart() {
             <div class="row"><div class="qty"><button data-dec="${i}" aria-label="Less">−</button><input value="${x.qty}" data-q="${i}" inputmode="numeric" aria-label="Quantity"><button data-inc="${i}" aria-label="More">+</button></div><button class="btn sm ghost" data-rm="${i}">Remove</button></div></div>
           <b>${money(x.price * x.qty, x.currency)}</b></div>`).join('') : '<div class="empty"><h3>Nothing left in your cart</h3></div>'}</div>
       <aside class="panel sum">
+        ${freeBar(items, byId)}
         <div><span>Subtotal</span><span>${money(sub, cur)}</span></div>
         <div><span>Shipping${savedAddress().country_code ? ` to ${esc(countryName(savedAddress().country_code))}` : ''}</span><span id="cship">${savedAddress().country_code ? '…' : 'At checkout'}</span></div>
         <div class="total"><span>Total</span><span id="ctot">${money(sub, cur)}${savedAddress().country_code ? '' : ' + shipping'}</span></div>
@@ -961,6 +987,26 @@ async function checkout() {
   };
 }
 
+/** "Pay in 3 with Klarna" under the price (Stripe's message; shows only where Klarna is switched on in Stripe and the currency fits). */
+let klarnaEl = null; let klarnaT = null;
+function klarnaMsg(amount, cur) {
+  clearTimeout(klarnaT);
+  klarnaT = setTimeout(async () => {
+    const box = $('#klarna'); const to = Locale.get().currency; const country = savedAddress().country_code || '';
+    if (!box || cfg.payments !== 'stripe' || !cfg.stripe_publishable_key || !['EUR', 'GBP'].includes(to)) return;
+    const r = cfg.fx?.rates?.[to]; if (!r) return;
+    const minor = Math.round(Number(amount) * r * 100); if (minor < 100) return;
+    try {
+      const Stripe = await loadStripe();
+      const stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
+      if (klarnaEl) { try { klarnaEl.destroy(); } catch { /* gone */ } }
+      klarnaEl = stripe.elements().create('paymentMethodMessaging', { amount: minor, currency: to, paymentMethodTypes: ['klarna'], countryCode: /^[A-Z]{2}$/.test(country) ? country : (to === 'GBP' ? 'GB' : 'DE') });
+      if ($('#klarna')) klarnaEl.mount('#klarna');
+    } catch { /* Klarna not available here */ }
+  }, 400);
+}
+const stripeLocale = () => (['ar', 'fr', 'de', 'it', 'es'].includes(KinanLang.lang) ? KinanLang.lang : 'en');
+
 function loadStripe() {
   return new Promise((res, rej) => {
     if (window.Stripe) return res(window.Stripe);
@@ -997,7 +1043,7 @@ async function pay(id) {
     const [saved, Stripe] = await Promise.all([api('/api/buyer/cards').catch(() => []), loadStripe()]);
     const cp = await api(`/api/buyer/orders/${id}/card-payment`, 'POST');
     if (cp.paid) { toast('Payment received'); location.hash = `#/orders/${id}`; return; }
-    const stripe = Stripe(cfg.stripe_publishable_key);
+    const stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
     const elements = stripe.elements({ clientSecret: cp.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
     elements.create('payment').mount('#pay-element');
     // Saved cards: pick one, or "new card" to use the form
@@ -1196,7 +1242,7 @@ async function addCardDialog(after) {
   const f = d.querySelector('form'); const err = d.querySelector('#cerr'); const btn = d.querySelector('#csave');
   try {
     const [si, Stripe] = await Promise.all([api('/api/buyer/cards/setup', 'POST'), loadStripe()]);
-    const stripe = Stripe(cfg.stripe_publishable_key, { locale: KinanLang.lang === 'ar' ? 'ar' : 'en' });
+    const stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
     // Card only: Stripe's single secure card field (number, expiry, CVC)
     const dark = KinanTheme.isDark();
     const card = stripe.elements().create('card', { hidePostalCode: true, style: { base: { fontSize: '16px', color: dark ? '#eef0f7' : '#141b3a', '::placeholder': { color: '#9097b3' } }, invalid: { color: '#d93025' } } });
@@ -1259,6 +1305,21 @@ async function savedPage() {
       <div style="text-align:end"><b>${money(x.price, x.currency)}</b><div><button class="btn sm quiet" data-unsave="${esc(x.listing_id)}">Remove</button></div></div></div>`).join('')}</div>`
     : `<div class="empty"><h3>Nothing saved yet</h3><p>Tap Save on any product to keep it here.</p><a class="btn" href="#/">Browse products</a></div>`}`;
   $$('[data-unsave]').forEach((b) => b.onclick = async () => { await api(`/api/buyer/wishlist/${b.dataset.unsave}`, 'DELETE').catch(() => {}); savedPage(); });
+}
+
+// ---------- recently viewed & similar ----------
+const Seen = {
+  get() { try { return JSON.parse(localStorage.getItem('kinan_seen') || '[]').filter((x) => typeof x === 'string'); } catch { return []; } },
+  add(id) { try { localStorage.setItem('kinan_seen', JSON.stringify([id, ...Seen.get().filter((x) => x !== id)].slice(0, 24))); } catch { /* private mode */ } }
+};
+function stripSection(title, items, id) {
+  return items.length ? `<section class="aisle" ${id ? `id="${id}"` : ''}><div class="sechead"><h2>${title}</h2></div><div class="xstrip">${items.map(productCard).join('')}</div></section>` : '';
+}
+async function fillSeen(el, skip) {
+  const ids = Seen.get().filter((x) => x !== skip).slice(0, 12);
+  if (!el || ids.length < 2) return;
+  const d = await api(`/api/catalog/many?ids=${encodeURIComponent(ids.join(','))}`).catch(() => ({ items: [] }));
+  if (d.items.length >= 2) el.innerHTML = stripSection(KinanLang.t('Recently viewed'), d.items);
 }
 
 // ---------- Kinan points ----------

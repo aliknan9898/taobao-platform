@@ -114,7 +114,9 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   const cjShip = await cj.quote(lines.filter((l) => l.source === 'cj').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
   // Banggood items: Banggood's real shipping price to the customer's country
   const bgShip = await banggood.quote(lines.filter((l) => l.source === 'banggood').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
-  const shipping = money(ship.fee + (cjShip?.fee || 0) + (bgShip?.fee || 0));
+  // Free delivery for items from CJ's European/UK warehouses once they add up to the threshold (Kinan pays that delivery)
+  const fe = cj.freeEu(lines.map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), cjShip); const freeEu = fe.free; const fso = fe.over;
+  const shipping = money(ship.fee + (cjShip?.fee || 0) - freeEu + (bgShip?.fee || 0));
   const warehouseItems = lines.some((l) => !l.direct);
   const packagingFee = warehouseItems ? money(PACKAGING[packaging]) : 0;
   const disc = coupon ? require('./growth').couponFor(coupon, buyer, subtotal) : null;
@@ -122,6 +124,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   const order = db.orders.insert({
     buyer_id: buyer.id, lines, currency: config.currency, subtotal, shipping_fee: shipping,
     ...(disc ? { discount, coupon_code: disc.code, coupon_id: disc.coupon_id } : {}),
+    ...(freeEu ? { free_shipping: { amount: freeEu, over: fso } } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     ...(cjShip ? { cj_shipping: { method: cjShip.method, methods: cjShip.methods || {}, origins: cjShip.origins || {}, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),

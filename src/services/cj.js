@@ -30,7 +30,7 @@ const HOOKS = 'set_cj_webhooks';
 // Sent with every CJ order (CJ's "remark"): neutral, unbranded packing
 const ORDER_NOTE = "No logo, no brand, no invoice and no prices on the product or in the parcel — plain neutral packaging only. Do not add flyers or the supplier's name.";
 function prefs() {
-  return { shipping: 'cheapest', auto_pay: true, markup_pct: 40, max_days: 20, order_note: ORDER_NOTE, ...(db.settings.get(PREFS) || {}) };
+  return { shipping: 'cheapest', auto_pay: true, markup_pct: 40, max_days: 20, order_note: ORDER_NOTE, free_ship_over: Number(process.env.FREE_SHIPPING_OVER ?? 45), ...(db.settings.get(PREFS) || {}) };
 }
 function savePrefs(b = {}) {
   const p = prefs();
@@ -39,7 +39,8 @@ function savePrefs(b = {}) {
     auto_pay: b.auto_pay === undefined ? p.auto_pay : Boolean(b.auto_pay),
     markup_pct: b.markup_pct === undefined ? p.markup_pct : Math.min(500, Math.max(0, Number(b.markup_pct) || 0)),
     max_days: b.max_days === undefined ? p.max_days : Math.min(60, Math.max(3, Number(b.max_days) || 20)),
-    order_note: b.order_note === undefined ? p.order_note : String(b.order_note).replace(/\s+/g, ' ').trim().slice(0, 400)
+    order_note: b.order_note === undefined ? p.order_note : String(b.order_note).replace(/\s+/g, ' ').trim().slice(0, 400),
+    free_ship_over: b.free_ship_over === undefined ? p.free_ship_over : Math.min(10000, Math.max(0, Number(b.free_ship_over) || 0))
   };
   const { id, created_at, updated_at, ...cur } = db.settings.get(PREFS) || {};
   void id; void created_at; void updated_at; void cur;
@@ -306,6 +307,20 @@ function choose(options) {
 
 const FALLBACK = Number(process.env.CJ_FALLBACK_SHIPPING ?? 8);
 /** Shipping for the CJ lines of a cart [{ listing_id, mp_sku_id, qty }] to a country. */
+/** Free delivery for items from CJ's European/UK warehouses once they add up to the threshold (Kinan pays that delivery). */
+function freeEu(items, q) {
+  const over = Number(prefs().free_ship_over) || 0;
+  let sub = 0;
+  for (const it of items || []) {
+    const l = db.listings.get(it.listing_id);
+    if (!l || l.source !== 'cj' || !l.cj_from || l.cj_from === 'CN') continue;
+    const s = (l.skus || []).find((k) => k.mp_sku_id === it.mp_sku_id) || (l.skus || [])[0];
+    sub += (Number(s?.price) || 0) * Math.max(1, Number(it.qty) || 1);
+  }
+  const eu = q ? Object.entries(q.fees || {}).filter(([from]) => from !== 'CN').reduce((a, [, f]) => a + f, 0) : 0;
+  return { over, eu_subtotal: money(sub), free: over > 0 && sub >= over ? money(eu) : 0 };
+}
+
 async function quote(items, countryCode) {
   const lines = items.map((it) => {
     const l = db.listings.get(it.listing_id);
@@ -317,16 +332,16 @@ async function quote(items, countryCode) {
   if (!countryCode) return { fee: 0, method: null, days: null, pending_country: true };
   // Items kept in different CJ warehouses (China, Germany…) travel as separate parcels: one price per warehouse
   const groups = new Map(); for (const x of lines) { if (!groups.has(x.from)) groups.set(x.from, { items: [], storage: [] }); const g = groups.get(x.from); g.items.push({ vid: x.vid, qty: x.qty }); g.storage.push(...x.storage); }
-  let fee = 0; const methods = {}; const origins = {}; const days = []; let estimated = false; let note;
+  let fee = 0; const methods = {}; const origins = {}; const fees = {}; const days = []; let estimated = false; let note;
   for (const [from, g] of groups) {
     try {
       const { opt, origin } = await optionFrom(countryCode, g.items, from, g.storage);
-      if (!opt) { fee += FALLBACK; estimated = true; note = 'CJ has no shipping method to this country for these items'; continue; }
-      fee += opt.fee; methods[from] = opt.method; if (origin !== from) origins[from] = origin; if (opt.days) days.push(opt.days);
-    } catch (e) { fee += FALLBACK; estimated = true; note = e.message; }
+      if (!opt) { fee += FALLBACK; fees[from] = FALLBACK; estimated = true; note = 'CJ has no shipping method to this country for these items'; continue; }
+      fee += opt.fee; fees[from] = money(opt.fee); methods[from] = opt.method; if (origin !== from) origins[from] = origin; if (opt.days) days.push(opt.days);
+    } catch (e) { fee += FALLBACK; fees[from] = FALLBACK; estimated = true; note = e.message; }
   }
   const one = Object.values(methods);
-  return { fee: money(fee), method: groups.size === 1 ? one[0] || null : null, methods, origins, days: days.join(' / ') || null, ...(estimated ? { estimated: true, note } : {}) };
+  return { fee: money(fee), fees, method: groups.size === 1 ? one[0] || null : null, methods, origins, days: days.join(' / ') || null, ...(estimated ? { estimated: true, note } : {}) };
 }
 
 // ---------------- orders ----------------
@@ -583,7 +598,7 @@ async function registerWebhooks() {
   return s ? db.settings.update(HOOKS, doc) : db.settings.insert({ id: HOOKS, ...doc });
 }
 
-module.exports = {
+module.exports = { freeEu,
   prefs, savePrefs, status, balance, parseRef, normalize, fetchProduct, preview, search, categories, publish, resync, resyncStale,
   freightOptions, optionFrom, cachedFee, prepareCountry, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
 };
