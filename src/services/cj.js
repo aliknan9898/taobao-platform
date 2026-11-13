@@ -269,6 +269,13 @@ function cachedFee(l, countryCode) {
   if (cj.enabled() && warm.size < 1000) { warm.add(`${countryCode}|${l.id}`); if (!warming) cj.background(warmUp); }
   return null;
 }
+/** CJ has told us it cannot deliver this product to that country (the answer is kept 3 days, then asked again). */
+function noDelivery(l, countryCode) {
+  const k = l && l.source === 'cj' && countryCode && l.cj_ship && l.cj_ship[countryCode];
+  return Boolean(k && k.none && now() - k.at < SHIP_TTL && k.vid === cheapestVid(l));
+}
+/** Countries CJ cannot deliver this product to (fresh answers only). */
+function noDeliveryList(l) { return l && l.source === 'cj' ? Object.keys(l.cj_ship || {}).filter((cc) => noDelivery(l, cc)) : []; }
 async function warmUp() {
   warming = true;
   try {
@@ -605,7 +612,7 @@ async function registerWebhooks() {
   return s ? db.settings.update(HOOKS, doc) : db.settings.insert({ id: HOOKS, ...doc });
 }
 
-module.exports = { freeEu,
+module.exports = { noDelivery, noDeliveryList, freeEu,
   prefs, savePrefs, status, balance, parseRef, normalize, fetchProduct, preview, search, categories, publish, resync, resyncStale,
   freightOptions, optionFrom, cachedFee, prepareCountry, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
 };

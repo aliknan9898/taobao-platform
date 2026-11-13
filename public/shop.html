@@ -806,8 +806,9 @@ async function product(id) {
     $$('.thumbs button').forEach((b) => b.classList.toggle('on', Number(b.dataset.i) === imgIdx));
     landed();
     $$('#variants button').forEach((b) => b.classList.toggle('on', b.dataset.sku === sku.mp_sku_id));
-    $('#stock').textContent = sku.in_stock ? (sku.stock < 20 ? `Only ${sku.stock} left` : 'In stock') : 'Out of stock';
-    $('#add').disabled = $('#buy').disabled = !sku.in_stock;
+    const noShip = hasAddress() && (p.no_delivery || []).includes(Locale.get().country);
+    $('#stock').textContent = noShip ? `${KinanLang.t('Does not deliver to')} ${countryName(Locale.get().country)}` : sku.in_stock ? (sku.stock < 20 ? `Only ${sku.stock} left` : 'In stock') : 'Out of stock';
+    $('#add').disabled = $('#buy').disabled = !sku.in_stock || noShip;
     $('#qv').value = qty;
     const pts = cfg.points?.per_unit ? Math.floor(sku.price * qty * cfg.points.per_unit) : 0;
     $('#ptsline').textContent = pts ? `★ Earn ${pts} Kinan points` : '';

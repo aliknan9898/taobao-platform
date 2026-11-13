@@ -99,6 +99,7 @@ function eligible(l) {
   if (l.status !== 'active') return 'The product is not live on Kinan';
   if (!prefs().from.includes(String(l.cj_from || 'CN').toUpperCase())) return `Ships from ${l.cj_from || 'CN'} — not one of the eBay warehouses`;
   if (!list(l.skus).some((s) => s.stock > 0)) return 'Out of stock';
+  if (require('./cj').noDelivery(l, market().country)) return `CJ cannot deliver it to ${market().country}`;
   if (!list(l.images).some((u) => /^https:/.test(u))) return 'No photos';
   if (l.sourcing && l.sourcing.ebay_ok === false) return 'The AI or the UK delivery check says it is not for eBay UK';
   return null;

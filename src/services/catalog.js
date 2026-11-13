@@ -264,7 +264,10 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
   const activeSellers = new Map(db.sellers.all((s) => s.status === 'active').map((s) => [s.id, s]));
   const needle = String(q).toLowerCase().trim();
   const lo = Number(min_price) || 0; const hi = Number(max_price) || Infinity;
-  let items = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id)
+  const ccx = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
+  const cjs = ccx ? require('./cj') : null;
+  // Products CJ cannot deliver to the shopper's country are left out (they could not be ordered there anyway)
+  let items = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id) && !(cjs && cjs.noDelivery(l, ccx))
     && (!seller_id || l.seller_id === seller_id)
     && (!category || (l.category || 'other') === category)
     && (!collection || (l.collections || []).includes(collection)) && (!group || l.collection_group === group)
@@ -328,6 +331,7 @@ function toBuyerView(l, seller) {
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(['cj', 'banggood'].includes(l.source) ? { ship_extra: true } : {}), category: l.category || 'other', ...((l.collections || []).length ? { collections: l.collections } : {}), ...(l.cj_from && l.cj_from !== 'CN' ? { ships_from: l.cj_from } : {}),
     min_price: Math.min(...l.skus.map((s) => require('./deals').priceOf(l, s))), ...require('./growth').ratingFor(l.id),
+    ...(() => { const no = l.source === 'cj' ? require('./cj').noDeliveryList(l) : []; return no.length ? { no_delivery: no } : {}; })(),
     ...(() => { const d = require('./deals').dealFor(l); return d ? { deal: d, was_min_price: Math.min(...l.skus.map((s) => s.price)) } : {}; })(),
     ...(() => { const og = optionGroups(l.skus); return {
       option_groups: og ? og.groups : null,
