@@ -300,7 +300,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const extra = (c?.fee || 0) - fe.free + (g?.fee || 0);
   return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
 });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -564,6 +564,17 @@ r('POST', '/api/seller/ebay/disconnect', SELLER, async ({ seller }) => require('
 r('POST', '/api/seller/ebay/list', SELLER, async ({ req, seller }) => { const b = await readJson(req); return require('./services/ebay').sellerList(seller, { ids: Array.isArray(b.ids) ? b.ids.map(String) : undefined }); });
 r('POST', '/api/seller/ebay/end/:id', SELLER, async ({ seller, params }) => { const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found'); return require('./services/ebay').endOne(l.id); });
 r('POST', '/api/seller/ebay/orders/:id/pay', SELLER, async ({ seller, params }) => require('./services/ebay').payLink(seller, params.id));
+// The picture on the sellers' "Sell on eBay" card: an official eBay badge the owner uploads (if eBay's brand rules allow it)
+r('PUT', '/api/admin/ebay/icon', ADMIN, async ({ req }) => {
+  const b = await readJson(req); const v = String(b.image || '');
+  if (!v) { const d = db.settings.get('ebay_icon'); if (d) db.settings.remove('ebay_icon'); return { icon: null }; }
+  const m = v.match(/^data:image\/(png|jpeg|webp|svg\+xml);base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) throw httpError(400, 'Choose a PNG, JPEG, WebP or SVG image');
+  if (m[2].length > 300000) throw httpError(400, 'The image is too big (max ~200 KB)');
+  const doc = { type: `image/${m[1]}`, data: m[2], at: Date.now() };
+  if (db.settings.get('ebay_icon')) db.settings.update('ebay_icon', doc); else db.settings.insert({ id: 'ebay_icon', ...doc });
+  return { icon: `/brand/ebay-icon?v=${doc.at}` };
+});
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
 r('GET', '/api/admin/sourcing', ADMIN, async () => require('./services/sourcing').status());
 r('PUT', '/api/admin/sourcing', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); sr.savePrefs(await readJson(req)); return sr.status(); });
@@ -808,6 +819,12 @@ const server = http.createServer(async (req, res) => {
       try { await require('./services/keywords').handleCallback(url.searchParams.get('code'), url.searchParams.get('state')); res.writeHead(302, { Location: '/admin?gads=connected#keywords' }); }
       catch (e) { console.warn('[keywords] connect failed:', e.message); res.writeHead(302, { Location: `/admin?login_error=${encodeURIComponent(url.searchParams.get('error') || e.message)}` }); }
       return res.end();
+    }
+    if (p === '/brand/ebay-icon' && req.method === 'GET') {
+      const d = db.settings.get('ebay_icon');
+      if (!d) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': d.type, 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff', ...(d.type === 'image/svg+xml' ? { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" } : {}) });
+      return res.end(Buffer.from(d.data, 'base64'));
     }
     if (p === '/oauth/ebay/callback' && req.method === 'GET') {
       const q = url.searchParams;

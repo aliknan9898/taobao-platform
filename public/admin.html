@@ -112,7 +112,7 @@ function showLogin(msg = '') {
   };
 }
 
-let googleSignin = false;
+let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [['overview','Overview','*'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['listings','Products','admin'],
   ['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
@@ -208,6 +208,9 @@ function ebayCard() {
       const a = $('#eball'); if (a) a.onclick = () => run({ limit: 100 });
       const bb = $('#ebbest'); if (bb) bb.onclick = async () => { try { await api('/api/admin/ebay/best', 'POST', { collection: 'christmas', n: 5 }); m('The AI is reviewing Christmas products (photos, rules, Google searches) — about 5 minutes, then it lists the best 5'); setTimeout(ebayCard, 60000); } catch (err) { m(err.message); } };
       const t5 = $('#ebtest'); if (t5) t5.onclick = () => run({ limit: 5 });
+      el.insertAdjacentHTML('beforeend', `<details><summary class="small"><b>Picture on the sellers’ “Sell on eBay” card</b></summary><p class="muted small">Optional: upload an official eBay badge from eBay’s developer brand resources, only if eBay’s brand rules allow you to use it. Without it, sellers see Kinan’s own “eBay” icon.</p><div class="row"><span id="ebicoprev" style="width:46px;height:46px;border:1px solid var(--line);border-radius:12px;display:grid;place-items:center;overflow:hidden">${cfg.ebay_icon ? `<img src="${esc(cfg.ebay_icon)}" alt="" style="max-width:100%;max-height:100%">` : '—'}</span><label class="btn sm ghost" style="cursor:pointer">Upload image<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" id="ebicof" hidden></label>${cfg.ebay_icon ? '<button class="btn sm quiet" id="ebicorm">Remove</button>' : ''}<span class="muted small" id="ebicom"></span></div></details>`);
+      const icf = $('#ebicof'); if (icf) icf.onchange = () => { const f = icf.files[0]; if (!f) return; if (f.size > 220000) { $('#ebicom').textContent = 'Max ~200 KB'; return; } const rd = new FileReader(); rd.onload = async () => { try { const r = await api('/api/admin/ebay/icon', 'PUT', { image: rd.result }); cfg.ebay_icon = r.icon; $('#ebicoprev').innerHTML = `<img src="${esc(r.icon)}" alt="" style="max-width:100%;max-height:100%">`; $('#ebicom').textContent = 'Saved'; } catch (err) { $('#ebicom').textContent = err.message; } }; rd.readAsDataURL(f); };
+      const icr = $('#ebicorm'); if (icr) icr.onclick = async () => { await api('/api/admin/ebay/icon', 'PUT', { image: '' }); cfg.ebay_icon = null; ebayCard(); };
       if ((e.seller_requests || []).length) {
         el.insertAdjacentHTML('beforeend', `<details ${e.seller_requests.some((x) => !x.approved) ? 'open' : ''}><summary><b>Sellers on Kinan’s eBay account</b> ${e.seller_requests.filter((x) => !x.approved).length ? `<span class="pill warn">${e.seller_requests.filter((x) => !x.approved).length} waiting</span>` : ''}</summary><p class="muted small">Sellers who chose to sell on Kinan’s eBay shop. Their products appear on your eBay account; they get the profit after eBay fees, product and delivery, less Kinan’s share. Approve only shops you trust — their products affect your eBay account’s standing.</p>${e.seller_requests.map((x) => `<div class="row between small" style="margin:4px 0"><span><b>${esc(x.shop)}</b> · ${x.products} CJ product(s)</span>${x.approved ? `<span><span class="pill ok">Approved</span> <button class="btn sm quiet" data-ebsel="${esc(x.id)}" data-ok="0">Remove</button></span>` : `<button class="btn sm" data-ebsel="${esc(x.id)}" data-ok="1">Approve</button>`}</div>`).join('')}</details>`);
         el.querySelectorAll('[data-ebsel]').forEach((b) => b.onclick = async () => { try { await api(`/api/admin/ebay/sellers/${b.dataset.ebsel}`, 'POST', { approve: b.dataset.ok === '1' }); ebayCard(); } catch (err) { alert(err.message); } });
@@ -986,7 +989,7 @@ async function openOrder(id) {
   if (loginError || q.get('aliexpress')) history.replaceState(null, '', '/admin');
   if (q.get('aliexpress') === 'connected') setTimeout(() => alert('AliExpress account connected'), 300);
   if (q.get('taobao') === 'connected') setTimeout(() => alert('Kinan’s Taobao account connected — sellers can now import from Taobao without signing in'), 300);
-  googleSignin = await fetch('/api/config/public').then((r) => r.json()).then((c) => Boolean(c.google_signin)).catch(() => false);
+  googleSignin = await fetch('/api/config/public').then((r) => r.json()).then((c) => { cfg = c || {}; return Boolean(c.google_signin); }).catch(() => false);
   api('/api/me').then(asMe).then((u) => (STAFF_LOGIN.includes(u.role) ? boot(u) : u.role === 'warehouse' ? (location.href = '/warehouse') : showLogin(loginError || 'You are signed in to the shop with a customer account — use Continue with Google with the admin Gmail'))).catch(() => showLogin(loginError));
 })();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});

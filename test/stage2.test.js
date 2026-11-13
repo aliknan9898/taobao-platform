@@ -153,3 +153,17 @@ test('AI review summary: from 3 written reviews, redone after 3 more', async () 
   growth.reviewsFor(l.id); await wait(100);
   assert.strictEqual(asked, 1, 'not redone until 3 more reviews');
 });
+
+test('eBay card picture: the owner uploads one, sellers see it; only images, and it can be removed', async () => {
+  const boss = await login('boss@x.com', 'adminpass1');
+  assert.strictEqual((await api('PUT', '/api/admin/ebay/icon', { image: 'data:text/html;base64,PGI+' }, boss)).status, 400);
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  const r = (await api('PUT', '/api/admin/ebay/icon', { image: `data:image/png;base64,${png}` }, boss)).body;
+  assert.match(r.icon, /^\/brand\/ebay-icon\?v=\d+$/);
+  const img = await realFetch(base + r.icon);
+  assert.strictEqual(img.headers.get('content-type'), 'image/png');
+  assert.strictEqual((await api('GET', '/api/config/public')).body.ebay_icon, r.icon);
+  await api('PUT', '/api/admin/ebay/icon', { image: '' }, boss);
+  assert.strictEqual((await api('GET', '/api/config/public')).body.ebay_icon, null);
+  assert.strictEqual((await realFetch(`${base}/brand/ebay-icon`)).status, 404);
+});

@@ -76,7 +76,9 @@
   .vrow { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; align-items: end; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   @media (max-width: 600px) { .vrow { grid-template-columns: 1fr 1fr 1fr auto; } .vrow .vname { grid-column: 1 / -1; } }
   .ebaycta { display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; margin-bottom: 14px; max-width: 1100px; border: 1.5px solid var(--jade, #0e7c66); }
-  .ebaycta > div { flex: 1; } .ebayico { background: #2b2b2b; color: #fff; font-size: 13px; font-weight: 800; letter-spacing: -.3px; }
+  .ebaycta > div { flex: 1; } .ebayico { width: 46px; height: 46px; background: linear-gradient(135deg, var(--jade, #0e7c66), #0b4f43); color: #fff; font-size: 14px; font-weight: 800; letter-spacing: -.2px; position: relative; box-shadow: 0 4px 12px rgba(14,124,102,.25); }
+  .ebayico::after { content: ""; position: absolute; top: 5px; inset-inline-end: 5px; width: 7px; height: 7px; border-radius: 50%; background: #f4b400; }
+  .ebayico.img { background: #fff; border: 1px solid var(--line); box-shadow: none; padding: 5px; } .ebayico.img::after { display: none; } .ebayico img { width: 100%; height: 100%; object-fit: contain; }
   .srcgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; max-width: 1100px; }
   .srchead { display: flex; gap: 12px; align-items: flex-start; }
   .srcico { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; color: #fff; }
@@ -259,7 +261,7 @@ function addStart(err = '') {
   const v = $('#view');
   const connected = cfg.taobao_kinan || shop.taobao?.connected;
   v.innerHTML = `<div class="head"><div><h1>Add product</h1><p class="muted">Choose where your product comes from.</p></div></div>
-    <a class="panel ebaycta" href="#/ebay"><span class="srcico ebayico">eBay</span><div><b>Sell on eBay</b><div class="muted small">Your CJ products from European and UK warehouses can also be sold on eBay — on Kinan’s eBay shop or your own eBay account. Kinan ships every order.</div><div class="small" id="ebaystat"></div></div><span class="btn sm">Open</span></a>
+    <a class="panel ebaycta" href="#/ebay">${cfg.ebay_icon ? `<span class="srcico ebayico img"><img src="${esc(cfg.ebay_icon)}" alt="eBay"></span>` : '<span class="srcico ebayico">eBay</span>'}<div><b>Sell on eBay</b><div class="muted small">Your CJ products from European and UK warehouses can also be sold on eBay — on Kinan’s eBay shop or your own eBay account. Kinan ships every order.</div><div class="small" id="ebaystat"></div></div><span class="btn sm">Open</span></a>
     <div class="srcgrid">
       <section class="panel stack srccard"><div class="srchead"><span class="srcico tb">淘</span><div><b>From Taobao</b><div class="muted small">Ships to Kinan’s China warehouse, is checked, then sent with the customer’s other items.</div></div></div>
         ${connected ? `<form class="stack" id="lf"><label class="field">Taobao or Tmall link<input name="link" required placeholder="https://item.taobao.com/item.htm?id=…" autocomplete="off"></label>
