@@ -86,7 +86,11 @@ async function raw(method, path, { query, body, token } = {}) {
   let j; try { j = await r.json(); } catch { throw new CjError(`CJ answered ${r.status}`, r.status); }
   if (r.status === 429 || j.code === 1600200) throw new CjError('CJ is busy (too many requests) — try again in a moment', j.code, 429);
   if (!(j.result === true || j.code === 200) || (j.success === false)) {
-    if (/Insufficient API points/i.test(j.message || '')) { pointsOutUntil = nextReset(); bgUse.out = pointsOutUntil; saveUse(true); throw new CjError(`CJ: ${j.message}`, j.code, 429); }
+    if (/Insufficient API points/i.test(j.message || '')) {
+      // When CJ's day starts again is not documented (it is not midnight in China): try again in an hour, at most until our guess
+      const first = Date.now() >= pointsOutUntil;
+      pointsOutUntil = Math.min(nextReset(), Date.now() + 3600e3); bgUse.out = pointsOutUntil; saveUse(true);
+      if (first) console.warn(`[cj] API points used up (${String(j.message).match(/Used today: \d+/)?.[0] || 'daily limit'}) — background work pauses, next try ${new Date(pointsOutUntil).toISOString().slice(11, 16)} UTC`); throw new CjError(`CJ: ${j.message}`, j.code, 429); }
     throw new CjError(`CJ: ${j.message || 'request failed'}`, j.code);
   }
   return j.data;
