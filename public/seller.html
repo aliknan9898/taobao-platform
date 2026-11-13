@@ -96,7 +96,7 @@ let draft = null; // product being imported or edited
 
 const PRODUCT_STATUS = { pending_review: ['In review', 'warn'], active: ['Live', 'ok'], paused: ['Paused', ''], rejected: ['Needs changes', 'bad'], unavailable: ['Unavailable on Taobao', 'bad'] };
 const PO_STATUS_CLS = (s) => /WAIT_BUYER_P/.test(s) ? 'warn' : /CREATE_FAILED|TRADE_CLOSED/.test(s) ? 'bad' : 'ok';
-const NAV = [['#/', 'Dashboard', ICONS.home], ['#/products', 'Products', ICONS.shop], ['#/add', 'Add product', ICONS.plus], ['#/orders', 'Orders', ICONS.box], ['#/earnings', 'Earnings', ICONS.wallet], ['#/settings', 'Account', ICONS.user]];
+const NAV = [['#/', 'Dashboard', ICONS.home], ['#/products', 'Products', ICONS.shop], ['#/add', 'Add product', ICONS.plus], ['#/orders', 'Orders', ICONS.box], ['#/earnings', 'Earnings', ICONS.wallet], ['#/ebay', 'eBay', ICONS.tag || ICONS.shop], ['#/settings', 'Account', ICONS.user]];
 
 function variantLabel(props) {
   if (!props) return 'Standard';
@@ -118,13 +118,13 @@ function shell() {
     </aside>
     <div><div class="mtop mob-only">${K.brand('Seller')}<span class="row" style="gap:6px">${KinanTheme.button('btn sm ghost')}<a class="btn sm quiet" href="#/settings">${esc((shop?.shop_name || '').slice(0, 18))}</a></span></div>
     <main class="content" id="view"></main>${K.footer(cfg.operator?.name)}</div></div>
-    <nav class="tabbar">${NAV.map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t === 'Add product' ? 'Add' : t}</a>`).join('')}</nav>`;
+    <nav class="tabbar">${NAV.filter(([href]) => href !== '#/ebay').map(([href, t, ic]) => `<a href="${href}" class="${isOn(href) ? 'on' : ''}">${ic}${t === 'Add product' ? 'Add' : t}</a>`).join('')}</nav>`;
   document.body.classList.add('has-tabbar');
   $$('[data-out]').forEach((b) => b.onclick = signOut);
 }
 async function signOut() { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; shop = null; authScreen(); }
 
-const routes = [[/^#\/?$/, dashboard], [/^#\/products$/, products], [/^#\/add$/, addStart], [/^#\/edit\/([\w-]+)$/, editProduct], [/^#\/review$/, editorScreen], [/^#\/manual(?:\/([\w-]+)|\?(ae))?$/, manualForm], [/^#\/orders$/, orders], [/^#\/earnings$/, earnings], [/^#\/settings$/, settings]];
+const routes = [[/^#\/?$/, dashboard], [/^#\/products$/, products], [/^#\/add$/, addStart], [/^#\/edit\/([\w-]+)$/, editProduct], [/^#\/review$/, editorScreen], [/^#\/manual(?:\/([\w-]+)|\?(ae))?$/, manualForm], [/^#\/orders$/, orders], [/^#\/earnings$/, earnings], [/^#\/ebay$/, ebayPage], [/^#\/settings$/, settings]];
 async function route() {
   if (!me) return;
   if (needsVerification()) { try { await verifyScreen(); } catch (e) { $('#app').innerHTML = `<div class="kyc"><div class="empty"><h3>Couldn’t load this page</h3><p>${esc(e.message)}</p><button class="btn ghost" onclick="route()">Try again</button></div></div>`; } return; }
@@ -181,6 +181,7 @@ async function dashboard() {
     ${approvalBanner()}${taobaoCard()}
     ${toPay.length ? `<div class="banner" style="background:color-mix(in srgb,var(--bad) 9%,var(--surface))"><div><b>${toPay.length} order${toPay.length > 1 ? 's' : ''} waiting for your payment to Taobao</b><div class="small">Unpaid purchase orders are closed by Taobao at the deadline and the buyer is refunded.</div></div><a class="btn" href="#/orders">Pay now</a></div>` : ''}
     <div class="kpis">
+      <a class="kpi" href="#/ebay"><span>Sell on eBay</span><b>🏷</b></a>
       <a class="kpi" href="#/products"><span>Live products</span><b>${count('active')}</b></a>
       <a class="kpi" href="#/products"><span>In review</span><b>${count('pending_review')}</b></a>
       <a class="kpi" href="#/products"><span>Needs changes</span><b class="${count('rejected') ? 'bad' : ''}">${count('rejected')}</b></a>
@@ -682,6 +683,47 @@ async function orders() {
 }
 
 // ---------- earnings ----------
+// ---------- eBay: sell your products on eBay too ----------
+async function ebayPage() {
+  const v = $('#view');
+  const d = await api('/api/seller/ebay');
+  const m = (x) => money(x, d.currency);
+  const ready = d.products.filter((p) => p.status === 'ready').length;
+  const live = d.products.filter((p) => p.status === 'live').length;
+  const ownOk = d.own && d.own.connected;
+  const canList = d.enabled && (d.mode === 'own' ? ownOk : d.approved && d.kinan_connected);
+  const stLabel = { live: '<span class="pill ok">On eBay</span>', ready: '<span class="pill">Ready</span>', failed: '<span class="pill bad">Failed</span>', not_eligible: '<span class="pill">Not for eBay</span>' };
+  v.innerHTML = `<div class="pagehead"><div><h1>Sell on eBay</h1><p class="muted">Show your products to eBay’s shoppers in the UK and Europe. Kinan ships every order from the supplier’s warehouse, just like Kinan orders, and sends the tracking to eBay.</p></div></div>
+    <div class="card stack">
+      <label class="row" style="gap:10px"><input type="checkbox" id="ebon" ${d.enabled ? 'checked' : ''}> <b>Sell my products on eBay</b></label>
+      <div class="grid2" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
+        <label class="card flat ${d.mode === 'kinan' ? 'on' : ''}" style="cursor:pointer"><input type="radio" name="ebmode" value="kinan" ${d.mode === 'kinan' ? 'checked' : ''}> <b>On Kinan’s eBay shop</b> <span class="pill ok">Easiest</span>
+          <p class="small muted">No eBay account needed. Kinan lists your products in its eBay shop and is paid by eBay. You get the profit after eBay’s fees, the product and delivery, less Kinan’s ${d.pct}% of that profit — added to your balance like your Kinan sales.</p>
+          ${d.mode === 'kinan' && d.enabled ? (d.approved ? '<span class="pill ok">Approved by Kinan</span>' : '<span class="pill warn">Waiting for Kinan to approve your shop</span>') : ''}</label>
+        <label class="card flat ${d.mode === 'own' ? 'on' : ''}" style="cursor:pointer"><input type="radio" name="ebmode" value="own" ${d.mode === 'own' ? 'checked' : ''}> <b>On my own eBay account</b>
+          <p class="small muted">eBay pays you directly. For each eBay order Kinan takes the product, delivery and its ${d.pct}% of the profit from your balance (or you pay it by card), then ships the order.</p>
+          ${d.mode === 'own' ? (ownOk ? `<span class="pill ok">Connected${d.own.account ? ` as ${esc(d.own.account)}` : ''}</span> <button class="btn sm quiet" id="ebdis" type="button">Disconnect</button>` : '<button class="btn sm" id="ebcon" type="button">Connect my eBay account</button>') : ''}</label>
+      </div>
+      <div class="row between"><span class="muted small">Your balance: <b>${m(d.balance.available)}</b> available</span>
+        ${canList ? `<button class="btn" id="eblist" ${ready ? '' : 'disabled'}>List ${ready} ready product${ready === 1 ? '' : 's'} on eBay</button>` : ''}</div>
+      ${d.job?.running ? `<p class="small">Listing… ${d.job.done}/${d.job.total}</p>` : ''}<span class="muted small" id="ebm"></span>
+    </div>
+    <div class="card"><h2>Products <span class="muted small">${live} on eBay · ${ready} ready</span></h2>
+      <p class="muted small">CJ products from European or UK warehouses can go on eBay (fast delivery is what eBay shoppers expect).</p>
+      ${d.products.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Status</th><th>eBay price</th><th></th></tr></thead><tbody>${d.products.map((p) => `<tr><td>${esc(p.title)}${p.reason && p.status !== 'live' ? `<div class="muted small">${esc(p.reason)}</div>` : ''}</td><td>${stLabel[p.status] || ''}</td><td>${p.price != null ? esc(String(p.price)) : '—'}</td><td>${p.status === 'live' ? `<button class="btn sm quiet" data-ebend="${esc(p.id)}">End</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No CJ products yet — add products from CJdropshipping first.</p>'}</div>
+    <div class="card"><h2>eBay orders</h2>${d.orders.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>eBay order</th><th>Items</th><th>Sold for</th><th>eBay fees</th><th>Product + delivery</th><th>Kinan ${d.pct}%</th><th>Your share</th><th>Status</th></tr></thead><tbody>${d.orders.map((o) => `<tr><td>${date(o.created)}</td><td>${esc(o.ebay_order || '')}</td><td class="small">${esc(o.items)}</td><td>${m(o.money.revenue)}</td><td>${m(o.money.fees)}</td><td>${m(o.money.goods + o.money.ship)}</td><td>${m(o.money.cut)}</td><td><b>${m(o.money.seller_net)}</b></td><td>${o.to_pay ? `<button class="btn sm" data-ebpay="${esc(o.id)}">Pay ${m(o.to_pay)} to ship</button>` : esc(o.status)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No eBay orders yet. They appear here within 15 minutes of being paid on eBay.</p>'}
+      <p class="muted small">Your share = what the buyer paid − eBay’s fees (about 12.8% + a small fixed fee) − the product and delivery − Kinan’s ${d.pct}% of what is left. VAT on these orders is collected and paid by eBay.</p></div>`;
+  const msg = (t) => { $('#ebm').textContent = t; };
+  const save = async (b) => { try { await api('/api/seller/ebay', 'PUT', b); ebayPage(); } catch (e) { msg(e.message); } };
+  $('#ebon').onchange = (e) => save({ enabled: e.target.checked, mode: (document.querySelector('[name=ebmode]:checked') || {}).value || 'kinan' });
+  $$('[name=ebmode]').forEach((r) => r.onchange = () => save({ mode: r.value, enabled: $('#ebon').checked }));
+  const con = $('#ebcon'); if (con) con.onclick = async () => { try { const r = await api('/api/seller/ebay/connect', 'POST'); location.href = r.url; } catch (e) { msg(e.message); } };
+  const dis = $('#ebdis'); if (dis) dis.onclick = async () => { if (!confirm('Disconnect your eBay account? Your listings stay on eBay but stop updating.')) return; await api('/api/seller/ebay/disconnect', 'POST'); ebayPage(); };
+  const li = $('#eblist'); if (li) li.onclick = async () => { li.disabled = true; try { const r = await api('/api/seller/ebay/list', 'POST', {}); msg(`Listing ${r.count} product(s) — about 20 seconds each`); setTimeout(ebayPage, 20000); } catch (e) { msg(e.message); li.disabled = false; } };
+  $$('[data-ebend]').forEach((b) => b.onclick = async () => { if (!confirm('End this eBay listing?')) return; try { await api(`/api/seller/ebay/end/${b.dataset.ebend}`, 'POST'); ebayPage(); } catch (e) { toast(e.message); } });
+  $$('[data-ebpay]').forEach((b) => b.onclick = async () => { b.disabled = true; try { const r = await api(`/api/seller/ebay/orders/${b.dataset.ebpay}/pay`, 'POST'); location.href = r.url; } catch (e) { toast(e.message); b.disabled = false; } });
+}
+
 async function earnings() {
   const e = await api('/api/seller/earnings');
   const ST = { pending_payout: ['On the way', 'warn'], payable: ['Available', 'ok'], paid: ['Paid out', ''] };

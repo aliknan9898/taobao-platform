@@ -51,8 +51,10 @@ function prefs() {
     auto_sync: p.auto_sync !== false
   };
 }
-function state() { return db.settings.get(SID) || {}; }
-function saveState(patch) { const s = db.settings.get(SID); return s ? db.settings.update(SID, typeof patch === 'function' ? patch : { ...patch }) : db.settings.insert({ id: SID, ...(typeof patch === 'function' ? patch({}) : patch) }); }
+// Each eBay account (Kinan's, or a seller's own) keeps its own settings, policies, warehouses and jobs
+const sidNow = () => (ebay.account() === 'kinan' ? SID : `${SID}_${ebay.account()}`);
+function state() { return db.settings.get(sidNow()) || {}; }
+function saveState(patch) { const SIDX = sidNow(); const s = db.settings.get(SIDX); return s ? db.settings.update(SIDX, typeof patch === 'function' ? patch : { ...patch }) : db.settings.insert({ id: SIDX, ...(typeof patch === 'function' ? patch({}) : patch) }); }
 function savePrefs(b = {}) {
   const cur = state().prefs || {};
   const next = { ...cur };
@@ -92,9 +94,24 @@ const skuKey = (l, s) => `K-${l.id.replace(/^lst_/, '')}-${String(s.cj_vid || s.
 const groupKey = (l) => `KG-${l.id.replace(/^lst_/, '')}`.slice(0, 50);
 const qtyOf = (l, s) => (l.status === 'active' ? Math.max(0, Math.min(prefs().max_qty, Math.floor(Number(s.stock) || 0))) : 0);
 
+/** How a seller sells on eBay: 'kinan' (on Kinan's eBay account, once Kinan approves) or 'own' (their own eBay account). */
+function sellerMode(sellerId) {
+  const s = db.sellers.get(sellerId);
+  if (!s || s.status !== 'active' || !s.ebay?.enabled) return null;
+  if (s.ebay.mode === 'own') return 'own';
+  return s.ebay.approved ? 'kinan' : null;
+}
+/** Does this product belong on the eBay account being worked on? */
+function onThisAccount(l) {
+  const a = ebay.account();
+  if (a === 'kinan') return l.seller_id === KINAN || sellerMode(l.seller_id) === 'kinan';
+  return l.seller_id === a && sellerMode(a) === 'own';
+}
+const listedHere = (l) => l.ebay?.listing_id && (l.ebay.account || 'kinan') === ebay.account();
+
 function eligible(l) {
   if (!l) return 'Not found';
-  if (l.seller_id !== KINAN) return 'Only products of the Kinan shop itself can go on eBay';
+  if (!onThisAccount(l)) return ebay.account() === 'kinan' ? 'Only Kinan’s products, and products of sellers Kinan approved for eBay, go on Kinan’s eBay account' : 'Switch on “my own eBay account” in your eBay settings first';
   if (l.source !== 'cj' || l.fulfillment !== 'direct') return 'Only CJ products shipped straight to the customer can go on eBay';
   if (l.status !== 'active') return 'The product is not live on Kinan';
   if (!prefs().from.includes(String(l.cj_from || 'CN').toUpperCase())) return `Ships from ${l.cj_from || 'CN'} — not one of the eBay warehouses`;
@@ -269,7 +286,7 @@ async function syncStore() {
   if (!ebay.connected()) return { skipped: 'not connected' };
   const mk = prefs().marketplace;
   const want = new Map();
-  for (const l of db.listings.all((x) => x.seller_id === KINAN && x.source === 'cj' && (x.ebay?.listing_id || !eligible(x)))) {
+  for (const l of db.listings.all((x) => onThisAccount(x) && x.source === 'cj' && (listedHere(x) || !eligible(x)))) {
     const [top, sub] = storePath(l); if (!want.has(top)) want.set(top, new Set()); want.get(top).add(sub);
   }
   const read = async () => {
@@ -393,7 +410,7 @@ async function listOne(listingId) {
   } else {
     listing = await ebay.api('POST', `/sell/inventory/v1/offer/${Object.values(offers)[0]}/publish`, {});
   }
-  const info = { env: ebay.env(), store_path: storeCats ? storeCats[0] : null, listing_id: listing.listingId, marketplace: mk, offers, group: multi ? groupKey(l) : null, category: cat.id, ship_fee: fee, listed_at: now(), synced_at: now(), error: null };
+  const info = { env: ebay.env(), account: ebay.account(), store_path: storeCats ? storeCats[0] : null, listing_id: listing.listingId, marketplace: mk, offers, group: multi ? groupKey(l) : null, category: cat.id, ship_fee: fee, listed_at: now(), synced_at: now(), error: null };
   db.listings.update(l.id, { ebay: info });
   return info;
 }
@@ -523,6 +540,7 @@ async function autopick() {
 async function endOne(listingId) {
   const l = db.listings.get(listingId);
   if (!l?.ebay?.listing_id) throw httpError(404, 'This product is not on eBay');
+  if ((l.ebay.account || 'kinan') !== ebay.account()) return ebay.withAccount(l.ebay.account || 'kinan', () => endOne(listingId));
   if (l.ebay.group) await ebay.api('POST', '/sell/inventory/v1/offer/withdraw_by_inventory_item_group', { inventoryItemGroupKey: l.ebay.group, marketplaceId: l.ebay.marketplace });
   else for (const id of Object.values(l.ebay.offers || {})) await ebay.api('POST', `/sell/inventory/v1/offer/${id}/withdraw`, {});
   db.listings.update(l.id, { ebay: { ...l.ebay, listing_id: null, ended_at: now() } });
@@ -533,7 +551,7 @@ async function endOne(listingId) {
 
 async function sync() {
   if (!ebay.connected()) return { skipped: 'not connected' };
-  const live = db.listings.all((l) => l.ebay?.listing_id);
+  const live = db.listings.all((l) => listedHere(l));
   const reqs = [];
   for (const l of live) {
     for (const [key, offerId] of Object.entries(l.ebay.offers || {})) {
@@ -598,7 +616,8 @@ async function importOrders() {
       lines.push({
         line_no: String(lines.length + 1), listing_id: l.id, seller_id: l.seller_id, mp_id: l.mp_id, mp_sku_id: s.mp_sku_id, title: l.title, props: s.props,
         direct: true, source: 'cj', source_link: l.source_link || '', cj_pid: l.cj_pid, cj_vid: s.cj_vid, cj_from: l.cj_from || 'CN', cost_sale: s.cost_sale ?? null,
-        image: list(l.images)[0] || null, qty: Number(li.quantity) || 1, price: s.price, cost_cny: s.cost_cny, ebay_line_item: li.lineItemId
+        image: list(l.images)[0] || null, qty: Number(li.quantity) || 1, price: s.price, cost_cny: s.cost_cny, ebay_line_item: li.lineItemId,
+        ebay_amount: Number(li.total?.value ?? li.lineItemCost?.value) || null
       });
     }
     if (!lines.length || unknown.length) { problems.push({ order: eo.orderId, error: `Unknown eBay SKU: ${unknown.join(', ')}` }); continue; }
@@ -609,9 +628,17 @@ async function importOrders() {
     const o = db.orders.insert({
       buyer_id: buyer().id, channel: 'ebay', lines, currency: config.currency, subtotal, shipping_fee: 0, packaging: 'standard', packaging_fee: 0, hold: false, total: subtotal,
       shipping_address: address, ...(cjShip ? { cj_shipping: { method: cjShip.method, methods: cjShip.methods || {}, origins: cjShip.origins || {}, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
-      ebay: { order_id: eo.orderId, buyer: eo.buyer?.username || '', total: total.value || null, currency: total.currency || null, created: eo.creationDate, tracking_sent: [] },
+      ebay: { order_id: eo.orderId, account: ebay.account(), buyer: eo.buyer?.username || '', total: total.value || null, currency: total.currency || null, created: eo.creationDate, tracking_sent: [] },
       payment: { provider: 'ebay', intent_id: eo.orderId }, status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created', note: `eBay order ${eo.orderId}` }]
     });
+    // A seller's own eBay account: eBay paid the seller, so the seller pays Kinan the goods, delivery and Kinan's share first
+    if (ebay.account() !== 'kinan') {
+      const m = sellerMoney(o, o.lines);
+      const charge = money(m.goods + m.ship + m.cut);
+      db.orders.update(o.id, (x) => ({ ...x, subtotal: m.goods, shipping_fee: m.ship, total: charge, ebay: { ...x.ebay, charge: m }, payment: { provider: 'seller', intent_id: eo.orderId } }));
+      try { await fundOwnOrder(o.id); added += 1; } catch (e) { problems.push({ order: eo.orderId, error: e.message }); }
+      continue;
+    }
     try { await orders.markPaid(o.id, { provider: 'ebay', intent_id: eo.orderId }); added += 1; }
     catch (e) { problems.push({ order: eo.orderId, error: e.message }); }
   }
@@ -628,7 +655,7 @@ const carrierCode = (c) => (CARRIERS.find(([re]) => re.test(String(c || ''))) ||
 async function pushTracking() {
   if (!ebay.connected()) return { skipped: 'not connected' };
   let sent = 0;
-  for (const o of db.orders.all((x) => x.ebay?.order_id && !['cancelled', 'refunded'].includes(x.status))) {
+  for (const o of db.orders.all((x) => x.ebay?.order_id && (x.ebay.account || 'kinan') === ebay.account() && !['cancelled', 'refunded'].includes(x.status))) {
     const done = new Set(list(o.ebay.tracking_sent));
     for (const sub of list(o.sub_orders)) {
       for (const t of list(sub.logistics)) {
@@ -649,16 +676,151 @@ async function pushTracking() {
   return { sent };
 }
 
+// ---------------- sellers on eBay: money ----------------
+
+const SELLER_PCT = () => Math.min(50, Math.max(0, Number(process.env.EBAY_SELLER_PCT ?? 10)));
+/**
+ * One seller's part of an eBay order, in Kinan's currency: what the buyer paid, eBay's fees, the goods and delivery,
+ * the profit after all of that, Kinan's share of the profit (EBAY_SELLER_PCT, 10%) and what is left for the seller.
+ * (VAT on these imports is collected and paid by eBay, so it is not in the price the seller receives.)
+ */
+function sellerMoney(o, lines) {
+  const cur = o.ebay?.currency || market().currency; let r = null;
+  try { r = rate(cur); } catch { r = null; }
+  const amt = (xs) => xs.reduce((a, x) => a + (Number(x.ebay_amount) || 0), 0);
+  const share = amt(o.lines) ? amt(lines) / amt(o.lines) : lines.length / Math.max(1, o.lines.length);
+  const revenue = r && Number(o.ebay?.total) ? money((Number(o.ebay.total) * share) / r) : money(lines.reduce((a, x) => a + x.price * x.qty, 0));
+  const fees = money((revenue * FEE_PCT()) / 100 + ((r ? FEE_FIXED() / r : FEE_FIXED()) * share));
+  const goods = money(lines.reduce((a, x) => a + (Number(x.cost_sale) || 0) * x.qty, 0));
+  const ship = money((Number(o.cj_shipping?.fee) || 0) * share);
+  const profit = money(revenue - fees - goods - ship);
+  const cut = money((Math.max(0, profit) * SELLER_PCT()) / 100);
+  return { revenue, fees, goods, ship, profit, cut, seller_net: money(profit - cut), pct: SELLER_PCT() };
+}
+/** Ledger entry for a seller's products sold on Kinan's eBay account (null: nothing to record here). */
+function ledgerFor(o, sellerId, lines) {
+  if ((o.ebay?.account || 'kinan') !== 'kinan') return null; // own account: eBay paid the seller; Kinan charged them separately
+  const m = sellerMoney(o, lines);
+  return { order_id: o.id, seller_id: sellerId, type: 'ebay_sale', currency: o.currency, gross: m.revenue, commission: m.cut, cost: money(m.fees + m.goods + m.ship), net: m.seller_net, ebay: m, status: 'pending_payout' };
+}
+/** Own-account eBay order: take Kinan's part from the seller's balance, or ask the seller to pay it (then it ships). */
+async function fundOwnOrder(id) {
+  const o = db.orders.get(id);
+  if (!o || o.status !== 'pending_payment' || !o.ebay?.account || o.ebay.account === 'kinan') return o;
+  const sellerId = o.ebay.account;
+  const bal = require('./money').sellerBalance(sellerId).available;
+  if (bal >= o.total) {
+    db.ledger.insert({ order_id: o.id, seller_id: sellerId, type: 'ebay_charge', currency: o.currency, gross: 0, commission: o.ebay.charge?.cut || 0, cost: o.total, net: -o.total, status: 'payable' });
+    return require('./orders').markPaid(o.id, { provider: 'seller_balance', intent_id: o.payment.intent_id });
+  }
+  if (!o.ebay.asked_at) {
+    db.orders.update(o.id, (x) => ({ ...x, ebay: { ...x.ebay, asked_at: now() }, timeline: [...(x.timeline || []), { at: now(), event: 'waiting_seller_payment' }] }));
+    const sel = db.sellers.get(sellerId); const u = sel && db.users.get(sel.user_id);
+    const amount = `${o.total} ${String(o.currency).toUpperCase()}`;
+    try {
+      if (u?.email) require('../mailer').send({ to: u.email, key: `ebayfund:${o.id}`, kind: 'seller', subject: `eBay order ${o.ebay.order_id}: pay Kinan ${amount} to ship it`, title: 'New eBay order', lines: [`You sold on eBay (order ${o.ebay.order_id}).`, `Kinan ships it as soon as you pay ${amount} — the product, delivery and Kinan’s ${o.ebay.charge?.pct ?? 10}% of the profit.`], button: { text: 'Pay and ship', url: `${config.publicBaseUrl}/seller#/ebay` } });
+      if (u) require('../push').toUser(u.id, { title: 'New eBay order — pay to ship', body: `Pay ${amount} so Kinan ships order ${o.ebay.order_id}`, url: '/seller#/ebay', tag: `ebay-${o.id}` });
+    } catch { /* best effort */ }
+  }
+  return db.orders.get(o.id);
+}
+/** The seller pays an own-account eBay order by card (Stripe page); the payment webhook then marks it paid and it ships. */
+async function payLink(seller, orderId) {
+  const o = db.orders.get(orderId);
+  if (!o || o.ebay?.account !== seller.id) throw httpError(404, 'Not found');
+  if (o.status !== 'pending_payment') throw httpError(409, 'This order is already paid');
+  const stripe = require('../payments/stripe');
+  if (stripe.demoMode()) throw httpError(409, 'Card payments are not switched on yet');
+  const url = await stripe.checkoutUrl({ amount: o.total, currency: o.currency, name: `Kinan — eBay order ${o.ebay.order_id}`, order_id: o.id, success_url: `${config.publicBaseUrl}/seller?paid=1#/ebay`, cancel_url: `${config.publicBaseUrl}/seller#/ebay` });
+  return { url };
+}
+
+// ---------------- sellers on eBay: settings and actions ----------------
+
+function sellerSettings(seller, b = {}) {
+  const cur = seller.ebay || {};
+  const next = { ...cur };
+  if (b.enabled !== undefined) next.enabled = Boolean(b.enabled);
+  if (b.mode !== undefined) { if (!['kinan', 'own'].includes(b.mode)) throw httpError(400, 'Choose Kinan’s eBay account or your own'); if (b.mode !== cur.mode) { next.mode = b.mode; if (b.mode === 'kinan') next.requested_at = now(); } }
+  if (!next.mode) next.mode = 'kinan';
+  if (next.enabled && next.mode === 'kinan' && !cur.requested_at) next.requested_at = now();
+  if (next.enabled && next.mode === 'kinan' && !cur.approved && !cur.notified) {
+    try { require('../push').telegram(`🏷 ${seller.shop_name} wants to sell on Kinan’s eBay account — approve in the admin (eBay)`); } catch { /* optional */ }
+    next.notified = true;
+  }
+  db.sellers.update(seller.id, { ebay: next });
+  return sellerView(db.sellers.get(seller.id));
+}
+function approveSeller(sellerId, approve = true) {
+  const s = db.sellers.get(sellerId); if (!s) throw httpError(404, 'Seller not found');
+  db.sellers.update(sellerId, { ebay: { ...(s.ebay || {}), approved: Boolean(approve), approved_at: now() } });
+  return { id: sellerId, approved: Boolean(approve) };
+}
+/** Everything the seller's eBay page shows. */
+function sellerView(seller) {
+  const e = seller.ebay || {}; const mode = e.mode || 'kinan';
+  const acct = mode === 'own' ? seller.id : 'kinan';
+  return ebay.withAccount(acct, () => {
+    const mine = (l) => l.seller_id === seller.id && l.status === 'active' && l.source === 'cj';
+    const rows = db.listings.all((l) => mine(l)).map((l) => {
+      const why = eligible(l);
+      const st = l.ebay?.listing_id && (l.ebay.account || 'kinan') === acct ? 'live' : why ? 'not_eligible' : l.ebay?.error ? 'failed' : 'ready';
+      let price = null; try { const s0 = [...l.skus].sort((a, b) => a.price - b.price)[0]; price = s0 ? Number(ebayPrice(s0.price, l.ebay?.ship_fee || 0)) : null; } catch { price = null; }
+      return { id: l.id, title: l.title.slice(0, 80), status: st, reason: why || l.ebay?.error || null, ebay_id: st === 'live' ? l.ebay.listing_id : null, price };
+    });
+    const orders = db.orders.all((o) => o.channel === 'ebay' && o.lines.some((x) => x.seller_id === seller.id)).sort((a, b) => b.created_at - a.created_at).slice(0, 50).map((o) => {
+      const lines = o.lines.filter((x) => x.seller_id === seller.id);
+      const m = o.ebay?.charge || sellerMoney(o, lines);
+      return { id: o.id, ebay_order: o.ebay?.order_id, created: o.created_at, items: lines.map((x) => `${x.qty} × ${x.title.slice(0, 40)}`).join(', '), status: o.status, own: (o.ebay?.account || 'kinan') !== 'kinan', to_pay: o.status === 'pending_payment' && o.ebay?.account === seller.id ? o.total : 0, money: m };
+    });
+    return {
+      enabled: Boolean(e.enabled), mode, approved: Boolean(e.approved), pct: SELLER_PCT(), currency: config.currency,
+      own: mode === 'own' ? { ...ebay.status(), market: market().currency } : null,
+      kinan_connected: ebay.withAccount('kinan', () => ebay.connected()),
+      balance: require('./money').sellerBalance(seller.id), products: rows, orders,
+      job: state().job || null
+    };
+  });
+}
+/** List the seller's ready products on the eBay account they chose (at most EBAY_SELLER_DAILY a day on Kinan's account). */
+async function sellerList(seller, { ids } = {}) {
+  const mode = sellerMode(seller.id);
+  if (!mode) throw httpError(409, seller.ebay?.enabled && seller.ebay?.mode !== 'own' ? 'Kinan has not approved your shop for its eBay account yet' : 'Switch on eBay first');
+  const acct = mode === 'own' ? seller.id : 'kinan';
+  return ebay.withAccount(acct, async () => {
+    if (!ebay.connected()) throw httpError(409, mode === 'own' ? 'Connect your eBay account first' : 'Kinan’s eBay account is not connected right now');
+    const today = db.listings.all((l) => l.seller_id === seller.id && l.ebay?.listed_at > now() - 86400e3).length;
+    const cap = mode === 'kinan' ? Math.max(0, Number(process.env.EBAY_SELLER_DAILY ?? 50) - today) : 200;
+    if (!cap) throw httpError(429, 'Daily limit reached on Kinan’s eBay account — try again tomorrow');
+    const want = (ids && ids.length ? ids : candidates({}).filter((l) => l.seller_id === seller.id).map((l) => l.id)).filter((id) => db.listings.get(id)?.seller_id === seller.id).slice(0, cap);
+    if (!want.length) throw httpError(400, 'No products ready for eBay');
+    if (running) throw httpError(409, 'eBay listing is busy — try again in a few minutes');
+    require('../cj/client').background(() => ebay.withAccount(acct, () => listMany({ ids: want, limit: want.length }, `seller:${seller.id}`))).catch((e) => console.warn('[ebay] seller list', e.message));
+    return { started: true, count: want.length };
+  });
+}
+function sellerConnectUrl(seller) {
+  if (sellerMode(seller.id) !== 'own') throw httpError(409, 'Choose “my own eBay account” first');
+  return ebay.withAccount(seller.id, () => ({ url: ebay.authUrl() }));
+}
+function sellerDisconnect(seller) { ebay.withAccount(seller.id, () => ebay.disconnect()); return sellerView(db.sellers.get(seller.id)); }
+
 // ---------------- jobs & admin ----------------
 
 let ticks = 0;
-async function tick() {
+async function tickOne() {
   if (!ebay.connected()) return;
   ensureEnv();
+  await importOrders().catch((e) => console.warn(`[ebay ${ebay.account()}] orders`, e.message));
+  await pushTracking().catch((e) => console.warn(`[ebay ${ebay.account()}] tracking`, e.message));
+  if (prefs().auto_sync && ticks % 4 === 1) await sync().catch((e) => console.warn(`[ebay ${ebay.account()}] sync`, e.message)); // hourly (tick = 15 min)
+}
+/** Every 15 minutes: Kinan's account, then every seller's own account; own-account orders waiting for the seller's money. */
+async function tick() {
   ticks += 1;
-  await importOrders().catch((e) => console.warn('[ebay] orders', e.message));
-  await pushTracking().catch((e) => console.warn('[ebay] tracking', e.message));
-  if (prefs().auto_sync && ticks % 4 === 1) await sync().catch((e) => console.warn('[ebay] sync', e.message)); // hourly (tick = 15 min)
+  await ebay.withAccount('kinan', tickOne);
+  for (const s of db.sellers.all((x) => x.ebay?.enabled && x.ebay.mode === 'own' && x.status === 'active')) await ebay.withAccount(s.id, tickOne);
+  for (const o of db.orders.all((x) => x.status === 'pending_payment' && x.ebay?.account && x.ebay.account !== 'kinan')) await fundOwnOrder(o.id).catch(() => {});
 }
 
 // ---------------- admin eBay tab: products, prices, profit, orders ----------------
@@ -674,7 +836,7 @@ function products({ filter = 'all' } = {}) {
   const p = prefs(); const m = market(); const cur = m.currency;
   let fx = null; try { fx = rate(cur); } catch { fx = null; }
   const url = (id, mk) => `https://www.${ebay.env() === 'sandbox' ? 'sandbox.' : ''}ebay.${{ EBAY_GB: 'co.uk', EBAY_DE: 'de', EBAY_FR: 'fr', EBAY_IT: 'it', EBAY_ES: 'es' }[mk] || 'co.uk'}/itm/${id}`;
-  const rows = db.listings.all((l) => l.seller_id === KINAN && l.source === 'cj' && l.fulfillment === 'direct' && (l.ebay || !eligible(l))).map((l) => {
+  const rows = db.listings.all((l) => onThisAccount(l) && l.source === 'cj' && l.fulfillment === 'direct' && (l.ebay || !eligible(l))).map((l) => {
     const e = l.ebay || {};
     const status = e.listing_id ? 'live' : e.error ? 'failed' : 'ready';
     const ship = Number(e.ship_fee) || 0;
@@ -731,8 +893,8 @@ function csv() {
 function status() {
   const s = state();
   if (s.job?.running && !running) { s.job.running = false; s.job.stopped = s.job.stopped || 'Interrupted by a server restart — press List again'; }
-  const live = db.listings.all((l) => l.ebay?.listing_id);
-  const failed = db.listings.all((l) => l.ebay?.error && !l.ebay?.listing_id && l.status === 'active').slice(0, 30).map((l) => ({ id: l.id, title: l.title.slice(0, 70), error: l.ebay.error }));
+  const live = db.listings.all((l) => listedHere(l));
+  const failed = db.listings.all((l) => onThisAccount(l) && l.ebay?.error && !l.ebay?.listing_id && l.status === 'active').slice(0, 30).map((l) => ({ id: l.id, title: l.title.slice(0, 70), error: l.ebay.error }));
   return {
     ...ebay.status(), prefs: prefs(), markets: Object.keys(MARKETS),
     deletion_endpoint: `${config.publicBaseUrl}/webhooks/ebay/deletion`, accept_url: `${config.publicBaseUrl}/oauth/ebay/callback`,
@@ -740,10 +902,11 @@ function status() {
     listings: live.slice(0, 200).map((l) => ({ id: l.id, title: l.title.slice(0, 70), ebay_id: l.ebay.listing_id, url: `https://www.${ebay.env() === 'sandbox' ? 'sandbox.' : ''}ebay.${{ EBAY_GB: 'co.uk', EBAY_DE: 'de', EBAY_FR: 'fr', EBAY_IT: 'it', EBAY_ES: 'es' }[l.ebay.marketplace] || 'co.uk'}/itm/${l.ebay.listing_id}` })),
     store: s.store ? { has: s.store.has, error: s.store.error || null, categories: list(s.store.paths).length, at: s.store.at } : null, organizing,
     failed, connect_error: ebay.connected() ? null : s.connect_error || null, job: s.job || null, last_sync: s.last_sync || null, last_orders: s.last_orders || null,
-    orders: db.orders.all((o) => o.channel === 'ebay').length
+    orders: db.orders.all((o) => o.channel === 'ebay' && (o.ebay?.account || 'kinan') === ebay.account()).length,
+    ...(ebay.account() === 'kinan' ? { seller_requests: db.sellers.all((x) => x.ebay?.enabled && x.ebay.mode !== 'own').map((x) => ({ id: x.id, shop: x.shop_name, approved: Boolean(x.ebay.approved), products: db.listings.all((l) => l.seller_id === x.id && l.status === 'active' && l.source === 'cj').length })) } : {})
   };
 }
 
 function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
 
-module.exports = { ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+module.exports = { sellerMoney, ledgerFor, fundOwnOrder, payLink, sellerSettings, approveSeller, sellerView, sellerList, sellerConnectUrl, sellerDisconnect, sellerMode, onThisAccount, ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };

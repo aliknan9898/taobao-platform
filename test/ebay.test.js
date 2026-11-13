@@ -76,7 +76,7 @@ test('eBay: connect, list, sync, orders and tracking', async () => {
   const other = db.listings.insert({ seller_id: 'sel_other', source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'DE', title: 'x', images: ['https://a/b.jpg'], skus: [{ cj_vid: 'V9', stock: 5, price: 3 }] });
   const cn = db.listings.insert({ seller_id: 'sel_kinan', source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'CN', title: 'y', images: ['https://a/b.jpg'], skus: [{ cj_vid: 'V8', stock: 5, price: 3 }] });
 
-  assert.match(ebay.eligible(db.listings.get(other.id)), /Kinan shop/);
+  assert.match(ebay.eligible(db.listings.get(other.id)), /Kinan’s products/);
   assert.match(ebay.eligible(db.listings.get(cn.id)), /not one of the eBay warehouses/);
   assert.strictEqual(ebay.candidates({ collection: 'christmas' }).length, 1);
 
@@ -233,4 +233,61 @@ test('GPSR: Kinan as the EU responsible person, warnings by kind of product, on 
   assert.strictEqual(offer.body.regulatory.responsiblePersons[0].country, 'MT');
   assert.ok(!offer.body.regulatory.manufacturer);
   assert.match(offer.body.listingDescription, /Safety information/);
+});
+
+test('sellers on eBay: on Kinan’s account (after approval, profit share) or on their own account (they fund Kinan’s part)', async () => {
+  const money = require('../src/services/money');
+  const mkSeller = (name) => { const u = db.users.insert({ email: `${name}@s.example`, role: 'seller', name }); return db.sellers.insert({ user_id: u.id, shop_name: name, status: 'active', commission_pct: 10 }); };
+  const mkProduct = (sel, vid) => db.listings.insert({
+    seller_id: sel.id, source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'DE', cj_pid: `P-${vid}`, title: `Wool Scarf ${vid}`, description: 'Wool',
+    images: ['https://img.example/s1.jpg', 'https://img.example/s2.jpg'], skus: [{ cj_vid: vid, mp_sku_id: `cj_${vid}`, props: '', price: 20, cost_sale: 6, stock: 30 }]
+  });
+  const order = (id, key, total) => ({ orderId: id, orderPaymentStatus: 'PAID', creationDate: new Date().toISOString(), buyer: { username: 'amy' }, pricingSummary: { total: { value: String(total), currency: 'GBP' } },
+    lineItems: [{ lineItemId: `L-${id}`, sku: key, quantity: 1, title: 'Scarf', total: { value: String(total), currency: 'GBP' } }],
+    fulfillmentStartInstructions: [{ shippingStep: { shipTo: { fullName: 'Amy Lee', primaryPhone: { phoneNumber: '07700900124' }, contactAddress: { addressLine1: '2 High St', city: 'York', postalCode: 'YO1 1AA', countryCode: 'GB' } } } }] });
+
+  // --- on Kinan's eBay account ---
+  const a = mkSeller('alpha'); const pa = mkProduct(a, 'VA1');
+  assert.match(ebay.eligible(pa), /approved/);
+  ebay.sellerSettings(db.sellers.get(a.id), { enabled: true, mode: 'kinan' });
+  assert.match(ebay.eligible(db.listings.get(pa.id)), /approved/, 'not before Kinan approves');
+  ebay.approveSeller(a.id, true);
+  assert.strictEqual(ebay.eligible(db.listings.get(pa.id)), null);
+  const info = await ebay.listOne(pa.id);
+  assert.strictEqual(info.account, 'kinan');
+  ORDERS = [order('KA-1', Object.keys(info.offers)[0], 32)];
+  assert.strictEqual((await ebay.importOrders()).added, 1);
+  const oa = db.orders.find((x) => x.ebay?.order_id === 'KA-1');
+  const led = db.ledger.find((x) => x.order_id === oa.id && x.seller_id === a.id);
+  assert.strictEqual(led.type, 'ebay_sale');
+  const m = led.ebay;
+  assert.ok(m.revenue > 0 && m.fees > 0 && m.goods === 6);
+  assert.strictEqual(m.cut, Math.round(Math.max(0, m.profit) * 0.1 * 100) / 100, 'Kinan takes 10% of the profit');
+  assert.strictEqual(led.net, Math.round((m.profit - m.cut) * 100) / 100);
+  assert.ok(ebay.sellerView(db.sellers.get(a.id)).orders.length === 1);
+
+  // --- on the seller's own eBay account ---
+  const b = mkSeller('beta'); const pb = mkProduct(b, 'VB1');
+  ebay.sellerSettings(db.sellers.get(b.id), { enabled: true, mode: 'own' });
+  const { url } = ebay.sellerConnectUrl(db.sellers.get(b.id));
+  const who = await ebayClient.handleCallback('code-beta', new URL(url).searchParams.get('state'));
+  assert.strictEqual(who, b.id);
+  assert.ok(ebayClient.withAccount(b.id, () => ebayClient.connected()), 'the seller is connected');
+  assert.ok(ebayClient.withAccount('kinan', () => ebayClient.connected()), 'Kinan’s own connection is untouched');
+  assert.match(ebay.eligible(db.listings.get(pb.id)), /approved/, 'not on Kinan’s account');
+  const ib = await ebayClient.withAccount(b.id, () => ebay.listOne(pb.id));
+  assert.strictEqual(ib.account, b.id);
+  ORDERS = [order('KB-1', Object.keys(ib.offers)[0], 30)];
+  await ebayClient.withAccount(b.id, () => ebay.importOrders());
+  const ob = db.orders.find((x) => x.ebay?.order_id === 'KB-1');
+  assert.strictEqual(ob.status, 'pending_payment', 'waits for the seller to pay Kinan');
+  const ch = ob.ebay.charge;
+  assert.strictEqual(ob.total, Math.round((ch.goods + ch.ship + ch.cut) * 100) / 100);
+  assert.ok(!db.ledger.find((x) => x.order_id === ob.id && x.type === 'ebay_sale'));
+  // the seller earns money on Kinan → the next round takes it from the balance and the order goes ahead
+  db.ledger.insert({ seller_id: b.id, order_id: 'earlier', type: 'sale', currency: 'usd', gross: 50, commission: 0, cost: 0, net: 50, status: 'payable' });
+  await ebay.tick();
+  assert.notStrictEqual(db.orders.get(ob.id).status, 'pending_payment');
+  assert.strictEqual(money.sellerBalance(b.id).available, Math.round((50 - ob.total) * 100) / 100);
+  assert.ok(db.ledger.find((x) => x.order_id === ob.id && x.type === 'ebay_charge' && x.net === -ob.total));
 });

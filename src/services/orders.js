@@ -156,6 +156,8 @@ async function markPaid(orderId, { provider, intent_id }) {
   for (const [sellerId, lines] of Object.entries(bySeller)) {
     const s = db.sellers.get(sellerId);
     if (s?.system) continue; // Kinan's own shop (buy-for-me): no seller to pay
+    // Sold on eBay: the seller's share is the profit after eBay's fees, goods and delivery, less Kinan's part of it
+    if (o.channel === 'ebay') { const e = require('./ebay').ledgerFor(o, sellerId, lines); if (e) db.ledger.insert(e); continue; }
     const gross = money(lines.reduce((a, l) => a + l.price * l.qty, 0));
     const commission = money(gross * (Number(s?.commission_pct ?? config.defaultCommissionPct) / 100));
     // Items Kinan buys itself — AliExpress, manual Taobao, and Taobao items bought with Kinan's own Taobao account —

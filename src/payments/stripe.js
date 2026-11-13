@@ -228,4 +228,15 @@ async function attachCustomer(intentId, customer) {
   return stripe(`/payment_intents/${intentId}`, { customer });
 }
 
-module.exports = { customerFor, cardSetup, listCards, removeCard, attachCustomer, chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };
+/** A Stripe-hosted payment page (for sellers paying Kinan for an eBay order). The PaymentIntent carries order_id, so the
+ *  usual payment webhook marks the order paid. */
+async function checkoutUrl({ amount, currency, name, order_id, success_url, cancel_url }) {
+  const s = await stripe('/checkout/sessions', {
+    mode: 'payment', success_url, cancel_url,
+    line_items: [{ quantity: 1, price_data: { currency: String(currency).toLowerCase(), unit_amount: toMinor(amount, currency), product_data: { name } } }],
+    payment_intent_data: { metadata: { order_id } }, metadata: { order_id }
+  }, `cs_${order_id}_${toMinor(amount, currency)}`);
+  return s.url;
+}
+
+module.exports = { checkoutUrl, customerFor, cardSetup, listCards, removeCard, attachCustomer, chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };

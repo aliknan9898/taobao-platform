@@ -9,6 +9,13 @@ const db = require('../db');
 const { httpError } = require('../auth');
 
 const SID = 'ebay_auth';
+// Whose eBay account a call is for: 'kinan' (Kinan's own) or a seller id (a seller who linked their own eBay account).
+// Set around a piece of work with withAccount(); everything inside (tokens, sign-in, calls) uses that account.
+const { AsyncLocalStorage } = require('async_hooks');
+const acctCtx = new AsyncLocalStorage();
+const account = () => acctCtx.getStore() || 'kinan';
+const withAccount = (a, fn) => acctCtx.run(a || 'kinan', fn);
+const sid = () => (account() === 'kinan' ? SID : `${SID}_${account()}`);
 const SCOPES = [
   'https://api.ebay.com/oauth/api_scope',
   'https://api.ebay.com/oauth/api_scope/sell.inventory',
@@ -23,8 +30,8 @@ const authBase = () => (sandbox() ? 'https://auth.sandbox.ebay.com' : 'https://a
 const configured = () => Boolean(process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET && process.env.EBAY_RUNAME);
 const basic = () => Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString('base64');
 
-function saved() { return db.settings.get(SID) || null; }
-function save(doc) { const s = saved(); return s ? db.settings.update(SID, doc) : db.settings.insert({ id: SID, ...doc }); }
+function saved() { return db.settings.get(sid()) || null; }
+function save(doc) { const s = saved(); return s ? db.settings.update(sid(), doc) : db.settings.insert({ id: sid(), ...doc }); }
 function connected() { const s = saved(); return Boolean(configured() && s && s.refresh_token && s.env === env() && (s.refresh_exp || 0) > Date.now()); }
 
 async function token(form) {
@@ -44,17 +51,21 @@ async function token(form) {
 function authUrl() {
   if (!configured()) throw httpError(503, 'eBay keys are not set yet (EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_RUNAME)');
   const state = crypto.randomBytes(16).toString('hex');
-  db.oauthStates.insert({ state, kind: 'ebay', created_at: Date.now() });
-  console.log(`[ebay] Connect pressed — sending the admin to eBay (${env()}, RuName ${process.env.EBAY_RUNAME})`);
+  db.oauthStates.insert({ state, kind: 'ebay', acct: account(), created_at: Date.now() });
+  console.log(`[ebay] Connect pressed (${account()}) — sending to eBay (${env()}, RuName ${process.env.EBAY_RUNAME})`);
   // eBay wants spaces in scope as %20 (URLSearchParams would write "+")
   const enc = encodeURIComponent;
   return `${authBase()}/oauth2/authorize?client_id=${enc(process.env.EBAY_CLIENT_ID)}&redirect_uri=${enc(process.env.EBAY_RUNAME)}&response_type=code&scope=${enc(SCOPES.join(' '))}&state=${state}&prompt=login`;
 }
 
+/** Finishes a sign-in; returns whose account it was ('kinan' or the seller id). */
 async function handleCallback(code, state) {
   const st = state && db.oauthStates.all((x) => x.state === state && x.kind === 'ebay')[0];
   if (!st || Date.now() - st.created_at > 30 * 60e3) throw httpError(400, 'The eBay link expired — press Connect again');
   db.oauthStates.remove(st.id);
+  return withAccount(st.acct || 'kinan', async () => { await finish(code); return st.acct || 'kinan'; });
+}
+async function finish(code) {
   if (!code) throw httpError(400, 'eBay did not send a sign-in code');
   const j = await token({ grant_type: 'authorization_code', code, redirect_uri: process.env.EBAY_RUNAME });
   save({ env: env(), access_token: j.access_token, access_exp: Date.now() + (j.expires_in - 120) * 1000, refresh_token: j.refresh_token, refresh_exp: Date.now() + (j.refresh_token_expires_in || 47304000) * 1000, connected_at: Date.now(), account: null });
@@ -84,7 +95,7 @@ async function pasteCode(text) {
   return handleCallback(code, st.state);
 }
 
-function disconnect() { const s = saved(); if (s) db.settings.update(SID, { access_token: null, refresh_token: null, refresh_exp: 0 }); }
+function disconnect() { const s = saved(); if (s) db.settings.update(sid(), { access_token: null, refresh_token: null, refresh_exp: 0 }); }
 
 async function userToken() {
   const s = saved();
@@ -201,4 +212,4 @@ function status() {
   return { configured: configured(), env: env(), connected: connected(), connected_at: s?.connected_at || null, account: s?.account || null, refresh_expires_at: s?.refresh_exp || null, deletion_token: verificationToken() };
 }
 
-module.exports = { whoAmI, trading, parseXml, kid, kidsOf, xmlEsc, pasteCode, checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };
+module.exports = { account, withAccount, whoAmI, trading, parseXml, kid, kidsOf, xmlEsc, pasteCode, checkKeys, api, authUrl, handleCallback, disconnect, connected, configured, env, status, challenge, SCOPES, _reset: () => { app = null; } };

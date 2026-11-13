@@ -556,6 +556,14 @@ r('POST', '/api/admin/telegram/report', ADMIN, async () => { const p = require('
 r('POST', '/api/admin/telegram/unlink', ADMIN, async () => require('./services/telegram').unlink());
 r('GET', '/api/admin/gpsr', ADMIN, async () => require('./services/gpsr').status());
 r('PUT', '/api/admin/gpsr', ADMIN, async ({ req }) => require('./services/gpsr').save(await readJson(req)));
+r('POST', '/api/admin/ebay/sellers/:id', ADMIN, async ({ req, params }) => require('./services/ebay').approveSeller(params.id, (await readJson(req)).approve !== false));
+r('GET', '/api/seller/ebay', SELLER, async ({ seller }) => require('./services/ebay').sellerView(seller));
+r('PUT', '/api/seller/ebay', SELLER, async ({ req, seller }) => require('./services/ebay').sellerSettings(seller, await readJson(req)));
+r('POST', '/api/seller/ebay/connect', SELLER, async ({ seller }) => require('./services/ebay').sellerConnectUrl(seller));
+r('POST', '/api/seller/ebay/disconnect', SELLER, async ({ seller }) => require('./services/ebay').sellerDisconnect(seller));
+r('POST', '/api/seller/ebay/list', SELLER, async ({ req, seller }) => { const b = await readJson(req); return require('./services/ebay').sellerList(seller, { ids: Array.isArray(b.ids) ? b.ids.map(String) : undefined }); });
+r('POST', '/api/seller/ebay/end/:id', SELLER, async ({ seller, params }) => { const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found'); return require('./services/ebay').endOne(l.id); });
+r('POST', '/api/seller/ebay/orders/:id/pay', SELLER, async ({ seller, params }) => require('./services/ebay').payLink(seller, params.id));
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
 r('GET', '/api/admin/sourcing', ADMIN, async () => require('./services/sourcing').status());
 r('PUT', '/api/admin/sourcing', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); sr.savePrefs(await readJson(req)); return sr.status(); });
@@ -804,7 +812,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/oauth/ebay/callback' && req.method === 'GET') {
       const q = url.searchParams;
       console.log(`[ebay] sign-in returned (${req.method}, keys: ${[...q.keys()].join(',') || 'none'}, ref: ${String(req.headers.referer || '').split('?')[0]}): code ${q.get('code') ? 'yes' : 'no'}, state ${q.get('state') ? 'yes' : 'no'}${q.get('error') ? `, error ${q.get('error')}: ${q.get('error_description') || ''}` : ''}`);
-      try { await require('./ebay/client').handleCallback(q.get('code'), q.get('state')); console.log('[ebay] connected'); res.writeHead(302, { Location: '/admin?ebay=connected#ebay' }); }
+      try { const acct = await require('./ebay/client').handleCallback(q.get('code'), q.get('state')); console.log(`[ebay] connected (${acct})`); res.writeHead(302, { Location: acct === 'kinan' ? '/admin?ebay=connected#ebay' : '/seller?ebay=connected#/ebay' }); }
       catch (e) { console.warn('[ebay] connect failed:', e.message); require('./services/ebay').noteError?.(e.message); res.writeHead(302, { Location: `/admin?login_error=${encodeURIComponent(q.get('error_description') || e.message)}#ebay` }); }
       return res.end();
     }
