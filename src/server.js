@@ -537,7 +537,7 @@ r('GET', '/api/admin/collections/:id', ADMIN, async ({ params }) => { const sz =
 r('GET', '/api/admin/keywords', ADMIN, async () => require('./services/keywords').status());
 r('GET', '/api/admin/keywords/connect', ADMIN, async () => ({ url: require('./services/keywords').authUrl() }));
 r('POST', '/api/admin/keywords/disconnect', ADMIN, async () => { require('./services/keywords').disconnect(); return require('./services/keywords').status(); });
-r('POST', '/api/admin/keywords/run', ADMIN, async () => { const k = require('./services/keywords'); require('./cj/client').background(() => k.tick({ max: 100 })).catch(() => {}); return { started: true }; });
+r('POST', '/api/admin/keywords/run', ADMIN, async () => { const k = require('./services/keywords'); k.unblock(); require('./cj/client').background(() => k.tick({ max: 100 })).catch(() => {}); return { started: true }; });
 r('POST', '/api/admin/keywords/ideas', ADMIN, async ({ req }) => { const b = await readJson(req); return { ideas: (await require('./services/keywords').ideas(String(b.seeds || '').split(/[,\n]+/))).sort((a, c) => c.volume - a.volume).slice(0, 100) }; });
 r('POST', '/api/admin/keywords/product/:id', ADMIN, async ({ params }) => require('./services/keywords').improve(params.id));
 r('GET', '/api/admin/telegram', ADMIN, async () => require('./services/telegram').status());

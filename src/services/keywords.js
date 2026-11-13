@@ -192,4 +192,7 @@ async function checkAccount() {
   return r;
 }
 
-module.exports = { checkAccount, configured, connected, authUrl, handleCallback, disconnect, ideas, improve, tick, status, seedsFor, _cache: cache };
+/** The admin pressed "Update now": ask Google again even during a pause (the owner may have just fixed the account). */
+function unblock() { saveState({ blocked_until: 0 }); }
+
+module.exports = { unblock, checkAccount, configured, connected, authUrl, handleCallback, disconnect, ideas, improve, tick, status, seedsFor, _cache: cache };
