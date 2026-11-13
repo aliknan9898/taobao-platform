@@ -183,4 +183,13 @@ function status() {
   };
 }
 
-module.exports = { configured, connected, authUrl, handleCallback, disconnect, ideas, improve, tick, status, seedsFor, _cache: cache };
+/** At start-up: when the Google Ads account number has changed, try it at once on a few products (no hour's wait). */
+async function checkAccount() {
+  if (!connected() || state().checked_customer === customer()) return null;
+  saveState({ checked_customer: customer() });
+  const r = await tick({ max: 3 });
+  console.log(`[keywords] account ${customer()} check: ${r.done ? 'works' : `failed — ${state().last_error || 'no answer'}`}`);
+  return r;
+}
+
+module.exports = { checkAccount, configured, connected, authUrl, handleCallback, disconnect, ideas, improve, tick, status, seedsFor, _cache: cache };

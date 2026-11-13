@@ -869,6 +869,7 @@ function startJobs() {
   every(15 * 60e3, () => require('./services/ebay').tick());
   every(3600e3, () => require('./services/points').settle()); // Kinan points for delivered orders
   every(3600e3, () => require('./services/keywords').tick()); // Google Keyword Planner: real search keywords for products
+  setTimeout(() => require('./cj/client').background(() => require('./services/keywords').checkAccount()).catch((e) => console.warn('[keywords] check:', e.message)), 45e3);
   every(10 * 60e3, () => require('./services/uilang').tick()); // French, German, Italian, Spanish
   setTimeout(() => require('./services/uilang').tick().catch(() => {}), 90e3); // start translating soon after a deploy
   every(3600e3, () => require('./services/sourcing').tick()); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
