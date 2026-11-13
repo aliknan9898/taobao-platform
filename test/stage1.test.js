@@ -228,3 +228,17 @@ test('CJ background work stops at its daily limit and when CJ says the points ar
     assert.ok(cjc.usage().points_out_until > Date.now());
   } finally { global.fetch = prev; delete process.env.CJ_API_KEY; }
 });
+
+test('NSS receiving orders: Taobao parcels on their way are listed with SKU, barcode and quantity until marked done', () => {
+  const nss = require('../src/services/nss');
+  const o = db.orders.insert({ buyer_id: 'u1', status: 'processing', lines: [{ line_no: '1', listing_id: 'lst_abc123', mp_sku_id: '555', title: 'Silk scarf', props: 'Red', qty: 2, price: 10 }, { line_no: '2', listing_id: 'lst_cj', mp_sku_id: 'x', title: 'CJ item', qty: 1, direct: true }] });
+  const p = db.parcels.insert({ order_id: o.id, tracking: 'YT 1234 5678', carrier: 'YTO', mp_sku_id: '555', status: 'expected' });
+  const list = nss.receivings().filter((x) => x.order_id === o.id);
+  assert.strictEqual(list.length, 1);
+  assert.strictEqual(list[0].tracking, 'YT12345678', 'no spaces, as NSS asks');
+  assert.deepStrictEqual(list[0].items.map((i) => [i.sku, i.qty, i.name]), [[nss.skuOf(o.lines[0]), 2, 'Silk scarf (Red)']]);
+  assert.match(list[0].items[0].barcode, /^KN[0-9A-F]{12}$/);
+  nss.receivingDone(p.id);
+  assert.strictEqual(nss.receivings().filter((x) => x.order_id === o.id).length, 0);
+  assert.strictEqual(nss.warehouseAddress().name, '智选云仓+NSS40735');
+});

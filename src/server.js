@@ -474,6 +474,8 @@ r('POST', '/api/admin/orders/:id/aliexpress', PROC, async ({ req, params, user }
 // CJdropshipping: catalog, import, settings, wallet
 // NextSmartShip (China warehouse + international shipping)
 r('GET', '/api/admin/nss', STAFF, async () => require('./services/nss').status());
+r('GET', '/api/admin/nss/receivings', STAFF, async () => ({ list: require('./services/nss').receivings(), address: require('./services/nss').warehouseAddress() }));
+r('POST', '/api/admin/nss/receivings/:id', STAFF, async ({ req, params }) => require('./services/nss').receivingDone(params.id, (await readJson(req)).done !== false));
 r('PUT', '/api/admin/nss/settings', ADMIN, async ({ req }) => require('./services/nss').savePrefs(await readJson(req)));
 r('POST', '/api/admin/orders/:id/nss', PROC, async ({ req, params, user }) => {
   const n = require('./services/nss'); const b = await readJson(req);

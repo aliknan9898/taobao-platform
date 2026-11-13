@@ -374,6 +374,7 @@ async function syncSub(orderId, outer) {
   for (const lg of sub.logistics) {
     if (!db.parcels.find((p) => p.tracking === lg.tracking)) {
       db.parcels.insert({ order_id: o.id, seller_id: sub.seller_id, outer_purchase_id: outer, tracking: lg.tracking, carrier: lg.carrier, mp_sku_id: lg.mp_sku_id, status: 'expected' });
+      try { require('../push').telegram(`📦 Taobao parcel on its way to the NSS China warehouse: ${lg.carrier || ''} ${lg.tracking} (order ${o.id.slice(-8).toUpperCase()}). Create the receiving order at NSS — Admin → NextSmartShip lists the SKU and quantity.`); } catch { /* optional */ }
     }
   }
   db.orders.update(o.id, (x) => ({ ...x, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === outer ? sub : s)) }));

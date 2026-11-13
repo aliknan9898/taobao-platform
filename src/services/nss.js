@@ -243,4 +243,27 @@ async function status() {
   return out;
 }
 
-module.exports = { prefs, savePrefs, status, ensureProduct, createOrder, options, ship, sync, cancel, onPaid, tick, verify, onWebhook, registerWebhook, skuOf, recipientOf, CUSTOMS };
+// ---------------- receiving orders (NSS: one per inbound parcel, created by hand in the NSS portal — not possible by API) ----------------
+
+/** Parcels Taobao sellers sent to the NSS China warehouse that still need a receiving order at NSS. */
+function receivings() {
+  const out = [];
+  for (const p of db.parcels.all((x) => !x.nss_receiving_at && !['received', 'cancelled'].includes(x.status))) {
+    const o = db.orders.get(p.order_id); if (!o || ['cancelled', 'refunded'].includes(o.status)) continue;
+    const lines = warehouseLines(o).filter((l) => !p.mp_sku_id || String(l.mp_sku_id) === String(p.mp_sku_id));
+    const items = (lines.length ? lines : warehouseLines(o)).map((l) => ({ sku: skuOf(l), barcode: `KN${hash(skuOf(l), 12)}`, name: `${l.title}${l.props ? ` (${l.props})` : ''}`.slice(0, 120), qty: l.qty }));
+    out.push({ id: p.id, order_id: o.id, order: o.id.slice(-8).toUpperCase(), tracking: String(p.tracking || '').replace(/\s+/g, ''), carrier: p.carrier || '', created_at: p.created_at, items, nss_order: o.nss?.order_number || null });
+  }
+  return out.sort((a, b) => a.created_at - b.created_at);
+}
+function receivingDone(parcelId, done = true) {
+  const p = db.parcels.get(parcelId); if (!p) throw httpError(404, 'Not found');
+  return db.parcels.update(parcelId, { nss_receiving_at: done ? now() : null });
+}
+/** NSS's China warehouse address for Taobao sellers (recipient carries Kinan's customer code). */
+function warehouseAddress() {
+  const code = nss.customerCode?.() || process.env.NSS_CUSTOMER_CODE || 'NSS40735';
+  return { name: `智选云仓+${code}`, mobile: '18128567051', zip: '523820', state: '广东省', city: '东莞市', district: '大岭山镇', detail: '连平村连环路35号2号楼501室（智选云仓公司件）', country: '中国' };
+}
+
+module.exports = { receivings, receivingDone, warehouseAddress, prefs, savePrefs, status, ensureProduct, createOrder, options, ship, sync, cancel, onPaid, tick, verify, onWebhook, registerWebhook, skuOf, recipientOf, CUSTOMS };

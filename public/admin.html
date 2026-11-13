@@ -366,6 +366,17 @@ const VIEWS = {
           <label><input type="checkbox" name="auto_ship" ${p.auto_ship ? 'checked' : ''}> Ship automatically when the goods arrive</label>
           <label>Shipping <select name="shipping"><option value="cheapest" ${p.shipping === 'cheapest' ? 'selected' : ''}>Cheapest</option><option value="balanced" ${p.shipping === 'balanced' ? 'selected' : ''}>Cheapest within max days</option><option value="fastest" ${p.shipping === 'fastest' ? 'selected' : ''}>Fastest</option></select></label>
           <label>Max days <input type="number" name="max_days" min="3" max="60" value="${esc(p.max_days)}" style="width:64px"></label><button class="btn ghost">Save</button><span class="muted" id="nssm"></span></form>` : ''}`;
+      el.insertAdjacentHTML('beforeend', '<div id="nssrecv"></div>');
+      api('/api/admin/nss/receivings').then((r) => {
+        const box = $('#nssrecv'); if (!box) return;
+        box.innerHTML = `<h3 style="margin-top:12px">Receiving orders to create at NSS (${r.list.length})</h3>
+          <p class="muted small">NSS needs a receiving order for every parcel a Taobao seller sends to their China warehouse — created by hand in the NSS portal (Inbound → Create receiving), before the parcel arrives. One parcel = one receiving: add the tracking number (no spaces) and the products below. Turn on the labelling service (0.10 $/unit) so NSS sticks the barcode.</p>
+          ${r.list.length ? r.list.map((x) => `<div class="stack" style="border-top:1px solid var(--line);padding:8px 0"><div class="row" style="justify-content:space-between"><span>Order <b>${esc(x.order)}</b> · ${esc(x.carrier)} <code>${esc(x.tracking)}</code> <button class="btn ghost" data-copy="${esc(x.tracking)}">Copy</button></span><button class="btn" data-recv="${esc(x.id)}">Created at NSS ✓</button></div>
+            <table class="small"><tr><th>SKU</th><th>Barcode</th><th>Product</th><th>Qty</th></tr>${x.items.map((i) => `<tr><td><code>${esc(i.sku)}</code></td><td><code>${esc(i.barcode)}</code></td><td>${esc(i.name)}</td><td>${i.qty}</td></tr>`).join('')}</table></div>`).join('') : '<p class="muted small">Nothing to do — new Taobao parcels appear here as soon as the seller ships.</p>'}
+          <details><summary class="small">NSS China warehouse address (for Taobao)</summary><pre class="small" style="white-space:pre-wrap">${esc(`${r.address.name}\n${r.address.mobile}\n${r.address.state} ${r.address.city} ${r.address.district}\n${r.address.detail}\n${r.address.zip} ${r.address.country}`)}</pre></details>`;
+        box.querySelectorAll('[data-copy]').forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; } catch { /* ignore */ } });
+        box.querySelectorAll('[data-recv]').forEach((b) => b.onclick = async () => { await api(`/api/admin/nss/receivings/${b.dataset.recv}`, 'POST', { done: true }); b.closest('.stack').remove(); });
+      }).catch(() => {});
       const f = $('#nssf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/nss/settings', 'PUT', { auto_create: Boolean(x.auto_create), auto_ship: Boolean(x.auto_ship), shipping: x.shipping, max_days: Number(x.max_days) }); $('#nssm').textContent = 'Saved.'; } catch (err) { $('#nssm').textContent = err.message; } };
     }).catch(() => {});
     const aeS = await api('/api/admin/aliexpress');
