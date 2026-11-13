@@ -386,6 +386,33 @@ function many(ids) {
   return { items: want.map((id) => all.get(id)).filter(Boolean) };
 }
 
+/**
+ * When a product would arrive, like big marketplaces show it ("Arrives Thu 20 – Mon 24 Nov"): working days to dispatch,
+ * then the delivery time to the shopper's country. Dates are worked out in the shop's time zone (Malta).
+ */
+const DISPATCH_DAYS = () => Math.max(0, Number(process.env.DISPATCH_DAYS ?? 1));
+function delivery(id, country, now = Date.now()) {
+  const l = db.listings.get(id);
+  if (!l) throw httpError(404, 'Product not found');
+  const cc = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
+  if (!cc) return { country: null };
+  let d;
+  if (l.source === 'cj') {
+    const cj = require('./cj');
+    if (cj.noDelivery(l, cc)) return { country: cc, none: true };
+    d = cj.deliveryDays(l, cc);
+  } else if (l.fulfillment === 'direct') d = { min: 10, max: 20, known: false };
+  else d = { min: 8, max: 18, known: false }; // via Kinan's warehouse in China
+  // Skip Sundays for dispatch (warehouses do not ship then)
+  let start = now; let left = DISPATCH_DAYS();
+  while (left > 0) { start += 86400e3; if (new Date(start).getUTCDay() !== 0) left--; }
+  const from = start + d.min * 86400e3; const to = start + d.max * 86400e3;
+  const xmas = (() => { const y = new Date(now).getUTCFullYear(); const eve = Date.UTC(y, 11, 24, 23, 0); return now < eve ? eve : null; })();
+  return {
+    country: cc, min_days: d.min, max_days: d.max, from, to, known: Boolean(d.known),
+    ...(xmas ? { christmas: { before: to <= xmas, order_by: xmas - (d.max + DISPATCH_DAYS() + 1) * 86400e3 } } : {})
+  };
+}
 /** Products like this one: same section/collection first, then shared title words and keywords, same category. */
 function similar(id, limit = 12) {
   const l = db.listings.get(id);
@@ -406,5 +433,5 @@ function similar(id, limit = 12) {
   return { items: out.sort((a, b) => b.sc - a.sc || b.p.listed_at - a.p.listed_at).slice(0, limit).map((x) => x.p) };
 }
 
-module.exports = { many, similar,
+module.exports = { delivery, many, similar,
   optionGroups, checkMargins, photoUrl, imageData, logoUrl, publishManual, toYuan, propsLabel, approve, reject, sellerSetStatus, preview, publish, resync, resyncStale, browse, buyerListing, normalizeProduct, defaultPrice };

@@ -41,7 +41,13 @@
   .asitem > span { display: grid; gap: 2px; }
   .asform { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); }
   .asform input { flex: 1; min-width: 0; }
-.camp-band { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 10px 0 16px; padding: 16px 18px; border-radius: 16px; background: #111; color: #fff; text-decoration: none; }
+.gc-band { display: block; margin: -6px 0 14px; padding: 10px 14px; border-radius: 12px; border: 1px dashed var(--line); text-decoration: none; color: inherit; font-size: 14.5px; }
+  .gcard { aspect-ratio: 1.6; border-radius: 18px; padding: 18px; background: linear-gradient(135deg, #0e7c66, #0b4f43); color: #fff; display: grid; align-content: space-between; box-shadow: 0 10px 30px rgba(0,0,0,.15); } .gcard span { font-weight: 800; font-size: 20px; } .gcard b { font-size: 34px; } .gcard small { opacity: .8; }
+  .eta { margin-top: 6px; line-height: 1.5; } .xmas-ok { color: #0e7c66; font-weight: 600; }
+  .fbt { display: flex; align-items: stretch; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .fbt-item { display: grid; gap: 4px; width: 140px; flex: none; cursor: pointer; } .fbt-item img { width: 140px; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--line); }
+  .fbt-plus { align-self: center; font-size: 22px; color: var(--ink-2); }
+  .camp-band { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 10px 0 16px; padding: 16px 18px; border-radius: 16px; background: #111; color: #fff; text-decoration: none; }
   .camp-band b { display: block; font-size: 19px; margin: 3px 0; } .camp-band .cb-kicker { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #f6c453; font-weight: 700; }
   .camp-band .cb-sub { font-size: 13.5px; color: #d9d9d9; } .camp-band .countdown { font-variant-numeric: tabular-nums; font-weight: 700; color: #fff; }
   .camp-band .cb-cta { background: #f6c453; color: #111; border: 0; border-radius: 99px; padding: 10px 18px; font-weight: 700; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
@@ -556,7 +562,7 @@ K.onUnauthorized = () => { me = null; };
 const routes = [
   [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
   [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
-  [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/points$/, pointsPage], [/^#\/deals$/, dealsPage], [/^#\/photo$/, photoPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
+  [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/points$/, pointsPage], [/^#\/deals$/, dealsPage], [/^#\/giftcards(?:\/([\w-]+))?$/, (c) => giftcardsPage(c || '')], [/^#\/photo$/, photoPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
   [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
 ];
 async function route() {
@@ -630,6 +636,7 @@ async function home(q = '', category = '') {
   v.innerHTML = `${q || category ? `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a>${q ? `<h2 style="margin-top:6px">Results for “${esc(q)}”</h2>` : ''}</div></div>` : `
     `}
     ${!q && !category ? campaignBand() : ''}
+    ${!q && !category && [10, 11].includes(new Date().getMonth()) ? `<a class="gc-band" href="#/giftcards">🎁 <b>${KinanLang.t('Kinan gift cards')}</b> <span class="muted">— ${KinanLang.t('the easy present, sent by email in minutes')}</span> <span aria-hidden="true">→</span></a>` : ''}
     ${!q && !category && xmasLive() ? `<a class="xmas-band" href="#/x/christmas"><div class="xb-text"><span class="xb-kicker">🎄 <span>Christmas Shop</span></span><b>Decorations, lights &amp; gifts</b><span class="xb-sub">Ships from Europe · arrives before Christmas</span></div><span class="xb-cta">Shop now</span></a><div class="xstrip" id="xstrip"></div>` : ''}
     ${!q && !category && cfg.deals ? `<section class="aisle" id="dealsrow"><div class="sechead deals-head"><h2>🔥 ${KinanLang.t('Today’s deals')}</h2><span class="row" style="gap:10px"><span class="countdown" data-countdown="${cfg.deals.ends}" data-no-tr></span><a href="#/deals">${KinanLang.t('See all')} →</a></span></div><div class="xstrip" id="dealstrip">${Array.from({ length: 4 }, () => '<div class="skeleton" style="aspect-ratio:1"></div>').join('')}</div></section>` : ''}
     ${!q && !category ? '<div id="seenrow"></div>' : ''}
@@ -765,7 +772,7 @@ async function product(id) {
         <div class="row"><div class="qty"><button type="button" id="qm" aria-label="Less">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="More">+</button></div><span class="muted" id="stock"></span></div>
         <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
         <div class="row"><button class="btn quiet" id="share">${ICONS.share} Share</button><button class="btn quiet heart" id="save" type="button">${HEART} <span>Save</span></button>${p.rating ? `<a href="#reviews" class="small" style="text-decoration:none">${stars(p.rating, p.reviews)}</a>` : ''}</div>
-        <div class="landed small" id="landed"></div>
+        <div class="landed small" id="landed"></div><div class="eta small" id="eta"></div>
         <div class="panel flat stack small">
           <div><b>Shipping:</b> priced for your address · tracking included</div>
           ${p.fulfillment === 'direct' ? `<div class="eta"><div><span class="muted">Delivery</span><b>${esc(cfg.aliexpress?.delivery_days || '10–20')} days</b></div><div><span class="muted">Tracking</span><b>Included</b></div></div>
@@ -780,15 +787,18 @@ async function product(id) {
         <div class="stack" id="qa"></div>
       </div>
     </div>
-    <div id="similar"></div><div id="seenrow"></div>`;
+    <div id="together"></div><div id="similar"></div><div id="seenrow"></div>`;
   Seen.add(p.id);
   loadQA(p);
+  showEta(p.id);
+  api(`/api/catalog/${encodeURIComponent(p.id)}/together`).then((d) => boughtTogether(p, d)).catch(() => {});
   api(`/api/catalog/${encodeURIComponent(p.id)}/similar`).then((d) => { const el = $('#similar'); if (el && d.items.length) el.innerHTML = stripSection(KinanLang.t('Similar products'), d.items); }).catch(() => {});
   fillSeen($('#seenrow'), p.id);
   api(`/api/catalog/${encodeURIComponent(p.id)}/reviews`).then((r) => {
     if (!r.count) return;
     const shots = r.reviews.flatMap((x) => x.photos).slice(0, 12);
-    $('#reviews').innerHTML = `<h3>Reviews ${stars(r.average, r.count)}</h3>${shots.length ? `<div class="muted small">${KinanLang.t('Customer photos')}</div><div class="row" style="gap:6px;overflow-x:auto">${shots.map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" alt="" loading="lazy" style="width:72px;height:72px;object-fit:cover;border-radius:10px"></a>`).join('')}</div>` : ''}<div>${r.reviews.map((x) => `<div class="rev"><div class="row between"><b>${esc(x.name)}</b><span>${'★'.repeat(x.rating)}<span class="muted">${'★'.repeat(5 - x.rating)}</span></span></div>
+    const sm = r.summary ? `<div class="panel flat small revsum"><b>✨ ${KinanLang.t('Customers say')}</b><p dir="auto" style="margin:6px 0">${esc(KinanLang.lang === 'ar' && r.summary.text_ar ? r.summary.text_ar : r.summary.text)}</p>${(r.summary.tags || []).length ? `<div class="row" style="gap:6px;flex-wrap:wrap">${r.summary.tags.map((t) => `<span class="pill ${t.good ? 'ok' : 'warn'}">${t.good ? '✓' : '!'} ${esc(KinanLang.lang === 'ar' && t.label_ar ? t.label_ar : t.label)}</span>`).join('')}</div>` : ''}<div class="muted" style="margin-top:6px">${KinanLang.t('AI summary of')} ${r.summary.based_on} ${KinanLang.t('reviews')}</div></div>` : '';
+    $('#reviews').innerHTML = `<h3>Reviews ${stars(r.average, r.count)}</h3>${sm}${shots.length ? `<div class="muted small">${KinanLang.t('Customer photos')}</div><div class="row" style="gap:6px;overflow-x:auto">${shots.map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" alt="" loading="lazy" style="width:72px;height:72px;object-fit:cover;border-radius:10px"></a>`).join('')}</div>` : ''}<div>${r.reviews.map((x) => `<div class="rev"><div class="row between"><b>${esc(x.name)}</b><span>${'★'.repeat(x.rating)}<span class="muted">${'★'.repeat(5 - x.rating)}</span></span></div>
       ${x.text ? `<div dir="auto">${esc(x.text)}</div>` : ''}${x.photos.length ? `<div class="ph">${x.photos.map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" alt="" loading="lazy"></a>`).join('')}</div>` : ''}
       <span class="small"><b style="color:var(--brand,#0f7a5c)">✓</b> <span style="color:var(--brand,#0f7a5c)">Verified purchase</span> <span class="muted">· ${date(x.at, false)}</span></span></div>`).join('')}</div>`;
   }).catch(() => {});
@@ -928,7 +938,10 @@ async function cart() {
       </aside>
     </div>`;
   if (savedAddress().country_code && items.length) api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: savedAddress().country_code }).then((q) => {
-    if (!$('#cship')) return; $('#cship').textContent = q.fee ? money(q.fee, cur) : 'Included'; $('#ctot').innerHTML = `${money(sub + q.fee, cur)}${localPrice(sub + q.fee) ? `<div class="lp" style="font-weight:400">${localPrice(sub + q.fee)}</div>` : ''}`;
+    if (!$('#cship')) return; $('#cship').textContent = q.fee ? money(q.fee, cur) : 'Included';
+    const bd = Number(q.bundle_discount) || 0;
+    if (bd) $('#cship').parentElement.insertAdjacentHTML('afterend', `<div><span>${KinanLang.t('Bought together')}</span><span class="dealtxt">−${money(bd, cur)}</span></div>`);
+    $('#ctot').innerHTML = `${money(sub + q.fee - bd, cur)}${localPrice(sub + q.fee - bd) ? `<div class="lp" style="font-weight:400">${localPrice(sub + q.fee - bd)}</div>` : ''}`;
   }).catch(() => {});
   const upd = (i, q) => { const c = Cart.get(); if (q <= 0) c.splice(i, 1); else c[i].qty = Math.min(q, items[i].max || 999); Cart.set(c); cart(); };
   $$('[data-dec]').forEach((b) => b.onclick = () => upd(+b.dataset.dec, items[+b.dataset.dec].qty - 1));
@@ -968,16 +981,18 @@ async function checkout() {
       <div><span>Shipping</span><span id="kship">Choose a country</span></div><div class="muted small" id="kshipnote"></div>
       <div id="kpack" hidden><span>Extra protection</span><span id="kpackv"></span></div>
       <div id="kdisc" hidden><span>Discount <code id="kcode"></code></span><span id="kdiscv" class="amt pos"></span></div>
+      <div id="kbundle" hidden><span>${KinanLang.t('Bought together')}</span><span class="dealtxt"></span></div>
       <form class="row" id="cpf" style="gap:6px;flex-wrap:nowrap"><input name="code" placeholder="Discount code" autocomplete="off" style="flex:1;min-width:0;text-transform:uppercase"><button class="btn sm ghost">Apply</button></form><div class="small" id="cpm"></div>
       <div class="total"><span>Total</span><span id="ktot">${money(sub, cur)}</span></div></aside></div>`;
   let lastFee = 0;
   const extras = () => { const f = $('#af'); return f.packaging && f.packaging.value === 'protect' ? Number((cfg.packaging || {}).protect || 2) : 0; };
   let coupon = null;
-  const paintTotal = () => { const t = Math.max(0, sub + lastFee + extras() - (coupon ? coupon.discount : 0)); $('#kdisc').hidden = !coupon; if (coupon) { $('#kcode').textContent = coupon.code; $('#kdiscv').textContent = '−' + money(coupon.discount, cur); } $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
+  let bundleOff = 0;
+  const paintTotal = () => { const t = Math.max(0, sub + lastFee + extras() - (coupon ? coupon.discount : 0) - bundleOff); { const kb = $('#kbundle'); if (kb) { kb.hidden = !bundleOff; kb.querySelector('span:last-child').textContent = '−' + money(bundleOff, cur); } } $('#kdisc').hidden = !coupon; if (coupon) { $('#kcode').textContent = coupon.code; $('#kdiscv').textContent = '−' + money(coupon.discount, cur); } $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
   const requote = async () => {
     const code = $('#af').country_code.value; if (!code) return;
     try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: code });
-      lastFee = q.fee || 0;
+      lastFee = q.fee || 0; bundleOff = Number(q.bundle_discount) || 0;
       $('#kship').textContent = q.fee ? money(q.fee, cur) : 'Included';
       $('#kshipnote').textContent = [q.weight_kg ? `${q.weight_kg} kg estimated · arrives in about ${q.days} days. If your parcel weighs less, we refund the difference to your wallet.` : '', q.cj?.fee ? `Includes ${money(q.cj.fee, cur)} for items that ship separately${q.cj.days ? ` (about ${String(q.cj.days).replace('-', '–')} days)` : ''}.` : ''].filter(Boolean).join(' ');
       paintTotal();
@@ -1061,12 +1076,15 @@ async function pay(id) {
     <div class="two"><div class="panel stack">
       ${demo ? `<div class="pill warn" style="justify-self:start">Test mode</div><p>Card payments are not switched on yet. Use the test payment to try the full order flow — no money is charged.</p><button class="btn" id="demo">Pay ${money(o.total, o.currency)} (test)</button>`
         : `<div id="savedcards" class="stack" hidden></div><div id="pay-element"></div><button class="btn" id="paybtn" disabled>Pay ${money(o.total, o.currency)}</button>`}
-      ${wallet.balance > 0 ? `<div class="panel flat row between small"><span>Wallet balance: <b>${money(wallet.balance, o.currency)}</b></span>${canWallet ? `<button class="btn sm ghost" id="wpay">Pay with wallet</button>` : '<span class="muted">Not enough for this order</span>'}</div>` : ''}
+      ${o.wallet_applied ? `<div class="panel flat row between small"><span>${KinanLang.t('From your wallet')}: <b>−${money(o.wallet_applied, o.currency)}</b> · ${KinanLang.t('rest by card')}</span><button class="btn sm quiet" id="wundo">${KinanLang.t('Undo')}</button></div>`
+        : wallet.balance > 0 ? `<div class="panel flat row between small"><span>Wallet balance: <b>${money(wallet.balance, o.currency)}</b></span>${canWallet ? `<button class="btn sm ghost" id="wpay">Pay with wallet</button>` : `<button class="btn sm ghost" id="wpart">${KinanLang.t('Use it, pay the rest by card')}</button>`}</div>` : ''}
       <div class="error" id="pe"></div>
       <a class="muted" href="#/orders/${esc(id)}">Pay later — the order stays in your orders</a>
     </div>
     <aside class="panel sum">${o.lines.map((l) => `<div class="small"><span>${l.qty} × ${esc(l.title.slice(0, 40))}</span><span>${money(l.price * l.qty, o.currency)}</span></div>`).join('')}
       <div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div><div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div></aside></div>`;
+  const wpart = $('#wpart'); if (wpart) wpart.onclick = async () => { wpart.disabled = true; try { await api(`/api/buyer/orders/${id}/apply-wallet`, 'POST'); pay(id); } catch (e) { $('#pe').textContent = e.message; wpart.disabled = false; } };
+  const wundo = $('#wundo'); if (wundo) wundo.onclick = async () => { try { await api(`/api/buyer/orders/${id}/remove-wallet`, 'POST'); pay(id); } catch (e) { $('#pe').textContent = e.message; } };
   const wp = $('#wpay');
   if (wp) wp.onclick = async () => { wp.disabled = true; try { await api(`/api/buyer/orders/${id}/pay-wallet`, 'POST'); toast('Paid from your wallet'); location.hash = `#/orders/${id}`; } catch (e) { $('#pe').textContent = e.message; wp.disabled = false; } };
   if (demo) {
@@ -1307,6 +1325,7 @@ async function account() {
       <div class="panel stack" id="cardbox"></div>
       ${KinanLang.folded('Language', 'The app and our emails use this language.', 'panel')}
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
+      <a class="panel acrow" href="#/giftcards"><span class="acticon">🎁</span><span><b>${KinanLang.t('Kinan gift cards')}</b><div class="muted small">${KinanLang.t('Send one, or add a code to your wallet')}</div></span></a>
       <a class="panel acrow" href="#/points"><span class="acticon">★</span><span><b>Kinan points</b><div class="muted small">Earn points on every order, turn them into discounts</div></span><b id="acpts"></b></a>
       <a class="panel acrow" href="#/shops"><span class="acticon">${ICONS.shop || ICONS.box}</span><span><b>Shops</b><div class="muted small">All Kinan shops</div></span><span class="muted flip-rtl">›</span></a>
       <a class="panel acrow" href="#/saved"><span class="acticon">${HEART}</span><span><b>Saved items</b><div class="muted small">We email you when a price drops or an item is back</div></span><span class="muted flip-rtl">›</span></a>
@@ -1416,6 +1435,97 @@ function renderAssist() {
 }
 
 // ---------- Kinan points ----------
+// ---------- gift cards ----------
+async function giftcardsPage(code = '') {
+  const v = $('#view');
+  const loc = Locale.get(); const cur = (loc.currency || cfg.currency || 'EUR').toUpperCase();
+  const amounts = [10, 25, 50, 100];
+  v.innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} ${KinanLang.t('Back to shop')}</a><h1 style="margin-top:6px">🎁 ${KinanLang.t('Kinan gift cards')}</h1><p class="muted">${KinanLang.t('Sent by email in minutes. Spend it on anything at Kinan — it never expires.')}</p></div></div>
+    <div class="two"><form class="panel stack" id="gcf">
+      <b>${KinanLang.t('Amount')}</b><div class="row" style="gap:8px;flex-wrap:wrap" id="gcamts">${amounts.map((a, i) => `<button type="button" class="btn ${i === 1 ? '' : 'ghost'}" data-amt="${a}">${money(a, cur)}</button>`).join('')}<input name="custom" inputmode="decimal" placeholder="${KinanLang.t('Other amount')}" style="width:130px"></div>
+      <label class="field">${KinanLang.t('Their email')}<input name="to_email" type="email" required autocomplete="off"></label>
+      <label class="field">${KinanLang.t('Their name')}<input name="to_name" maxlength="60"></label>
+      <label class="field">${KinanLang.t('From')}<input name="from_name" maxlength="60" value="${esc(me?.name || '')}"></label>
+      <label class="field">${KinanLang.t('Message (optional)')}<textarea name="message" maxlength="300" rows="3" placeholder="${KinanLang.t('Happy Christmas!')}"></textarea></label>
+      <div id="gcpay" hidden><div id="gc-element"></div></div>
+      <button class="btn" id="gcgo">${KinanLang.t('Continue to payment')}</button><div class="error" id="gce"></div>
+    </form>
+    <aside class="stack">
+      <div class="gcard"><span>Kinan</span><b id="gcval">${money(25, cur)}</b><small>${KinanLang.t('Gift card')}</small></div>
+      <form class="panel stack" id="gcr"><b>${KinanLang.t('Have a gift card?')}</b><input name="code" placeholder="KINAN-XXXX-XXXX" value="${esc(code)}" autocomplete="off" style="text-transform:uppercase"><button class="btn ghost">${KinanLang.t('Add to my wallet')}</button><div class="small" id="gcrm"></div></form>
+      <div id="gcmine"></div>
+    </aside></div>`;
+  let amount = 25;
+  const setAmt = (a) => { amount = a; $('#gcval').textContent = money(a || 0, cur); $$('[data-amt]').forEach((b) => b.classList.toggle('ghost', Number(b.dataset.amt) !== a)); };
+  $$('[data-amt]').forEach((b) => b.onclick = () => { $('#gcf').custom.value = ''; setAmt(Number(b.dataset.amt)); });
+  $('#gcf').custom.oninput = (e) => setAmt(Number(String(e.target.value).replace(',', '.')) || 0);
+  $('#gcr').onsubmit = async (e) => {
+    e.preventDefault(); if (!requireBuyer(`/giftcards/${encodeURIComponent(e.target.code.value.trim())}`)) return;
+    try { const r = await api('/api/buyer/giftcards/redeem', 'POST', { code: e.target.code.value }); $('#gcrm').innerHTML = `<span class="xmas-ok">✓ ${KinanLang.t('Added to your wallet')}: ${money(r.face, r.face_currency)}</span>`; e.target.code.value = ''; } catch (err) { $('#gcrm').textContent = err.message; }
+  };
+  if (me && me.role === 'buyer') api('/api/buyer/giftcards').then((l) => { if (l.length && $('#gcmine')) $('#gcmine').innerHTML = `<div class="panel stack small"><b>${KinanLang.t('Gift cards you sent')}</b>${l.map((g) => `<div class="row between"><span>${money(g.amount, g.currency)} → ${esc(g.to_name || g.to_email)}</span><span class="pill ${g.redeemed ? 'ok' : ''}">${g.redeemed ? KinanLang.t('Used') : KinanLang.t('Sent')}</span></div>`).join('')}</div>`; }).catch(() => {});
+  let gc = null; let stripe = null; let elements = null;
+  $('#gcf').onsubmit = async (e) => {
+    e.preventDefault(); $('#gce').textContent = '';
+    if (!requireBuyer('/giftcards')) return;
+    const f = e.target; $('#gcgo').disabled = true;
+    try {
+      if (!gc) {
+        gc = await api('/api/buyer/giftcards', 'POST', { amount, currency: cur, to_email: f.to_email.value, to_name: f.to_name.value, from_name: f.from_name.value, message: f.message.value });
+        if (gc.demo) { await api(`/api/buyer/giftcards/${gc.id}/confirm`, 'POST'); return done(f.to_email.value); }
+        const Stripe = await loadStripe(); stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
+        elements = stripe.elements({ clientSecret: gc.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+        elements.create('payment').mount('#gc-element'); $('#gcpay').hidden = false;
+        $$('#gcf input, #gcf textarea, [data-amt]').forEach((x) => { x.disabled = true; });
+        $('#gcgo').textContent = `${KinanLang.t('Pay')} ${money(gc.amount, gc.currency)}`; $('#gcgo').disabled = false; return;
+      }
+      const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/#/giftcards` } });
+      if (error) throw error;
+      const r = await api(`/api/buyer/giftcards/${gc.id}/confirm`, 'POST');
+      done(r.to_email);
+    } catch (err) { $('#gce').textContent = err.message; $('#gcgo').disabled = false; }
+  };
+  const done = (to) => { v.innerHTML = `<div class="empty"><h3>🎁 ${KinanLang.t('Gift card sent')}</h3><p>${KinanLang.t('We emailed it to')} <b>${esc(to)}</b>.</p><a class="btn" href="#/">${KinanLang.t('Back to shop')}</a></div>`; };
+}
+
+// ---------- delivery dates ("Arrives Thu 20 – Mon 24 Nov") ----------
+function showEta(id) {
+  const cc = savedAddress().country_code || Locale.get().country; if (!cc) return;
+  api(`/api/catalog/${encodeURIComponent(id)}/delivery?country=${encodeURIComponent(cc)}`).then((d) => {
+    const el = $('#eta'); if (!el || !d.from) return;
+    const loc = KinanLang.lang === 'ar' ? 'ar' : KinanLang.lang || 'en-GB';
+    const f = (t, withMonth) => new Date(t).toLocaleDateString(loc, { weekday: 'short', day: 'numeric', ...(withMonth ? { month: 'short' } : {}), timeZone: 'Europe/Malta' });
+    const sameMonth = new Date(d.from).getUTCMonth() === new Date(d.to).getUTCMonth();
+    const range = `${f(d.from, !sameMonth)} – ${f(d.to, true)}`;
+    const x = d.christmas;
+    el.innerHTML = `🚚 <b>${KinanLang.t('Arrives')} ${range}</b> <span class="muted">· ${esc(countryName(d.country))}</span>${x ? `<div class="${x.before ? 'xmas-ok' : 'muted'}">${x.before ? `🎄 ${KinanLang.t('Arrives before Christmas')}${x.order_by > Date.now() ? ` — ${KinanLang.t('order by')} ${f(x.order_by, true)}` : ''}` : KinanLang.t('May arrive after Christmas')}</div>` : ''}`;
+  }).catch(() => {});
+}
+
+// ---------- frequently bought together ----------
+function boughtTogether(p, d) {
+  const el = $('#together'); if (!el || !d.items.length) return;
+  const cheapest = (x) => [...x.skus].filter((k) => k.in_stock).sort((a, b) => a.price - b.price)[0];
+  const all = [p, ...d.items].map((x) => ({ x, s: cheapest(x) })).filter((y) => y.s);
+  if (all.length < 2) return;
+  const on = new Set(all.map((y) => y.x.id));
+  const paint = () => {
+    const picked = all.filter((y) => on.has(y.x.id));
+    const sum = picked.reduce((a, y) => a + y.s.price, 0);
+    const save = picked.length > 1 ? picked.slice(1).reduce((a, y) => a + y.s.price * d.pct / 100, 0) : 0;
+    el.innerHTML = `<section class="aisle panel" style="margin-top:14px"><div class="sechead"><h2>${KinanLang.t('Frequently bought together')}</h2></div>
+      <div class="fbt">${all.map((y, i) => `${i ? '<span class="fbt-plus">+</span>' : ''}<label class="fbt-item"><input type="checkbox" data-fbt="${esc(y.x.id)}" ${on.has(y.x.id) ? 'checked' : ''} ${i === 0 ? 'disabled' : ''}><img src="${esc(y.x.images[0] || '')}" alt="" loading="lazy" referrerpolicy="no-referrer"><span class="small" dir="auto">${i === 0 ? `<b>${KinanLang.t('This item')}:</b> ` : ''}${esc(T(y.x).slice(0, 60))}</span><b class="small">${money(y.s.price, y.x.currency)}</b></label>`).join('')}</div>
+      <div class="row between" style="margin-top:10px"><div><b>${KinanLang.t('Total')}: ${money(sum - save, p.currency)}</b>${save > 0.009 ? ` <s class="muted small">${money(sum, p.currency)}</s> <span class="dealtxt small">${KinanLang.t('Save')} ${d.pct}% ${KinanLang.t('when bought together')}</span>` : ''}</div>
+      <button class="btn" id="fbtadd" ${picked.length < 2 ? 'disabled' : ''}>${KinanLang.t('Add selected to cart')}</button></div></section>`;
+    $$('[data-fbt]').forEach((c) => c.onchange = () => { if (c.checked) on.add(c.dataset.fbt); else on.delete(c.dataset.fbt); paint(); });
+    $('#fbtadd').onclick = () => {
+      for (const y of all.filter((z) => on.has(z.x.id))) Cart.add({ listing_id: y.x.id, mp_sku_id: y.s.mp_sku_id, qty: 1, title: y.x.title, shop_id: y.x.shop?.id, direct: y.x.fulfillment === 'direct', props: y.x.skus.length > 1 ? variantLabel(y.s.props) : '', price: y.s.price, currency: y.x.currency, image: y.x.images[0] || null });
+      toast(KinanLang.t('Added to cart'));
+    };
+  };
+  paint();
+}
+
 // ---------- sale campaigns (Black Friday…) ----------
 function campaignBand() {
   const c = cfg.campaign; if (!c) return '';

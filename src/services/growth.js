@@ -176,7 +176,40 @@ function addReview(user, orderId, b) {
 function publicReview(r) { return { id: r.id, name: r.name, rating: r.rating, text: r.text, photos: (r.photos || []).map((_, i) => `/img/r/${r.id}/${i}`), at: r.created_at, verified: true }; }
 function reviewsFor(listingId) {
   const list = db.reviews.all((r) => r.listing_id === listingId && r.status === 'published').sort((a, b) => b.created_at - a.created_at);
-  return { average: list.length ? Math.round((list.reduce((a, r) => a + r.rating, 0) / list.length) * 10) / 10 : null, count: list.length, reviews: list.slice(0, 50).map(publicReview) };
+  const summary = reviewSummary(listingId, list);
+  return { average: list.length ? Math.round((list.reduce((a, r) => a + r.rating, 0) / list.length) * 10) / 10 : null, count: list.length, ...(summary ? { summary } : {}), reviews: list.slice(0, 50).map(publicReview) };
+}
+
+/**
+ * "Customers say…" (like Amazon): with 3+ written reviews the AI writes two short sentences on what shoppers like and
+ * what they mention less well, plus a few tags. Kept on the product and redone when 3 more reviews arrive.
+ */
+const SUM_MIN = 3; const sumBusy = new Set();
+function reviewSummary(listingId, list) {
+  const written = list.filter((r) => String(r.text || '').trim().length >= 15);
+  if (written.length < SUM_MIN) return null;
+  const l = db.listings.get(listingId); const have = l && l.review_summary;
+  if ((!have || written.length - (have.n || 0) >= 3) && !sumBusy.has(listingId)) {
+    sumBusy.add(listingId);
+    require('../cj/client').background(async () => {
+      try {
+        const ai = require('./ai'); if (!ai.enabled()) return;
+        const r = await ai.structured({
+          system: 'Summarise product reviews for shoppers, fairly and only from what the reviews say. British English. No exaggeration, no invented details.',
+          name: 'review_summary', kind: 'reviews', maxTokens: 400, timeoutMs: 40000,
+          schema: { type: 'object', properties: {
+            text: { type: 'string', description: '2 short sentences: what customers like most, then what some mention as a drawback (if any).' },
+            text_ar: { type: 'string', description: 'The same in Arabic.' },
+            tags: { type: 'array', items: { type: 'object', properties: { label: { type: 'string', description: '1–3 words, e.g. "Bright light"' }, label_ar: { type: 'string' }, good: { type: 'boolean' } }, required: ['label', 'label_ar', 'good'] }, description: 'Up to 5 aspects customers mention.' }
+          }, required: ['text', 'text_ar', 'tags'] },
+          text: written.slice(0, 60).map((x) => `${x.rating}★ ${String(x.text).replace(/\s+/g, ' ').slice(0, 400)}`).join('\n')
+        });
+        db.listings.update(listingId, { review_summary: { text: String(r.text || '').slice(0, 400), text_ar: String(r.text_ar || '').slice(0, 400), tags: (r.tags || []).slice(0, 5).map((t) => ({ label: String(t.label).slice(0, 30), label_ar: String(t.label_ar || '').slice(0, 30), good: Boolean(t.good) })), n: written.length, at: Date.now() } });
+      } catch (e) { console.warn('[reviews] summary:', e.message); }
+      finally { sumBusy.delete(listingId); }
+    }).catch(() => sumBusy.delete(listingId));
+  }
+  return have ? { text: have.text, text_ar: have.text_ar, tags: have.tags, based_on: have.n } : null;
 }
 let rcache = null; let rcacheAt = 0;
 /** Average stars for one product (cached for a minute; reset when a review is added or hidden). */

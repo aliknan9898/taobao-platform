@@ -26,7 +26,9 @@ async function stripeHook(rawBody, headers) {
   if (db.inbox.get(key)) return { status: 200, body: 'dup' };
   db.inbox.insert({ id: key, source: 'stripe', msg: { type: evt.type, id: evt.id }, processed: true });
   if (evt.type === 'payment_intent.succeeded') {
-    orders.stripePaid(evt.data.object).catch((e) => console.error('[stripe→paid]', e.message));
+    const pi = evt.data.object;
+    if (String(pi?.metadata?.order_id || '').startsWith('gc_')) require('./services/giftcards').paid(pi).catch((e) => console.error('[stripe→giftcard]', e.message));
+    else orders.stripePaid(pi).catch((e) => console.error('[stripe→paid]', e.message));
   }
   return { status: 200, body: 'ok' };
 }

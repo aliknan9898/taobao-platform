@@ -294,10 +294,11 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const cc = q.country_code || require('./countries').countryCode(b.country_code || b.country);
   const c = await cjs.quote(items, cc);
   const g = await require('./services/banggood').quote(items, cc);
-  if (!c && !g) return q;
+  const bundle = require('./services/together').forItems(items);
+  if (!c && !g) return { ...q, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
   const fe = cjs.freeEu(items, c);
   const extra = (c?.fee || 0) - fe.free + (g?.fee || 0);
-  return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note };
+  return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
 });
 r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
@@ -328,6 +329,12 @@ r('POST', '/api/buyer/orders/:id/card-payment', BUYER, async ({ user, params }) 
   return out.paid ? { paid: true } : { client_secret: out.client_secret };
 });
 r('POST', '/api/buyer/orders/:id/confirm-card', BUYER, async ({ user, params }) => orders.buyerView(await orders.confirmCard(params.id, user)));
+r('POST', '/api/buyer/orders/:id/apply-wallet', BUYER, async ({ user, params }) => orders.buyerView(await orders.applyWallet(params.id, user)));
+r('POST', '/api/buyer/orders/:id/remove-wallet', BUYER, async ({ user, params }) => orders.buyerView(orders.removeWallet(params.id, user)));
+r('GET', '/api/buyer/giftcards', BUYER, async ({ user }) => require('./services/giftcards').mine(user));
+r('POST', '/api/buyer/giftcards', BUYER, async ({ req, user }) => require('./services/giftcards').create(user, await readJson(req)));
+r('POST', '/api/buyer/giftcards/redeem', BUYER, async ({ req, user }) => require('./services/giftcards').redeem(user, (await readJson(req)).code));
+r('POST', '/api/buyer/giftcards/:id/confirm', BUYER, async ({ user, params }) => require('./services/giftcards').confirm(user, params.id));
 r('POST', '/api/buyer/orders/:id/pay-wallet', BUYER, async ({ user, params }) => orders.buyerView(await orders.payWithWallet(params.id, user)));
 r('POST', '/api/buyer/orders/:id/pay-shipping-due', BUYER, async ({ user, params }) => {
   const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
@@ -540,6 +547,8 @@ r('POST', '/api/admin/keywords/disconnect', ADMIN, async () => { require('./serv
 r('POST', '/api/admin/keywords/run', ADMIN, async () => { const k = require('./services/keywords'); k.unblock(); require('./cj/client').background(() => k.tick({ max: 100 })).catch(() => {}); return { started: true }; });
 r('POST', '/api/admin/keywords/ideas', ADMIN, async ({ req }) => { const b = await readJson(req); return { ideas: (await require('./services/keywords').ideas(String(b.seeds || '').split(/[,\n]+/))).sort((a, c) => c.volume - a.volume).slice(0, 100) }; });
 r('POST', '/api/admin/keywords/product/:id', ADMIN, async ({ params }) => require('./services/keywords').improve(params.id));
+r('GET', '/api/catalog/:id/delivery', null, async ({ params, url }) => catalog.delivery(params.id, url.searchParams.get('country')));
+r('GET', '/api/catalog/:id/together', null, async ({ params }) => require('./services/together').view(params.id));
 r('GET', '/api/admin/telegram', ADMIN, async () => require('./services/telegram').status());
 r('POST', '/api/admin/telegram/check', ADMIN, async () => { await require('./services/telegram').poll(); return require('./services/telegram').status(); });
 r('POST', '/api/admin/telegram/test', ADMIN, async () => require('./services/telegram').test());

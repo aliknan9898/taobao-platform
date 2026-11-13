@@ -120,10 +120,13 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   const warehouseItems = lines.some((l) => !l.direct);
   const packagingFee = warehouseItems ? money(PACKAGING[packaging]) : 0;
   const disc = coupon ? require('./growth').couponFor(coupon, buyer, subtotal) : null;
-  const discount = disc ? disc.discount : 0;
+  // Bought together: the bundle saving on items that go with another item in the cart
+  const bundle = require('./together').discount(lines);
+  const discount = money((disc ? disc.discount : 0) + bundle.amount);
   const order = db.orders.insert({
     buyer_id: buyer.id, lines, currency: config.currency, subtotal, shipping_fee: shipping,
-    ...(disc ? { discount, coupon_code: disc.code, coupon_id: disc.coupon_id } : {}),
+    ...(disc || bundle.amount ? { discount } : {}), ...(disc ? { coupon_code: disc.code, coupon_id: disc.coupon_id, coupon_discount: disc.discount } : {}),
+    ...(bundle.amount ? { bundle_discount: bundle.amount, bundle_lines: bundle.lines } : {}),
     ...(freeEu ? { free_shipping: { amount: freeEu, over: fso } } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
@@ -142,6 +145,11 @@ async function markPaid(orderId, { provider, intent_id }) {
   if (!o) throw httpError(404, 'Order not found');
   if (o.status !== 'pending_payment') return o; // idempotent (webhooks retry)
   if (o.payment?.intent_id && intent_id && o.payment.intent_id !== intent_id) throw httpError(400, 'Payment mismatch');
+  // The wallet part of a card + wallet payment is taken now
+  if (o.wallet_applied && !o.wallet_debited) {
+    shop.walletEntry(o.buyer_id, -o.wallet_applied, `Payment for order ${o.id.slice(-8).toUpperCase()} (wallet part)`, { order_id: o.id, kind: 'payment' });
+    db.orders.update(o.id, { wallet_debited: true });
+  }
 
   // Ledger: per seller gross, platform commission, seller net (paid out via Stripe Connect)
   const bySeller = groupBy(o.lines, 'seller_id');
@@ -240,6 +248,34 @@ async function payWithWallet(orderId, buyer) {
   shop.walletEntry(buyer.id, -o.total, `Payment for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'payment' });
   db.orders.update(o.id, (x) => ({ ...x, payment: { ...x.payment, provider: 'wallet', intent_id: `wallet_${o.id}` } }));
   return markPaid(o.id, { provider: 'wallet', intent_id: `wallet_${o.id}` });
+}
+
+/**
+ * Part with the wallet (gift cards, refunds), the rest by card: the wallet part is set aside on the order and taken from
+ * the wallet when the card payment goes through; the card is charged only the rest.
+ */
+async function applyWallet(orderId, buyer) {
+  const o = db.orders.get(orderId);
+  if (!o || o.buyer_id !== buyer.id) throw httpError(404, 'Not found');
+  if (o.status !== 'pending_payment') throw httpError(409, 'This order is already paid');
+  if (o.wallet_applied) return o;
+  const bal = shop.walletOf(buyer.id).balance;
+  if (!(bal > 0)) throw httpError(409, 'Your wallet is empty');
+  if (bal >= o.total) return payWithWallet(orderId, buyer);
+  const w = money(bal); const rest = money(o.total - w);
+  if (o.payment?.provider === 'stripe') await stripe.cancelIntent(o.payment.intent_id);
+  const ch = chargeFor(rest, o.shipping_address?.country_code);
+  return db.orders.update(o.id, (x) => {
+    const { charge, ...y } = x;
+    return { ...y, ...ch, wallet_applied: w, total: rest, payment: { provider: 'stripe' }, timeline: log(x, 'wallet_applied', { amount: w }) };
+  });
+}
+function removeWallet(orderId, buyer) {
+  const o = db.orders.get(orderId);
+  if (!o || o.buyer_id !== buyer.id) throw httpError(404, 'Not found');
+  if (o.status !== 'pending_payment' || !o.wallet_applied) return o;
+  const full = money(o.total + o.wallet_applied);
+  return db.orders.update(o.id, (x) => { const { charge, wallet_applied, ...y } = x; return { ...y, ...chargeFor(full, o.shipping_address?.country_code), total: full, payment: { provider: 'stripe' } }; });
 }
 
 /** Products typed in by hand keep their own stock count: take it when paid, give it back on cancel. */
@@ -502,6 +538,7 @@ async function cancelOrder(orderId, by) {
   if (o.status !== 'pending_payment') {
     if (o.payment?.provider === 'wallet') shop.walletEntry(o.buyer_id, o.total, `Refund for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'refund' });
     else await stripe.refund(o);
+    if (o.wallet_debited && o.wallet_applied) shop.walletEntry(o.buyer_id, o.wallet_applied, `Refund for order ${o.id.slice(-8).toUpperCase()} (wallet part)`, { order_id: o.id, kind: 'refund' });
   } else if (o.payment?.provider === 'stripe') await stripe.cancelIntent(o.payment.intent_id);
   if (o.nss?.order_number) { try { await require('./nss').cancel(o.id); } catch (e) { throw httpError(409, `Could not cancel at NextSmartShip: ${e.message}`); } }
   for (const led of db.ledger.all((l) => l.order_id === o.id)) db.ledger.update(led.id, { status: 'void' });
@@ -542,7 +579,7 @@ function buyerView(o) {
   if (!o.charge) return v;
   // The customer paid in EUR / GBP: show every amount in that currency, at the rate of the payment
   const r = o.charge.rate; const c = (n) => (n ? money(n * r) : n);
-  return { ...v, currency: o.charge.currency, subtotal: c(v.subtotal), shipping_fee: c(v.shipping_fee), total: o.charge.total, discount: c(v.discount), packaging_fee: c(v.packaging_fee), shipping_due: c(v.shipping_due),
+  return { ...v, currency: o.charge.currency, subtotal: c(v.subtotal), shipping_fee: c(v.shipping_fee), total: o.charge.total, discount: c(v.discount), bundle_discount: c(v.bundle_discount), wallet_applied: c(v.wallet_applied), packaging_fee: c(v.packaging_fee), shipping_due: c(v.shipping_due),
     shipping_settled: v.shipping_settled ? { ...v.shipping_settled, diff: c(v.shipping_settled.diff) } : null, lines: v.lines.map((l) => ({ ...l, price: c(l.price) })), charged: { currency: o.charge.currency, total: o.charge.total } };
 }
 function buyerViewBase(o) {
@@ -550,7 +587,7 @@ function buyerViewBase(o) {
   return {
     id: o.id, status: o.status, status_label: ORDER_STATUS_LABEL[o.status], currency: o.currency,
     subtotal: o.subtotal, shipping_fee: o.shipping_fee, total: o.total, created_at: o.created_at,
-    discount: o.discount || 0, coupon_code: o.coupon_code || null, packaging: o.packaging || 'standard', packaging_fee: o.packaging_fee || 0, hold: Boolean(o.hold), hold_until: o.hold && o.paid_at ? o.paid_at + STORAGE_DAYS * 86400e3 : null, ship_group: o.ship_group || null,
+    discount: o.discount || 0, coupon_code: o.coupon_code || null, bundle_discount: o.bundle_discount || 0, wallet_applied: o.wallet_applied || 0, packaging: o.packaging || 'standard', packaging_fee: o.packaging_fee || 0, hold: Boolean(o.hold), hold_until: o.hold && o.paid_at ? o.paid_at + STORAGE_DAYS * 86400e3 : null, ship_group: o.ship_group || null,
     qc: { photos: (o.qc_photos || []).length, review: o.qc_review || null, note: o.qc_note || null, at: o.qc_at || null },
     shipping_due: o.shipping_due || 0, shipping_settled: o.shipping_settled ? { result: o.shipping_settled.result, diff: o.shipping_settled.diff, actual_weight_kg: o.shipping_settled.actual_weight_kg } : null, shipping_days: o.shipping_quote?.days || null,
     lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image, listing_id, direct: Boolean(direct) })),
@@ -580,7 +617,7 @@ function sellerView(o, sellerId) {
   };
 }
 
-module.exports = {
+module.exports = { applyWallet, removeWallet,
   PACKAGING, STORAGE_DAYS,
   cardPayment, stripePaid, confirmCard,
   checkout, markPaid, payWithWallet, markManualBought, updateDirect, procure, syncSub, paySub, recompute, cancelOrder, syncOpen, findSub,

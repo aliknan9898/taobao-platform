@@ -269,6 +269,15 @@ function cachedFee(l, countryCode) {
   if (cj.enabled() && warm.size < 1000) { warm.add(`${countryCode}|${l.id}`); if (!warming) cj.background(warmUp); }
   return null;
 }
+/** Delivery time for one piece to a country, in days after dispatch: CJ's own answer when known, otherwise typical times. */
+const EUROPE = new Set(['GB', 'DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'BE', 'AT', 'HU', 'PT', 'IE', 'SE', 'DK', 'MT', 'GR', 'RO', 'BG', 'HR', 'SK', 'SI', 'LT', 'LV', 'EE', 'FI', 'LU', 'CY']);
+function deliveryDays(l, countryCode) {
+  const from = String(l.cj_from || 'CN').toUpperCase();
+  const k = l.cj_ship && l.cj_ship[countryCode];
+  if (k && !k.none && k.max && now() - k.at < SHIP_TTL) return { min: k.min, max: k.max, from, known: true };
+  if (from !== 'CN' && EUROPE.has(countryCode)) return { min: from === countryCode ? 2 : 3, max: from === countryCode ? 5 : 8, from, known: false };
+  return { min: 8, max: 15, from, known: false };
+}
 /** CJ has told us it cannot deliver this product to that country (the answer is kept 3 days, then asked again). */
 function noDelivery(l, countryCode) {
   const k = l && l.source === 'cj' && countryCode && l.cj_ship && l.cj_ship[countryCode];
@@ -285,15 +294,15 @@ async function warmUp() {
       if (!vid) continue;
       const k = l.cj_ship && l.cj_ship[cc]; if (k && now() - k.at < SHIP_TTL && k.vid === vid) continue;
       let fee = FALLBACK; let estimated = true;
-      let none = false;
-      try { const { opt: o } = await optionFrom(cc, [{ vid, qty: 1 }], l.cj_from || 'CN', storageOf(l, [vid])); if (o) { fee = o.fee; estimated = false; } else { stats.none++; none = true; } }
+      let none = false; let dmin = null; let dmax = null;
+      try { const { opt: o } = await optionFrom(cc, [{ vid, qty: 1 }], l.cj_from || 'CN', storageOf(l, [vid])); if (o) { fee = o.fee; estimated = false; dmin = o.min ?? null; dmax = o.max ?? null; } else { stats.none++; none = true; } }
       catch (e) {
         stats.failed++; stats.last_error = e.message;
         if (e.status === 429) { warm.clear(); break; } // CJ's points or our background limit: stop, nothing else will work today
       }
       // CJ has no method to this country: keep that answer as long as a real price (no point asking every hour);
       // CJ did not answer: standard shipping for now, ask again in an hour
-      db.listings.update(id, (x) => ({ ...x, cj_ship: { ...(x.cj_ship || {}), [cc]: { fee, vid, at: estimated && !none ? now() - SHIP_TTL + 3600e3 : now(), estimated, ...(none ? { none: true } : {}) } } }));
+      db.listings.update(id, (x) => ({ ...x, cj_ship: { ...(x.cj_ship || {}), [cc]: { fee, vid, at: estimated && !none ? now() - SHIP_TTL + 3600e3 : now(), estimated, ...(none ? { none: true } : {}), ...(dmax ? { min: dmin || dmax, max: dmax } : {}) } } }));
       stats.done++;
     }
   } finally {
@@ -612,7 +621,7 @@ async function registerWebhooks() {
   return s ? db.settings.update(HOOKS, doc) : db.settings.insert({ id: HOOKS, ...doc });
 }
 
-module.exports = { noDelivery, noDeliveryList, freeEu,
+module.exports = { deliveryDays, noDelivery, noDeliveryList, freeEu,
   prefs, savePrefs, status, balance, parseRef, normalize, fetchProduct, preview, search, categories, publish, resync, resyncStale,
   freightOptions, optionFrom, cachedFee, prepareCountry, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
 };
