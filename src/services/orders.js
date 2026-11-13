@@ -91,7 +91,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     const seller = db.sellers.get(l.seller_id);
     if (!seller || seller.status !== 'active') throw httpError(409, 'The shop of one of the items is unavailable');
     // Fresh stock/cost before taking money
-    if (now() - (l.last_synced_at || 0) > 10 * 60e3) l = await catalog.resync(l.id);
+    if (now() - (l.last_synced_at || 0) > 10 * 60e3) { try { l = await catalog.resync(l.id) || l; } catch { /* the supplier could not be asked right now: use the last known stock and price */ } }
     const sku = l.skus.find((s) => s.mp_sku_id === String(it.mp_sku_id));
     if (!sku) throw httpError(409, 'Variant not found');
     if (sku.stock < qty) throw httpError(409, `Not enough stock: ${l.title} (${sku.props})`);

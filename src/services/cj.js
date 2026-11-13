@@ -57,7 +57,7 @@ async function balance(force = false) {
 }
 
 async function status() {
-  const out = { configured: cj.enabled(), connected: false, open_id: null, balance: null, prefs: prefs(), webhooks: db.settings.get(HOOKS) || null, error: null };
+  const out = { configured: cj.enabled(), connected: false, open_id: null, balance: null, prefs: prefs(), webhooks: db.settings.get(HOOKS) || null, api: cj.usage(), error: null };
   if (!out.configured) return out;
   try { await cj.token(); out.connected = true; out.open_id = cj.openId(); out.balance = await balance(); } catch (e) { out.error = e.message; }
   return out;
@@ -207,6 +207,7 @@ async function resync(l) {
     const skus = l.skus.map((s) => { const f = by.get(s.cj_vid); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock, opts: f.opts, image: f.image || s.image || null } : { ...s, stock: 0 }; });
     return db.listings.update(l.id, { skus, last_synced_at: now(), sync_error: null, ...(l.status === 'unavailable' && skus.some((s) => s.stock > 0) ? { status: 'active' } : {}) });
   } catch (e) {
+    if (e.status === 429) throw e; // CJ's points / our background limit: try again another day, nothing is wrong with the product
     if (e.status === 404 || /not found/i.test(e.message)) return db.listings.update(l.id, { status: l.status === 'active' ? 'unavailable' : l.status, sync_error: 'Removed on CJdropshipping', last_synced_at: now() });
     return db.listings.update(l.id, { sync_error: e.message, last_synced_at: now() });
   }
@@ -217,8 +218,9 @@ async function resyncStale(max = 200) {
   if (!cj.enabled()) return 0;
   const stale = db.listings.all((l) => l.source === 'cj' && ['active', 'paused', 'unavailable', 'private'].includes(l.status) && now() - (l.last_synced_at || 0) > 22 * 3600e3)
     .sort((a, b) => (a.last_synced_at || 0) - (b.last_synced_at || 0)).slice(0, max);
-  for (const l of stale) await resync(l);
-  return stale.length;
+  let n = 0;
+  for (const l of stale) { try { await resync(l); n++; } catch (e) { if (e.status === 429) break; } }
+  return n;
 }
 
 // ---------------- shipping at checkout ----------------
@@ -276,10 +278,15 @@ async function warmUp() {
       if (!vid) continue;
       const k = l.cj_ship && l.cj_ship[cc]; if (k && now() - k.at < SHIP_TTL && k.vid === vid) continue;
       let fee = FALLBACK; let estimated = true;
-      try { const { opt: o } = await optionFrom(cc, [{ vid, qty: 1 }], l.cj_from || 'CN', storageOf(l, [vid])); if (o) { fee = o.fee; estimated = false; } else stats.none++; }
-      catch (e) { stats.failed++; stats.last_error = e.message; }
-      // CJ has no price for it (or did not answer): use the same standard shipping the product page and checkout use
-      db.listings.update(id, (x) => ({ ...x, cj_ship: { ...(x.cj_ship || {}), [cc]: { fee, vid, at: estimated ? now() - SHIP_TTL + 3600e3 : now(), estimated } } }));
+      let none = false;
+      try { const { opt: o } = await optionFrom(cc, [{ vid, qty: 1 }], l.cj_from || 'CN', storageOf(l, [vid])); if (o) { fee = o.fee; estimated = false; } else { stats.none++; none = true; } }
+      catch (e) {
+        stats.failed++; stats.last_error = e.message;
+        if (e.status === 429) { warm.clear(); break; } // CJ's points or our background limit: stop, nothing else will work today
+      }
+      // CJ has no method to this country: keep that answer as long as a real price (no point asking every hour);
+      // CJ did not answer: standard shipping for now, ask again in an hour
+      db.listings.update(id, (x) => ({ ...x, cj_ship: { ...(x.cj_ship || {}), [cc]: { fee, vid, at: estimated && !none ? now() - SHIP_TTL + 3600e3 : now(), estimated, ...(none ? { none: true } : {}) } } }));
       stats.done++;
     }
   } finally {
@@ -495,7 +502,7 @@ function handleWebhook(msg) {
 async function upgradeOptions() {
   if (!cj.enabled()) return 0;
   const old = db.listings.all((l) => l.source === 'cj' && l.skus.some((s) => s.opts === undefined));
-  for (const l of old) await resync(l);
+  for (const l of old) { try { await resync(l); } catch (e) { if (e.status === 429) break; } }
   if (old.length) console.log(`[cj] grouped options for ${old.length} product(s)`);
   return old.length;
 }

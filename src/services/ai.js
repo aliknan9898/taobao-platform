@@ -161,23 +161,32 @@ async function structured({ system, name, description = '', schema, text, images
   // Gemini takes up to ~20 MB per request: keep the photos under 14 MB together
   let total = 0;
   const parts = (await Promise.all(images.map(inlineImage))).filter((x) => x && (total += x.inline_data.data.length) <= 14 * 1024 * 1024);
-  const res = await fetch(`${GEMINI_API}/${encodeURIComponent(model())}:generateContent`, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [...parts, { text }] }],
-      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: Math.max(8192, maxTokens * 2) }
-    }),
-    signal: AbortSignal.timeout(timeoutMs)
-  }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
-  const j = await res.json().catch(() => ({}));
+  // Busy (503) or this model's free quota used (429): try the next model in GEMINI_FALLBACK_MODELS (each has its own free quota)
+  const models = [model(), ...String(process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash,gemini-3-flash-lite').split(',').map((x) => x.trim()).filter((x) => x && x !== model())];
+  let res; let j; let used = models[0]; let busy = false; let quota = false;
+  for (let m = 0; m < models.length; m++) {
+    used = models[m];
+    res = await fetch(`${GEMINI_API}/${encodeURIComponent(used)}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [...parts, { text }] }],
+        generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: Math.max(8192, maxTokens * 2) }
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
+    j = await res.json().catch(() => ({}));
+    if (res.ok) break;
+    console.error('[ai] gemini', used, res.status, j.error?.status, j.error?.message);
+    if (res.status === 503) busy = true; if (res.status === 429) quota = true;
+    if (![429, 503, 404].includes(res.status) || m === models.length - 1) break;
+  }
   if (!res.ok) {
-    console.error('[ai] gemini', res.status, j.error?.status, j.error?.message);
-    throw httpError(res.status === 429 || res.status === 503 ? 429 : 502, res.status === 429 ? 'The free AI quota is used up for now — try again later' : 'The AI assistant could not answer — try again');
+    throw httpError(busy || quota ? 429 : 502, quota ? 'The free AI quota is used up for now — try again later' : 'The AI assistant could not answer — try again');
   }
   const um = j.usageMetadata || {};
-  record(model(), { input_tokens: um.promptTokenCount || 0, output_tokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0) }, kind);
+  record(used, { input_tokens: um.promptTokenCount || 0, output_tokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0) }, kind);
   if (j.candidates?.[0]?.finishReason === 'MAX_TOKENS') throw httpError(502, 'The AI answer was too long — try again');
   const raw = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
   try { return JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw httpError(502, 'The AI assistant could not answer — try again'); }

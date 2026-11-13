@@ -201,3 +201,30 @@ test('shopping assistant, product questions, points for reviews', async () => {
   assert.strictEqual(rv.points, 100);
   assert.strictEqual(require('../src/services/points').info(buyer.id).balance, 100);
 });
+
+test('CJ background work stops at its daily limit and when CJ says the points are gone; orders still go through', async () => {
+  const cjc = require('../src/cj/client');
+  process.env.CJ_API_KEY = 'CJ1@api@abcdefabcdef'; process.env.CJ_MIN_GAP_MS = '0'; process.env.CJ_BACKGROUND_CALLS_PER_DAY = '2';
+  let calls = 0; let out = false;
+  const prev = global.fetch;
+  global.fetch = async (url) => {
+    const p = new URL(String(url)).pathname;
+    if (p.endsWith('/authentication/getAccessToken')) return { ok: true, status: 200, json: async () => ({ code: 200, result: true, data: { openId: 1, accessToken: 't', accessTokenExpiryDate: new Date(Date.now() + 9e9).toISOString(), refreshToken: 'r', refreshTokenExpiryDate: new Date(Date.now() + 9e9).toISOString() } }) };
+    calls++;
+    return { ok: true, status: 200, json: async () => (out ? { code: 1600201, result: false, message: 'Insufficient API points. Used today: 100000, Remaining: 0, Required: 10.' } : { code: 200, result: true, data: { ok: 1 } }) };
+  };
+  try {
+    await cjc.background(() => cjc.call('GET', '/x'));
+    await cjc.background(() => cjc.call('GET', '/x'));
+    await assert.rejects(cjc.background(() => cjc.call('GET', '/x')), (e) => e.status === 429 && /background limit/.test(e.message));
+    assert.strictEqual(calls, 2);
+    assert.deepStrictEqual((await cjc.call('GET', '/x')), { ok: 1 }, 'a customer action is not limited');
+    out = true;
+    await assert.rejects(cjc.call('GET', '/x'), (e) => e.status === 429);
+    process.env.CJ_BACKGROUND_CALLS_PER_DAY = '1000';
+    const before = calls;
+    await assert.rejects(cjc.background(() => cjc.call('GET', '/x')), /no API points left/);
+    assert.strictEqual(calls, before, 'background work does not even ask CJ');
+    assert.ok(cjc.usage().points_out_until > Date.now());
+  } finally { global.fetch = prev; delete process.env.CJ_API_KEY; }
+});
