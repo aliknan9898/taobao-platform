@@ -24,6 +24,13 @@
   .search:focus-within > .sico svg { color: var(--jade); }
   .search input { flex: 1; min-width: 0; border: 0; background: transparent; min-height: 38px; padding: 0; font-size: 15px; box-shadow: none !important; outline: none; }
   .search input::-webkit-search-cancel-button { display: none; }
+  .search .scam { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+  .search .scam:hover { background: var(--chip); color: var(--ink, inherit); }
+  .search .scam svg { width: 21px; height: 21px; }
+  .photohead { display: flex; gap: 14px; align-items: center; margin: 6px 0 12px; }
+  .photohead img { width: 84px; height: 84px; object-fit: cover; border-radius: 14px; border: 1px solid var(--line); }
+  .ptsline { color: var(--brand, #0f7a5c); font-weight: 600; font-size: 13.5px; }
+  .ptsbig { font-size: 34px; font-weight: 700; letter-spacing: -.02em; }
   .search .sclear { display: none; flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--chip); color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
   .search.has-text .sclear { display: inline-grid; place-items: center; }
   .search .sgo { flex: none; display: inline-grid; place-items: center; height: 38px; padding: 0 18px; border: 0; border-radius: 99px; background: var(--jade); color: var(--jade-ink, #fff); font: 600 14px/1 var(--font-body); cursor: pointer; }
@@ -249,6 +256,8 @@
       <span class="sico" id="sicon"></span>
       <input name="q" type="search" enterkeyhint="search" placeholder="Search products or shops" aria-label="Search products" autocomplete="off">
       <button type="button" class="sclear" aria-label="Clear">×</button>
+      <button type="button" class="scam" id="scam" aria-label="Search by photo" title="Search by photo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.3" r="3.4"/></svg></button>
+      <input type="file" accept="image/*" id="scamfile" hidden>
       <button class="sgo" aria-label="Search"><span id="sgoicon"></span><b>Search</b></button>
       <div class="ssug" id="ssug" role="listbox"></div>
     </form>
@@ -437,6 +446,8 @@ const TD = (p) => (KinanLang.lang === 'ar' && p.description_ar) || p.description
 // ---------- shell ----------
 $('#brand').innerHTML = K.brand('Shop');
 $('#sicon').innerHTML = ICONS.search;
+$('#scam').onclick = () => $('#scamfile').click();
+$('#scamfile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; searchByPhoto(f); };
 $('#sgoicon').innerHTML = ICONS.search;
 $('#nav-sell').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.5 5 4.5h14l1.5 5"/><path d="M3.5 9.5a2.8 2.8 0 0 0 5.6 0 2.9 2.9 0 0 0 5.8 0 2.8 2.8 0 0 0 5.6 0"/><path d="M5 12v7.5h14V12"/><path d="M10 19.5v-4.5h4v4.5"/></svg>';
 $('#nav-orders').innerHTML = ICONS.box;
@@ -514,7 +525,7 @@ K.onUnauthorized = () => { me = null; };
 const routes = [
   [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
   [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
-  [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
+  [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/points$/, pointsPage], [/^#\/photo$/, photoPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
   [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
 ];
 async function route() {
@@ -707,6 +718,7 @@ async function product(id) {
           ${p.shop ? `<a href="#/s/${esc(p.shop.id)}" class="muted row" style="text-decoration:none;gap:8px">${shopLogo(p.shop, 'sm')}<span>Sold by <b>${esc(p.shop.name)}</b></span></a>` : ''}
           <h1 style="font-size:clamp(22px,3.4vw,30px)" dir="auto">${esc(T(p))}</h1>
           <div id="price"></div>
+          <div id="ptsline" class="ptsline"></div>
         </div>
         ${p.option_groups ? `<div class="stack" id="optgroups">${p.option_groups.map((g, gi) => `<div class="optgroup"><div class="oghead"><b>${esc(optName(g.name))}:</b><span data-ogsel="${gi}"></span></div>
           <div class="variants">${g.values.map((v) => `<button type="button" data-og="${gi}" data-ov="${esc(v.value)}" class="${v.image ? 'pic' : ''}">${v.image ? `<img src="${esc(v.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}<span>${esc(v.value)}</span></button>`).join('')}</div></div>`).join('')}</div>`
@@ -750,6 +762,8 @@ async function product(id) {
     $('#stock').textContent = sku.in_stock ? (sku.stock < 20 ? `Only ${sku.stock} left` : 'In stock') : 'Out of stock';
     $('#add').disabled = $('#buy').disabled = !sku.in_stock;
     $('#qv').value = qty;
+    const pts = cfg.points?.per_unit ? Math.floor(sku.price * qty * cfg.points.per_unit) : 0;
+    $('#ptsline').textContent = pts ? `★ Earn ${pts} Kinan points` : '';
   };
   // The price shown is the full price to the customer's address: item + shipping for this quantity
   let lq = 0;
@@ -1203,6 +1217,7 @@ async function account() {
   if (!me || me.role !== 'buyer') { signin('/account'); return; }
   await Book.sync();
   const wallet = await api('/api/buyer/wallet').catch(() => ({ balance: 0, currency: cfg.currency }));
+  api('/api/buyer/points').then((d) => { const el = $('#acpts'); if (el) el.textContent = `★ ${d.balance.toLocaleString()}`; }).catch(() => {});
   $('#view').innerHTML = `<div class="pagehead"><h1>Account</h1></div>
     <div class="stack" style="max-width:520px">
       <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
@@ -1211,6 +1226,7 @@ async function account() {
       <div class="panel stack" id="cardbox"></div>
       ${KinanLang.folded('Language', 'The app and our emails use this language.', 'panel')}
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
+      <a class="panel acrow" href="#/points"><span class="acticon">★</span><span><b>Kinan points</b><div class="muted small">Earn points on every order, turn them into discounts</div></span><b id="acpts"></b></a>
       <a class="panel acrow" href="#/shops"><span class="acticon">${ICONS.shop || ICONS.box}</span><span><b>Shops</b><div class="muted small">All Kinan shops</div></span><span class="muted flip-rtl">›</span></a>
       <a class="panel acrow" href="#/saved"><span class="acticon">${HEART}</span><span><b>Saved items</b><div class="muted small">We email you when a price drops or an item is back</div></span><span class="muted flip-rtl">›</span></a>
       <div class="panel stack" id="pushbox"></div>
@@ -1243,6 +1259,66 @@ async function savedPage() {
       <div style="text-align:end"><b>${money(x.price, x.currency)}</b><div><button class="btn sm quiet" data-unsave="${esc(x.listing_id)}">Remove</button></div></div></div>`).join('')}</div>`
     : `<div class="empty"><h3>Nothing saved yet</h3><p>Tap Save on any product to keep it here.</p><a class="btn" href="#/">Browse products</a></div>`}`;
   $$('[data-unsave]').forEach((b) => b.onclick = async () => { await api(`/api/buyer/wishlist/${b.dataset.unsave}`, 'DELETE').catch(() => {}); savedPage(); });
+}
+
+// ---------- Kinan points ----------
+async function pointsPage() {
+  if (!requireBuyer('/points')) return;
+  const d = await api('/api/buyer/points');
+  const can = d.balance >= d.min;
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/account">${ICONS.back} Account</a><h1 style="margin-top:6px">Kinan points</h1></div></div>
+    <div class="stack" style="max-width:620px">
+      <div class="panel stack"><span class="muted">Your points</span><span class="ptsbig">★ ${d.balance.toLocaleString()}</span>
+        <span>Worth <b>${money(d.value, d.currency)}</b>${d.pending ? ` · <span class="muted">${d.pending.toLocaleString()} more on the way</span>` : ''}</span>
+        <p class="muted small">You earn ${d.per_unit} points for every ${money(1, d.currency)} you spend on products, added when your order is delivered. ${d.example.points.toLocaleString()} points = ${money(d.example.worth, d.currency)} off. Turn ${d.min.toLocaleString()} points or more into a discount code for your next order.</p>
+        <form class="row" id="redeemf" style="gap:8px;align-items:end"><label class="field" style="flex:1">Points to use<input name="points" type="number" min="${d.min}" max="${d.balance}" step="100" value="${Math.max(d.min, Math.floor(d.balance / 100) * 100)}" ${can ? '' : 'disabled'}></label><button class="btn" ${can ? '' : 'disabled'}>Get discount code</button></form>
+        ${can ? '' : `<p class="muted small">You need ${d.min.toLocaleString()} points to get a code — ${(d.min - d.balance).toLocaleString()} to go.</p>`}
+      </div>
+      ${d.codes.length ? `<div class="panel stack"><h3>Your discount codes</h3>${d.codes.map((c) => `<div class="orderrow"><div><b data-no-tr>${esc(c.code)}</b><div class="muted small">Use at checkout · until ${date(c.expires_at)}</div></div><button class="btn ghost" data-copy="${esc(c.code)}">${money(c.value, d.currency)} · Copy</button></div>`).join('')}</div>` : ''}
+      <div class="panel"><h3 style="margin-bottom:6px">History</h3>${d.log.length ? d.log.map((e) => `<div class="orderrow"><div><b>${esc(e.reason)}</b><div class="muted">${date(e.at)}</div></div><b class="amt ${e.pts > 0 ? 'pos' : 'neg'}">${e.pts > 0 ? '+' : ''}${e.pts.toLocaleString()}</b></div>`).join('') : '<p class="muted">Your points appear here when your first order is delivered.</p>'}</div>
+    </div>`;
+  const f = $('#redeemf');
+  f.onsubmit = async (e) => { e.preventDefault(); try { const r = await api('/api/buyer/points/redeem', 'POST', { points: Number(f.points.value) }); toast(`Your code ${r.code} — ${money(r.value, d.currency)} off`); try { await navigator.clipboard.writeText(r.code); } catch { /* ignore */ } pointsPage(); } catch (err) { toast(err.message); } };
+  $$('[data-copy]').forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Code copied — use it at checkout'); } catch { toast(b.dataset.copy); } });
+}
+
+// ---------- search by photo ----------
+let photoResult = null;
+function shrinkPhoto(file, max = 900) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('This photo could not be opened')); };
+    img.src = url;
+  });
+}
+async function searchByPhoto(file) {
+  if (!file) return;
+  let data;
+  try { data = await shrinkPhoto(file); } catch (e) { toast(e.message); return; }
+  photoResult = { image: data, loading: true };
+  if (location.hash === '#/photo') photoPage(); else location.hash = '#/photo';
+  try { photoResult = { image: data, ...(await api('/api/search/image', 'POST', { image: data })) }; }
+  catch (e) { photoResult = { image: data, error: e.message }; }
+  if (location.hash === '#/photo') photoPage();
+}
+function photoPage() {
+  const v = $('#view'); const r = photoResult;
+  if (!r) { location.hash = '#/'; return; }
+  const head = `<div class="photohead"><img src="${r.image}" alt=""><div><h1 style="font-size:22px">${r.loading ? 'Looking at your photo…' : r.error ? 'Search by photo' : r.query ? 'Looks like' : 'Search by photo'}</h1>${r.query ? `<p><b>${esc(r.query)}</b></p>` : ''}<button class="btn quiet" type="button" id="again">Another photo</button></div></div>`;
+  if (r.loading) { v.innerHTML = `<a class="back" href="#/">${ICONS.back} Shop</a>${head}${skeletonGrid()}`; }
+  else if (r.error) { v.innerHTML = `<a class="back" href="#/">${ICONS.back} Shop</a>${head}<div class="empty"><h3>${esc(r.error)}</h3></div>`; }
+  else {
+    const chips = (r.alternatives || []).map((a) => `<a class="chip" href="#/search/${encodeURIComponent(a)}">${esc(a)}</a>`).join('');
+    v.innerHTML = `<a class="back" href="#/">${ICONS.back} Shop</a>${head}${chips ? `<div class="cats">${chips}</div>` : ''}
+      ${r.items.length ? `<div class="sechead"><h2>Similar products</h2></div><div class="grid">${r.items.map(productCard).join('')}</div>` : `<div class="empty"><h3>${esc(r.message || 'No similar products yet')}</h3><p>Try another photo, or search with words.</p></div>`}`;
+  }
+  const a = $('#again'); if (a) a.onclick = () => $('#scamfile').click();
 }
 
 async function walletPage() {

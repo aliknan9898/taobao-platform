@@ -42,6 +42,7 @@ function saveCoupon(b, existingId = null) {
 function couponFor(code, buyer, subtotal) {
   const c = db.coupons.find((x) => x.code === normCode(code));
   if (!c || !c.active) throw httpError(400, 'This code is not valid');
+  if (c.owner_id && c.owner_id !== buyer.id) throw httpError(400, 'This code is not valid'); // a personal code (Kinan points)
   if (c.expires_at && Date.now() > c.expires_at) throw httpError(400, 'This code has expired');
   if (c.max_uses && c.uses >= c.max_uses) throw httpError(400, 'This code has been fully used');
   if ((c.used_by || []).includes(buyer.id)) throw httpError(400, 'You already used this code');

@@ -161,6 +161,14 @@ function recordFailure(ip) {
 
 /** Light per-IP limit for public helpers (link reading, estimates): 120 calls per 10 minutes. */
 const light = new Map();
+const photoHits = new Map();
+/** Search by photo asks the AI: at most 20 photos per visitor every 10 minutes. */
+function photoLimit(req) {
+  const ip = clientIp(req); const now = Date.now(); let a = photoHits.get(ip);
+  if (!a || now - a.t > 10 * 60e3) { a = { n: 0, t: now }; photoHits.set(ip, a); }
+  if (++a.n > 20) throw httpError(429, 'Too many photo searches — try again in a few minutes');
+  if (photoHits.size > 5000) for (const [k, v] of photoHits) if (now - v.t > 10 * 60e3) photoHits.delete(k);
+}
 function throttleLight(req) {
   const ip = clientIp(req); const now = Date.now(); let a = light.get(ip);
   if (!a || now - a.t > 10 * 60e3) { a = { n: 0, t: now }; light.set(ip, a); }
@@ -283,7 +291,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const extra = (c?.fee || 0) + (g?.fee || 0);
   return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note };
 });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -348,6 +356,9 @@ r('PUT', '/api/buyer/addresses', BUYER, async ({ req, user }) => {
   db.users.update(user.id, { addresses: list, address_selected: selected });
   return { addresses: list, selected };
 });
+r('GET', '/api/buyer/points', BUYER, async ({ user }) => require('./services/points').info(user.id));
+r('POST', '/api/buyer/points/redeem', BUYER, async ({ req, user }) => { throttleLight(req); return require('./services/points').redeem(user.id, (await readJson(req)).points); });
+r('POST', '/api/search/image', null, async ({ req }) => { throttleLight(req); photoLimit(req); return require('./services/visual').search((await readJson(req)).image); });
 r('GET', '/api/buyer/wallet', BUYER, async ({ user }) => shopSvc.walletOf(user.id));
 r('POST', '/api/buyforme/parse', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return require('./services/buyforme').parse(b.text || b.link); });
 r('POST', '/api/buyforme/estimate', null, async ({ req }) => { throttleLight(req); return require('./services/buyforme').estimate(await readJson(req)); });
@@ -648,6 +659,8 @@ const server = http.createServer(async (req, res) => {
         const cat = shipping.CATEGORIES.find(([id]) => id === catPage[1]);
         if (cat) return page(res, 'shop.html', { stripe: true, title: `${cat[1]} — Kinan Shop`, body: seo.ssrList({ title: cat[1], intro: `${cat[1]} delivered to your door with tracking — ${cat[2]}.`, category: cat[0] }), head: seo.listJsonLd(cat[1], seo.liveProducts().filter(({ l }) => (l.category || 'other') === cat[0]), `/c/${cat[0]}`) + shareHead({ title: `${cat[1]} — Kinan Shop`, description: `Shop ${cat[1].toLowerCase()} on Kinan, delivered with tracking.`, url: `/c/${cat[0]}`, hash: `#/c/${cat[0]}` }) });
       }
+      const il = p.match(/^\/i18n\/(fr|de|it|es)\.json$/);
+      if (il) { const d = require('./services/uilang').serve(il[1]); res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=600' }); return res.end(JSON.stringify(d)); }
       if (p === '/llms.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(seo.llmsTxt()); }
       if (p === '/feeds/openai.jsonl') { res.writeHead(200, { 'Content-Type': 'application/jsonl; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.openaiFeed()); }
       if (p === `/${seo.indexNowKey()}.txt`) { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(seo.indexNowKey()); }
@@ -821,6 +834,9 @@ function startJobs() {
   every(10 * 60e3, () => require('./services/translate').translatePending());
   every(60e3, () => require('./services/autoreview').tick());
   every(15 * 60e3, () => require('./services/ebay').tick());
+  every(3600e3, () => require('./services/points').settle()); // Kinan points for delivered orders
+  every(10 * 60e3, () => require('./services/uilang').tick()); // French, German, Italian, Spanish
+  setTimeout(() => require('./services/uilang').tick().catch(() => {}), 90e3); // start translating soon after a deploy
   every(3600e3, () => require('./services/sourcing').tick()); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
   every(3600e3, async () => { const b = require('./services/banggood'); await b.updateTick(); const h = new Date().getUTCHours(); if (h === 4) await b.resyncStale(300); if (h === 5) await b.refreshLimits(); });
