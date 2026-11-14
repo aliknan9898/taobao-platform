@@ -116,7 +116,7 @@ function prefs() {
     min_cost: Math.max(0, Number(p.min_cost ?? 2)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40)),
     min_listed: Math.max(0, Math.floor(Number(p.min_listed ?? 20))), min_stock: Math.max(1, Math.floor(Number(p.min_stock) || 20)),
     max_days_eu: Math.min(30, Math.max(2, Math.floor(Number(p.max_days_eu) || 7))), max_days_gb: Math.min(30, Math.max(2, Math.floor(Number(p.max_days_gb) || 10))),
-    min_quality: Math.min(10, Math.max(1, Math.floor(Number(p.min_quality) || 6))), per_keyword: Math.min(20, Math.max(1, Math.floor(Number(p.per_keyword) || 4))),
+    min_quality: Math.min(10, Math.max(1, Math.floor(Number(p.min_quality) || 7))), per_keyword: Math.min(20, Math.max(1, Math.floor(Number(p.per_keyword) || 4))),
     warehouses: (list(p.warehouses).length ? p.warehouses : EUROPE).map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x) && x !== 'CN'),
     departments: deps.length ? deps : Object.keys(DEPARTMENTS)
   };
@@ -193,7 +193,7 @@ const SCHEMA = (deptIds, groupIds) => ({
     section: { type: 'string', enum: groupIds, description: 'The best section inside that department (dept:section).' },
     ebay_ok: { type: 'boolean', description: 'false if eBay UK restricts it (brands/logos of others, weapons, medical claims, adult, batteries shipped alone, food, cosmetics needing safety files, etc.).' },
     ebay_title: { type: 'string', description: 'eBay title: max 80 characters, the words buyers search first, no brand names, no ALL CAPS, no symbols like ! or ★.' },
-    keywords: { type: 'array', items: { type: 'string' }, description: '8–12 lower-case search keywords UK/EU buyers type.' }
+    keywords: { type: 'array', items: { type: 'string' }, description: '8–12 lower-case search phrases a UK/EU shopper ready to buy would type, 2–4 words each, specific to THIS product: about 3 with the product type and its main feature or material (e.g. "rechargeable led desk lamp"), 3 with the benefit or problem it solves, 2–3 with the use, room, occasion or who it is for (e.g. "gift for runners"), 1–2 British/European spellings or synonyms. No single generic words, no brand names, no features it does not have, no near-duplicates.' }
   },
   required: ['keep', 'reason', 'quality', 'photos_ok', 'photo_issues', 'department', 'section', 'ebay_ok', 'ebay_title', 'keywords']
 });
@@ -207,7 +207,7 @@ async function curate(l, item) {
   const opts = [...new Set(list(l.skus).map((s) => s.props).filter(Boolean))].slice(0, 12);
   try {
     return await ai.structured({
-      system: 'You are the head buyer of Kinan, a marketplace that sells to the UK and Europe and also lists on eBay UK. You decide which supplier products are good enough to sell, and you organise them like a big marketplace. Judge the photos strictly. Be honest and brief.',
+      system: 'You are the head buyer of Kinan, a marketplace that sells to the UK and Europe and also lists on eBay UK. You decide which supplier products are good enough to sell, and you organise them like a big marketplace. Judge the photos strictly and keep only products you would be proud to sell: clear real photos, useful, likely to sell well, and fair for the price. Be honest and brief.',
       name: 'product_decision', schema: SCHEMA(deptIds, groupIds), images: list(l.images).slice(0, 4), kind: 'sourcing', maxTokens: 900,
       text: `Supplier title: ${l.title}\nSearched as: "${item.kw}" (department ${item.dept}, section ${item.group})\nOptions: ${opts.join(', ') || 'one'}\nShips from: ${l.cj_from} warehouse\nDescription:\n${String(l.description || '').slice(0, 1800)}`
     });
