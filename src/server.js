@@ -471,6 +471,13 @@ r('POST', '/api/seller/payouts', SELLER, async ({ req, seller }) => moneySvc.req
 
 // Admin
 r('GET', '/api/admin/overview', STAFF, async () => admin.overview());
+// The owner's Kinan business dashboard: Kinan's own products, sales, profit, eBay and the other shops
+r('GET', '/api/admin/kinan', ADMIN, async ({ url }) => require('./services/kinanDash').dashboard({ days: url.searchParams.get('days') }));
+r('GET', '/api/admin/kinan/products.csv', ADMIN, async ({ url, res }) => {
+  const csv = require('./services/kinanDash').productsCsv(url.searchParams.get('days'));
+  res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="kinan-products-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' });
+  res.end('\ufeff' + csv); return undefined;
+});
 r('GET', '/api/admin/sellers', ADMIN, async () => admin.sellers());
 r('GET', '/api/admin/sellers/:id/verification', ADMIN, async ({ params }) => { const sl = db.sellers.get(params.id); if (!sl) throw httpError(404, 'Seller not found'); return require('./services/kyc').adminView(sl); });
 r('GET', '/api/admin/sellers/:id/verification/:kind', ADMIN, async ({ params, res }) => {

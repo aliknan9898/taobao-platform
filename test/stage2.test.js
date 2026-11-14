@@ -222,3 +222,24 @@ test('re-classify: every live product gets a department and section (AI, word ru
   const r = (await api('GET', '/api/catalog?collection=home-decor&group=lighting')).body;
   assert.ok((r.items || r).some((x) => x.id === c.id), 'found in its department section');
 });
+
+test('Kinan business dashboard: Kinan’s own sales, profit, products, eBay and the other shops', async () => {
+  const boss = await login('boss@x.com', 'adminpass1');
+  const kinan = require('../src/services/buyforme').systemSeller();
+  const l = db.listings.insert({ seller_id: kinan.id, title: 'Kinan Test Lamp', status: 'active', source: 'cj', fulfillment: 'direct', images: ['x'], cj_from: 'DE',
+    sourcing: { dept: 'home-decor', group: 'lighting' }, collections: ['home-decor'], skus: [{ mp_sku_id: 'k1', price: 20, cost_sale: 8, stock: 5 }] });
+  db.views.insert({ id: `vw_${l.id}_x`, listing_id: l.id, seller_id: kinan.id, day: new Date().toISOString().slice(0, 10), n: 10 });
+  db.orders.insert({ buyer_id: 'u1', status: 'paid', paid_at: Date.now(), currency: 'usd', shipping_fee: 4, total: 44, subtotal: 40, shipping_address: { country: 'MT' },
+    lines: [{ line_no: '1', listing_id: l.id, seller_id: kinan.id, title: 'Kinan Test Lamp', qty: 2, price: 20, cost_sale: 8, direct: true }], sub_orders: [] });
+  assert.strictEqual((await api('GET', '/api/admin/kinan', null, cust)).status, 403, 'owner only');
+  const d = (await api('GET', '/api/admin/kinan?days=30', null, boss)).body;
+  assert.ok(d.kpi.revenue >= 44 && d.kpi.units >= 2 && d.kpi.orders >= 1);
+  assert.ok(d.kpi.profit >= 24, `goods margin counted: ${d.kpi.profit}`);
+  const p = d.products.find((x) => x.id === l.id);
+  assert.strictEqual(p.units, 2); assert.strictEqual(p.views, 10); assert.strictEqual(p.conversion, 20); assert.strictEqual(p.margin_pct, 60); assert.strictEqual(p.dept_name, 'Home Décor & Lighting');
+  assert.ok(d.catalog.by_dept.some((x) => x.id === 'home-decor'));
+  assert.ok(Array.isArray(d.stores) && d.stores.every((s) => s.shop_name !== 'Kinan'));
+  assert.ok(d.ebay && 'live' in d.ebay);
+  const csv = await realFetch(`${base}/api/admin/kinan/products.csv`, { headers: { Authorization: `Bearer ${boss}` } });
+  assert.strictEqual(csv.status, 200); assert.match(await csv.text(), /Kinan Test Lamp/);
+});

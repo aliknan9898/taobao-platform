@@ -66,6 +66,17 @@
   dialog::backdrop { background:rgba(0,0,0,.35); }
   .dlg { padding:16px; display:grid; gap:12px; }
   .sub { border:1px solid var(--line); border-radius:10px; padding:10px; display:grid; gap:4px; }
+  /* Kinan business dashboard */
+  .kb-tabs { display:flex; gap:6px; flex-wrap:wrap; } .kb-tabs button { font:inherit; border:1px solid var(--line); background:transparent; color:var(--ink); border-radius:99px; padding:6px 14px; cursor:pointer; }
+  .kb-tabs button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+  .kpi small { display:block; font-size:12px; margin-top:2px; } .up { color:var(--ok); } .down { color:var(--bad); }
+  .kb-two { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+  .kb-thumb { width:40px; height:40px; border-radius:8px; object-fit:cover; background:var(--chip); flex:none; }
+  .kb-prod { display:flex; gap:10px; align-items:center; min-width:220px; } .kb-prod a { color:var(--ink); text-decoration:none; } .kb-prod a:hover { text-decoration:underline; }
+  .kb-bar { height:8px; border-radius:99px; background:var(--chip); overflow:hidden; } .kb-bar i { display:block; height:100%; background:var(--accent); }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  th[data-sort] { cursor:pointer; user-select:none; } th[data-sort]:hover { color:var(--ink); }
+  .kb-filter { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; } .kb-filter input { flex:1; min-width:180px; }
   .bars { display:flex; align-items:flex-end; gap:6px; height:140px; padding-top:8px; min-width:0; }
   .bars.many { gap:2px; }
   .bars.many small { display:none; }
@@ -114,7 +125,7 @@ function showLogin(msg = '') {
 
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
-const ALL_TABS = [['overview','Overview','*'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['listings','Products','admin'],
+const ALL_TABS = [['overview','Overview','*'],['kinan','⭐ Kinan business','admin'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['listings','Products','admin'],
   ['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
 const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
@@ -682,6 +693,104 @@ const VIEWS = {
     });
     if ($('#sf')) $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/admin/staff', 'POST', f); render(); } catch (err) { $('#se').textContent = err.message; } };
   }
+};
+
+// ---------- ⭐ Kinan business: Kinan's own products, sales, profit, eBay and the other shops ----------
+let KB = { sub: 'overview', days: 30, sort: 'revenue', dir: -1, q: '', f: 'all' };
+VIEWS.kinan = async (v) => {
+  const d = await api(`/api/admin/kinan?days=${KB.days}`); const c = d.currency; const k = d.kpi; const pv = d.prev;
+  const m = (n) => fmt(n, c);
+  const delta = (a, b) => { if (!b) return a ? '<small class="up">new</small>' : '<small class="muted">—</small>'; const x = Math.round(((a - b) / Math.abs(b)) * 100); return `<small class="${x >= 0 ? 'up' : 'down'}">${x >= 0 ? '▲' : '▼'} ${Math.abs(x)}% vs previous ${d.days} days</small>`; };
+  const subs = [['overview', '📊 Overview'], ['products', `🧺 Products (${d.catalog.active})`], ['ebay', `🏷 eBay (${d.ebay?.live || 0} live)`], ['shops', `🏪 Shops (${d.stores.length})`], ['orders', '📦 Orders']];
+  const head = `<div class="card"><div class="row" style="justify-content:space-between"><div><h2 style="margin:0">⭐ Kinan business</h2><span class="muted">Products Kinan sells under its own name, their sales and profit, eBay, and the other shops.</span></div>
+      <div class="row"><select id="kbdays">${[[1, 'Today'], [7, '7 days'], [30, '30 days'], [90, '90 days'], [365, '12 months']].map(([n, t]) => `<option value="${n}" ${KB.days === n ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <a href="/api/admin/kinan/products.csv?days=${KB.days}"><button class="btn ghost">⬇ Products CSV</button></a></div></div>
+      <div class="kb-tabs" style="margin-top:12px">${subs.map(([id, t]) => `<button data-kb="${id}" class="${KB.sub === id ? 'on' : ''}">${t}</button>`).join('')}</div></div>`;
+  const prodCell = (p) => `<div class="kb-prod">${p.image ? `<img class="kb-thumb" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="kb-thumb"></span>'}<div><a href="/p/${esc(p.id)}" target="_blank" rel="noopener">${esc(p.title.slice(0, 70))}</a><div class="muted small">${esc([p.dept_name, p.section].filter(Boolean).join(' › ') || 'Not sorted')}${p.from ? ` · ships from ${esc(p.from)}` : ''}</div></div></div>`;
+  let body = '';
+  if (KB.sub === 'overview') {
+    const max = Math.max(1, ...d.daily.map((x) => x.revenue));
+    const ch = [['Website', k.site_orders, k.site_revenue], ['eBay', k.ebay_orders, k.ebay_revenue]]; const chMax = Math.max(1, ...ch.map((x) => x[2]));
+    const depMax = Math.max(1, ...d.catalog.by_dept.map((x) => x.count));
+    body = `<div class="kpis">
+        <div class="kpi"><span>Sales</span><b>${m(k.revenue)}</b>${delta(k.revenue, pv.revenue)}</div>
+        <div class="kpi"><span>Profit (est.)</span><b class="${k.profit < 0 ? 'bad' : ''}">${m(k.profit)}</b><small class="muted">margin ${k.margin_pct ?? '—'}%</small></div>
+        <div class="kpi"><span>Orders</span><b>${fmt(k.orders)}</b>${delta(k.orders, pv.orders)}</div>
+        <div class="kpi"><span>Items sold</span><b>${fmt(k.units)}</b><small class="muted">avg order ${m(k.aov)}</small></div>
+        <div class="kpi"><span>Today</span><b>${m(d.today.revenue)}</b><small class="muted">${d.today.orders} order(s)</small></div>
+        <div class="kpi"><span>Commission from shops</span><b>${m(d.commission)}</b><small class="muted">${d.stores.length} shop(s)</small></div>
+        <div class="kpi"><span>Live products</span><b>${fmt(d.catalog.active)}</b><small class="muted">🎄 ${d.catalog.christmas} Christmas</small></div>
+        <div class="kpi"><span>On eBay</span><b>${fmt(d.ebay?.live || 0)}</b><small class="${d.ebay?.hold ? 'bad' : 'muted'}">${d.ebay?.hold ? 'account on hold' : `${d.ebay?.ready || 0} ready`}</small></div>
+      </div>
+      ${d.tips.length ? `<div class="card"><h2>Worth a look</h2><ul class="alerts">${d.tips.map((t) => `<li class="${t.level === 'bad' ? 'bad' : t.level === 'warn' ? 'warn' : ''}">${esc(t.text)}</li>`).join('')}</ul></div>` : ''}
+      <div class="card"><h2>Sales per day</h2><div class="bars ${d.daily.length > 31 ? 'many' : ''}">${d.daily.map((x) => `<div title="${esc(x.date)}: ${m(x.revenue)} · profit ${m(x.profit)} · ${x.orders} order(s)"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(8))}</small></div>`).join('')}</div></div>
+      <div class="kb-two">
+        <div class="card"><h2>Sales by channel</h2>${ch.map(([n, o, r]) => `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><b>${n}</b><span>${m(r)} · ${o} order(s)</span></div><div class="kb-bar"><i style="width:${(r / chMax) * 100}%"></i></div></div>`).join('')}
+          <p class="muted small">eBay profit ${m(k.ebay_profit)} after eBay fees, goods and delivery.</p></div>
+        <div class="card"><h2>Top products</h2>${d.top.length ? `<table>${d.top.map((p, i) => `<tr><td>${i + 1}</td><td>${prodCell(p)}</td><td class="num">${p.units} sold<div class="muted small">${m(p.revenue)}</div></td></tr>`).join('')}</table>` : '<p class="muted">No sales in this period yet.</p>'}</div>
+      </div>
+      <div class="kb-two">
+        <div class="card"><h2>Products by department</h2>${d.catalog.by_dept.map((x) => `<div style="margin:6px 0"><div class="row" style="justify-content:space-between"><span>${x.emoji} ${esc(x.name)}</span><span class="muted">${x.count}${x.revenue ? ` · ${m(x.revenue)}` : ''}</span></div><div class="kb-bar"><i style="width:${(x.count / depMax) * 100}%"></i></div></div>`).join('')}</div>
+        <div class="card"><h2>Catalogue health</h2><table>
+          <tr><td>Live / total</td><td class="num">${d.catalog.active} / ${d.catalog.total}</td></tr>
+          <tr><td>Average margin</td><td class="num">${d.catalog.avg_margin_pct ?? '—'}%</td></tr>
+          <tr><td>Margin under 20%</td><td class="num ${d.catalog.low_margin ? 'warn' : ''}">${d.catalog.low_margin}</td></tr>
+          <tr><td>Out of stock</td><td class="num ${d.catalog.out_of_stock ? 'warn' : ''}">${d.catalog.out_of_stock}</td></tr>
+          <tr><td>Never sold</td><td class="num">${d.catalog.never_sold}</td></tr>
+          ${Object.entries(d.catalog.by_status).map(([s2, n]) => `<tr><td class="muted">Status: ${esc(s2)}</td><td class="num">${n}</td></tr>`).join('')}
+          <tr><td class="muted">Warehouses</td><td class="num">${Object.entries(d.catalog.by_warehouse).map(([w, n]) => `${esc(w)} ${n}`).join(' · ')}</td></tr>
+          <tr><td class="muted">Sources</td><td class="num">${Object.entries(d.catalog.by_source).map(([w, n]) => `${esc(w)} ${n}`).join(' · ')}</td></tr></table></div>
+      </div>`;
+  } else if (KB.sub === 'products') {
+    const F = { all: ['All', () => true], live: ['Live', (p) => p.status === 'active'], selling: ['Selling', (p) => p.units > 0], never: ['Never sold', (p) => p.status === 'active' && !p.ever_sold], low: ['Margin < 20%', (p) => p.margin_pct !== null && p.margin_pct < 20], oos: ['Out of stock', (p) => p.status === 'active' && p.stock <= 0], ebay: ['On eBay', (p) => p.ebay === 'live'], xmas: ['🎄 Christmas', (p) => p.collections.includes('christmas') || p.collections.includes('xmas')], other: ['Not live', (p) => p.status !== 'active'] };
+    const q = KB.q.toLowerCase();
+    const rows = d.products.filter(F[KB.f][1]).filter((p) => !q || `${p.title} ${p.dept_name || ''} ${p.section || ''} ${p.id}`.toLowerCase().includes(q))
+      .sort((a, b) => { const x = a[KB.sort]; const y = b[KB.sort]; return (typeof x === 'string' ? String(x).localeCompare(String(y)) : (Number(x ?? -1) - Number(y ?? -1))) * KB.dir; });
+    const th = (key, t, num = true) => `<th data-sort="${key}" class="${num ? 'num' : ''}">${t}${KB.sort === key ? (KB.dir < 0 ? ' ▼' : ' ▲') : ''}</th>`;
+    body = `<div class="card"><div class="kb-filter"><input id="kbq" placeholder="Search name, department or id" value="${esc(KB.q)}">
+        <select id="kbf">${Object.entries(F).map(([id, [t]]) => `<option value="${id}" ${KB.f === id ? 'selected' : ''}>${t} (${d.products.filter(F[id][1]).length})</option>`).join('')}</select></div>
+      <p class="muted small">${rows.length} product(s) · numbers for the last ${d.days} day(s) · tap a column to sort</p>
+      <div class="scroll"><table><thead><tr>${th('title', 'Product', false)}${th('price', 'Price')}${th('cost', 'Cost')}${th('margin_pct', 'Margin')}${th('stock', 'Stock')}${th('views', 'Views')}${th('units', 'Sold')}${th('revenue', 'Sales')}${th('profit', 'Profit')}${th('conversion', 'Conv.')}<th>Status</th></tr></thead>
+      <tbody>${rows.slice(0, 400).map((p) => `<tr><td>${prodCell(p)}</td><td class="num">${m(p.price)}</td><td class="num muted">${m(p.cost)}</td>
+        <td class="num ${p.margin_pct !== null && p.margin_pct < 20 ? 'warn' : ''}">${p.margin_pct ?? '—'}%</td><td class="num ${p.stock <= 0 ? 'bad' : ''}">${fmt(p.stock)}</td><td class="num">${fmt(p.views)}</td>
+        <td class="num">${p.units || ''}${p.ebay_units ? `<div class="muted small">${p.ebay_units} eBay</div>` : ''}</td><td class="num">${p.revenue ? m(p.revenue) : ''}</td><td class="num">${p.profit ? m(p.profit) : ''}</td><td class="num">${p.conversion !== null ? `${p.conversion}%` : ''}</td>
+        <td>${p.status === 'active' ? '<span class="pill ok">Live</span>' : `<span class="pill">${esc(p.status)}</span>`}${p.ebay === 'live' ? ' <span class="pill ok">eBay</span>' : p.ebay === 'failed' ? ' <span class="pill bad">eBay ✗</span>' : ''}</td></tr>`).join('')}</tbody></table></div>
+      ${rows.length > 400 ? '<p class="muted small">Showing the first 400 — narrow the search or download the CSV for all.</p>' : ''}</div>`;
+  } else if (KB.sub === 'ebay') {
+    const e = d.ebay || {};
+    const ST = { live: ['On eBay', 'ok'], ready: ['Ready', ''], failed: ['Not listed', 'bad'], not_eligible: ['Not for eBay', 'muted'] };
+    const ef = KB.ef || 'live'; const items = (e.items || []).filter((x) => ef === 'all' || x.status === ef);
+    body = e.error ? `<div class="card err">${esc(e.error)}</div>` : `<div class="kpis">
+        <div class="kpi"><span>eBay account</span><b style="font-size:16px">${e.connected ? `<span class="ok">Connected</span>` : '<span class="bad">Not connected</span>'}</b><small class="muted">${esc(e.account || '')} ${esc(e.env || '')}</small></div>
+        <div class="kpi"><span>On eBay now</span><b>${e.live || 0}</b></div><div class="kpi"><span>Ready to list</span><b>${e.ready || 0}</b></div>
+        <div class="kpi"><span>Failed</span><b class="${e.failed ? 'bad' : ''}">${e.failed || 0}</b></div><div class="kpi"><span>eBay sales</span><b>${m(k.ebay_revenue)}</b><small class="muted">profit ${m(k.ebay_profit)}</small></div></div>
+      ${e.hold ? '<div class="card"><p class="bad">⚠️ eBay has put the account on hold (payment). Pay what is due in eBay Seller Hub → Payments, then list again from the eBay tab.</p></div>' : ''}
+      <div class="card"><div class="kb-filter"><select id="kbef">${[['live', 'On eBay'], ['ready', 'Ready'], ['failed', 'Not listed'], ['not_eligible', 'Not for eBay'], ['all', 'All']].map(([id, t]) => `<option value="${id}" ${ef === id ? 'selected' : ''}>${t} (${(e.items || []).filter((x) => id === 'all' || x.status === id).length})</option>`).join('')}</select>
+        <button class="btn ghost" onclick="tab='ebay';render()">Open the eBay tab to list or end</button></div>
+      <div class="scroll"><table><thead><tr><th>Product</th><th class="num">eBay price</th><th>eBay item</th><th class="num">Listed</th><th class="num">Sold on eBay</th><th>Status</th></tr></thead><tbody>
+      ${items.map((x) => `<tr><td><div class="kb-prod">${x.image ? `<img class="kb-thumb" src="${esc(x.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}<a href="/p/${esc(x.id)}" target="_blank" rel="noopener">${esc(x.title)}</a></div></td>
+        <td class="num">${x.price ? x.price : '—'}</td><td>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.ebay_id)}</a>` : '—'}</td>
+        <td class="num muted">${x.listed_at ? new Date(x.listed_at).toLocaleDateString('en-GB') : ''}</td><td class="num">${x.ebay_units || ''}</td>
+        <td><span class="pill ${(ST[x.status] || [])[1] || ''}">${esc((ST[x.status] || [x.status])[0])}</span>${x.reason && x.status !== 'live' ? `<div class="muted small">${esc(String(x.reason).slice(0, 140))}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Nothing here.</td></tr>'}</tbody></table></div></div>
+      ${(e.orders || []).length ? `<div class="card"><h2>eBay orders</h2><div class="scroll"><table><thead><tr><th>Date</th><th>eBay order</th><th>Items</th><th>Status</th></tr></thead><tbody>${e.orders.map((o) => `<tr><td class="muted">${new Date(o.created).toLocaleDateString('en-GB')}</td><td>${esc(o.ebay_order || '')}</td><td>${esc(o.items)}</td><td>${esc(o.status)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+  } else if (KB.sub === 'shops') {
+    body = `<div class="card"><h2>Shops on Kinan</h2><p class="muted small">Kinan's own shop is in the other tabs. Sales and commission for the last ${d.days} day(s).</p><div class="scroll"><table><thead><tr><th>Shop</th><th>Status</th><th class="num">Live products</th><th class="num">Waiting review</th><th class="num">Orders</th><th class="num">Sales</th><th class="num">Commission</th><th class="num">Last sale</th></tr></thead><tbody>
+      ${d.stores.map((s) => `<tr><td><b>${esc(s.shop_name)}</b><div class="muted small">${esc(s.email || '')}${s.ebay ? ` · eBay: ${esc(s.ebay)}` : ''}${s.terms_ok ? '' : ' · <span class="warn">terms not accepted</span>'}</div></td>
+        <td><span class="pill ${s.status === 'active' ? 'ok' : s.status === 'pending' ? 'warn' : ''}">${esc(s.status)}</span>${s.verification ? `<div class="muted small">ID: ${esc(s.verification)}</div>` : ''}</td>
+        <td class="num">${s.products}</td><td class="num ${s.pending_products ? 'warn' : ''}">${s.pending_products || ''}</td><td class="num">${s.orders || ''}</td><td class="num">${s.sales ? m(s.sales) : ''}</td><td class="num">${s.commission ? m(s.commission) : ''}<div class="muted small">${s.commission_pct ?? ''}%</div></td><td class="num muted">${s.last_sale ? new Date(s.last_sale).toLocaleDateString('en-GB') : '—'}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No other shops yet.</td></tr>'}</tbody></table></div>
+      <p><button class="btn ghost" onclick="tab='sellers';render()">Manage shops (approve, commission)</button></p></div>`;
+  } else {
+    body = `<div class="card"><h2>Recent orders with Kinan's products</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Order</th><th>Channel</th><th>Items</th><th class="num">Sales</th><th class="num">Profit</th><th>Status</th></tr></thead><tbody>
+      ${d.recent.map((o) => `<tr><td class="muted">${new Date(o.at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</td><td><code>${esc(o.id.slice(-8))}</code>${o.country ? ` <span class="muted">${esc(o.country)}</span>` : ''}</td><td>${o.channel === 'ebay' ? '<span class="pill">eBay</span>' : 'Website'}</td><td>${esc(o.items)}</td><td class="num">${m(o.revenue)}</td><td class="num">${m(o.profit)}</td><td><span class="pill ${statusClass(o.status)}">${esc(STATUS_LABEL[o.status] || o.status)}</span></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No orders yet.</td></tr>'}</tbody></table></div>
+      <p><button class="btn ghost" onclick="tab='orders';render()">All orders</button></p></div>`;
+  }
+  v.innerHTML = head + body + `<p class="muted small">Profit is an estimate: sale price and delivery charged, minus the supplier's price and delivery (and eBay's fees for eBay orders). Card fees and taxes are not deducted.</p>`;
+  v.querySelectorAll('[data-kb]').forEach((b) => b.onclick = () => { KB.sub = b.dataset.kb; render(); });
+  const dd = $('#kbdays'); if (dd) dd.onchange = () => { KB.days = Number(dd.value); render(); };
+  const kq = $('#kbq'); if (kq) { kq.oninput = () => { KB.q = kq.value; clearTimeout(KB.t); KB.t = setTimeout(() => { render().then(() => { const n = $('#kbq'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 350); }; }
+  const kf = $('#kbf'); if (kf) kf.onchange = () => { KB.f = kf.value; render(); };
+  const ke = $('#kbef'); if (ke) ke.onchange = () => { KB.ef = ke.value; render(); };
+  v.querySelectorAll('th[data-sort]').forEach((t) => t.onclick = () => { const key = t.dataset.sort; KB.dir = KB.sort === key ? -KB.dir : (key === 'title' ? 1 : -1); KB.sort = key; render(); });
 };
 
 VIEWS.requests = async (v) => {
