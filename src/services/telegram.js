@@ -99,7 +99,7 @@ function report(now = Date.now()) {
   lines.push(`🧺 Products live: ${live}${newProducts ? ` (+${newProducts} new)` : ''}`);
   try {
     const u = require('../cj/client').usage();
-    lines.push(`🔑 CJ background: ${u.background_calls}/${u.background_limit} calls${u.points_out_until ? ' — ⚠️ CJ points used up until the new CJ day' : ''}`);
+    lines.push(`🔑 CJ: ${u.points ? `${u.points.remaining}/${u.points.total || '?'} points left (+${u.points.refill_per_minute || '?'}/min)` : 'points not known yet'} · background ${u.background_calls}/${u.background_limit} calls${u.points_out_until ? ' — ⚠️ points used up, refilling' : ''}`);
   } catch { /* CJ off */ }
   try {
     const es = require('../ebay/client').status();

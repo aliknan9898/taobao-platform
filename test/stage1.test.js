@@ -299,3 +299,29 @@ test('products CJ cannot deliver to a country are left out there, flagged on the
   assert.deepStrictEqual(catalog.buyerListing(no.id).no_delivery, ['GB']);
   assert.ok(!catalog.buyerListing(ok.id).no_delivery);
 });
+
+test('CJ points: the balance CJ reports is kept; background work leaves a reserve for customers and waits minutes (not a day) to refill', async () => {
+  const cjc = require('../src/cj/client');
+  process.env.CJ_API_KEY = 'CJ1@api@abcdefabcdef'; process.env.CJ_MIN_GAP_MS = '0'; process.env.CJ_BACKGROUND_CALLS_PER_DAY = '1000'; process.env.CJ_POINTS_RESERVE = '500';
+  const prev = global.fetch; let remaining = 5000;
+  global.fetch = async (url) => {
+    const p = new URL(String(url)).pathname;
+    if (p.endsWith('/authentication/getAccessToken')) return { ok: true, status: 200, json: async () => ({ code: 200, result: true, data: { openId: 1, accessToken: 't', accessTokenExpiryDate: new Date(Date.now() + 9e9).toISOString(), refreshToken: 'r', refreshTokenExpiryDate: new Date(Date.now() + 9e9).toISOString() } }) };
+    return { ok: true, status: 200, json: async () => ({ code: 200, result: true, data: { ok: 1 }, pointsInfo: { usedToday: 72000 - remaining, remaining, total: 72000 } }) };
+  };
+  try {
+    // an earlier test may have left a pause behind: wait it out in the clock, not for real
+    const realNow = Date.now; Date.now = () => realNow() + 3 * 3600e3;
+    try {
+      await cjc.call('GET', '/x');
+      const u = cjc.usage();
+      assert.strictEqual(u.points.remaining, 5000); assert.strictEqual(u.points.total, 72000); assert.strictEqual(u.points.refill_per_minute, 50);
+      await cjc.background(() => cjc.call('GET', '/x')); // plenty left: runs
+      remaining = 520; await cjc.call('GET', '/x');
+      await assert.rejects(cjc.background(() => cjc.call('GET', '/x')), /refill/);
+      const wait = cjc.usage().points_out_until - Date.now();
+      assert.ok(wait > 60e3 && wait <= 60 * 60e3, `waits minutes for the refill, got ${wait}`);
+      assert.deepStrictEqual(await cjc.call('GET', '/x'), { ok: 1 }, 'customers still use the reserve');
+    } finally { Date.now = realNow; }
+  } finally { global.fetch = prev; delete process.env.CJ_API_KEY; delete process.env.CJ_POINTS_RESERVE; }
+});
