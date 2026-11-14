@@ -109,21 +109,38 @@ const tgChat = () => process.env.TELEGRAM_CHAT_ID || db.settings.get('telegram')
 const tgToken = () => String(process.env.TELEGRAM_BOT_TOKEN || '').replace(/\s+/g, '').replace(/^bot/i, '');
 const tgOn = () => Boolean(tgToken() && tgChat());
 const tgQueue = []; let tgTimer = null;
-/** Telegram allows about one message per second to a chat: queue and send in order. */
+const TG_RETRY = [30e3, 120e3, 600e3]; // a dropped connection or a busy Telegram: try again later, 3 times
+/** Telegram allows about one message per second to a chat: queue and send in order. Resolves true once delivered. */
 function telegram(text) {
-  if (!tgOn()) return;
-  if (tgQueue.length > 50) return; // something is flooding — drop extras
-  tgQueue.push(String(text).slice(0, 3500));
-  if (!tgTimer) drain();
+  if (!tgOn()) return Promise.resolve(false);
+  if (tgQueue.length > 50) return Promise.resolve(false); // something is flooding — drop extras
+  return new Promise((resolve) => {
+    tgQueue.push({ text: String(text).slice(0, 3500), tries: 0, resolve });
+    if (!tgTimer) drain(); else tgTimer.ref?.(); // a message is waiting: keep the timer alive
+  });
+}
+async function sendTg(text) {
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${tgToken()}/sendMessage`, {
+      method: 'POST', signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: tgChat(), text, disable_web_page_preview: true })
+    });
+    if (r.ok) return 'ok';
+    console.warn('[telegram]', r.status);
+    return r.status === 429 || r.status >= 500 ? 'retry' : 'fail';
+  } catch (e) { console.warn('[telegram]', e.message); return 'retry'; }
 }
 function drain() {
-  const text = tgQueue.shift();
-  if (text === undefined) { tgTimer = null; return; }
-  fetch(`https://api.telegram.org/bot${tgToken()}/sendMessage`, {
-    method: 'POST', signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: tgChat(), text, disable_web_page_preview: true })
-  }).then((r) => { if (!r.ok) console.warn('[telegram]', r.status); }).catch((e) => console.warn('[telegram]', e.message));
+  const job = tgQueue.shift();
+  if (job === undefined) { tgTimer = null; return; }
+  sendTg(job.text).then((res) => {
+    if (res === 'ok') return job.resolve(true);
+    if (res === 'retry' && job.tries < TG_RETRY.length) {
+      const t = setTimeout(() => { job.tries++; tgQueue.push(job); if (!tgTimer) drain(); }, TG_RETRY[job.tries]); t.unref?.();
+      return null;
+    }
+    return job.resolve(false);
+  });
   tgTimer = setTimeout(drain, tgQueue.length ? 1050 : 0); tgTimer.unref?.();
 }
-
 module.exports = { tgChat, vapid, subscribe, unsubscribe, toUser, telegram, tgOn, encrypt, vapidHeader, sendOne };

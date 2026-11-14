@@ -10,7 +10,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-'));
 Object.assign(process.env, { TELEGRAM_BOT_TOKEN: '123:abc', CAMPAIGNS_JSON: '[]' });
 delete process.env.TELEGRAM_CHAT_ID; delete process.env.CJ_API_KEY; delete process.env.STRIPE_SECRET_KEY;
 
-const sent = []; let UPDATES = [];
+const sent = []; let UPDATES = []; let REFUSE = 0;
 global.fetch = async (url, opts = {}) => {
   const u = new URL(String(url)); const body = opts.body ? JSON.parse(opts.body) : {};
   assert.ok(u.hostname === 'api.telegram.org');
@@ -18,7 +18,7 @@ global.fetch = async (url, opts = {}) => {
   const ok = (result) => ({ ok: true, status: 200, json: async () => ({ ok: true, result }) });
   if (method === 'getMe') return ok({ username: 'KinanAlertsBot' });
   if (method === 'getUpdates') return ok(UPDATES.filter((x) => x.update_id >= (body.offset || 0)));
-  if (method === 'sendMessage') { sent.push(body); return ok({}); }
+  if (method === 'sendMessage') { if (REFUSE > 0) { REFUSE--; return { ok: false, status: 400, json: async () => ({ ok: false }) }; } sent.push(body); return ok({}); }
   throw new Error(method);
 };
 
@@ -53,5 +53,14 @@ test('Telegram: link with the one-time code only, then a morning report once a d
   assert.match(rep, /Kinan — 2026-11-20/);
   assert.match(tg.report(), /1 paid order\(s\), 25 .* \(1 from eBay\)/);
   assert.match(rep, /Product safety \(GPSR\)/);
+  await wait();
+  // a report Telegram did not take is tried again later the same day (not lost until tomorrow)
+  const nextDay = (h, m = 5) => Date.UTC(2026, 10, 21, h - 1, m);
+  REFUSE = 1;
+  assert.strictEqual(await tg.tick(nextDay(9)), false);
+  assert.strictEqual(await tg.tick(nextDay(9, 20)), null, 'not again right away');
+  assert.strictEqual(await tg.tick(nextDay(9, 40)), true, 'sent on the next try');
+  assert.strictEqual(await tg.tick(nextDay(11)), null);
+  assert.match(sent[sent.length - 1].text, /Kinan — 2026-11-21/);
   tg.unlink(); assert.ok(!push.tgOn());
 });

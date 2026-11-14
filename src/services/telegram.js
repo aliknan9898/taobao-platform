@@ -34,7 +34,7 @@ async function tg(method, body) {
 /** Bot name (cached) and the one-time link code. */
 async function status() {
   const s = st();
-  const out = { token: Boolean(token()), linked: Boolean(require('../push').tgChat()), from_env: Boolean(process.env.TELEGRAM_CHAT_ID), report_hour: hour(), last_report: s.last_report || null };
+  const out = { token: Boolean(token()), linked: Boolean(require('../push').tgChat()), from_env: Boolean(process.env.TELEGRAM_CHAT_ID), report_hour: hour(), last_report: s.report_ok || null };
   if (!out.token) return out;
   let bot = s.bot;
   if (!bot || s.bot_token_tail !== token().slice(-6)) {
@@ -133,11 +133,14 @@ async function tick(now = Date.now()) {
   await poll().catch((e) => console.warn('[telegram] link:', e.message));
   const push = require('../push');
   if (!push.tgOn()) return null;
-  const m = malta(now);
-  if (m.hour < hour() || st().last_report === m.day) return null;
-  save({ last_report: m.day });
-  push.telegram(report(now));
-  return true;
+  const m = malta(now); const s = st();
+  // Sent once a day, counted only when Telegram took it (a dropped connection at 9:00 used to lose the day's report)
+  if (m.hour < hour() || s.report_ok === m.day) return null;
+  if (s.report_try_at && now - s.report_try_at < 30 * 60e3) return null; // one try (with its retries) at a time
+  save({ last_report: m.day, report_try_at: now });
+  const ok = await push.telegram(report(now));
+  if (ok) save({ report_ok: m.day, report_try_at: null });
+  return ok;
 }
 
 module.exports = { status, poll, unlink, test, report, tick, malta };
