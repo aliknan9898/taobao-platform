@@ -609,13 +609,19 @@ const VIEWS = {
     const F = [['pending_review','Awaiting review'],['active','Live'],['rejected','Rejected'],['all','All']];
     v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Product review</h2>
         <div class="row">${F.map(([k, t]) => `<button class="btn ${k === filter ? '' : 'ghost'}" data-lf="${k}">${t}</button>`).join('')}</div></div>
-        <p class="muted">Products imported by sellers are hidden from the buyer app until you approve them. Price changes do not need re-approval; changing the title or photos sends a product back to review.</p></div>
+        <p class="muted">Products imported by sellers are hidden from the buyer app until you approve them. Price changes do not need re-approval; changing the title or photos sends a product back to review.</p>
+        ${list.some((l) => l.status === 'pending_review' || l.status === 'rejected') ? `<div class="row" id="bulkbar" style="position:sticky;top:0;background:var(--card,#fff);z-index:5;padding:8px 0;border-top:1px solid var(--line);gap:8px;flex-wrap:wrap">
+          <label class="row" style="gap:6px"><input type="checkbox" id="selall"> <b>Select all</b></label><span class="muted" id="selcount">0 selected</span>
+          <button class="btn" id="bulkok" disabled>Approve & publish selected</button>
+          <input id="bulkreason" placeholder="Rejection reason for the selected (shown to sellers)" style="flex:1;min-width:200px">
+          <button class="btn ghost bad" id="bulkno" disabled>Reject selected</button><span class="muted" id="bulkmsg"></span></div>` : ''}</div>
       ${list.map((l) => {
         const img = [...(l.own_images || []), ...(l.images || [])][0];
         const lowMargin = l.skus.some((s) => s.margin_pct !== null && s.margin_pct < 10);
         return `<div class="card" style="display:grid;gap:10px">
           <div class="row" style="justify-content:space-between;align-items:flex-start">
             <div class="row" style="align-items:flex-start;gap:12px">
+              ${l.status === 'pending_review' || l.status === 'rejected' ? `<input type="checkbox" data-sel="${esc(l.id)}" style="width:22px;height:22px;margin-top:24px" aria-label="Select">` : ''}
               ${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">` : '<div class="muted" style="width:72px;height:72px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;font-size:11px;text-align:center">No photos</div>'}
               <div><b>${esc(l.title)}</b>${l.title_ar ? `<div dir="rtl">${esc(l.title_ar)} <span class="muted">(${l.ar_manual ? 'Arabic by seller' : 'automatic Arabic'})</span></div>` : ''}<div class="muted">${esc(l.category || 'no category')} · ${esc(l.shop)} · ${l.source === 'aliexpress' ? `<span class="pill">AliExpress · ships direct</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || ['https://www.aliexpress.com/item/' + l.ae_product_id + '.html'])[0])}" target="_blank" rel="noopener noreferrer">AliExpress link</a>` : ''}` : l.source === 'manual' ? `<span class="warn">Added manually</span>${l.source_link ? ` · <a href="${esc((l.source_link.match(/https?:\/\/\S+/) || [''])[0])}" target="_blank" rel="noopener noreferrer">Taobao link</a>` : ' · no link'}${l.weight_kg ? ` · ${esc(l.weight_kg)} kg` : ''}` : `Taobao <code>${esc(l.taobao_item_id)}</code> · ${l.item_type === 'WITHOUT_MATERIAL' ? '<span class="warn">General item: seller photos only</span>' : 'Distribution Platform item'}`}</div>
                 <div class="muted">Submitted ${date(l.review?.submitted_at || l.created_at)}${l.review?.reason ? ` · <span class="bad">Rejection reason: ${esc(l.review.reason)}</span>` : ''}</div></div>
@@ -634,6 +640,21 @@ const VIEWS = {
         </div>`; }).join('') || '<div class="card muted">No products here.</div>'}`;
     v.querySelectorAll('[data-lf]').forEach((b) => b.onclick = () => { v.dataset.lf = b.dataset.lf; render(); });
     v.querySelectorAll('[data-approve]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/listings/${b.dataset.approve}/approve`, 'POST'); } catch (e) { alert(e.message); } render(); });
+    // Select all / several, then approve or reject them together
+    const sels = [...v.querySelectorAll('[data-sel]')]; const picked = () => sels.filter((c) => c.checked).map((c) => c.dataset.sel);
+    const sync = () => { const n = picked().length; const c = v.querySelector('#selcount'); if (!c) return; c.textContent = `${n} selected`; v.querySelector('#bulkok').disabled = !n; v.querySelector('#bulkno').disabled = !n; const all = v.querySelector('#selall'); all.checked = n > 0 && n === sels.length; all.indeterminate = n > 0 && n < sels.length; };
+    sels.forEach((c) => c.onchange = sync);
+    const selall = v.querySelector('#selall'); if (selall) selall.onchange = () => { sels.forEach((c) => { c.checked = selall.checked; }); sync(); };
+    const bulk = async (action) => {
+      const ids = picked(); const reason = v.querySelector('#bulkreason').value.trim();
+      if (action === 'reject' && !reason) { alert('Enter a rejection reason so the sellers know what to fix'); return; }
+      if (!confirm(`${action === 'approve' ? 'Approve and publish' : 'Reject'} ${ids.length} product(s)?`)) return;
+      v.querySelector('#bulkok').disabled = true; v.querySelector('#bulkno').disabled = true; v.querySelector('#bulkmsg').textContent = 'Working…';
+      try { const r = await api('/api/admin/listings/bulk', 'POST', { ids, action, reason }); if (r.failed.length) alert(`${r.done} done. Not done:\n${r.failed.map((f) => `${f.id}: ${f.error}`).join('\n')}`); } catch (e) { alert(e.message); }
+      render();
+    };
+    const bo = v.querySelector('#bulkok'); if (bo) bo.onclick = () => bulk('approve');
+    const bn = v.querySelector('#bulkno'); if (bn) bn.onclick = () => bulk('reject');
     v.querySelectorAll('[data-reject]').forEach((b) => b.onclick = async () => {
       const reason = v.querySelector(`[data-reason="${b.dataset.reject}"]`).value.trim();
       if (!reason) { alert('Enter a rejection reason so the seller knows what to fix'); return; }

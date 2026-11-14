@@ -167,3 +167,17 @@ test('eBay card picture: the owner uploads one, sellers see it; only images, and
   assert.strictEqual((await api('GET', '/api/config/public')).body.ebay_icon, null);
   assert.strictEqual((await realFetch(`${base}/brand/ebay-icon`)).status, 404);
 });
+
+test('product review: approve or reject many products at once', async () => {
+  const boss = await login('boss@x.com', 'adminpass1');
+  const sel = await login('sel@x.com', 'sellerpass');
+  const mk = async (title) => (await api('POST', '/api/seller/products/manual', { title, category: 'home', weight_kg: 1, images: ['data:image/jpeg;base64,/9j/4AAQSkZJRg=='], variants: [{ name: 'One', price: 20, stock: 10 }] }, sel)).body.id;
+  const ids = [await mk('Bulk Lamp One'), await mk('Bulk Lamp Two'), await mk('Bulk Lamp Three')];
+  assert.strictEqual((await api('POST', '/api/admin/listings/bulk', { ids, action: 'reject' }, boss)).status, 400, 'a reason is needed to reject');
+  assert.strictEqual((await api('POST', '/api/admin/listings/bulk', { ids: ids.slice(0, 2), action: 'approve' }, sel)).status, 403, 'admins only');
+  const r = (await api('POST', '/api/admin/listings/bulk', { ids: [...ids.slice(0, 2), 'lst_nope'], action: 'approve' }, boss)).body;
+  assert.strictEqual(r.done, 2); assert.strictEqual(r.failed.length, 1);
+  assert.ok(ids.slice(0, 2).every((id) => db.listings.get(id).status === 'active'));
+  const r2 = (await api('POST', '/api/admin/listings/bulk', { ids: [ids[2]], action: 'reject', reason: 'Photos are blurry' }, boss)).body;
+  assert.strictEqual(r2.done, 1); assert.strictEqual(db.listings.get(ids[2]).status, 'rejected');
+});

@@ -659,6 +659,18 @@ r('GET', '/api/admin/requests', CARE, async () => shopSvc.adminRequests());
 r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
 r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
 r('GET', '/api/admin/listings', ADMIN, async ({ url }) => admin.listings({ status: url.searchParams.get('status') || undefined }));
+// Many at once from the review queue: each one approved or rejected on its own, failures listed
+r('POST', '/api/admin/listings/bulk', ADMIN, async ({ req, user }) => {
+  const b = await readJson(req); const ids = [...new Set(Array.isArray(b.ids) ? b.ids.map(String) : [])].slice(0, 500);
+  if (!ids.length) throw httpError(400, 'Choose at least one product');
+  if (!['approve', 'reject'].includes(b.action)) throw httpError(400, 'Unknown action');
+  if (b.action === 'reject' && !String(b.reason || '').trim()) throw httpError(400, 'Enter a rejection reason so the sellers know what to fix');
+  let done = 0; const failed = [];
+  for (const id of ids) {
+    try { if (b.action === 'approve') catalog.approve(id, user); else catalog.reject(id, b.reason, user); done++; } catch (e) { failed.push({ id, error: e.message }); }
+  }
+  return { done, failed };
+});
 r('POST', '/api/admin/listings/:id/approve', ADMIN, async ({ params, user }) => catalog.approve(params.id, user));
 r('POST', '/api/admin/listings/:id/reject', ADMIN, async ({ req, params, user }) => catalog.reject(params.id, (await readJson(req)).reason, user));
 
