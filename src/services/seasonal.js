@@ -147,6 +147,7 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
   const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
   const already = members(id).filter((l) => l.status === 'active' || (l.status === 'pending_review' && l.review?.auto === 'ai')).length; // incl. ones waiting for the AI check
   const target = Math.max(0, p.count - already);
+  const addedList = []; const byGroup = {}; // for the Telegram report
   const st = { v: RULES, running: true, started_at: now(), by, target: p.count, had: already, added: 0, checked: 0, skipped: 0, reasons: {}, error: null, prefs: p };
   const tried = new Set((s0.v || 0) >= 5 ? list(s0.tried) : []); // CJ products turned down by earlier imports (cleared once: v4 also kept CJ-busy errors)
   const skip = (why, pid) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (pid) tried.add(pid); st.tried = [...tried].slice(-5000); };
@@ -198,13 +199,15 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
           xmas: { group, keyword: pool.kw, from: cand.from, cost, ship_fee: opt.fee, ship_days: opt.days || '', ship_method: opt.method, ship_to: dest, ad_line: copy.ad_line, copy: 'template', supplier_title: cand.title }
         }));
         st.added++; setState(id, { ...st });
+        addedList.push({ id: l.id, title: copy.title, dept: group, from: cand.from, quality: null, eu: dest !== 'GB' ? opt.days || null : null, gb: dest === 'GB' ? opt.days || null : null, cost, price: Math.min(...l.skus.map((k) => Number(k.price) || Infinity)), kw: (copy.keywords || []).slice(0, 4), listed: cand.listed || null });
+        byGroup[group] = (byGroup[group] || 0) + 1;
       }
     }
   } catch (e) { st.error = e.message; }
   st.running = false; st.done_at = now(); runningHere.delete(id);
   setState(id, { ...st });
   console.log(`[xmas] import done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}${st.errors?.length ? ` errors: ${JSON.stringify(st.errors)}` : ''}`);
-  if (st.added) try { require('../push').telegram(`🎄 Christmas Shop: ${st.added} products added from CJ's European and UK warehouses (${already + st.added} in total, each checked by the AI before it goes live).`); } catch { /* optional */ }
+  if (st.added) try { require('./sourcing').telegramReport({ ...st, by_dept: byGroup }, addedList, `🎄 Christmas Shop (${already + st.added} in total)`); } catch (e) { console.warn('[xmas] telegram', e.message); }
   polish(id).catch((e) => console.warn('[xmas] copy:', e.message));
   return st;
 }

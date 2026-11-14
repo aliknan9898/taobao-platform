@@ -358,11 +358,11 @@ function publicDepartments() {
 
 /** The owner's Telegram: every product added in this run (name, department, AI score, delivery, cost → price,
  *  keywords, link), why the others were skipped, and the CJ points left. Split into messages Telegram accepts. */
-function telegramReport(st, added) {
+function telegramReport(st, added, title = 'Kinan catalog builder') {
   const push = require('../push'); const { config } = require('../config');
   const cur = String(config.currency || 'usd').toUpperCase(); const m2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : '?');
-  const head = [`🛍️ Kinan catalog builder — ${st.added} new product(s)`, `Checked ${st.checked} · skipped ${st.skipped}`,
-    ...Object.entries(st.by_dept).map(([k, v]) => `• ${DEPARTMENTS[k]?.emoji || ''} ${DEPARTMENTS[k]?.en || k}: ${v}`)];
+  const head = [`🛍️ ${title} — ${st.added} new product(s)`, `Checked ${st.checked} · skipped ${st.skipped}`,
+    ...Object.entries(st.by_dept || {}).map(([k, v]) => `• ${DEPARTMENTS[k]?.emoji || ''} ${DEPARTMENTS[k]?.en || k}: ${v}`)];
   const why = Object.entries(st.reasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   if (why.length) head.push('', 'Skipped because:', ...why.map(([r, n]) => `• ${r}: ${n}`));
   try { const u = require('../cj/client').usage(); if (u.points) head.push('', `🔑 CJ points: ${u.points.remaining}/${u.points.total || '?'} (+${u.points.refill_per_minute || '?'}/min)`); } catch { /* optional */ }
