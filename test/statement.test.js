@@ -23,7 +23,7 @@ const api = async (method, p, body, token) => {
 const login = async (e, p) => (await api('POST', '/api/auth/login', { email: e, password: p })).body.token;
 
 test('seller downloads an account statement PDF', async () => {
-  const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 'sel@x.com', password: 'sellerpass', shop_name: 'Atlas' })).body;
+  const reg = (await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 'sel@x.com', password: 'sellerpass', shop_name: 'Atlas' })).body;
   await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, await login('boss@x.com', 'adminpass1'));
   const sel = await login('sel@x.com', 'sellerpass');
   db.ledger.insert({ seller_id: reg.seller_id, order_id: 'ord_1111222233334444', type: 'sale', currency: 'usd', gross: 50, commission: 5, cost: 20, net: 25, status: 'payable' });

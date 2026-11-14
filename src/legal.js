@@ -10,7 +10,7 @@ const path = require('path');
 const { config } = require('./config');
 
 const DIR = path.join(__dirname, '..', 'public', 'legal');
-const UPDATED = '10 November 2026';
+const UPDATED = '14 November 2026';
 const PAGES = {
   '/terms': ['terms.html', 'Terms of Service'],
   '/seller-terms': ['seller-terms.html', 'Seller Terms'],
@@ -36,7 +36,7 @@ function render(pathname) {
     OPERATOR: esc(o.name), TRADING: esc(o.tradingName), COUNTRY: esc(o.country),
     ADDRESS: esc(o.address || o.country), COMPANY: esc(o.companyNumber || 'Registration in progress'), VAT: esc(o.vatNumber || 'Not yet registered'),
     COMPANY_SENTENCE: o.companyNumber ? `Kinan is a trading name of ${esc(o.name)}, registered under number ${esc(o.companyNumber)}.` : '',
-    EMAIL: email, CURRENCY: esc(config.currency.toUpperCase()),
+    EMAIL: email, CURRENCY: esc(config.currency.toUpperCase()), COMMISSION: esc(config.defaultCommissionPct),
     NAV: Object.entries(PAGES).map(([href, [, t]]) => `<a href="${href}"${href === pathname ? ' aria-current="page"' : ''}>${t}</a>`).join(''),
     FOOTER: footer()
   };

@@ -93,7 +93,7 @@ test('stripe webhook signature', () => {
 
 test('full marketplace flow: seller → buyer → Taobao → warehouse → delivered', async () => {
   // Seller registers (pending), admin approves
-  const reg = await api('POST', '/api/auth/register', { role: 'seller', email: 's1@x.com', password: 'sellerpass', shop_name: 'Shop One' });
+  const reg = await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 's1@x.com', password: 'sellerpass', shop_name: 'Shop One' });
   assert.strictEqual(reg.status, 201);
   const sTok = await login('s1@x.com', 'sellerpass');
   const aTok = await login('admin@x.com', 'adminpass1');

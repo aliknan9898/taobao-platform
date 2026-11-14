@@ -61,8 +61,11 @@ const APP_ROLE = { shop: 'buyer', seller: 'seller' };
 const isStaff = (u) => u && (u.role === 'admin' || Boolean(STAFF_ROLES[u.role]));
 const usersByEmail = (email) => db.users.all((u) => u.email === String(email || '').trim().toLowerCase());
 
-function register({ email, password, name, role, shop_name, lang }) {
+// The Seller Terms version a seller must accept (public/legal/seller-terms.html); a new version asks sellers again
+const SELLER_TERMS_VERSION = '2026-11-14';
+function register({ email, password, name, role, shop_name, lang, accept_terms, ip }) {
   if (!['buyer', 'seller'].includes(role)) throw httpError(400, 'Account type not allowed');
+  if (role === 'seller' && accept_terms !== true) throw httpError(400, 'Please read and accept the Seller Terms to open your shop');
   if (!validEmail(email)) throw httpError(400, 'Invalid email');
   if (!password || password.length < 8) throw httpError(400, 'Password must be at least 8 characters');
   email = email.trim().toLowerCase();
@@ -75,7 +78,8 @@ function register({ email, password, name, role, shop_name, lang }) {
     // Sellers start as "pending" until an admin approves them
     const seller = db.sellers.insert({
       user_id: user.id, shop_name: String(shop_name || name || email).slice(0, 80),
-      status: 'pending', commission_pct: config.defaultCommissionPct, auto_pay: false, taobao: null
+      status: 'pending', commission_pct: config.defaultCommissionPct, auto_pay: false, taobao: null,
+      terms: { version: SELLER_TERMS_VERSION, accepted_at: Date.now(), ip: ip || null }
     });
     return publicUser(db.users.update(user.id, { seller_id: seller.id }));
   }
@@ -233,4 +237,4 @@ function resetPassword(token, password) {
   return createSession(db.users.get(u.id));
 }
 
-module.exports = { isOwner, ownerEmail, secureOwnerLink, secureOwnerAccounts, isStaff, usersByEmail, APP_ROLE, cookieName, sellerContext, tokenFromRequest, STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };
+module.exports = { SELLER_TERMS_VERSION, isOwner, ownerEmail, secureOwnerLink, secureOwnerAccounts, isStaff, usersByEmail, APP_ROLE, cookieName, sellerContext, tokenFromRequest, STAFF_ROLES, createResetToken, resetPassword, register, createStaff, login, createSession, validEmail, logout, authenticate, requireRole, bootstrapAdmin, httpError, publicUser, ROLES, hashPassword };

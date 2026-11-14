@@ -21,7 +21,7 @@ async function api(method, p, body, token) { const r = await fetch(base + p, { m
 
 test('seo and analytics', async () => {
   const boss = (await api('POST', '/api/auth/login', { email: 'boss@x.com', password: 'adminpass1' })).token;
-  const reg = await api('POST', '/api/auth/register', { role: 'seller', email: 's@x.com', password: 'sellerpass', shop_name: 'Atlas & Co' });
+  const reg = await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 's@x.com', password: 'sellerpass', shop_name: 'Atlas & Co' });
   await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, boss);
   const sel = (await api('POST', '/api/auth/login', { email: 's@x.com', password: 'sellerpass' })).token;
   const p = await api('POST', '/api/seller/products/manual', { title: 'Jacket <b>warm</b>', category: 'men', images: ['https://img.alicdn.com/a.jpg'], variants: [{ name: 'L', price: 39, stock: 3 }, { name: 'XL', price: 42, stock: 0 }] }, sel);

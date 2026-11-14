@@ -131,6 +131,7 @@ async function signOut() { await api('/api/auth/logout', 'POST').catch(() => {})
 const routes = [[/^#\/?$/, dashboard], [/^#\/products$/, products], [/^#\/add$/, addStart], [/^#\/edit\/([\w-]+)$/, editProduct], [/^#\/review$/, editorScreen], [/^#\/manual(?:\/([\w-]+)|\?(ae))?$/, manualForm], [/^#\/orders$/, orders], [/^#\/earnings$/, earnings], [/^#\/ebay$/, ebayPage], [/^#\/settings$/, settings]];
 async function route() {
   if (!me) return;
+  if (shop && shop.terms_ok === false) return termsScreen();
   if (needsVerification()) { try { await verifyScreen(); } catch (e) { $('#app').innerHTML = `<div class="kyc"><div class="empty"><h3>Couldn’t load this page</h3><p>${esc(e.message)}</p><button class="btn ghost" onclick="route()">Try again</button></div></div>`; } return; }
   shell();
   const h = location.hash || '#/';
@@ -953,6 +954,27 @@ async function verifyScreen() {
     } catch (err) { $('#kerr').textContent = err.message; btn.disabled = false; btn.textContent = 'Send for approval'; }
   };
 }
+// The Kinan Seller guide (PDF, English and Arabic) — on the sign-up page and in the Seller Center
+const guideBox = () => `<div class="panel stack" style="gap:8px;background:var(--soft,#f0fdfa)">
+    <b>📘 How to use Kinan Seller</b><span class="muted small">A short step-by-step guide: opening your shop, adding products, orders, earnings and eBay.</span>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><a class="btn ghost sm" href="/assets/kinan-seller-guide-en.pdf" download target="_blank">⬇ Guide (English) PDF</a><a class="btn ghost sm" href="/assets/kinan-seller-guide-ar.pdf" download target="_blank">⬇ الدليل بالعربية PDF</a></div></div>`;
+// Sellers who joined before the current Seller Terms (or with Google/Facebook) accept them once
+function termsScreen(msg = '') {
+  document.body.classList.remove('has-tabbar');
+  $('#app').innerHTML = `<div class="auth"><form class="panel stack" id="tf">
+      <div class="row between">${K.brand('Seller Center')}</div>
+      <h2>Please accept the Seller Terms</h2>
+      <p class="muted">To keep selling on Kinan, read and accept the current <a href="/seller-terms" target="_blank">Seller Terms</a> (version ${esc(shop.terms_version || '')}). They explain what you may sell, how orders, commission and payouts work, and your rights.</p>
+      <label class="row" style="gap:10px;align-items:flex-start"><input type="checkbox" name="accept" required style="width:22px;height:22px;flex:none;margin-top:2px">
+        <span>I have read and accept the <a href="/seller-terms" target="_blank">Seller Terms</a> and the <a href="/privacy" target="_blank">Privacy Policy</a>, and I confirm that I will only sell legal, safe and genuine products.</span></label>
+      <div class="error">${esc(msg)}</div>
+      <button class="btn">Accept and continue</button>
+      ${guideBox()}
+      <a class="muted small" href="#" id="tout">Sign out</a></form></div>`;
+  $('#tout').onclick = async (e) => { e.preventDefault(); await api('/api/auth/logout', 'POST').catch(() => {}); me = null; authScreen('in'); };
+  $('#tf').onsubmit = async (e) => { e.preventDefault(); try { await api('/api/seller/terms', 'POST', { accept: true }); await refreshShop(); route(); } catch (err) { termsScreen(err.message); } };
+}
+
 function authScreen(mode = 'in', msg = '') {
   document.body.classList.remove('has-tabbar');
   $('#app').innerHTML = `<div class="auth"><form class="panel stack" id="af">
@@ -964,16 +986,19 @@ function authScreen(mode = 'in', msg = '') {
       ${mode === 'up' ? '<label class="field">Shop name<input name="shop_name" required maxlength="80"></label><label class="field">Your name<input name="name" required autocomplete="name"></label>' : ''}
       <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
       <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
-      ${mode === 'up' ? '<span class="muted">At least 8 characters. Kinan reviews new shops before they can publish. By opening a shop you agree to the <a href="/seller-terms" target="_blank">Seller Terms</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</span>' : ''}
+      ${mode === 'up' ? `<span class="muted small">At least 8 characters. Kinan reviews new shops before they can publish.</span>
+        <label class="row" style="gap:10px;align-items:flex-start"><input type="checkbox" name="accept_terms" required style="width:22px;height:22px;flex:none;margin-top:2px">
+          <span>I have read and accept the <a href="/seller-terms" target="_blank">Seller Terms</a> and the <a href="/privacy" target="_blank">Privacy Policy</a>, and I confirm that I will only sell legal, safe and genuine products.</span></label>` : ''}
       <div class="error">${esc(msg)}</div>
       <button class="btn">${mode === 'in' ? 'Sign in' : 'Open shop'}</button>
+      ${mode === 'up' ? guideBox() : ''}
       <a class="muted" href="/">Go to the Kinan store</a>
     ${mode === 'in' ? '<a class="muted small" href="/reset?app=seller">Forgot your password?</a>' : ''}</form></div>${K.footer(cfg.operator?.name)}`;
   $$('.seg button').forEach((b) => b.onclick = () => authScreen(b.dataset.m));
   $('#af').onsubmit = async (e) => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
     try {
-      if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'seller' });
+      if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, accept_terms: f.accept_terms === 'on', role: 'seller' });
       const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password, app: 'seller' });
       if (asMe(r.user).role !== 'seller') { await api('/api/auth/logout', 'POST'); return authScreen(mode, 'This is not a seller account. Customers shop at the Kinan store.'); }
       me = asMe(r.user); await refreshShop(); takeNext(); route();

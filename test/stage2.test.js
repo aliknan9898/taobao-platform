@@ -60,7 +60,7 @@ const addr = { name: 'C', phone: '+966', country_code: 'SA', city: 'Riyadh', lin
 
 test('bought together: shown on the product, bundle saving at checkout', async () => {
   const boss = await login('boss@x.com', 'adminpass1');
-  const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 'sel@x.com', password: 'sellerpass', shop_name: 'Atlas' })).body;
+  const reg = (await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 'sel@x.com', password: 'sellerpass', shop_name: 'Atlas' })).body;
   await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, boss);
   const sel = await login('sel@x.com', 'sellerpass');
   const mk = async (title, price) => { const p = (await api('POST', '/api/seller/products/manual', { title, category: 'home', weight_kg: 1, images: ['data:image/jpeg;base64,/9j/4AAQSkZJRg=='], variants: [{ name: 'One', price, stock: 10 }] }, sel)).body; await api('POST', `/api/admin/listings/${p.id}/approve`, null, boss); return p; };

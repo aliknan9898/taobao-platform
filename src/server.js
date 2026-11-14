@@ -121,7 +121,7 @@ function assetVersion(name) {
 const versionAssets = (html) => html.replace(/(["'])\/assets\/([\w.-]+\.(?:css|js))\1/g, (m, q, name) => `${q}/assets/${name}?v=${assetVersion(name)}${q}`);
 
 // Static assets (CSS, JS, icons, manifests) — flat folder, no traversal
-const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8' };
+const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.pdf': 'application/pdf' };
 function asset(res, rel, cache = 'public, max-age=3600') {
   const name = path.basename(rel);
   const type = MIME[path.extname(name)];
@@ -217,7 +217,7 @@ r('POST', '/api/auth/register', null, async ({ req }) => {
   const ip = clientIp(req); const now = Date.now();
   const list = (signups.get(ip) || []).filter((t) => now - t < 3600e3);
   if (list.length >= 30) throw httpError(429, 'Too many new accounts from this network — try again later');
-  const out = auth.register({ ...(await readJson(req)), lang: reqLang(req) });
+  const out = auth.register({ ...(await readJson(req)), lang: reqLang(req), ip: ip });
   list.push(now); signups.set(ip, list);
   if (out?.role === 'seller' || out?.user?.role === 'seller') require('./push').telegram(`🏪 New seller signed up — approve them in the admin dashboard\n${config.publicBaseUrl}/admin`);
   return out;
@@ -393,9 +393,16 @@ r('GET', '/api/buyer/requests', BUYER, async ({ user }) => db.requests.all((x) =
 r('POST', '/api/buyer/requests', BUYER, async ({ req, user }) => shopSvc.buyerRequestView(shopSvc.createRequest(user, await readJson(req))));
 
 // Seller
-const sellerSelf = (s) => ({ verification: (({ state, reason, submitted_at }) => ({ state, reason, submitted_at }))(require('./services/kyc').view(s)), id: s.id, shop_name: s.shop_name, logo: s.logo || null, description: s.description || '', return_policy: s.return_policy || '', status: s.status, commission_pct: s.commission_pct, default_markup_pct: s.default_markup_pct ?? 30, auto_pay: s.auto_pay, taobao: sellerAuth.status(s) });
+const sellerSelf = (s) => ({ verification: (({ state, reason, submitted_at }) => ({ state, reason, submitted_at }))(require('./services/kyc').view(s)), id: s.id, shop_name: s.shop_name, logo: s.logo || null, description: s.description || '', return_policy: s.return_policy || '', status: s.status, commission_pct: s.commission_pct, default_markup_pct: s.default_markup_pct ?? 30, auto_pay: s.auto_pay, taobao: sellerAuth.status(s), terms_ok: s.terms?.version === auth.SELLER_TERMS_VERSION, terms_version: auth.SELLER_TERMS_VERSION });
 r('GET', '/api/seller/me', SELLER, async ({ seller }) => sellerSelf(seller));
 // Identity verification: details + document + live selfie, then the admin approves the shop
+// Seller Terms: sellers who signed up before this version (or with Google/Facebook) accept them once in the Seller Center
+r('POST', '/api/seller/terms', SELLER, async ({ req, user }) => {
+  const b = await readJson(req); if (b.accept !== true) throw httpError(400, 'Please tick the box to accept the Seller Terms');
+  const s = db.sellers.get(user.seller_id); if (!s) throw httpError(404, 'Shop not found');
+  db.sellers.update(s.id, { terms: { version: auth.SELLER_TERMS_VERSION, accepted_at: Date.now(), ip: clientIp(req) } });
+  return { ok: true, version: auth.SELLER_TERMS_VERSION };
+});
 r('GET', '/api/seller/verification', SELLER, async ({ seller }) => require('./services/kyc').view(seller));
 r('POST', '/api/seller/verification', SELLER, async ({ req, seller, user }) => require('./services/kyc').submit(seller, user, await readJson(req)));
 r('PATCH', '/api/seller/me', SELLER, async ({ req, seller }) => {

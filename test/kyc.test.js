@@ -26,7 +26,7 @@ const PNG = `data:image/png;base64,${fs.readFileSync(path.join(__dirname, '../pu
 const form = { full_name: 'Ali Kinan', date_of_birth: '1990-05-01', nationality: 'SY', country: 'MT', city: 'Valletta', address: 'Main St 1', phone: '+356 7900 0000', shop_name: 'Ali Store', business_type: 'individual', id_type: 'national_id', id_number: 'A123456', agree: true, id_front: PNG, id_back: PNG, selfie: PNG, selfie_live: true };
 
 test('seller verifies identity, admin asks for a correction, then approves', async () => {
-  await api('POST', '/api/auth/register', { role: 'seller', email: 's@x.com', password: 'sellerpass', shop_name: 'Tmp', name: 'S' });
+  await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 's@x.com', password: 'sellerpass', shop_name: 'Tmp', name: 'S' });
   const t = await login('s@x.com', 'sellerpass');
   const boss = await login('boss@x.com', 'adminpass1');
   assert.strictEqual((await api('GET', '/api/seller/me', null, t)).body.verification.state, 'none');
@@ -63,7 +63,7 @@ test('seller verifies identity, admin asks for a correction, then approves', asy
 
 test('admin cannot activate an unverified seller; unverified active shops go back to pending', async () => {
   const boss = await login('boss@x.com', 'adminpass1');
-  const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 'u@x.com', password: 'sellerpass', shop_name: 'U' })).body;
+  const reg = (await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 'u@x.com', password: 'sellerpass', shop_name: 'U' })).body;
   assert.strictEqual((await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active' }, boss)).status, 409);
   db.sellers.update(reg.seller_id, { status: 'active' }); // a shop approved before verification existed
   assert.strictEqual(require('../src/services/kyc').enforce(), 1);
@@ -72,7 +72,7 @@ test('admin cannot activate an unverified seller; unverified active shops go bac
 
 test('emails: seller under review, seller approved (with app notice), customer welcome — all with the Kinan logo', async () => {
   const boss = await login('boss@x.com', 'adminpass1');
-  await api('POST', '/api/auth/register', { role: 'seller', email: 'm@x.com', password: 'sellerpass', shop_name: 'M' });
+  await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 'm@x.com', password: 'sellerpass', shop_name: 'M' });
   const t = await login('m@x.com', 'sellerpass');
   await api('POST', '/api/seller/verification', { ...form, shop_name: 'Mona Shop' }, t);
   const id = (await api('GET', '/api/seller/me', null, t)).body.id;
@@ -100,4 +100,22 @@ test('emails and notifications follow the person’s app language', async () => 
   const t = await login('en@x.com', 'buyerpass1');
   await fetch(`${base}/api/me`, { headers: { Authorization: `Bearer ${t}`, 'X-Kinan-Lang': 'ar' } });
   assert.strictEqual(mailer.langOf('en@x.com'), 'ar');
+});
+
+test('Seller Terms: needed to open a shop, recorded with the version; older shops accept once in the Seller Center', async () => {
+  const no = await api('POST', '/api/auth/register', { role: 'seller', email: 'terms1@x.com', password: 'sellerpass', shop_name: 'T1', name: 'T' });
+  assert.strictEqual(no.status, 400); assert.match(no.body.error, /Seller Terms/);
+  const ok = await api('POST', '/api/auth/register', { role: 'seller', email: 'terms2@x.com', password: 'sellerpass', shop_name: 'T2', name: 'T', accept_terms: true });
+  assert.ok([200, 201].includes(ok.status));
+  const s = db.sellers.find((x) => x.shop_name === 'T2');
+  assert.strictEqual(s.terms.version, require('../src/auth').SELLER_TERMS_VERSION); assert.ok(s.terms.accepted_at);
+  // an older shop without the current version
+  db.sellers.update(s.id, { terms: { version: '2020-01-01' } });
+  const tok = (await api('POST', '/api/auth/login', { email: 'terms2@x.com', password: 'sellerpass', app: 'seller' })).body.token;
+  assert.strictEqual((await api('GET', '/api/seller/me', null, tok)).body.terms_ok, false);
+  assert.strictEqual((await api('POST', '/api/seller/terms', {}, tok)).status, 400);
+  assert.strictEqual((await api('POST', '/api/seller/terms', { accept: true }, tok)).status, 200);
+  assert.strictEqual((await api('GET', '/api/seller/me', null, tok)).body.terms_ok, true);
+  const page = await fetch(`${base}/seller-terms`); const html = await page.text();
+  assert.match(html, /Version 2026-11-14/); assert.doesNotMatch(html, /\{\{\w+\}\}/, 'all placeholders filled');
 });

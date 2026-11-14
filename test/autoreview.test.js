@@ -47,7 +47,7 @@ const sku = (price) => ({ mp_sku_id: '1', props: 'Blue / M', price, stock: 5 });
 
 test('every product is reviewed by the AI: text, photos, blocked items, own products go live, undo', async () => {
   const boss = await login('boss@x.com', 'adminpass1');
-  const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 'sel@x.com', password: 'sellerpass', shop_name: 'Atlas' })).body;
+  const reg = (await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 'sel@x.com', password: 'sellerpass', shop_name: 'Atlas' })).body;
   await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, boss);
   const sel = await login('sel@x.com', 'sellerpass');
 

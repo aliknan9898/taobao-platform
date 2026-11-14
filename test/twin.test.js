@@ -21,8 +21,8 @@ const cookieOf = (r) => (r.headers.get('set-cookie') || '').split(';')[0];
 test('same email: customer and seller accounts, separate sign-ins', async () => {
   const E = 'Same@Gmail.com';
   assert.strictEqual((await call('POST', '/api/auth/register', { role: 'buyer', email: E, password: 'buyerpass1', name: 'Sam' })).status < 300, true);
-  assert.strictEqual((await call('POST', '/api/auth/register', { role: 'seller', email: E, password: 'sellerpass9', shop_name: 'Sam Shop' })).status < 300, true);
-  assert.strictEqual((await call('POST', '/api/auth/register', { role: 'seller', email: E, password: 'x12345678', shop_name: 'Again' })).status, 409, 'one seller account per email');
+  assert.strictEqual((await call('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: E, password: 'sellerpass9', shop_name: 'Sam Shop' })).status < 300, true);
+  assert.strictEqual((await call('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: E, password: 'x12345678', shop_name: 'Again' })).status, 409, 'one seller account per email');
   // Staff emails stay unique
   assert.strictEqual((await call('POST', '/api/auth/register', { role: 'buyer', email: 'boss@x.com', password: 'whatever12' })).status, 409);
 

@@ -55,7 +55,7 @@ const PNG = `data:image/png;base64,${fs.readFileSync(path.join(__dirname, '../pu
 
 test('NextSmartShip order: create → goods arrive → ships cheapest → webhook marks shipped', async () => {
   const boss = await login('boss@x.com', 'adminpass1');
-  const reg = (await api('POST', '/api/auth/register', { role: 'seller', email: 's@x.com', password: 'sellerpass', shop_name: 'S' })).body;
+  const reg = (await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 's@x.com', password: 'sellerpass', shop_name: 'S' })).body;
   await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, boss);
   const st = await login('s@x.com', 'sellerpass');
   const p = (await api('POST', '/api/seller/products/manual', { title: 'Cotton T-shirt', category: 'men', weight_kg: 0.3, images: [PNG], variants: [{ name: 'Black / L', price: 15, stock: 10, cost_cny: 30 }] }, st)).body;

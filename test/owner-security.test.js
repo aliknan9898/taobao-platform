@@ -28,7 +28,7 @@ const api = async (method, p, body, token) => {
 test('a stranger cannot become admin by signing up with the owner’s email', async () => {
   // Sign-up with the owner's address is refused, for both apps and any spelling
   for (const [role, email] of [['buyer', 'owner@gmail.com'], ['seller', 'Owner@Gmail.com']]) {
-    const r = await api('POST', '/api/auth/register', { role, email, password: 'attacker123', name: 'x', shop_name: 'x' });
+    const r = await api('POST', '/api/auth/register', { role, email, password: 'attacker123', name: 'x', shop_name: 'x', accept_terms: true });
     assert.strictEqual(r.status, 409, JSON.stringify(r.body)); assert.match(r.body.error, /Google/);
   }
 
