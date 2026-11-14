@@ -325,3 +325,16 @@ test('CJ points: the balance CJ reports is kept; background work leaves a reserv
     } finally { Date.now = realNow; }
   } finally { global.fetch = prev; delete process.env.CJ_API_KEY; delete process.env.CJ_POINTS_RESERVE; }
 });
+
+test('CJ: an old pause saved "until CJ’s new day" (hours away) is not kept — points refill every minute', async () => {
+  const db2 = require('../src/db');
+  const later = Date.now() + 10 * 3600e3;
+  const doc = { n: 92, out: later, reset: Date.now() + 30 * 3600e3 };
+  if (db2.settings.get('cj_bg_use')) db2.settings.update('cj_bg_use', doc); else db2.settings.insert({ id: 'cj_bg_use', ...doc });
+  delete require.cache[require.resolve('../src/cj/client')];
+  const fresh = require('../src/cj/client');
+  const u = fresh.usage();
+  assert.strictEqual(u.points_out_until, null, 'no pause hours away');
+  assert.ok(u.resets_at <= Date.now() + 86400e3 && u.background_calls === 0);
+  delete require.cache[require.resolve('../src/cj/client')];
+});

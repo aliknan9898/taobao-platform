@@ -175,7 +175,7 @@ async function importCollection(id = 'christmas', opts = {}, by = 'admin') {
           // CJ busy, its daily limit, or not reachable: not the product's fault — try it again next time, and stop after a run of them
           if (e.status === 429 || e.status >= 500 || /busy|limit|too many|reach|timeout|fetch failed/i.test(e.message)) {
             st.reasons['CJ busy or daily limit'] = (st.reasons['CJ busy or daily limit'] || 0) + 1; have.delete(cand.pid); st.checked--;
-            if ((busy = busy + 1) >= 6) { st.error = `CJ stopped answering (${e.message}) — the import continues automatically later`; st.retry_at = now() + 2 * 3600e3; break; }
+            if ((busy = busy + 1) >= 6) { st.error = `CJ stopped answering (${e.message}) — the import continues automatically later`; st.retry_at = require('../cj/client').retryAt(); break; }
             continue;
           }
           busy = 0; skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', cand.pid); continue;

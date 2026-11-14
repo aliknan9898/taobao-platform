@@ -243,7 +243,7 @@ async function run(opts = {}, by = 'admin') {
       const item = q[cursor % q.length]; cursor = (cursor + 1) % q.length; passes++;
       let cands;
       try { cands = await candidatesFor(cjc, item, p, have, tried); busy = 0; }
-      catch (e) { if (busyError(e)) { st.error = `CJ stopped answering (${e.message}) — continues automatically later`; st.retry_at = now() + 2 * 3600e3; cursor = (cursor - 1 + q.length) % q.length; break; } continue; }
+      catch (e) { if (busyError(e)) { st.error = `CJ stopped answering (${e.message}) — continues automatically later`; st.retry_at = require('../cj/client').retryAt(); cursor = (cursor - 1 + q.length) % q.length; break; } continue; }
       let took = 0;
       for (const c of cands) {
         if (st.added >= target || took >= p.per_keyword || stopAsked) break;
@@ -253,7 +253,7 @@ async function run(opts = {}, by = 'admin') {
           l = await cj.publish(kinan, { ref: { pid: c.pid }, from: c.from, markup_pct: p.markup_pct, category: DEPARTMENTS[item.dept].category, extra: { collections: [item.dept], collection_group: item.group } });
           busy = 0;
         } catch (e) {
-          if (busyError(e)) { have.delete(c.pid); st.checked--; if ((busy += 1) >= 5) { st.error = `CJ stopped answering (${e.message}) — continues automatically later`; st.retry_at = now() + 2 * 3600e3; stopAsked = true; } continue; }
+          if (busyError(e)) { have.delete(c.pid); st.checked--; if ((busy += 1) >= 5) { st.error = `CJ stopped answering (${e.message}) — continues automatically later`; st.retry_at = require('../cj/client').retryAt(); stopAsked = true; } continue; }
           skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', c.pid); continue;
         }
         const drop = (why) => { db.listings.remove(l.id); skip(why, c.pid); };
@@ -316,7 +316,7 @@ function stop() { stopAsked = true; return { stopping: running }; }
 function tick() {
   const p = prefs(); const s = state();
   if (running || !require('../cj/client').enabled()) return false;
-  if (s.run?.retry_at && now() < s.run.retry_at) return false;
+  if (s.run?.retry_at && now() < Math.min(s.run.retry_at, (s.run.done_at || 0) + 3600e3)) return false; // waits at most an hour (older runs saved 2 hours)
   const left = p.per_day - addedToday();
   const interrupted = s.run?.running; // the process that ran it is gone
   if (!(p.daily && left > 0) && !interrupted) return false;

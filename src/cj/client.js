@@ -33,7 +33,21 @@ const nextReset = (now = Date.now()) => now - (now % 86400e3) + 86400e3; // 00:0
 // Kept in the database so a restart or a new deploy does not hand out a fresh day's budget (many deploys a day used to)
 const BGID = 'cj_bg_use';
 const bgUse = { reset: 0, n: 0, out: 0, loaded: false, savedN: -1 };
-function loadUse() { if (bgUse.loaded) return; bgUse.loaded = true; try { const d = db.settings.get(BGID); if (d) { bgUse.reset = d.reset || 0; bgUse.n = d.n || 0; bgUse.out = d.out || 0; if (d.points) points = d.points; } } catch { /* not ready */ } }
+function loadUse() {
+  if (bgUse.loaded) return; bgUse.loaded = true;
+  try {
+    const d = db.settings.get(BGID);
+    if (d) {
+      const t = Date.now();
+      // Saved by older versions: a pause "until CJ's new day" (hours away) and a day ending at China's midnight.
+      // Points refill every minute, so a pause is never longer than an hour; CJ's day ends at 00:00 UTC.
+      bgUse.out = d.out && d.out - t <= 3600e3 ? d.out : 0;
+      bgUse.reset = d.reset && d.reset <= nextReset(t) ? d.reset : nextReset(t);
+      bgUse.n = d.reset && d.reset <= nextReset(t) ? d.n || 0 : 0;
+      if (d.points) points = d.points;
+    }
+  } catch { /* not ready */ }
+}
 function saveUse(force = false) {
   if (!force && bgUse.n - bgUse.savedN < 20) return; bgUse.savedN = bgUse.n;
   try { const doc = { reset: bgUse.reset, n: bgUse.n, out: bgUse.out, points }; if (db.settings.get(BGID)) db.settings.update(BGID, doc); else db.settings.insert({ id: BGID, ...doc }); } catch { /* best effort */ }
@@ -70,6 +84,8 @@ function bgBudget() {
 }
 const usage = () => (loadUse(), { background_calls: bgUse.n, background_limit: BG_MAX(), resets_at: bgUse.reset || nextReset(), points_out_until: pointsOutUntil > Date.now() ? pointsOutUntil : null,
   points: points ? { ...points, reserve: RESERVE(), refill_per_minute: points.total ? Math.round(points.total / 1440) : null } : null });
+/** When stopped background work should try again: right after CJ's points have refilled (or in 20 minutes). */
+const retryAt = () => { const u = pointsOutUntil > Date.now() ? pointsOutUntil : 0; return u ? u + 60e3 : Date.now() + 20 * 60e3; };
 /** Run fn as background work: its CJ calls go after interactive ones. */
 const background = (fn) => ctx.run({ bg: true }, fn);
 const GAP = Number(process.env.CJ_MIN_GAP_MS ?? 1100);
@@ -175,4 +191,4 @@ async function call(method, path, opts = {}) {
 
 const openId = () => saved()?.open_id || null;
 
-module.exports = { usage, call, token, enabled, openId, background, CjError, BASE };
+module.exports = { retryAt, usage, call, token, enabled, openId, background, CjError, BASE };
