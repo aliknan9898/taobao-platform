@@ -181,3 +181,23 @@ test('product review: approve or reject many products at once', async () => {
   const r2 = (await api('POST', '/api/admin/listings/bulk', { ids: [ids[2]], action: 'reject', reason: 'Photos are blurry' }, boss)).body;
   assert.strictEqual(r2.done, 1); assert.strictEqual(db.listings.get(ids[2]).status, 'rejected');
 });
+
+test('Kinan points end to end: delivered order → points → discount code → used at checkout, once', async () => {
+  const cust2 = cust; const me = db.users.find((u) => u.email === 'c@x.com');
+  const A2 = db.listings.find((l) => l.title === 'Table Lamp');
+  const items = [{ listing_id: A2.id, mp_sku_id: A2.skus[0].mp_sku_id, qty: 3 }];
+  const o = (await api('POST', '/api/buyer/checkout', { items, shipping_address: addr }, cust2)).body;
+  await require('../src/services/orders').markPaid(o.id, { provider: 'demo' });
+  assert.ok((await api('GET', '/api/buyer/points', null, cust2)).body.pending > 0, 'shown as coming while on the way');
+  db.orders.update(o.id, { status: 'delivered' });
+  require('../src/services/points').settle();
+  const info = (await api('GET', '/api/buyer/points', null, cust2)).body;
+  assert.ok(info.balance >= 500, `earned ${info.balance}`);
+  const r = await api('POST', '/api/buyer/points/redeem', { points: 500 }, cust2);
+  assert.strictEqual(r.status, 200, JSON.stringify(r.body)); assert.strictEqual(r.body.value, 1.5);
+  const o2 = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: A2.id, mp_sku_id: A2.skus[0].mp_sku_id, qty: 1 }], shipping_address: addr, coupon: r.body.code }, cust2));
+  assert.ok([200, 201].includes(o2.status), JSON.stringify(o2.body)); assert.strictEqual(o2.body.coupon_code, r.body.code); assert.ok(o2.body.discount >= 1.5);
+  await require('../src/services/orders').markPaid(o2.body.id, { provider: 'demo' });
+  const again = await api('POST', '/api/buyer/checkout', { items: [{ listing_id: A2.id, mp_sku_id: A2.skus[0].mp_sku_id, qty: 1 }], shipping_address: addr, coupon: r.body.code }, cust2);
+  assert.ok(![200, 201].includes(again.status), 'a points code works once'); void me;
+});
