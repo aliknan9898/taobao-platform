@@ -344,6 +344,65 @@ function status() {
 }
 
 /** Departments with live products, for the shop (like the Christmas collection). */
+// ---------------- re-classifying the whole shop into departments ----------------
+// Every live product gets a department and a section (AI on titles in batches; word rules when the AI is busy).
+// Seasonal collections (Christmas) are kept: the department is added next to them, the section goes to sourcing.group.
+const wordsOf = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 2);
+function ruleFor(l) {
+  const text = ` ${wordsOf(`${l.title} ${list(l.keywords).join(' ')}`).join(' ')} `;
+  let best = null;
+  for (const [d, D] of Object.entries(DEPARTMENTS)) for (const [g, G] of Object.entries(D.groups)) {
+    let sc = 0;
+    for (const k of list(G.keywords)) { const kw = wordsOf(k); if (kw.length && kw.every((w) => text.includes(` ${w}`))) sc += kw.length * 2; else sc += kw.filter((w) => text.includes(` ${w} `)).length * 0.5; }
+    if (text.includes(` ${wordsOf(G.en)[0] || '#'} `)) sc += 1;
+    if (!best || sc > best.sc) best = { d, g, sc };
+  }
+  return best && best.sc >= 1 ? { dept: best.d, group: best.g } : null;
+}
+let reclassing = false;
+async function reclassify({ all = true } = {}) {
+  if (reclassing) throw httpError(409, 'Already re-classifying');
+  reclassing = true;
+  const ai = require('./ai');
+  const targets = db.listings.all((l) => l.status === 'active' && (all || !(l.sourcing && DEPARTMENTS[l.sourcing.dept])));
+  const keys = Object.entries(DEPARTMENTS).flatMap(([d, D]) => Object.entries(D.groups).map(([g, G]) => `${d}:${g} (${D.en} › ${G.en})`));
+  const st = { total: targets.length, ai: 0, rules: 0, unsure: 0, moved: 0, by_dept: {} };
+  try {
+    for (let i = 0; i < targets.length; i += 40) {
+      const batch = targets.slice(i, i + 40); let picks = null;
+      if (ai.enabled()) {
+        for (let t = 0; t < 3 && !picks; t++) {
+          try {
+            const r = await ai.structured({
+              system: 'You sort the products of an online shop into its departments and sections, the way Amazon would. Choose the ONE place a shopper would look for each product. Use "none" only when nothing fits at all.',
+              name: 'classify', kind: 'sourcing', maxTokens: 1800, timeoutMs: 60000,
+              schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object', properties: { n: { type: 'integer' }, place: { type: 'string', enum: [...keys.map((k) => k.split(' ')[0]), 'none'] } }, required: ['n', 'place'] } } }, required: ['items'] },
+              text: `Places:\n${keys.join('\n')}\n\nProducts:\n${batch.map((l, n) => `${n}. ${String(l.title).slice(0, 110)}`).join('\n')}`
+            });
+            picks = new Map(list(r.items).map((x) => [Number(x.n), String(x.place)]));
+          } catch (e) { console.warn('[classify]', e.message); await new Promise((res) => setTimeout(res, 15000)); }
+        }
+      }
+      batch.forEach((l, n) => {
+        let dept = null; let group = null; let by = 'ai';
+        const pk = picks && picks.get(n);
+        if (pk && pk !== 'none') { [dept, group] = pk.split(':'); if (!DEPARTMENTS[dept]?.groups[group]) dept = null; }
+        if (!dept) { const r = ruleFor(l); by = 'rules'; if (r) ({ dept, group } = r); }
+        if (!dept) { st.unsure++; return; }
+        st[by]++; st.by_dept[dept] = (st.by_dept[dept] || 0) + 1;
+        const before = l.sourcing?.dept;
+        if (before !== dept) st.moved++;
+        db.listings.update(l.id, (x) => {
+          const seasonal = list(x.collections).filter((c) => !DEPARTMENTS[c]);
+          const keepGroup = seasonal.length && x.collection_group && !Object.values(DEPARTMENTS).some((D) => D.groups[x.collection_group]);
+          return { ...x, sourcing: { ...(x.sourcing || {}), dept, group, classified_by: by, classified_at: Date.now() }, collections: [...seasonal, dept], collection_group: keepGroup ? x.collection_group : group };
+        });
+      });
+    }
+    return st;
+  } finally { reclassing = false; }
+}
+
 function publicDepartments() {
   const live = db.listings.all((l) => l.status === 'active' && l.sourcing && DEPARTMENTS[l.sourcing.dept] && list(l.collections).includes(l.sourcing.dept));
   const out = [];
@@ -351,7 +410,7 @@ function publicDepartments() {
     const mine = live.filter((l) => l.sourcing.dept === id);
     if (!mine.length) continue;
     out.push({ id, kind: 'department', name: d.en, name_ar: d.ar, emoji: d.emoji, count: mine.length, image: list(mine[0].images)[0] || null,
-      groups: Object.entries(d.groups).map(([gid, g]) => ({ id: gid, en: g.en, ar: g.ar, count: mine.filter((l) => l.collection_group === gid).length })).filter((g) => g.count) });
+      groups: Object.entries(d.groups).map(([gid, g]) => ({ id: gid, en: g.en, ar: g.ar, count: mine.filter((l) => (l.sourcing.group || l.collection_group) === gid).length })).filter((g) => g.count) });
   }
   return out.sort((a, b) => b.count - a.count);
 }
@@ -379,4 +438,4 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
   for (const t of msgs.slice(0, 12)) push.telegram(t);
 }
 
-module.exports = { telegramReport, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
+module.exports = { telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };

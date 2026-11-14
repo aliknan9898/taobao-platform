@@ -270,7 +270,7 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
   let items = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id) && !(cjs && cjs.noDelivery(l, ccx))
     && (!seller_id || l.seller_id === seller_id)
     && (!category || (l.category || 'other') === category)
-    && (!collection || (l.collections || []).includes(collection)) && (!group || l.collection_group === group)
+    && (!collection || (l.collections || []).includes(collection)) && (!group || l.collection_group === group || l.sourcing?.group === group)
     && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (l.keywords || []).some((k) => k.includes(needle) || needle.includes(k)) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
     .map((l) => toBuyerView(l, activeSellers.get(l.seller_id)))
     .filter((p) => p.min_price >= lo && p.min_price <= hi);

@@ -671,6 +671,7 @@ r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.a
 r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
 r('GET', '/api/admin/listings', ADMIN, async ({ url }) => admin.listings({ status: url.searchParams.get('status') || undefined }));
 // Many at once from the review queue: each one approved or rejected on its own, failures listed
+r('POST', '/api/admin/sourcing/reclassify', ADMIN, async () => { const s = require('./services/sourcing'); require('./cj/client').background(() => runReclassify(s)).catch(() => {}); return { started: true }; });
 r('POST', '/api/admin/listings/bulk', ADMIN, async ({ req, user }) => {
   const b = await readJson(req); const ids = [...new Set(Array.isArray(b.ids) ? b.ids.map(String) : [])].slice(0, 500);
   if (!ids.length) throw httpError(400, 'Choose at least one product');
@@ -715,6 +716,18 @@ r('GET', '/api/warehouse/orders/:id/qc/:n', WH, async ({ params, res }) => sendI
 r('POST', '/api/warehouse/orders/:id/delivered', WH, async ({ params }) => warehouse.markDelivered(params.id));
 
 // ---------- server ----------
+/** Re-sort every live product into the shop's departments, then tell the owner on Telegram. */
+async function runReclassify(s) {
+  const st = await s.reclassify({ all: true });
+  console.log(`[classify] ${st.total} products: AI ${st.ai}, rules ${st.rules}, not sorted ${st.unsure}, moved ${st.moved}`);
+  try {
+    const D = s.DEPARTMENTS;
+    require('./push').telegram([`🗂 Products re-sorted into departments: ${st.total}`, `AI ${st.ai} · word rules ${st.rules} · not sorted ${st.unsure} · moved ${st.moved}`, '',
+      ...Object.entries(st.by_dept).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${D[k]?.emoji || ''} ${D[k]?.en || k}: ${v}`)].join('\n'));
+  } catch { /* optional */ }
+  return st;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
@@ -1004,6 +1017,8 @@ if (require.main === module) (async () => {
       console.log(`[ebay] keys found: ${near.map((k) => JSON.stringify(k)).join(', ')} · missing: ${['EBAY_CLIENT_ID', 'EBAY_CLIENT_SECRET', 'EBAY_RUNAME'].filter((k) => !String(process.env[k] || '').trim()).join(', ') || 'none'}`);
       if (require('./ebay/client').configured()) require('./ebay/client').checkKeys().then((r) => { console.log(`[ebay] ${r}`); const c = require('./ebay/client'); if (c.connected()) { c.whoAmI().catch((e) => console.warn('[ebay] GetUser:', e.message)); setTimeout(() => require('./cj/client').background(() => require('./services/ebay').autopick()).catch((e) => console.warn('[ebay] autopick', e.message)), 60000); } }).catch((e) => console.warn(`[ebay] key check: ${e.message}`));
     } }
+  // once: sort the whole shop into departments (products imported before departments existed showed nowhere)
+  setTimeout(() => { try { if (!db.settings.get('reclassify_v1') && !process.env.NODE_TEST_CONTEXT) { db.settings.insert({ id: 'reclassify_v1', at: Date.now() }); require('./cj/client').background(() => runReclassify(require('./services/sourcing'))).catch((e) => console.warn('[classify]', e.message)); } } catch (e) { console.warn('[classify]', e.message); } }, 45e3).unref();
   try { require('./services/seasonal').ensureCoupon(); } catch (e) { console.warn('[xmas] coupon:', e.message); }
   setTimeout(() => { try { if (require('./services/seasonal').autoStart()) console.log('[xmas] Christmas Shop import queued'); } catch (e) { console.warn('[xmas]', e.message); } }, 20e3).unref();
   // Banggood: sign in once at start so the logs show whether the keys and the server IP are accepted

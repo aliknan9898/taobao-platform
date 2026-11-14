@@ -201,3 +201,24 @@ test('Kinan points end to end: delivered order → points → discount code → 
   const again = await api('POST', '/api/buyer/checkout', { items: [{ listing_id: A2.id, mp_sku_id: A2.skus[0].mp_sku_id, qty: 1 }], shipping_address: addr, coupon: r.body.code }, cust2);
   assert.ok(![200, 201].includes(again.status), 'a points code works once'); void me;
 });
+
+test('re-classify: every live product gets a department and section (AI, word rules as fallback); seasonal collections kept', async () => {
+  const s = require('../src/services/sourcing');
+  const seller = db.sellers.all()[0];
+  const mk = (title, extra = {}) => db.listings.insert({ seller_id: seller.id, title, status: 'active', images: ['x'], skus: [{ mp_sku_id: '1', price: 5, stock: 3 }], ...extra });
+  const a = mk('Glow In The Dark Moon Pendant Necklace');
+  const b = mk('No Pull Reflective Dog Harness');
+  const c = mk('Christmas LED Fairy Lights 10m', { collections: ['xmas'], collection_group: 'lights' });
+  AI = (text) => (/Places:/.test(text) ? { items: text.split('\n').filter((x) => /^\d+\. /.test(x)).map((x) => { const n = Number(x.split('.')[0]); const t = x.toLowerCase(); return { n, place: t.includes('necklace') ? 'fashion:jewelry' : t.includes('fairy lights') ? 'home-decor:lighting' : 'none' }; }) } : {});
+  const st = await s.reclassify();
+  assert.ok(st.total >= 3);
+  assert.strictEqual(db.listings.get(a.id).sourcing.dept, 'fashion'); assert.deepStrictEqual(db.listings.get(a.id).collections, ['fashion']);
+  assert.strictEqual(db.listings.get(b.id).sourcing.dept, 'pets', 'word rules when the AI says none');
+  assert.strictEqual(db.listings.get(b.id).sourcing.classified_by, 'rules');
+  const C = db.listings.get(c.id);
+  assert.deepStrictEqual(C.collections, ['xmas', 'home-decor']); assert.strictEqual(C.collection_group, 'lights', 'Christmas section kept'); assert.strictEqual(C.sourcing.group, 'lighting');
+  const deps = s.publicDepartments().map((d) => d.id);
+  assert.ok(deps.includes('fashion') && deps.includes('pets') && deps.includes('home-decor'));
+  const r = (await api('GET', '/api/catalog?collection=home-decor&group=lighting')).body;
+  assert.ok((r.items || r).some((x) => x.id === c.id), 'found in its department section');
+});
