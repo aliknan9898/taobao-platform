@@ -4,3 +4,7 @@
 @font-face { font-family: "Bricolage Grotesque"; font-weight: 650 800; font-style: normal; font-display: swap; src: url(/assets/bricolage-700.woff) format("woff"); }
 @font-face { font-family: "Instrument Sans"; font-weight: 400 550; font-style: normal; font-display: swap; src: url(/assets/instrument-400.woff) format("woff"); }
 @font-face { font-family: "Instrument Sans"; font-weight: 600 800; font-style: normal; font-display: swap; src: url(/assets/instrument-700.woff) format("woff"); }
+/* IBM Plex Sans Arabic (SIL Open Font License, /assets/plexar-OFL.txt): Arabic text only (unicode-range), so Latin keeps Instrument Sans */
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 400 550; font-style: normal; font-display: swap; src: url(/assets/plexar-regular.woff) format("woff"); unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F; }
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 560 650; font-style: normal; font-display: swap; src: url(/assets/plexar-semibold.woff) format("woff"); unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F; }
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 651 900; font-style: normal; font-display: swap; src: url(/assets/plexar-bold.woff) format("woff"); unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F; }

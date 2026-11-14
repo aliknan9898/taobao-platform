@@ -155,8 +155,10 @@ button.iconbtn { border: 0; background: transparent; padding: 0; font: inherit; 
 :root[data-theme="dark"] .btn.gbtn { background: #fff; color: #1f1f1f; }
 
 /* Arabic (right-to-left) */
-html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; }
-html[dir="rtl"] h1, html[dir="rtl"] h2, html[dir="rtl"] h3 { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; letter-spacing: 0; }
+html[dir="rtl"] body { font-family: "IBM Plex Sans Arabic", "Instrument Sans", "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; line-height: 1.65; }
+html[dir="rtl"] h1, html[dir="rtl"] h2, html[dir="rtl"] h3 { font-family: "IBM Plex Sans Arabic", "Bricolage Grotesque", "Segoe UI", Tahoma, system-ui, sans-serif; font-weight: 700; letter-spacing: 0; line-height: 1.35; }
+/* Arabic words inside English pages (product names, the language switch) also get the Arabic font */
+:lang(ar), [lang="ar"] { font-family: "IBM Plex Sans Arabic", "Instrument Sans", system-ui, sans-serif; }
 html[dir="rtl"] th, html[dir="rtl"] td { text-align: right; }
 html[dir="rtl"] .tag { padding: 3px 16px 3px 10px; border-radius: 6px 4px 4px 6px; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%); }
 html[dir="rtl"] .tag.lg { padding: 6px 24px 6px 16px; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%); }
