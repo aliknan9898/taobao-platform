@@ -919,7 +919,7 @@ async function openOrder(id) {
         ${o.nss.hold_reason ? `<div class="err">${esc(o.nss.hold_reason)}</div>` : ''}${o.nss.error ? `<div class="err">${esc(o.nss.error)}</div>` : ''}
         ${canBuy() ? `<div class="row">${['open', 'on_hold'].includes(o.nss.status) ? '<button class="btn" data-nss="options">Ship now…</button>' : ''}<button class="btn ghost" data-nss="sync">Refresh</button></div><div id="nssopts"></div>` : ''}`
       : `<div class="muted">Not at NextSmartShip yet.${o.nss?.error ? ` <span class="err">${esc(o.nss.error)}</span>` : ''}</div>${canBuy() && !['pending_payment', 'cancelled', 'refunded'].includes(o.status) ? '<div class="row"><button class="btn ghost" data-nss="create">Create at NextSmartShip</button></div>' : ''}`}</div>` : ''}
-    <h2>Taobao purchase orders</h2>
+    <h2>${o.sub_orders.every((s) => s.direct) ? 'Supplier orders' : o.sub_orders.some((s) => s.direct) ? 'Supplier and Taobao orders' : 'Taobao purchase orders'}</h2>
     ${o.sub_orders.map((s) => `<div class="sub"><div class="row" style="justify-content:space-between"><b>${esc(s.shop)}</b><span class="pill ${s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED' ? 'bad' : s.status === 'WAIT_BUYER_CONFIRM_GOODS' ? 'ok' : 'warn'}">${esc(s.status_label)}</span></div>
       <div class="muted"><code>${esc(s.outer_purchase_id)}</code> · ${esc((s.purchase_ids || []).join(', ') || '—')}${s.pay_deadline && /WAIT_BUYER_P/.test(s.status) ? ` · pay by ${date(s.pay_deadline)}` : ''}</div>
       ${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}
