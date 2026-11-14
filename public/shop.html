@@ -1186,6 +1186,7 @@ async function orderDetail(id) {
   $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/orders">${ICONS.back} Orders</a><h1 style="margin-top:6px">Order ${esc(o.id.slice(-8).toUpperCase())}</h1><p class="muted">Placed ${date(o.created_at)}</p></div>${pill(label, cls)}</div>
     <div class="two"><div class="stack-lg">
       ${o.status === 'pending_payment' ? `<div class="panel row between"><span>This order is waiting for payment.</span><a class="btn" href="#/pay/${esc(o.id)}">Pay now</a></div>` : ''}
+      <div id="ordpush"></div>
       ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Separate parcel'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
         <div class="muted small">${d.items.map(esc).join(' · ')}</div>
         ${d.tracking.length ? d.tracking.map((t) => `<div class="row between"><span><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></span>${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}</div>`).join('')}
@@ -1240,6 +1241,12 @@ async function orderDetail(id) {
     });
   }).catch(() => {});
   const sn = $('#shipnow'); if (sn) sn.onclick = async () => { sn.disabled = true; try { const r = await api('/api/buyer/ship-stored', 'POST'); toast(`${r.released} order(s) will ship together`); orderDetail(o.id); } catch (e) { toast(e.message); sn.disabled = false; } };
+  // Not yet asked for notifications: offer them right here, when the shopper wants to know about this parcel
+  if (!ended && !['delivered'].includes(o.status) && o.status !== 'pending_payment') K.pushState().then((st) => {
+    const box = $('#ordpush'); if (!box || st !== 'off') return;
+    box.innerHTML = `<div class="panel row between"><span>🔔 ${KinanLang.t('Get a notification when your order ships and arrives')}</span><button class="btn sm" id="ordpushbtn" type="button">${KinanLang.t('Turn on')}</button></div>`;
+    $('#ordpushbtn').onclick = async (e) => { e.target.disabled = true; try { await K.enablePush('shop'); toast(KinanLang.t('Notifications are on')); box.innerHTML = ''; } catch (err) { toast(err.message); e.target.disabled = false; } };
+  }).catch(() => {});
   const qok = $('#qcok'); if (qok) qok.onclick = async () => { qok.disabled = true; try { await api(`/api/buyer/orders/${o.id}/qc`, 'POST', { ok: true }); toast('Thank you — we’ll ship it soon'); orderDetail(o.id); } catch (e) { toast(e.message); qok.disabled = false; } };
   const qbad = $('#qcbad'); if (qbad) qbad.onclick = () => {
     $('#qcf').innerHTML = `<form class="stack" id="qcff"><label class="field">What is wrong?<textarea name="note" rows="3" maxlength="500" required></textarea></label><button class="btn">Send to Kinan support</button></form>`;
