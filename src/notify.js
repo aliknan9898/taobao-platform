@@ -52,6 +52,39 @@ function orderDelivered(o) {
     ar: { subject: `تم تسليم طلبك ${ref(o)} 📦`, title: 'وصل طلبك', lines: ['نتمنى أن ينال إعجابك. إذا كانت هناك مشكلة يمكنك طلب إرجاع من صفحة الطلب.'], button: { text: 'عرض الطلب', url: `${base()}/#/orders/${o.id}` } } }));
 }
 
+// Tracking stages CJ reports (logistics webhook). 1 (shipped) and 12 (delivered) have their own notices.
+const STAGES = {
+  2: ['Your parcel reached the shipping partner', 'وصل طردك إلى شركة الشحن'],
+  3: ['Your parcel is being sent back to the warehouse', 'يُعاد طردك إلى المستودع'],
+  4: ['Your parcel left with the shipping partner', 'غادر طردك مع شركة الشحن'],
+  5: ['Your parcel is flying to your country', 'طردك في الطريق الدولي إلى بلدك ✈️'],
+  6: ['Your parcel arrived in your country', 'وصل طردك إلى بلدك 🛬'],
+  7: ['Your parcel is at customs', 'طردك في الجمارك'],
+  8: ['Your parcel cleared customs', 'اجتاز طردك الجمارك ✅'],
+  9: ['Your local post office has your parcel', 'استلم البريد المحلي طردك'],
+  10: ['Out for delivery today', 'طردك خارج للتوصيل اليوم 🚚'],
+  11: ['Ready for you to pick up', 'طردك جاهز للاستلام 📍'],
+  13: ['A delivery problem was reported', 'تم الإبلاغ عن مشكلة في التوصيل ⚠️'],
+  14: ['Your parcel is being returned', 'طردك في طريق العودة']
+};
+const STAGE_EMAIL = new Set([6, 10, 11, 13, 14]); // the big moments also by email; the rest as a phone notification
+/** A new tracking stage for a parcel: phone notification (and email for the big moments), never twice for one stage. */
+function trackingStage(o, sub, code) {
+  const st = STAGES[code]; if (!o || !st) return;
+  const key = `trk:${o.id}:${sub.outer_purchase_id || ''}:${code}`;
+  if ((o.notices || []).includes(key)) return;
+  db.orders.update(o.id, (x) => ({ ...x, notices: [...(x.notices || []), key].slice(-60) }));
+  const last = (sub.track?.events || [])[0];
+  const where = last && last.place ? ` — ${last.place}` : '';
+  push.toUser(o.buyer_id, { title: st[0], body: `Order ${ref(o)}${where}`, url: `/#/orders/${o.id}`, tag: `trk-${o.id}`, ar: { title: st[1], body: `الطلب ${ref(o)}${where}` } });
+  if (!STAGE_EMAIL.has(code)) return;
+  const tn = (sub.logistics || [])[0];
+  fire(mailer.send({ to: emailOf(o.buyer_id), key, kind: 'order', subject: `${st[0]} — order ${ref(o)}`, title: st[0],
+    lines: [...(last ? [`${last.text}${where}${last.at ? ` (${last.at})` : ''}`] : []), ...(code === 13 ? ['We are on it. If the carrier needs something from you, it will be on the tracking page.'] : []), ...(tn ? [`Tracking: ${tn.tracking}`] : [])],
+    ar: { subject: `${st[1]} — الطلب ${ref(o)}`, title: st[1], lines: [...(last ? [`${last.text}${where}${last.at ? ` (${last.at})` : ''}`] : []), ...(code === 13 ? ['نتابع الأمر. إذا احتاجت شركة الشحن شيئاً منك سيظهر في صفحة التتبع.'] : []), ...(tn ? [`رقم التتبع: ${tn.tracking}`] : [])] },
+    button: { text: 'Track your order', url: `${base()}/#/orders/${o.id}` } }));
+}
+
 function qcPhotos(o) {
   push.toUser(o.buyer_id, { title: 'Photos of your items are ready', body: `Order ${ref(o)} — check them before we ship`, url: `/#/orders/${o.id}`, tag: `qc-${o.id}`, ar: { title: 'صور منتجاتك جاهزة 📸', body: `الطلب ${ref(o)} — راجعها قبل أن نشحن` } });
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `qc:${o.id}:${(o.qc_photos || []).length}`, kind: 'order', subject: `Photos of your order ${ref(o)} are ready`, title: 'Your items arrived at our warehouse',
@@ -154,4 +187,4 @@ function returnUpdate(r) {
     button: { text: 'View order', url: `${base()}/#/orders/${r.order_id}` } }));
 }
 
-module.exports = { priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerUnderReview, customerWelcome, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate, qcPhotos };
+module.exports = { trackingStage, STAGES, priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerUnderReview, customerWelcome, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate, qcPhotos };

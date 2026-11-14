@@ -188,3 +188,28 @@ test('saving an address works out CJ shipping for the whole shop; the list then 
   assert.strictEqual(after.ship_fee, 4.2); assert.strictEqual(after.delivered_price, Math.round((after.min_price + 4.2) * 100) / 100);
   assert.strictEqual(db.listings.get(l.id).cj_ship.DE.fee, 4.2, 'kept on the product for next time');
 });
+
+test('CJ tracking: every new stage is kept with its events, shown to the shopper, and notified once', async () => {
+  const buyer = db.users.find((u) => u.email === 'c@x.com');
+  const o = db.orders.insert({ buyer_id: buyer.id, status: 'shipped', currency: 'usd', total: 5, lines: [{ line_no: '1', listing_id: 'x', title: 'Moon Necklace', qty: 1, price: 5, direct: true, source: 'cj' }],
+    sub_orders: [{ outer_purchase_id: 'OPTRK', order_id: 'ord_trk', seller_id: 'sel_x', source: 'cj', direct: true, status: 'AE_SHIPPED', purchase_ids: ['CJTRK1'], line_nos: ['1'], logistics: [{ carrier: 'CJPacket', tracking: 'SD1' }] }] });
+  const pushes = []; const push = require('../src/push'); const keep = push.toUser; push.toUser = (u, m) => pushes.push(m);
+  try {
+    const ev = (st, text, place, at) => ({ status: st, activity: text, location: place, eventTime: at, statusDesc: text });
+    const msg = (id, stage, events) => cj.handleWebhook({ messageId: id, type: 'LOGISTIC', params: { orderId: 'CJTRK1', storeOrderNumbers: [], logisticName: 'CJPacket', trackingNumber: 'SD1', trackingStatus: stage, logisticsTrackEvents: JSON.stringify(events) } });
+    const e1 = ev(5, 'Departed from China', 'Shenzhen', '2026-11-16 10:00:00');
+    assert.strictEqual(msg('t1', 5, [e1]).stage, 5);
+    assert.strictEqual(msg('t2', 5, [e1]).stage, undefined, 'same stage again: no second notice');
+    const e2 = ev(6, 'Arrived at destination', 'Malta', '2026-11-20 08:00:00');
+    assert.strictEqual(msg('t3', 6, [e1, e2]).stage, 6);
+    assert.deepStrictEqual(pushes.map((p) => p.title), ['Your parcel is flying to your country', 'Your parcel arrived in your country']);
+    assert.match(pushes[1].body, /Malta/);
+    const sub = db.orders.get(o.id).sub_orders[0];
+    assert.strictEqual(sub.track.status, 6); assert.strictEqual(sub.track.events[0].text, 'Arrived at destination', 'newest first');
+    // a webhook repeated for an old stage after a newer one (out of order) does not notify again
+    cj.handleWebhook({ messageId: 't4', type: 'LOGISTIC', params: { orderId: 'CJTRK1', trackingNumber: 'SD1', trackingStatus: 5, logisticsTrackEvents: '[]' } });
+    cj.handleWebhook({ messageId: 't5', type: 'LOGISTIC', params: { orderId: 'CJTRK1', trackingNumber: 'SD1', trackingStatus: 6, logisticsTrackEvents: '[]' } });
+    assert.strictEqual(pushes.length, 2, 'each stage is announced once per order');
+    assert.ok(db.orders.get(o.id).sub_orders[0].track.events.length >= 2, 'events kept when an update has none');
+  } finally { push.toUser = keep; }
+});

@@ -284,6 +284,7 @@
   .euship { color: #0f6b47; font-weight: 600; }
   [data-theme="dark"] .euship { color: #5fd3a3; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .euship { color: #5fd3a3; } }
+.trk{border-top:1px solid var(--line,#e5e7eb);padding-top:10px;display:grid;gap:8px}.trkl{list-style:none;margin:0;padding:0 0 0 14px;border-inline-start:2px solid var(--brand,#0f766e);display:grid;gap:10px}.trkl li{position:relative}.trkl li:before{content:'';position:absolute;inset-inline-start:-20px;top:5px;width:10px;height:10px;border-radius:50%;background:var(--brand,#0f766e)}
 </style>
 </head>
 <body class="has-tabbar">
@@ -1175,6 +1176,15 @@ function wireReturn(o) {
     };
   };
 }
+
+// Where the parcel is: the latest step in bold, the earlier ones under "All updates"
+const TRACK_STAGE = { 1: 'Left the warehouse', 2: 'With the shipping partner', 3: 'Being returned to the warehouse', 4: 'Left with the shipping partner', 5: 'On the way to your country', 6: 'Arrived in your country', 7: 'At customs', 8: 'Cleared customs', 9: 'With your local post', 10: 'Out for delivery', 11: 'Ready to pick up', 12: 'Delivered', 13: 'Delivery problem', 14: 'Being returned' };
+function trackSteps(t) {
+  if (!t || (!t.stage && !(t.events || []).length)) return '';
+  const ev = t.events || []; const row = (e) => `<li><b>${esc(e.text)}</b>${e.place ? ` · ${esc(e.place)}` : ''}<div class="muted small">${esc(e.at || '')}</div></li>`;
+  return `<div class="trk">${t.stage ? `<div class="row between"><span class="muted small">${KinanLang.t('Now')}</span><b>${esc(KinanLang.t(TRACK_STAGE[t.stage] || ''))}</b></div>` : ''}
+    ${ev.length ? `<ul class="trkl">${row(ev[0])}</ul>${ev.length > 1 ? `<details><summary class="small">${KinanLang.t('All updates')} (${ev.length})</summary><ul class="trkl">${ev.slice(1).map(row).join('')}</ul></details>` : ''}` : ''}</div>`;
+}
 async function orderDetail(id) {
   if (!requireBuyer(`/orders/${id}`)) return;
   const o = await api(`/api/buyer/orders/${id}`);
@@ -1189,7 +1199,7 @@ async function orderDetail(id) {
       <div id="ordpush"></div>
       ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Separate parcel'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
         <div class="muted small">${d.items.map(esc).join(' · ')}</div>
-        ${d.tracking.length ? d.tracking.map((t) => `<div class="row between"><span><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></span>${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}</div>`).join('')}
+        ${d.tracking.length ? d.tracking.map((t) => `<div class="row between"><span><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></span>${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}${trackSteps(d.track)}</div>`).join('')}
       ${o.hold && !ended ? `<div class="panel stack"><div class="row between"><h3>Stored in our warehouse</h3>${pill('Stored', 'warn')}</div><p class="muted small">We keep it${o.hold_until ? ` free until ${date(o.hold_until, false)}` : ''} and ship it in one box with your other stored orders.</p><button class="btn" id="shipnow">Ship my stored orders now</button></div>` : ''}
       ${o.qc.photos ? `<div class="panel stack"><div class="row between"><h3>Photos from our warehouse</h3>${o.qc.review === 'approved' ? pill('You approved', 'ok') : o.qc.review === 'problem' ? pill('Problem reported', 'bad') : o.qc.review === 'resolved' ? pill('Resolved', 'ok') : pill('Please check', 'warn')}</div>
         <div class="qcg">${Array.from({ length: o.qc.photos }, (_, i) => `<a href="/api/buyer/orders/${esc(o.id)}/qc/${i}" target="_blank"><img src="/api/buyer/orders/${esc(o.id)}/qc/${i}" alt="Photo ${i + 1}" loading="lazy"></a>`).join('')}</div>

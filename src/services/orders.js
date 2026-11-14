@@ -599,7 +599,8 @@ function buyerViewBase(o) {
     // AliExpress parts travel separately, straight to the customer
     direct: (o.sub_orders || []).filter((s) => s.direct).map((s) => ({
       status: s.status, label: { AE_TO_BUY: 'Being ordered', AE_PLACED: 'Being ordered', AE_PAID: 'Ordered — preparing', AE_SHIPPED: 'On its way to you', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Being reviewed' }[s.status] || 'Being ordered',
-      items: o.lines.filter((l) => s.line_nos.includes(l.line_no)).map((l) => l.title), tracking: (s.logistics || []).map((x) => ({ carrier: x.carrier, number: x.tracking, url: require('./couriers').trackingUrl(x.carrier, x.tracking) }))
+      items: o.lines.filter((l) => s.line_nos.includes(l.line_no)).map((l) => l.title), tracking: (s.logistics || []).map((x) => ({ carrier: x.carrier, number: x.tracking, url: require('./couriers').trackingUrl(x.carrier, x.tracking) })),
+      track: s.track ? { stage: s.track.status || 0, events: (s.track.events || []).slice(0, 25) } : null
     })),
     all_direct: (o.lines || []).every((l) => l.direct),
     timeline: (o.timeline || []).map((t) => ({ at: t.at, event: t.event }))

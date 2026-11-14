@@ -486,6 +486,17 @@ function verify(rawBody, signHeader) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+
+/** CJ's tracking events (a JSON string) → [{ code, text, place, at }], newest first, at most 40. */
+function trackEvents(raw) {
+  let arr = raw;
+  if (typeof raw === 'string') { try { arr = JSON.parse(raw); } catch { return []; } }
+  if (!Array.isArray(arr)) return [];
+  const t = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  return arr.map((e) => ({ code: Number(e.status) || null, text: t(e.thirdActivity || e.activity || e.statusDesc, 200), place: t(e.thirdLocation || e.location, 100), at: t(e.thirdEventTime || e.eventTime, 30) }))
+    .filter((e) => e.text).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 40);
+}
+
 const seen = new Map();
 /** Handle one webhook message (already verified). Returns what changed, for logs and tests. */
 function handleWebhook(msg) {
@@ -500,16 +511,27 @@ function handleWebhook(msg) {
     if (!hit) return { ignored: 'unknown order' };
     const sub = { ...hit.sub };
     if (t === 'ORDER') applyOrder(sub, p);
-    else {
+    let stage = null;
+    if (t !== 'ORDER') {
       const tn = p.trackingNumber || p.trackNumber;
       if (tn) sub.logistics = [{ carrier: p.trackingProvider || p.logisticName || 'CJ', tracking: String(tn), url: p.trackingUrl || null, method: p.logisticName || null }];
       if (Number(p.trackingStatus) === 12) sub.status = 'AE_DELIVERED';
       else if (tn && ['AE_PLACED', 'AE_PAID'].includes(sub.status)) sub.status = 'AE_SHIPPED';
       if (Number(p.trackingStatus) === 13) sub.error = 'Delivery problem reported by the carrier — check the tracking';
+      // Every step of the journey (CJ sends them free with each logistics update): kept for the order page
+      const code = Number(p.trackingStatus);
+      const before = sub.track?.status ?? null;
+      const events = trackEvents(p.logisticsTrackEvents);
+      if (Number.isFinite(code) || events.length) {
+        sub.track = { status: Number.isFinite(code) ? code : before, events: events.length ? events : (sub.track?.events || []), at: now() };
+        if (Number.isFinite(code) && code !== before && code > 0) stage = code;
+      }
     }
     db.orders.update(hit.order.id, (x) => ({ ...x, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === sub.outer_purchase_id ? sub : s)) }));
     orders.recompute(hit.order.id);
-    return { order: hit.order.id, status: sub.status };
+    // A new stage (arrived in the country, customs, out for delivery…): tell the customer
+    if (stage) { try { require('../notify').trackingStage(db.orders.get(hit.order.id), sub, stage); } catch (e) { console.warn('[cj] tracking notice', e.message); } }
+    return { order: hit.order.id, status: sub.status, ...(stage ? { stage } : {}) };
   }
   if (t === 'PRODUCT' || t === 'VARIANT') {
     const pid = String(p.pid || p.productId || '');
@@ -640,5 +662,5 @@ async function registerWebhooks() {
 
 module.exports = { deliveryDays, noDelivery, noDeliveryList, freeEu,
   prefs, savePrefs, status, balance, parseRef, normalize, fetchProduct, preview, search, categories, publish, resync, resyncStale,
-  freightOptions, optionFrom, cachedFee, prepareCountry, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
+  freightOptions, optionFrom, cachedFee, prepareCountry, choose, quote, newDirectSub, place, pay, sync, applyOrder, cancel, verify, handleWebhook, trackEvents, registerWebhooks, upgradeOptions, autoPrefs, saveAutoPrefs, autoState, importBestSellers, autoTick, guessCategory, BLOCK, STATUS, LABEL
 };
