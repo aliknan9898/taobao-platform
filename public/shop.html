@@ -1707,6 +1707,34 @@ async function requestPage() {
   });
 }
 
+// Sign in with a phone number: number → SMS code → signed in (a new number creates the account)
+function phoneSignin(next, step = 'num', st = {}) {
+  const t = (x) => KinanLang.t(x);
+  $('#view').innerHTML = `<div class="auth" style="min-height:70vh"><form class="panel stack" id="pf">
+      <h2>${t('Sign in with your phone')}</h2>
+      ${step === 'num' ? `<label class="field">${t('Mobile number')}<input name="phone" type="tel" inputmode="tel" required autocomplete="tel" placeholder="+356 7912 3456" value="${esc(st.phone || '')}"></label>
+        <span class="muted small">${t('With the country code. We send you a 6-digit code by SMS.')}</span>`
+      : `<p>${t('We sent a code to')} <b dir="ltr">${esc(st.masked || st.phone)}</b></p>
+        <label class="field">${t('6-digit code')}<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="\\d{6}" maxlength="6" required></label>
+        <label class="field">${t('Your name (new customers)')}<input name="name" autocomplete="name"></label>
+        <a href="#" class="muted small" id="pagain">${t('Send a new code')}</a>`}
+      <div class="error" id="perr">${esc(st.err || '')}</div>
+      <button class="btn">${step === 'num' ? t('Send code') : t('Sign in')}</button>
+      <a href="#" class="muted small" id="pback">${t('Use email instead')}</a>
+    </form></div>`;
+  $('#pback').onclick = (e) => { e.preventDefault(); signin(encodeURIComponent(next)); };
+  const again = $('#pagain'); if (again) again.onclick = (e) => { e.preventDefault(); phoneSignin(next, 'num', { phone: st.phone }); };
+  $('#pf').onsubmit = async (e) => {
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button.btn'); btn.disabled = true;
+    try {
+      if (step === 'num') { const r = await api('/api/auth/phone/start', 'POST', { phone: f.phone, lang: KinanLang.lang }); return phoneSignin(next, 'code', { phone: f.phone, masked: r.phone }); }
+      const r = await api('/api/auth/phone/verify', 'POST', { phone: st.phone, code: f.code, name: f.name, lang: KinanLang.lang });
+      me = asMe(r.user); toast(r.created ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
+      location.hash = '#' + next; if (location.hash === '#' + next) route();
+    } catch (err) { $('#perr').textContent = err.message; btn.disabled = false; }
+  };
+}
+
 function signin(next, mode = 'in', msg = '') {
   next = next ? decodeURIComponent(next) : '/';
   const other = me && me.role !== 'buyer';
@@ -1715,6 +1743,7 @@ function signin(next, mode = 'in', msg = '') {
       <div class="seg"><button type="button" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button type="button" data-m="up" class="${mode === 'up' ? 'on' : ''}">Create account</button></div>
       ${other ? `<p class="muted">You’re signed in as a ${esc(me.role)}. Sign in with a customer account to shop.</p>` : ''}
       ${K.googleButton(cfg, 'shop', '#' + next)}
+      ${cfg.phone_signin ? `<button type="button" class="btn gbtn block" id="phonego">📱 <span>${KinanLang.t('Continue with phone number')}</span></button>` : ''}
       ${mode === 'up' ? '<label class="field">Name<input name="name" required autocomplete="name"></label>' : ''}
       <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
       <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
@@ -1724,6 +1753,7 @@ function signin(next, mode = 'in', msg = '') {
       ${mode === 'in' ? '<a class="muted small" href="/reset?app=shop">Forgot your password?</a>' : ''}
     </form></div>`;
   $$('.seg button').forEach((b) => b.onclick = () => signin(encodeURIComponent(next), b.dataset.m));
+  const pg = $('#phonego'); if (pg) pg.onclick = () => phoneSignin(next);
   $('#lf').onsubmit = async (e) => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
     try {

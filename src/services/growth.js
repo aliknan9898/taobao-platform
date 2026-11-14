@@ -168,7 +168,7 @@ function addReview(user, orderId, b) {
   const photos = (Array.isArray(b.photos) ? b.photos : []).slice(0, 3).map(String);
   for (const p of photos) { if (!IMG.test(p)) throw httpError(400, 'Photos must be JPEG, PNG or WebP'); if (p.length > 400 * 1024) throw httpError(400, 'A photo is too large'); }
   resetRatings();
-  const r = db.reviews.insert({ listing_id: line.listing_id, seller_id: line.seller_id, order_id: o.id, user_id: user.id, name: (user.name || user.email.split('@')[0]).split(' ')[0].slice(0, 30), rating, text: str(b.text, 1500), photos, status: 'published' });
+  const r = db.reviews.insert({ listing_id: line.listing_id, seller_id: line.seller_id, order_id: o.id, user_id: user.id, name: (user.name || String(user.email || 'Customer').split('@')[0]).split(' ')[0].slice(0, 30), rating, text: str(b.text, 1500), photos, status: 'published' });
   let points = 0; try { points = require('./points').forReview(r); } catch { /* points are a bonus */ }
   return { ...r, points };
 }

@@ -18,6 +18,8 @@ const shipping = require('./services/shipping');
 const reports = require('./services/reports');
 const couriers = require('./services/couriers');
 const google = require('./googleAuth');
+const facebook = require('./facebookAuth');
+const phoneAuth = require('./phoneAuth');
 const aliexpress = require('./services/aliexpress');
 const cjs = require('./services/cj');
 const { COUNTRIES } = require('./countries');
@@ -226,6 +228,15 @@ const setSession = (res, token, role) => {
   const secure = config.publicBaseUrl.startsWith('https') ? '; Secure' : '';
   res.setHeader('Set-Cookie', `${auth.cookieName(role)}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}${secure}`);
 };
+// Sign in with a phone number (SMS code) — Kinan Shop customers
+r('POST', '/api/auth/phone/start', null, async ({ req }) => { throttle(clientIp(req)); const b = await readJson(req); return phoneAuth.start({ phone: b.phone, lang: b.lang || reqLang(req) }); });
+r('POST', '/api/auth/phone/verify', null, async ({ req, res }) => {
+  throttle(clientIp(req)); const b = await readJson(req);
+  let out; try { out = await phoneAuth.verify({ phone: b.phone, code: b.code, name: b.name, lang: b.lang || reqLang(req) }); } catch (e) { if (e.status === 400) recordFailure(clientIp(req)); throw e; }
+  setSession(res, out.token, 'buyer');
+  if (out.created) { try { require('./push').telegram(`👤 New customer signed up with a phone number (${String(out.user.phone).slice(0, 4)}…)`); } catch { /* optional */ } }
+  return { user: auth.publicUser(out.user), created: out.created };
+});
 r('POST', '/api/auth/login', null, async ({ req, res }) => {
   throttle(clientIp(req));
   const { email, password, app } = await readJson(req);
@@ -300,7 +311,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const extra = (c?.fee || 0) - fe.free + (g?.fee || 0);
   return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
 });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
@@ -807,6 +818,31 @@ const server = http.createServer(async (req, res) => {
     if (p === '/webhooks/stripe' && req.method === 'POST') {
       const out = await webhooks.stripeHook(await readRaw(req), req.headers);
       return send(res, out.status, out.body);
+    }
+    if (p === '/auth/facebook' && req.method === 'GET') {
+      const app = url.searchParams.get('app') === 'seller' ? 'seller' : 'shop';
+      try { res.writeHead(302, { Location: facebook.authorizeUrl(app, url.searchParams.get('next'), url.searchParams.get('lang') || reqLang(req)), 'Cache-Control': 'no-store' }); }
+      catch (e) { res.writeHead(302, { Location: `${app === 'shop' ? '/' : '/seller'}?login_error=${encodeURIComponent(e.message)}` }); }
+      return res.end();
+    }
+    if (p === '/auth/facebook/callback' && req.method === 'GET') {
+      throttle(clientIp(req));
+      try {
+        const out = await facebook.callback({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') });
+        if (out.token) setSession(res, out.token, out.role);
+        res.writeHead(302, { Location: out.redirect, 'Cache-Control': 'no-store' });
+      } catch (e) {
+        recordFailure(clientIp(req));
+        if ((e.status || 500) >= 500) console.error('[facebook]', e.message);
+        res.writeHead(302, { Location: `${e.home || '/'}?login_error=${encodeURIComponent(e.message)}` });
+      }
+      return res.end();
+    }
+    if (p === '/auth/facebook/delete' && req.method === 'POST') {
+      try {
+        const body = new URLSearchParams((await readRaw(req)).toString('utf8'));
+        return send(res, 200, facebook.deletionRequest(body.get('signed_request')));
+      } catch (e) { return send(res, e.status || 400, { error: e.message }); }
     }
     if (p === '/auth/google' && req.method === 'GET') {
       const app = ['seller', 'admin'].includes(url.searchParams.get('app')) ? url.searchParams.get('app') : 'shop';
