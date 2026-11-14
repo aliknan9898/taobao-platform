@@ -133,6 +133,7 @@ async function tick(now = Date.now()) {
   await poll().catch((e) => console.warn('[telegram] link:', e.message));
   const push = require('../push');
   if (!push.tgOn()) return null;
+  await sendOutbox().catch((e) => console.warn('[telegram] outbox', e.message));
   const m = malta(now); const s = st();
   // Sent once a day, counted only when Telegram took it (a dropped connection at 9:00 used to lose the day's report)
   if (m.hour < hour() || s.report_ok === m.day) return null;
@@ -143,4 +144,33 @@ async function tick(now = Date.now()) {
   return ok;
 }
 
-module.exports = { status, poll, unlink, test, report, tick, malta };
+// ---------------- outbox: messages for the owner shipped with an update ----------------
+// Files in ops/telegram-outbox/*.txt are sent once each (in name order) after a deploy, then remembered,
+// so reports written outside the app (e.g. a project review) reach the owner's Telegram without anyone pasting tokens.
+const OUTBOX = () => process.env.TELEGRAM_OUTBOX_DIR || require('path').join(__dirname, '..', '..', 'ops', 'telegram-outbox');
+function split(text, max = 3400) {
+  const out = []; let cur = '';
+  for (const para of String(text).split(/\n{2,}/)) {
+    if ((cur + '\n\n' + para).length > max && cur) { out.push(cur); cur = ''; }
+    cur = cur ? `${cur}\n\n${para}` : para;
+    while (cur.length > max) { out.push(cur.slice(0, max)); cur = cur.slice(max); }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+async function sendOutbox() {
+  const push = require('../push');
+  if (!push.tgOn()) return 0;
+  const fs = require('fs');
+  let files = []; try { files = fs.readdirSync(OUTBOX()).filter((f) => /\.txt$/.test(f)).sort(); } catch { return 0; }
+  const sent = new Set(st().outbox_sent || []); let n = 0;
+  for (const f of files) {
+    if (sent.has(f)) continue;
+    sent.add(f); save({ outbox_sent: [...sent].slice(-200) }); // remembered first: never sent twice, even after a crash
+    for (const part of split(fs.readFileSync(require('path').join(OUTBOX(), f), 'utf8'))) await push.telegram(part);
+    n++;
+  }
+  return n;
+}
+
+module.exports = { status, poll, unlink, test, report, tick, malta, sendOutbox, split };

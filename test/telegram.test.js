@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const os = require('os'); const fs = require('fs'); const path = require('path');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-'));
-Object.assign(process.env, { TELEGRAM_BOT_TOKEN: '123:abc', CAMPAIGNS_JSON: '[]' });
+Object.assign(process.env, { TELEGRAM_BOT_TOKEN: '123:abc', CAMPAIGNS_JSON: '[]', TELEGRAM_OUTBOX_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'tgo-')) });
 delete process.env.TELEGRAM_CHAT_ID; delete process.env.CJ_API_KEY; delete process.env.STRIPE_SECRET_KEY;
 
 const sent = []; let UPDATES = []; let REFUSE = 0;
@@ -63,4 +63,17 @@ test('Telegram: link with the one-time code only, then a morning report once a d
   assert.strictEqual(await tg.tick(nextDay(11)), null);
   assert.match(sent[sent.length - 1].text, /Kinan — 2026-11-21/);
   tg.unlink(); assert.ok(!push.tgOn());
+});
+
+test('Telegram outbox: each file is sent once, long ones split into parts', async () => {
+  UPDATES = []; const code = (await tg.status()).link.split('start=')[1];
+  UPDATES.push({ update_id: 50, message: { text: `/start ${code}`, chat: { id: 77, type: 'private' } } }); await tg.poll(); await wait();
+  const dir = process.env.TELEGRAM_OUTBOX_DIR;
+  fs.writeFileSync(path.join(dir, '2026-11-14-review.txt'), `Report\n\n${'x'.repeat(3000)}\n\n${'y'.repeat(3000)}`);
+  const before = sent.length;
+  assert.strictEqual(await tg.sendOutbox(), 1);
+  await wait(); await wait(); await wait();
+  assert.strictEqual(sent.length - before, 2, 'split in two');
+  assert.strictEqual(await tg.sendOutbox(), 0, 'not again');
+  tg.unlink();
 });
