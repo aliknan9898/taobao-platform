@@ -232,6 +232,7 @@ async function run(opts = {}, by = 'admin') {
   const tried = new Set(list(s0.tried));
   const q = queue(p);
   let cursor = Number(s0.cursor) || 0;
+  const added = []; // details of each product added, for the Telegram report
   const st = { running: true, started_at: now(), by, target, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, error: null, last: [] };
   const skip = (why, pid) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (pid) tried.add(pid); };
   const persist = () => save((x) => ({ ...x, run: { ...st }, cursor, tried: [...tried].slice(-30000), day: today(), day_added: (x.day === today() ? x.day_added || 0 : 0) }));
@@ -289,6 +290,7 @@ async function run(opts = {}, by = 'admin') {
         }));
         st.added++; took++; st.by_dept[dept] = (st.by_dept[dept] || 0) + 1;
         st.last = [{ id: l.id, title: l.title.slice(0, 70), dept, quality: d && !d.error ? d.quality : null }, ...st.last].slice(0, 12);
+        added.push({ id: l.id, title: (d && !d.error && d.ebay_title) || l.title, dept, from: c.from, quality: d && !d.error ? Number(d.quality) || null : null, eu: eu?.days || null, gb: gb?.days || null, cost: c.cost, price: Math.min(...list(db.listings.get(l.id)?.skus).map((k) => Number(k.price) || Infinity)), kw: d && !d.error ? list(d.keywords).slice(0, 4) : [], listed: c.listed });
         save((x) => ({ ...x, day: today(), day_added: (x.day === today() ? x.day_added || 0 : 0) + 1 }));
         persist();
       }
@@ -300,7 +302,7 @@ async function run(opts = {}, by = 'admin') {
     persist();
   }
   console.log(`[sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}`);
-  if (st.added) try { require('../push').telegram(`🛍️ Catalog builder: ${st.added} new products from European/UK warehouses (${Object.entries(st.by_dept).map(([k, v]) => `${DEPARTMENTS[k].en} ${v}`).join(', ')}). The AI checks each one before it goes live.`); } catch { /* optional */ }
+  if (st.added) try { telegramReport(st, added); } catch (e) { console.warn('[sourcing] telegram', e.message); }
   return st;
 }
 
@@ -354,4 +356,27 @@ function publicDepartments() {
   return out.sort((a, b) => b.count - a.count);
 }
 
-module.exports = { DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
+/** The owner's Telegram: every product added in this run (name, department, AI score, delivery, cost → price,
+ *  keywords, link), why the others were skipped, and the CJ points left. Split into messages Telegram accepts. */
+function telegramReport(st, added) {
+  const push = require('../push'); const { config } = require('../config');
+  const cur = String(config.currency || 'usd').toUpperCase(); const m2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : '?');
+  const head = [`🛍️ Kinan catalog builder — ${st.added} new product(s)`, `Checked ${st.checked} · skipped ${st.skipped}`,
+    ...Object.entries(st.by_dept).map(([k, v]) => `• ${DEPARTMENTS[k]?.emoji || ''} ${DEPARTMENTS[k]?.en || k}: ${v}`)];
+  const why = Object.entries(st.reasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (why.length) head.push('', 'Skipped because:', ...why.map(([r, n]) => `• ${r}: ${n}`));
+  try { const u = require('../cj/client').usage(); if (u.points) head.push('', `🔑 CJ points: ${u.points.remaining}/${u.points.total || '?'} (+${u.points.refill_per_minute || '?'}/min)`); } catch { /* optional */ }
+  if (st.error) head.push('', `⏸ ${st.error}`);
+  const msgs = [head.join('\n')]; let cur2 = '';
+  added.forEach((a, i) => {
+    const block = [`${i + 1}. ${a.title.slice(0, 90)}`, `   ${DEPARTMENTS[a.dept]?.en || a.dept} · from ${a.from}${a.quality ? ` · AI ${a.quality}/10` : ''}${a.listed ? ` · ${a.listed} CJ shops sell it` : ''}`,
+      `   Delivery: ${a.eu ? `EU ${a.eu} days` : ''}${a.eu && a.gb ? ' · ' : ''}${a.gb ? `UK ${a.gb} days` : ''} · cost ${m2(a.cost)} → price ${m2(a.price)} ${cur}`,
+      ...(a.kw.length ? [`   🔎 ${a.kw.join(', ')}`] : []), `   ${config.publicBaseUrl}/#/p/${a.id}`].join('\n');
+    if ((cur2 + block).length > 3300) { msgs.push(cur2); cur2 = ''; }
+    cur2 += (cur2 ? '\n\n' : '') + block;
+  });
+  if (cur2) msgs.push(cur2);
+  for (const t of msgs.slice(0, 12)) push.telegram(t);
+}
+
+module.exports = { telegramReport, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
