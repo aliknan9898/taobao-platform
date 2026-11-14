@@ -1197,6 +1197,7 @@ async function orderDetail(id) {
     <div class="two"><div class="stack-lg">
       ${o.status === 'pending_payment' ? `<div class="panel row between"><span>This order is waiting for payment.</span><a class="btn" href="#/pay/${esc(o.id)}">Pay now</a></div>` : ''}
       <div id="ordpush"></div>
+      ${(() => { const per = cfg?.points?.per_unit || 0; const pts = Math.floor(Math.max(0, (o.subtotal || 0) - (o.discount || 0)) * per); if (!per || !pts || ['pending_payment', 'cancelled', 'refunded'].includes(o.status)) return ''; return o.status === 'delivered' ? `<div class="panel row"><span>★ ${KinanLang.t('This order earned you')} <b>${pts.toLocaleString()}</b> ${KinanLang.t('Kinan points')}</span><a class="btn ghost sm" href="#/points">${KinanLang.t('Your points')}</a></div>` : `<div class="panel row"><span>⏳ ${KinanLang.t('You will earn')} <b>${pts.toLocaleString()}</b> ${KinanLang.t('Kinan points when this order is delivered')}</span></div>`; })()}
       ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Separate parcel'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
         <div class="muted small">${d.items.map(esc).join(' · ')}</div>
         ${d.tracking.length ? d.tracking.map((t) => `<div class="row between"><span><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></span>${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}${trackSteps(d.track)}</div>`).join('')}
@@ -1334,7 +1335,7 @@ async function account() {
   if (!me || me.role !== 'buyer') { signin('/account'); return; }
   await Book.sync();
   const wallet = await api('/api/buyer/wallet').catch(() => ({ balance: 0, currency: cfg.currency }));
-  api('/api/buyer/points').then((d) => { const el = $('#acpts'); if (el) el.textContent = `★ ${d.balance.toLocaleString()}`; }).catch(() => {});
+  api('/api/buyer/points').then((d) => { const el = $('#acpts'); if (el) el.textContent = `★ ${d.balance.toLocaleString()}${d.pending ? ` (+${d.pending.toLocaleString()} ⏳)` : ''}`; }).catch(() => {});
   $('#view').innerHTML = `<div class="pagehead"><h1>Account</h1></div>
     <div class="stack" style="max-width:520px">
       <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
@@ -1577,7 +1578,8 @@ async function pointsPage() {
   $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/account">${ICONS.back} Account</a><h1 style="margin-top:6px">Kinan points</h1></div></div>
     <div class="stack" style="max-width:620px">
       <div class="panel stack"><span class="muted">Your points</span><span class="ptsbig">★ ${d.balance.toLocaleString()}</span>
-        <span>Worth <b>${money(d.value, d.currency)}</b>${d.pending ? ` · <span class="muted">${d.pending.toLocaleString()} more on the way</span>` : ''}</span>
+        <span>Worth <b>${money(d.value, d.currency)}</b></span>
+        ${d.pending ? `<div class="panel row" style="gap:10px;background:var(--soft,#f0fdfa)"><span style="font-size:22px">⏳</span><span><b>${d.pending.toLocaleString()} ${KinanLang.t('points on the way')}</b><div class="muted small">${KinanLang.t('Added to your balance when your order is delivered.')}</div></span></div>` : ''}
         <p class="muted small">You earn ${d.per_unit} points for every ${money(1, d.currency)} you spend on products, added when your order is delivered. ${d.example.points.toLocaleString()} points = ${money(d.example.worth, d.currency)} off. Turn ${d.min.toLocaleString()} points or more into a discount code for your next order.</p>
         <form class="row" id="redeemf" style="gap:8px;align-items:end"><label class="field" style="flex:1">Points to use<input name="points" type="number" min="${d.min}" max="${d.balance}" step="100" value="${Math.max(d.min, Math.floor(d.balance / 100) * 100)}" ${can ? '' : 'disabled'}></label><button class="btn" ${can ? '' : 'disabled'}>Get discount code</button></form>
         ${can ? '' : `<p class="muted small">You need ${d.min.toLocaleString()} points to get a code — ${(d.min - d.balance).toLocaleString()} to go.</p>`}
