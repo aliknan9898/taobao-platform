@@ -15,15 +15,22 @@ const { httpError } = require('../auth');
 
 const API = 'https://api.anthropic.com/v1/messages';
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
-function provider() {
+/**
+ * Which AI answers first. With both keys, Claude (paid: fast, no free-tier queue) answers and Gemini is the backup;
+ * AI_PROVIDER=gemini puts Gemini first. When the first one is busy or out of quota, the other one answers.
+ */
+function providers() {
   const want = String(process.env.AI_PROVIDER || '').toLowerCase();
-  const gem = Boolean(process.env.GEMINI_API_KEY); const cla = Boolean(process.env.ANTHROPIC_API_KEY);
-  if (want === 'claude' && cla) return 'claude';
-  if (want === 'gemini' && gem) return 'gemini';
-  return gem ? 'gemini' : cla ? 'claude' : null;
+  const out = [];
+  if (process.env.ANTHROPIC_API_KEY) out.push('claude');
+  if (process.env.GEMINI_API_KEY) out.push('gemini');
+  if (want === 'gemini' && out.length === 2) out.reverse();
+  return out;
 }
+const provider = () => providers()[0] || null;
 const enabled = () => Boolean(provider());
-const model = () => (provider() === 'gemini' ? process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' : process.env.AI_MODEL || 'claude-haiku-5-5');
+const modelFor = (p) => (p === 'gemini' ? process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' : process.env.AI_MODEL || 'claude-haiku-5-5');
+const model = () => modelFor(provider());
 const limit = () => Math.max(1, Number(process.env.AI_DAILY_LIMIT) || 40);
 const IMG_RE = /^data:image\/(jpeg|png|webp|gif);base64,([A-Za-z0-9+/=]+)$/;
 const s = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -136,16 +143,29 @@ async function inlineImage(u) {
  * images: data URLs or HTTPS links (bad ones are skipped). Returns the parsed object.
  * Errors carry status 429 when the AI is busy or the free quota is used up.
  */
-async function structured({ system, name, description = '', schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
-  const p = provider();
-  if (!p) throw httpError(503, 'The AI assistant is not switched on yet');
-  if (p === 'claude') {
+async function structured(req) {
+  const list = providers();
+  if (!list.length) throw httpError(503, 'The AI assistant is not switched on yet');
+  let err;
+  for (const p of list) {
+    try { return await (p === 'claude' ? askClaude(req) : askGemini(req)); } catch (e) {
+      err = e;
+      // Busy, out of quota or not reachable: let the other AI answer. A bad request would fail there too.
+      if (!(e.status === 429 || e.status === 502 || e.status === 503)) throw e;
+      if (list.length > 1) console.warn(`[ai] ${p} could not answer (${e.message}) — trying the other AI`);
+    }
+  }
+  throw err;
+}
+
+async function askClaude({ system, name, description = '', schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
+  {
     const blocks = images.map(imageBlock).filter(Boolean);
     const tool = { name, description: description || 'Return the answer.', input_schema: schema };
     const res = await fetch(API, {
       method: 'POST',
       headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: model(), max_tokens: maxTokens, system: `${system}\nAlways answer by calling the ${name} tool.`, tools: [tool], tool_choice: { type: 'tool', name }, messages: [{ role: 'user', content: blocks.length ? [...blocks, { type: 'text', text }] : text }] }),
+      body: JSON.stringify({ model: modelFor('claude'), max_tokens: maxTokens, system: `${system}\nAlways answer by calling the ${name} tool.`, tools: [tool], tool_choice: { type: 'tool', name }, messages: [{ role: 'user', content: blocks.length ? [...blocks, { type: 'text', text }] : text }] }),
       signal: AbortSignal.timeout(timeoutMs)
     }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
     const j = await res.json().catch(() => ({}));
@@ -153,16 +173,20 @@ async function structured({ system, name, description = '', schema, text, images
       console.error('[ai] claude', res.status, j.error?.type, j.error?.message);
       throw httpError(res.status === 429 || res.status === 529 ? 429 : 502, res.status === 429 || res.status === 529 ? 'The AI assistant is busy — try again in a minute' : 'The AI assistant could not answer — try again');
     }
-    record(model(), j.usage, kind);
+    record(modelFor('claude'), j.usage, kind);
     const out = (j.content || []).find((c) => c.type === 'tool_use')?.input;
     if (!out) throw httpError(502, 'The AI assistant could not answer — try again');
     return out;
   }
+}
+
+async function askGemini({ system, schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
   // Gemini takes up to ~20 MB per request: keep the photos under 14 MB together
   let total = 0;
   const parts = (await Promise.all(images.map(inlineImage))).filter((x) => x && (total += x.inline_data.data.length) <= 14 * 1024 * 1024);
   // Busy (503) or this model's free quota used (429): try the next model in GEMINI_FALLBACK_MODELS (each has its own free quota)
-  const models = [model(), ...String(process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash,gemini-3-flash-lite').split(',').map((x) => x.trim()).filter((x) => x && x !== model())];
+  const first = modelFor('gemini');
+  const models = [first, ...String(process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash').split(',').map((x) => x.trim()).filter((x) => x && x !== first)];
   let res; let j; let used = models[0]; let busy = false; let quota = false;
   for (let m = 0; m < models.length; m++) {
     used = models[m];
@@ -330,4 +354,4 @@ async function tick() {
   if (enabled() && prefs().auto) return improveKinan(40); return null;
 }
 
-module.exports = { enabled, provider, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };
+module.exports = { enabled, provider, providers, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };

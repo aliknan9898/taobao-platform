@@ -260,12 +260,15 @@ const storageOf = (l, vids) => [...new Set((l?.skus || []).filter((k) => !vids |
  * otherwise CJ is asked in the background (1 request per second) and null is returned for now.
  */
 const SHIP_TTL = 3 * 86400e3;
+// "CJ has no method to this country" rarely changes: kept 7 days (asking again costs CJ points, and every point is a product not added)
+const NONE_TTL = 7 * 86400e3;
+const ttlOf = (k) => (k && k.none ? NONE_TTL : SHIP_TTL);
 const warm = new Set(); let warming = false; let stats = { done: 0, failed: 0, none: 0, last_error: null };
 const cheapestVid = (l) => [...(l.skus || [])].filter((x) => x.cj_vid).sort((a, b) => a.price - b.price)[0]?.cj_vid || null;
 function cachedFee(l, countryCode) {
   if (!countryCode || l.source !== 'cj') return null;
   const k = l.cj_ship && l.cj_ship[countryCode];
-  if (k && now() - k.at < SHIP_TTL && k.vid === cheapestVid(l)) return k.fee;
+  if (k && now() - k.at < ttlOf(k) && k.vid === cheapestVid(l)) return k.fee;
   if (cj.enabled() && warm.size < 1000) { warm.add(`${countryCode}|${l.id}`); if (!warming) cj.background(warmUp); }
   return null;
 }
@@ -278,10 +281,10 @@ function deliveryDays(l, countryCode) {
   if (from !== 'CN' && EUROPE.has(countryCode)) return { min: from === countryCode ? 2 : 3, max: from === countryCode ? 5 : 8, from, known: false };
   return { min: 8, max: 15, from, known: false };
 }
-/** CJ has told us it cannot deliver this product to that country (the answer is kept 3 days, then asked again). */
+/** CJ has told us it cannot deliver this product to that country (the answer is kept 7 days, then asked again). */
 function noDelivery(l, countryCode) {
   const k = l && l.source === 'cj' && countryCode && l.cj_ship && l.cj_ship[countryCode];
-  return Boolean(k && k.none && now() - k.at < SHIP_TTL && k.vid === cheapestVid(l));
+  return Boolean(k && k.none && now() - k.at < NONE_TTL && k.vid === cheapestVid(l));
 }
 /** Countries CJ cannot deliver this product to (fresh answers only). */
 function noDeliveryList(l) { return l && l.source === 'cj' ? Object.keys(l.cj_ship || {}).filter((cc) => noDelivery(l, cc)) : []; }
@@ -292,7 +295,7 @@ async function warmUp() {
       const key = warm.values().next().value; warm.delete(key);
       const [cc, id] = key.split('|'); const l = db.listings.get(id); const vid = l && cheapestVid(l);
       if (!vid) continue;
-      const k = l.cj_ship && l.cj_ship[cc]; if (k && now() - k.at < SHIP_TTL && k.vid === vid) continue;
+      const k = l.cj_ship && l.cj_ship[cc]; if (k && now() - k.at < ttlOf(k) && k.vid === vid) continue;
       let fee = FALLBACK; let estimated = true;
       let none = false; let dmin = null; let dmax = null;
       try { const { opt: o } = await optionFrom(cc, [{ vid, qty: 1 }], l.cj_from || 'CN', storageOf(l, [vid])); if (o) { fee = o.fee; estimated = false; dmin = o.min ?? null; dmax = o.max ?? null; } else { stats.none++; none = true; } }

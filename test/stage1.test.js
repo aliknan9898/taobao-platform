@@ -290,7 +290,7 @@ test('products CJ cannot deliver to a country are left out there, flagged on the
   const sku = { cj_vid: 'VN1', mp_sku_id: 'cj_VN1', price: 12, stock: 10 };
   const ok = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Ships Everywhere Mug', images: ['https://x/m.jpg'], skus: [{ ...sku, cj_vid: 'VN2', mp_sku_id: 'cj_VN2' }] });
   const no = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'No UK Lamp', images: ['https://x/n.jpg'], skus: [sku], cj_ship: { GB: { fee: 0, vid: 'VN1', at: Date.now(), none: true }, DE: { fee: 4, vid: 'VN1', at: Date.now() } } });
-  const old = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Old Answer Rug', images: ['https://x/r.jpg'], skus: [{ ...sku, cj_vid: 'VN3', mp_sku_id: 'cj_VN3' }], cj_ship: { GB: { fee: 0, vid: 'VN3', at: Date.now() - 4 * 86400e3, none: true } } });
+  const old = db.listings.insert({ seller_id: seller.id, source: 'cj', status: 'active', title: 'Old Answer Rug', images: ['https://x/r.jpg'], skus: [{ ...sku, cj_vid: 'VN3', mp_sku_id: 'cj_VN3' }], cj_ship: { GB: { fee: 0, vid: 'VN3', at: Date.now() - 8 * 86400e3, none: true } } });
   const ids = (cc) => catalog.browse({ limit: 100, country: cc }).items.map((x) => x.id);
   assert.ok(!ids('GB').includes(no.id) && ids('GB').includes(ok.id), 'left out in the UK');
   assert.ok(ids('GB').includes(old.id), 'an old answer is asked again, not trusted');

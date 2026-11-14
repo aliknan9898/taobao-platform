@@ -72,3 +72,21 @@ test('AI assistant suggests a cleaned listing, checks photos and respects the da
   await api('POST', '/api/auth/register', { role: 'buyer', email: 'b@x.com', password: 'buyerpass1', name: 'B' });
   assert.strictEqual((await api('POST', '/api/seller/ai/listing', { title: 'jacket' }, await login('b@x.com', 'buyerpass1'))).status, 403);
 });
+
+test('Claude answers first when both keys are set; when it is busy, Gemini answers', async () => {
+  const ai = require('../src/services/ai');
+  const keep = { G: process.env.GEMINI_API_KEY, P: process.env.AI_PROVIDER };
+  process.env.GEMINI_API_KEY = 'g-test'; delete process.env.AI_PROVIDER;
+  assert.deepEqual(ai.providers(), ['claude', 'gemini']);
+  process.env.AI_PROVIDER = 'gemini'; assert.deepEqual(ai.providers(), ['gemini', 'claude']); delete process.env.AI_PROVIDER;
+  const realFetch = global.fetch; const hits = [];
+  global.fetch = async (url) => {
+    hits.push(String(url).includes('anthropic') ? 'claude' : 'gemini');
+    if (String(url).includes('anthropic')) return { ok: false, status: 529, json: async () => ({ error: { type: 'overloaded_error' } }) };
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }], usageMetadata: {} }) };
+  };
+  try {
+    const r = await ai.structured({ system: 's', name: 'x', schema: { type: 'object', properties: { ok: { type: 'boolean' } } }, text: 't' });
+    assert.equal(r.ok, true); assert.deepEqual(hits, ['claude', 'gemini']);
+  } finally { global.fetch = realFetch; if (keep.G === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = keep.G; if (keep.P !== undefined) process.env.AI_PROVIDER = keep.P; }
+});
