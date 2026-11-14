@@ -422,8 +422,22 @@ async function place(o, sub, lines) {
 async function pay(sub) {
   if (!sub.purchase_ids?.length) throw httpError(409, 'This part has no CJ order yet');
   try {
-    if (sub.shipment_order_id) await cj.call('POST', '/shopping/pay/payBalanceV2', { body: { shipmentOrderId: sub.shipment_order_id } });
-    else await cj.call('POST', '/shopping/pay/payBalance', { body: { orderId: sub.purchase_ids[0] } });
+    // An order made with payType 3 is CREATED ("waiting for confirmation") on CJ: until it is confirmed, CJ's payment
+    // answers "Order not found". Confirm it first (an order already confirmed just says so), then pay.
+    try {
+      const c = await cj.call('PATCH', '/shopping/order/confirmOrder', { body: { orderId: sub.purchase_ids[0] } });
+      const newId = typeof c === 'string' ? c : c?.orderId;
+      if (newId && String(newId) !== sub.purchase_ids[0]) sub.purchase_ids = [String(newId)];
+    } catch (e) { console.warn('[cj] confirm order', sub.purchase_ids[0], e.message); }
+    let first = null;
+    if (sub.shipment_order_id) {
+      try { await cj.call('POST', '/shopping/pay/payBalanceV2', { body: { shipmentOrderId: sub.shipment_order_id } }); } catch (e) { first = e; }
+    }
+    if (!sub.shipment_order_id || first) {
+      // Not found by its shipment number: pay the order itself. Any other answer (low balance) is the real one.
+      if (first && !/not found|not yours/i.test(first.message)) throw first;
+      await cj.call('POST', '/shopping/pay/payBalance', { body: { orderId: sub.purchase_ids[0] } });
+    }
     sub.status = 'AE_PAID'; sub.error = null; sub.paid_at = now(); balanceCache = null;
   } catch (e) {
     sub.error = `Not paid on CJ: ${e.message}. Top up the CJ balance, then press “Pay on CJ”.`;

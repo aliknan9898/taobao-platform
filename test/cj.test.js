@@ -14,7 +14,7 @@ Object.assign(process.env, { ADMIN_EMAIL: 'boss@x.com', ADMIN_PASSWORD: 'adminpa
 delete process.env.STRIPE_SECRET_KEY;
 
 const realFetch = global.fetch;
-const calls = []; const created = []; let orderStatus = 'CREATED'; let payFails = false;
+const calls = []; const created = []; let orderStatus = 'CREATED'; let payFails = false; let notFound = false;
 const PID = '1A2B3C4D-5E6F-7081-92A3-B4C5D6E7F809';
 const ok = (data) => ({ status: 200, json: async () => ({ code: 200, result: true, message: 'Success', data }) });
 global.fetch = async (url, opts = {}) => {
@@ -30,6 +30,9 @@ global.fetch = async (url, opts = {}) => {
   if (p === '/product/listV2') return ok({ totalRecords: 1, content: [{ productList: [{ id: PID, nameEn: 'LED Desk Lamp', sku: 'CJLED001', bigImage: 'https://cf.cjdropshipping.com/a.jpg', sellPrice: '6.5', warehouseInventoryNum: 120 }] }] });
   if (p === '/logistic/freightCalculate') { assert.strictEqual(body.endCountryCode, 'DE'); return ok([{ logisticName: 'CJPacket Ordinary', logisticPrice: 4.2, logisticAging: '10-20' }, { logisticName: 'DHL', logisticPrice: 19, logisticAging: '3-6' }]); }
   if (p === '/shopping/order/createOrderV2') { created.push(body); return ok({ orderId: 'CJORD1', orderNumber: body.orderNumber, shipmentOrderId: 'SH1', orderAmount: 17.2, orderStatus: 'CREATED' }); }
+  if (p === '/shopping/order/confirmOrder') { assert.strictEqual(opts.method, 'PATCH'); assert.strictEqual(body.orderId, 'CJORD1'); return ok('CJORD1'); }
+  if (p === '/shopping/pay/payBalance') { assert.strictEqual(body.orderId, 'CJORD1'); orderStatus = 'PENDING'; return ok(null); }
+  if (p === '/shopping/pay/payBalanceV2' && notFound) return { status: 200, json: async () => ({ code: 1603100, result: false, message: 'Order not found, please check the CJ order id' }) };
   if (p === '/shopping/pay/payBalanceV2') { assert.strictEqual(body.shipmentOrderId, 'SH1'); if (payFails) return { status: 200, json: async () => ({ code: 1600500, result: false, message: 'Insufficient balance' }) }; orderStatus = 'PENDING'; return ok(null); }
   if (p === '/shopping/order/getOrderDetail') return ok({ orderId: 'CJORD1', orderStatus, trackNumber: orderStatus === 'SHIPPED' ? 'YT123' : null, logisticName: 'CJPacket Ordinary' });
   if (p === '/shopping/order/deleteOrder') { assert.strictEqual(u.searchParams.get('orderId'), 'CJORD1'); return ok('CJORD1'); }
@@ -141,6 +144,15 @@ test('low CJ balance: order waits, admin pays later; unpaid CJ order is deleted 
   const r = await api('POST', `/api/admin/orders/${o1.id}/aliexpress`, { outer_purchase_id: sub.outer_purchase_id, pay: true }, boss);
   assert.strictEqual(r.status, 200); sub = db.orders.get(o1.id).sub_orders[0];
   assert.strictEqual(sub.status, 'AE_PAID'); assert.strictEqual(sub.error, null);
+  assert.ok(calls.some((x) => x === 'PATCH /shopping/order/confirmOrder'), 'the CJ order is confirmed before paying');
+
+  // CJ cannot find the order by its shipment number ("Order not found"): it is paid by its order number instead
+  notFound = true;
+  const o3 = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: l.id, mp_sku_id: 'cj_V1', qty: 1 }], shipping_address: addr }, cust)).body;
+  await api('POST', `/api/buyer/orders/${o3.id}/demo-pay`, null, cust);
+  const s3 = db.orders.get(o3.id).sub_orders[0];
+  assert.strictEqual(s3.status, 'AE_PAID', s3.error); assert.ok(calls.includes('POST /shopping/pay/payBalance'));
+  notFound = false;
 
   payFails = true;
   const o2 = (await api('POST', '/api/buyer/checkout', { items: [{ listing_id: l.id, mp_sku_id: 'cj_V1', qty: 1 }], shipping_address: addr }, cust)).body;
