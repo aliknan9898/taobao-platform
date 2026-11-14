@@ -918,7 +918,8 @@ function startJobs() {
   setTimeout(() => require('./cj/client').background(() => require('./services/keywords').checkAccount()).catch((e) => console.warn('[keywords] check:', e.message)), 45e3);
   every(10 * 60e3, () => require('./services/uilang').tick()); // French, German, Italian, Spanish
   setTimeout(() => require('./services/uilang').tick().catch(() => {}), 90e3); // start translating soon after a deploy
-  every(3600e3, () => require('./services/sourcing').tick()); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
+  every(20 * 60e3, () => require('./services/sourcing').tick()); // checked every 20 min (a deploy no longer pushes it back an hour); it only runs when there is room today
+  setTimeout(() => Promise.resolve(require('./cj/client').background(() => require('./services/sourcing').tick())).catch(() => {}), 3 * 60e3); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
   every(3600e3, async () => { const b = require('./services/banggood'); await b.updateTick(); const h = new Date().getUTCHours(); if (h === 4) await b.resyncStale(300); if (h === 5) await b.refreshLimits(); });
   every(3600e3, () => require('./cj/client').background(() => cjs.autoTick()));
