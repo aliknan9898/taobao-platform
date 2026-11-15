@@ -23,14 +23,16 @@ const MIN_WITHDRAWAL = Number(process.env.MIN_WITHDRAWAL || 10);
 
 // ---------------- Seller balance & withdrawals ----------------
 
+/** The smallest withdrawal any switched-on method accepts (MIN_WITHDRAWAL if none set). */
+function minWithdrawal() { try { const ms = Object.values(require('./payouts').settings().methods).filter((m) => m.enabled).map((m) => m.min); return ms.length ? Math.min(...ms) : MIN_WITHDRAWAL; } catch { return MIN_WITHDRAWAL; } }
 function sellerBalance(sellerId) {
   const led = db.ledger.all((l) => l.seller_id === sellerId && l.status !== 'void');
   const sum = (f) => money(led.filter(f).reduce((a, l) => a + l.net, 0));
   const pays = db.payouts.all((p) => p.seller_id === sellerId);
   const psum = (st) => money(pays.filter((p) => p.status === st).reduce((a, p) => a + p.amount, 0));
   const earned = sum((l) => l.status === 'payable' || l.status === 'paid');
-  const requested = psum('requested'); const paid = psum('paid');
-  return { currency: config.currency, pending: sum((l) => l.status === 'pending_payout'), available: money(earned - requested - paid), requested, withdrawn: paid, min_withdrawal: MIN_WITHDRAWAL };
+  const requested = money(psum('requested') + psum('processing')); const paid = psum('paid');
+  return { currency: config.currency, pending: sum((l) => l.status === 'pending_payout'), available: money(earned - requested - paid), requested, withdrawn: paid, min_withdrawal: minWithdrawal() };
 }
 
 // ---------------- Payout methods (verified with a small test payment) ----------------
@@ -38,7 +40,7 @@ function sellerBalance(sellerId) {
 // payment with random cents (0.51–0.99) and the seller types the exact amount they received: only then is the method
 // verified and usable for withdrawals. This proves the account exists and belongs to the seller, and stops a stolen
 // login from redirecting earnings. Card numbers are never collected (card payouts need a licensed provider).
-const TYPES = { bank: 'Bank account (IBAN)', paypal: 'PayPal', payoneer: 'Payoneer', wise: 'Wise' };
+const TYPES = { bank: 'Bank account (IBAN)', paypal: 'PayPal', payoneer: 'Payoneer', wise: 'Wise', stripe: 'Stripe (bank or card)' };
 const MAX_METHODS = 4; const TRIES = 3;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** IBAN check digits (ISO 13616, mod 97). */
@@ -56,7 +58,7 @@ function nameMatches(seller, holder) {
   return want.some((w) => w.length && w.filter((x) => h.includes(x)).length >= Math.min(2, w.length));
 }
 function cleanMethod(d = {}) {
-  const type = Object.hasOwn(TYPES, d.type || d.method) ? (d.type || d.method) : null;
+  const type = Object.hasOwn(TYPES, d.type || d.method) && (d.type || d.method) !== 'stripe' ? (d.type || d.method) : null;
   if (!type) throw httpError(400, 'Choose bank account, PayPal, Payoneer or Wise');
   const out = { type, holder: str(d.holder, 100) };
   if (!out.holder) throw httpError(400, 'Enter the account holder name, exactly as on the account');
@@ -71,7 +73,7 @@ function cleanMethod(d = {}) {
   }
   return out;
 }
-const masked = (m) => (m.type === 'bank' ? `IBAN ${m.iban.slice(0, 4)} •••• ${m.iban.slice(-4)}` : m.email.replace(/^(.).*(@.*)$/, '$1•••$2'));
+const masked = (m) => (m.type === 'stripe' ? (m.destination || 'Stripe account') : m.type === 'bank' ? `IBAN ${m.iban.slice(0, 4)} •••• ${m.iban.slice(-4)}` : m.email.replace(/^(.).*(@.*)$/, '$1•••$2'));
 /** What the seller sees (never the test amount). */
 function methodView(m) {
   return { id: m.id, type: m.type, type_name: TYPES[m.type], label: masked(m), holder: m.holder, status: m.status, tries_left: Math.max(0, TRIES - (m.tries || 0)), note: m.note || null,
@@ -83,6 +85,7 @@ function saveMethods(seller, list) { return db.sellers.update(seller.id, { payou
 function addMethod(seller, body) {
   const list = methodsOf(seller).filter((m) => m.status !== 'removed');
   if (list.length >= MAX_METHODS) throw httpError(400, `You can keep up to ${MAX_METHODS} payout methods — remove one first`);
+  if (!require('./payouts').settings().methods[body.type || body.method]?.enabled) throw httpError(400, 'This payout method is not available right now');
   const m = cleanMethod(body);
   const key = m.type === 'bank' ? m.iban : m.email;
   if (list.some((x) => x.type === m.type && (x.iban || x.email) === key)) throw httpError(409, 'You already added this account');
@@ -156,17 +159,21 @@ function requestWithdrawal(seller, { amount, method_id }) {
   if (seller.status !== 'active') throw httpError(403, 'Your shop is not active');
   const bal = sellerBalance(seller.id);
   const a = money(amount);
-  if (!(a >= MIN_WITHDRAWAL)) throw httpError(400, `The minimum withdrawal is ${MIN_WITHDRAWAL} ${config.currency.toUpperCase()}`);
+  if (!(a >= minWithdrawal())) throw httpError(400, `The minimum withdrawal is ${minWithdrawal()} ${config.currency.toUpperCase()}`);
   if (a > bal.available) throw httpError(409, 'That is more than your available earnings');
-  if (db.payouts.find((p) => p.seller_id === seller.id && p.status === 'requested')) throw httpError(409, 'You already have a withdrawal waiting — Kinan will process it soon');
+  if (db.payouts.find((p) => p.seller_id === seller.id && (p.status === 'requested' || p.status === 'processing'))) throw httpError(409, 'You already have a withdrawal waiting — Kinan will process it soon');
   const verified = methodsOf(seller).filter((m) => m.status === 'verified');
   const m = verified.find((x) => x.id === method_id) || (!method_id ? verified.find((x) => x.is_default) || verified[0] : null);
   if (!m) throw httpError(400, 'Add a payout account and confirm the test payment first');
   // a payout account verified in the last 24 hours: wait (a stolen login cannot redirect earnings at once)
   if (Date.now() - (m.verified_at || 0) < 24 * 3600e3 && verified.length > 1) throw httpError(409, 'This account was verified less than 24 hours ago — for your safety, withdraw to it from tomorrow');
-  const d = { method: m.type, holder: m.holder, iban: m.iban || '', bic: m.bic || '', email: m.email || '', payoneer_id: m.payoneer_id || '' };
-  require('../push').telegram(`💸 Withdrawal request: ${seller.shop_name} — ${a} ${config.currency.toUpperCase()} to ${TYPES[m.type]} (${masked(m)})\n${config.publicBaseUrl}/admin`);
-  return db.payouts.insert({ seller_id: seller.id, amount: a, currency: config.currency, details: d, method_id: m.id, status: 'requested' });
+  const P = require('./payouts'); const f = P.feeFor(m.type, a);
+  if (!f.enabled) throw httpError(400, `Withdrawals to ${TYPES[m.type]} are switched off for now — choose another account`);
+  if (a < f.min) throw httpError(400, `The minimum withdrawal to ${TYPES[m.type]} is ${f.min} ${config.currency.toUpperCase()}`);
+  const d = { method: m.type, holder: m.holder, iban: m.iban || '', bic: m.bic || '', email: m.email || '', payoneer_id: m.payoneer_id || '', account: m.account || '', destination: m.destination || '' };
+  const next = P.nextPayoutDay();
+  require('../push').telegram(`💸 Withdrawal request: ${seller.shop_name} — ${a} ${config.currency.toUpperCase()}${f.fee ? ` (fee ${f.fee}, sends ${f.net})` : ''} to ${TYPES[m.type]} (${masked(m)})${next ? ` · payout day ${next.weekday}` : ''}\n${config.publicBaseUrl}/admin`);
+  return db.payouts.insert({ seller_id: seller.id, amount: a, fee: f.fee, net: f.net, currency: config.currency, details: d, method_id: m.id, status: 'requested', payout_day: next?.day || null });
 }
 
 function listPayouts({ sellerId, status } = {}) {
@@ -261,4 +268,4 @@ function adminReturns() {
   });
 }
 
-module.exports = { addMethod, removeMethod, setDefault, confirmMethod, adminMethods, decideMethod, methodView, methodsOf, ibanOk, TYPES, sellerBalance, requestWithdrawal, listPayouts, decidePayout, requestReturn, decideReturn, buyerReturnView, adminReturns, RETURN_DAYS, REASON_LABEL };
+module.exports = { addMethod, removeMethod, setDefault, confirmMethod, adminMethods, decideMethod, methodView, methodsOf, ibanOk, TYPES, sellerBalance, minWithdrawal, requestWithdrawal, listPayouts, decidePayout, requestReturn, decideReturn, buyerReturnView, adminReturns, RETURN_DAYS, REASON_LABEL };

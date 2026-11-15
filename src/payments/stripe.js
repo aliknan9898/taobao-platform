@@ -239,4 +239,4 @@ async function checkoutUrl({ amount, currency, name, order_id, success_url, canc
   return s.url;
 }
 
-module.exports = { checkoutUrl, customerFor, cardSetup, listCards, removeCard, attachCustomer, chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };
+module.exports = { form, checkoutUrl, customerFor, cardSetup, listCards, removeCard, attachCustomer, chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };

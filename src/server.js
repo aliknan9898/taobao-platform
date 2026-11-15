@@ -460,7 +460,7 @@ r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => {
 r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
   const led = db.ledger.all((l) => l.seller_id === seller.id && l.status !== 'void');
   const b = moneySvc.sellerBalance(seller.id);
-  return { ...b, payable: b.available, paid: b.withdrawn, entries: led.slice(-100).reverse(), payouts: moneySvc.listPayouts({ sellerId: seller.id }).slice(0, 50), payout_methods: moneySvc.methodsOf(seller).filter((m) => m.status !== 'removed').map(moneySvc.methodView) };
+  return { ...b, payable: b.available, paid: b.withdrawn, entries: led.slice(-100).reverse(), payouts: moneySvc.listPayouts({ sellerId: seller.id }).slice(0, 50), payout_methods: moneySvc.methodsOf(seller).filter((m) => m.status !== 'removed').map(moneySvc.methodView), payout_rules: (() => { const P = require('./services/payouts'); const v = P.view(); return { next: v.next, days: v.day_names, methods: v.methods, stripe: v.stripe_connect && v.methods.stripe.enabled, stripe_state: seller.stripe_connect ? { started: true, enabled: Boolean(seller.stripe_connect.payouts_enabled), needs: seller.stripe_connect.requirements || [] } : null }; })() };
 });
 r('GET', '/api/seller/statement.pdf', SELLER, async ({ seller, url, res }) => {
   const f = ops.sellerStatementPdf(seller, { from: url.searchParams.get('from'), to: url.searchParams.get('to') });
@@ -469,6 +469,8 @@ r('GET', '/api/seller/statement.pdf', SELLER, async ({ seller, url, res }) => {
 });
 r('POST', '/api/seller/payouts', SELLER, async ({ req, seller }) => moneySvc.requestWithdrawal(seller, await readJson(req)));
 // Payout accounts (IBAN, PayPal, Payoneer, Wise), each confirmed with a small test payment
+r('POST', '/api/seller/stripe/onboard', SELLER, async ({ seller }) => require('./services/payouts').stripeOnboard(seller));
+r('POST', '/api/seller/stripe/refresh', SELLER, async ({ seller }) => require('./services/payouts').stripeRefresh(seller));
 r('POST', '/api/seller/payout-methods', SELLER, async ({ req, seller }) => moneySvc.addMethod(seller, await readJson(req)));
 r('POST', '/api/seller/payout-methods/:id/confirm', SELLER, async ({ req, seller, params }) => { throttleLight(req); return moneySvc.confirmMethod(seller, params.id, await readJson(req)); });
 r('POST', '/api/seller/payout-methods/:id/default', SELLER, async ({ seller, params }) => moneySvc.setDefault(seller, params.id));
@@ -678,6 +680,11 @@ r('GET', '/api/admin/reports/orders.csv', FIN, async ({ url, res }) => {
   res.end(csv);
 });
 r('GET', '/api/admin/payouts', FIN, async ({ url }) => moneySvc.listPayouts({ status: url.searchParams.get('status') || undefined }));
+// Payout settings (days, automatic sending, minimum and fee per method) and sending through PayPal / Stripe
+r('GET', '/api/admin/payout-settings', FIN, async () => require('./services/payouts').view());
+r('POST', '/api/admin/payout-settings', ADMIN, async ({ req }) => require('./services/payouts').save(await readJson(req)));
+r('POST', '/api/admin/payouts/:id/send', FIN, async ({ params, user }) => require('./services/payouts').send(params.id, user));
+r('POST', '/api/admin/payout-methods/:sid/:id/send-test', FIN, async ({ params, user }) => require('./services/payouts').sendTest(params.sid, params.id, user));
 r('GET', '/api/admin/payout-methods', FIN, async ({ url }) => moneySvc.adminMethods({ status: url.searchParams.get('status') || undefined }));
 r('POST', '/api/admin/payout-methods/:sid/:id', FIN, async ({ req, params, user }) => moneySvc.decideMethod(params.sid, params.id, await readJson(req), user));
 r('POST', '/api/admin/payouts/:id', FIN, async ({ req, params, user }) => moneySvc.decidePayout(params.id, await readJson(req), user));
@@ -988,7 +995,8 @@ function startJobs() {
   setTimeout(() => require('./cj/client').background(() => require('./services/keywords').checkAccount()).catch((e) => console.warn('[keywords] check:', e.message)), 45e3);
   every(10 * 60e3, () => require('./services/uilang').tick()); // French, German, Italian, Spanish
   setTimeout(() => require('./services/uilang').tick().catch(() => {}), 90e3); // start translating soon after a deploy
-  every(20 * 60e3, () => require('./services/sourcing').tick()); // checked every 20 min (a deploy no longer pushes it back an hour); it only runs when there is room today
+  every(20 * 60e3, () => require('./services/sourcing').tick());
+  every(5 * 60e3, () => require('./services/payouts').tick()); // PayPal payouts follow-up and payout-day sending // checked every 20 min (a deploy no longer pushes it back an hour); it only runs when there is room today
   setTimeout(() => Promise.resolve(require('./cj/client').background(() => require('./services/sourcing').tick())).catch(() => {}), 3 * 60e3); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
   every(3600e3, async () => { const b = require('./services/banggood'); await b.updateTick(); const h = new Date().getUTCHours(); if (h === 4) await b.resyncStale(300); if (h === 5) await b.refreshLimits(); });

@@ -735,11 +735,14 @@ async function ebayPage() {
 async function earnings() {
   const e = await api('/api/seller/earnings');
   const ST = { pending_payout: ['On the way', 'warn'], payable: ['Available', 'ok'], paid: ['Paid out', ''] };
-  const PS = { requested: ['Requested', 'warn'], paid: ['Sent', 'ok'], declined: ['Declined', 'bad'] };
-  const PMS = e.payout_methods || []; const VER = PMS.filter((m) => m.status === 'verified');
+  const PS = { requested: ['Requested', 'warn'], processing: ['Sending', 'warn'], paid: ['Sent', 'ok'], declined: ['Declined', 'bad'] };
+  const PMS = e.payout_methods || []; const VER = PMS.filter((m) => m.status === 'verified' && (e.payout_rules?.methods?.[m.type]?.enabled ?? true));
+  const R = e.payout_rules || { methods: {} };
+  // back from Stripe's onboarding page: read the account once
+  if (/[?&]stripe=(done|retry)/.test(location.search)) { history.replaceState(null, '', '/seller#/earnings'); try { await api('/api/seller/stripe/refresh', 'POST'); } catch {} return earnings(); }
   const PMS_ST = { pending_test: ['Waiting for test payment', 'warn'], test_sent: ['Confirm the amount', 'warn'], verified: ['Confirmed', 'ok'], failed: ['Not confirmed', 'bad'], rejected: ['Rejected', 'bad'] };
-  const PM_ICON = { bank: '🏦', paypal: '🅿️', payoneer: '💳', wise: '🌍' };
-  const waiting = e.payouts.find((p) => p.status === 'requested');
+  const PM_ICON = { bank: '🏦', paypal: '🅿️', payoneer: '💳', wise: '🌍', stripe: '💳' };
+  const waiting = e.payouts.find((p) => p.status === 'requested' || p.status === 'processing');
   $('#view').innerHTML = `<div class="head"><h1>Earnings</h1></div>
     <div class="kpis"><div class="kpi"><span>On the way (order not delivered yet)</span><b>${money(e.pending, e.currency)}</b></div>
       <div class="kpi"><span>Available to withdraw</span><b class="ok">${money(e.available, e.currency)}</b></div>
@@ -752,6 +755,7 @@ async function earnings() {
         ${m.status === 'test_sent' ? `<form class="row" data-pmc="${esc(m.id)}" style="gap:8px;flex-wrap:wrap"><span class="small">Test payment sent ${date(m.test_sent_at, false)}. Amount you received:</span><input name="amount" inputmode="decimal" placeholder="0.00" required style="width:110px"><button class="btn sm">Confirm</button><span class="muted small">${m.tries_left} try(s) left</span></form>` : ''}
         ${m.note && m.status !== 'verified' ? `<div class="small ${m.status === 'rejected' || m.status === 'failed' ? 'bad' : 'muted'}">${esc(m.note)}</div>` : ''}
         <div class="row" style="gap:8px">${m.status === 'verified' && !m.is_default ? `<button class="btn ghost sm" data-pmd="${esc(m.id)}">Make default</button>` : ''}<button class="btn ghost sm" data-pmx="${esc(m.id)}">Remove</button></div></div>`).join('')}</div>` : ''}
+      ${R.stripe && !PMS.some((m) => m.type === 'stripe') ? `<div class="panel row between" style="padding:12px;gap:10px;flex-wrap:wrap;background:var(--soft,#f0fdfa)"><div><b>💳 Get paid to your Visa / Mastercard or bank with Stripe</b><div class="muted small">${R.stripe_state && R.stripe_state.started ? 'Finish your Stripe setup to use it.' : 'Stripe checks your identity and account — no test payment needed. Takes about 5 minutes.'}</div></div><button class="btn sm" id="stripego">${R.stripe_state && R.stripe_state.started ? 'Finish Stripe setup' : 'Connect with Stripe'}</button></div>` : ''}
       <details ${PMS.length ? '' : 'open'}><summary class="btn ghost sm" style="display:inline-flex">+ Add a payout account</summary>
         <form class="stack" id="pmf" style="margin-top:10px">
           <div class="seg" id="pmt" style="grid-template-columns:repeat(4,1fr)"><button type="button" data-t="bank">🏦 IBAN</button><button type="button" data-t="paypal">PayPal</button><button type="button" data-t="payoneer">Payoneer</button><button type="button" data-t="wise">Wise</button></div>
@@ -763,14 +767,16 @@ async function earnings() {
           <div class="error" id="pme"></div><button class="btn" style="justify-self:start">Add account</button></form></details>
     </section>
     <section class="panel stack" style="max-width:720px"><h2>Withdraw</h2>
-      ${waiting ? `<p>Your request for <b>${money(waiting.amount, waiting.currency)}</b> is waiting — Kinan pays withdrawals by hand, usually within a few working days.</p>`
+      ${waiting ? `<p>Your request for <b>${money(waiting.amount, waiting.currency)}</b> is ${waiting.status === 'processing' ? 'being sent' : 'waiting'}${R.next && waiting.status === 'requested' ? ` — it will be paid on the next payout day, <b>${esc(R.next.weekday)} ${esc(R.next.day)}</b>` : ''}.</p>`
       : !VER.length ? '<p class="muted">Add a payout account above and confirm its test payment to withdraw.</p>'
       : e.available < e.min_withdrawal ? `<p class="muted">You can withdraw once you have at least ${money(e.min_withdrawal, e.currency)} available.</p>`
       : `<form class="stack" id="wf">
         <div class="grid-2"><label class="field">Amount (${esc(String(e.currency).toUpperCase())})<input name="amount" type="number" step="0.01" min="${e.min_withdrawal}" max="${e.available}" value="${e.available}" required></label>
-        <label class="field">To<select name="method_id">${VER.map((m) => `<option value="${esc(m.id)}" ${m.is_default ? 'selected' : ''}>${esc(m.type_name)} · ${esc(m.label)}</option>`).join('')}</select></label></div>
+        <label class="field">To<select name="method_id">${VER.map((m) => `<option value="${esc(m.id)}" data-type="${esc(m.type)}" ${m.is_default ? 'selected' : ''}>${esc(m.type_name)} · ${esc(m.label)}</option>`).join('')}</select></label></div>
+        <div class="muted small" id="wfee"></div>
+        ${R.next ? `<div class="small">📅 Kinan pays withdrawals on ${esc((R.days || []).join(' and '))}. Next payout day: <b>${esc(R.next.weekday)} ${esc(R.next.day)}</b>.</div>` : ''}
         <div class="error" id="we"></div><button class="btn" style="justify-self:start">Request withdrawal</button></form>`}
-      ${e.payouts.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr></thead><tbody>${e.payouts.map((p) => `<tr><td class="muted">${date(p.created_at, false)}</td><td>${money(p.amount, p.currency)}</td><td class="muted">${esc(p.details.method === 'bank' ? `IBAN …${p.details.iban.slice(-4)}` : `${({ paypal: 'PayPal', payoneer: 'Payoneer', wise: 'Wise' })[p.details.method] || ''} ${p.details.email}`)}</td><td>${pill(...(PS[p.status] || [p.status, '']))}${p.reference ? ` <span class="muted small">${esc(p.reference)}</span>` : ''}${p.note ? `<div class="small bad">${esc(p.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
+      ${e.payouts.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr></thead><tbody>${e.payouts.map((p) => `<tr><td class="muted">${date(p.created_at, false)}</td><td>${money(p.amount, p.currency)}</td><td class="muted">${esc(p.details.method === 'bank' ? `IBAN …${p.details.iban.slice(-4)}` : p.details.method === 'stripe' ? `Stripe ${p.details.destination || ''}` : `${({ paypal: 'PayPal', payoneer: 'Payoneer', wise: 'Wise' })[p.details.method] || ''} ${p.details.email}`)}${p.fee ? ` <span class="small">(fee ${money(p.fee, p.currency)})</span>` : ''}</td><td>${pill(...(PS[p.status] || [p.status, '']))}${p.reference ? ` <span class="muted small">${esc(p.reference)}</span>` : ''}${p.note ? `<div class="small bad">${esc(p.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
     </section>
     <section class="panel stack" style="max-width:720px"><div><h2>Account statement</h2><p class="muted small" style="margin:4px 0 0">A PDF of your sales, Kinan commission, refunds and withdrawals for a period, with your balance.</p></div>
       <div class="seg" id="stp"><button type="button" data-p="this">This month</button><button type="button" data-p="last">Last month</button><button type="button" data-p="3m">Last 3 months</button><button type="button" data-p="year">This year</button></div>
@@ -820,7 +826,14 @@ async function earnings() {
   });
   $$('[data-pmd]').forEach((b) => b.onclick = async () => { try { await api(`/api/seller/payout-methods/${b.dataset.pmd}/default`, 'POST'); earnings(); } catch (err) { toast(err.message); } });
   $$('[data-pmx]').forEach((b) => b.onclick = async () => { if (!confirm('Remove this payout account?')) return; try { await api(`/api/seller/payout-methods/${b.dataset.pmx}`, 'DELETE'); earnings(); } catch (err) { toast(err.message); } });
+  const sg = $('#stripego'); if (sg) sg.onclick = async () => { sg.disabled = true; try { const r = await api('/api/seller/stripe/onboard', 'POST'); location.href = r.url; } catch (err) { toast(err.message); sg.disabled = false; } };
   const wf = $('#wf'); if (!wf) return;
+  const feeLine = () => {
+    const a = Number(wf.amount.value) || 0; const t = wf.method_id.selectedOptions[0]?.dataset.type; const r = (R.methods || {})[t] || {};
+    const fee = Math.min(a, Math.round(((r.fee_fixed || 0) + a * (r.fee_pct || 0) / 100) * 100) / 100);
+    $('#wfee').innerHTML = `${r.min ? `Minimum to this account: ${money(r.min, e.currency)}. ` : ''}${fee ? `Fee: ${money(fee, e.currency)} · <b>You receive ${money(a - fee, e.currency)}</b>` : `No fee · <b>You receive ${money(a, e.currency)}</b>`}`;
+  };
+  wf.amount.oninput = feeLine; wf.method_id.onchange = feeLine; feeLine();
   wf.onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target; $('#we').textContent = '';
     try { await api('/api/seller/payouts', 'POST', { amount: Number(f.amount.value), method_id: f.method_id.value }); toast('Withdrawal requested'); earnings(); }
