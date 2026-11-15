@@ -59,7 +59,7 @@ async function search(kw, country) {
   lastSearch = now();
   const ask = () => ae.call('aliexpress.ds.text.search', { keyWord: kw, local: 'en_US', countryCode: country, currency: String(config.currency).toUpperCase(), pageSize: 30, pageIndex: 1, sortBy: 'orders,desc' }, tok);
   let j;
-  try { j = await ask(); } catch (e) { if (!/SEARCH_ERROR|frequen|limit/i.test(e.message)) throw e; await wait(8000); lastSearch = now(); j = await ask(); }
+  try { j = await ask(); } catch (e) { if (!/SEARCH_ERROR|frequen|limit/i.test(e.message)) throw e; await wait(10000); lastSearch = now(); j = await ask(); }
   logShape('search', j);
   return findAll(j, ['itemId', 'item_id', 'product_id', 'productId']).map((x) => ({
     id: String(x.itemId || x.item_id || x.product_id || x.productId),

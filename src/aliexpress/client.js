@@ -55,7 +55,22 @@ async function post(url, params) {
 }
 
 /** Business API call (method-style). */
+// AliExpress bans an app that calls too often ("Api access frequency exceeds the limit"): space all calls out and retry once
+const GAP_MS = () => Number(process.env.ALIEXPRESS_MIN_GAP_MS ?? (process.env.NODE_TEST_CONTEXT ? 0 : 1200));
+let chain = Promise.resolve(); let last = 0;
+function paced(fn) {
+  const run = chain.then(async () => { const w = GAP_MS() - (Date.now() - last); if (w > 0) await new Promise((r) => setTimeout(r, w)); last = Date.now(); return fn(); });
+  chain = run.catch(() => {});
+  return run;
+}
 async function call(method, params = {}, accessToken) {
+  try { return await paced(() => call1(method, params, accessToken)); } catch (e) {
+    if (!/frequency|exceeds the limit|SEARCH_ERROR/i.test(e.message)) throw e;
+    await new Promise((r) => setTimeout(r, process.env.NODE_TEST_CONTEXT ? 0 : 3000));
+    return paced(() => call1(method, params, accessToken));
+  }
+}
+async function call1(method, params = {}, accessToken) {
   if (!enabled()) throw new AliExpressError('AliExpress API is not set up');
   const all = { app_key: config.aliexpress.appKey, method, timestamp: String(Date.now()), sign_method: 'sha256', ...(accessToken ? { session: accessToken, access_token: accessToken } : {}) };
   for (const [k, v] of Object.entries(params)) { const s = ser(v); if (s !== undefined) all[k] = s; }
