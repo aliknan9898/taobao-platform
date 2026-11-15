@@ -612,6 +612,8 @@ r('PUT', '/api/admin/ebay/icon', ADMIN, async ({ req }) => {
   return { icon: `/brand/ebay-icon?v=${doc.at}` };
 });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
+r('GET', '/api/admin/ebay/review', ADMIN, async () => require('./services/ebayLaunch').review());
+r('POST', '/api/admin/ebay/launch', ADMIN, async ({ req }) => { const L = require('./services/ebayLaunch'); if (L._running()) throw httpError(409, 'The eBay launch is already running'); const n = Math.min(50, Math.max(1, Number((await readJson(req)).n) || 10)); require('./cj/client').background(() => L.launch({ n })).catch((e) => console.warn('[ebay] launch', e.message)); return { started: true, n }; });
 r('GET', '/api/admin/sourcing', ADMIN, async () => require('./services/sourcing').status());
 r('PUT', '/api/admin/sourcing', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); sr.savePrefs(await readJson(req)); return sr.status(); });
 r('POST', '/api/admin/sourcing/start', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); const b = await readJson(req); sr.start({ count: b.count }, 'admin'); return sr.status(); });
@@ -1048,7 +1050,9 @@ if (require.main === module) (async () => {
   { const near = Object.keys(process.env).filter((k) => /ebay/i.test(k));
     if (near.length) {
       console.log(`[ebay] keys found: ${near.map((k) => JSON.stringify(k)).join(', ')} · missing: ${['EBAY_CLIENT_ID', 'EBAY_CLIENT_SECRET', 'EBAY_RUNAME'].filter((k) => !String(process.env[k] || '').trim()).join(', ') || 'none'}`);
-      if (require('./ebay/client').configured()) require('./ebay/client').checkKeys().then((r) => { console.log(`[ebay] ${r}`); const c = require('./ebay/client'); if (c.connected()) { c.whoAmI().catch((e) => console.warn('[ebay] GetUser:', e.message)); setTimeout(() => require('./cj/client').background(() => require('./services/ebay').autopick()).catch((e) => console.warn('[ebay] autopick', e.message)), 60000); } }).catch((e) => console.warn(`[ebay] key check: ${e.message}`));
+      if (require('./ebay/client').configured()) require('./ebay/client').checkKeys().then((r) => { console.log(`[ebay] ${r}`); const c = require('./ebay/client'); if (c.connected()) { c.whoAmI().catch((e) => console.warn('[ebay] GetUser:', e.message)); setTimeout(() => require('./cj/client').background(() => require('./services/ebay').autopick()).catch((e) => console.warn('[ebay] autopick', e.message)), 60000);
+        // once: the owner's first eBay launch (check everything, then 10 products priced against competitors)
+        setTimeout(() => { if (!db.settings.get('ebay_launch_v1')) { db.settings.insert({ id: 'ebay_launch_v1', at: Date.now() }); require('./cj/client').background(() => require('./services/ebayLaunch').launch({ n: 10 })).catch((e) => console.warn('[ebay] launch', e.message)); } }, 120000); } }).catch((e) => console.warn(`[ebay] key check: ${e.message}`));
     } }
   // once: a sample cart reminder (with the shop's real product photos) to the owner
   setTimeout(() => { try { if (!db.settings.get('test_cart_mail_v1') && !process.env.NODE_TEST_CONTEXT) { const to = config.adminGoogleEmails[0] || config.bootstrapAdminEmail; if (to) { db.settings.insert({ id: 'test_cart_mail_v1', at: Date.now() }); require('./services/growth').testCartMail(to).then((m) => console.log('[mail] test cart email:', m?.status)).catch((e) => console.warn('[mail] test cart:', e.message)); } } } catch (e) { console.warn('[mail] test cart:', e.message); } }, 60e3).unref();

@@ -84,7 +84,27 @@ function ebayPrice(kinanPrice, shipFee) {
   const v = (Number(kinanPrice) + Number(shipFee || 0)) * (1 + p.markup_pct / 100) * rate(market().currency);
   return (Math.max(1, Math.ceil(v)) - 0.01).toFixed(2);
 }
-async function shipFee(l, sku) {
+/**
+ * eBay UK collects the 20% UK VAT out of the price (prices on eBay.co.uk include VAT) for a seller not established in the UK,
+ * and pays the seller the rest. EBAY_VAT_PCT=0 once Kinan is a UK company that is not VAT-registered.
+ */
+const VAT_PCT = () => Math.max(0, Number(process.env.EBAY_VAT_PCT ?? (prefs().marketplace === 'EBAY_GB' ? 20 : 0)));
+const MIN_MARGIN = () => Math.min(60, Math.max(0, Number(process.env.EBAY_MIN_MARGIN_PCT ?? 15))); // profit kept after VAT, fees and costs, % of the price
+/** What Kinan keeps of an eBay price after VAT and eBay's fees (before product and delivery). */
+function netOf(price) { return price / (1 + VAT_PCT() / 100) - (price * FEE_PCT() / 100 + FEE_FIXED()); }
+/** The lowest price that still leaves MIN_MARGIN after VAT, fees, product and delivery (`cost` in the site's currency). */
+function floorFor(cost) { const k = 1 / (1 + VAT_PCT() / 100) - FEE_PCT() / 100 - MIN_MARGIN() / 100; return k > 0 ? (Number(cost) + FEE_FIXED()) / k : Infinity; }
+const end99 = (v) => (Math.max(1, Math.ceil(v)) - 0.01);
+/** The eBay price of one option: the competitor-based price when one was worked out, never below the profit floor. */
+function priceFor(l, s, fee) {
+  const base = Number(ebayPrice(s.price, fee));
+  const c = l?.ebay_comp;
+  let v = base;
+  if (c && c.factor > 0 && c.marketplace === prefs().marketplace) v = base * c.factor;
+  if (s.cost_sale != null) { const fl = floorFor((Number(s.cost_sale) + Number(fee || 0)) * rate(market().currency)); if (Number.isFinite(fl)) v = Math.max(v, fl); }
+  return end99(v).toFixed(2);
+}
+async function shipFee(l, sku) { // CJ delivery to the eBay site's country, in Kinan's currency
   try { const q = await require('./cj').quote([{ listing_id: l.id, mp_sku_id: sku.mp_sku_id, qty: 1 }], market().country); return Number(q?.fee) || 0; } catch { return 0; }
 }
 
@@ -392,7 +412,7 @@ async function listOne(listingId) {
     }, { lang });
     offers[key] = await offerFor(key, {
       sku: key, marketplaceId: mk, format: 'FIXED_PRICE', availableQuantity: qtyOf(l, s), categoryId: cat.id, listingDescription: desc,
-      listingPolicies, merchantLocationKey: loc, pricingSummary: { price: { value: ebayPrice(s.price, fee), currency: m.currency } },
+      listingPolicies, merchantLocationKey: loc, pricingSummary: { price: { value: priceFor(l, s, fee), currency: m.currency } },
       ...(storeCats ? { storeCategoryNames: storeCats } : {}),
       ...(reg ? { regulatory: reg } : {})
     });
@@ -465,10 +485,10 @@ const REVIEW = {
 
 /** Pick the best `n` products of a collection for eBay UK (AI review of details and photos), give each an eBay title with the
  *  best search words, and list them. */
-async function bestPicks({ collection = 'christmas', n = 5, list: doList = true } = {}) {
+async function bestPicks({ collection = 'christmas', n = 5, list: doList = true, theme } = {}) {
+  const season = theme || (collection === 'christmas' ? `Christmas ${new Date().getFullYear()}` : `the ${new Date().getFullYear()} Christmas shopping season (gifts and everyday best sellers)`);
   if (!ebay.connected()) throw httpError(409, 'eBay is not connected — press Connect eBay first');
   const ai = require('./ai');
-  if (!ai.enabled()) throw httpError(503, 'The AI assistant is not switched on');
   n = Math.min(20, Math.max(1, Math.floor(Number(n) || 5)));
   const home = market().country;
   const info = (l) => {
@@ -480,18 +500,20 @@ async function bestPicks({ collection = 'christmas', n = 5, list: doList = true 
   const pool = candidates({ collection }).map((l) => {
     const x = info(l);
     const from = String(l.cj_from || 'CN').toUpperCase();
+    // demand: how many CJ shops sell it (the most-ordered products are listed by many shops); speed: days to a UK door
+    const listed = Number(l.sourcing?.listed) || 0; const days = Number(l.sourcing?.gb_days) || null;
     const sc = (from === home ? 3 : 1) + Math.min(x.photos, 6) / 3 + Math.min(x.stock, 50) / 50 + (x.margin != null ? Math.min(x.margin, 60) / 30 : 0.5)
-      + (Number(l.sourcing?.quality) || 5) / 3 + (Number(l.rating) || 0) / 5;
+      + (Number(l.sourcing?.quality) || 5) / 3 + (Number(l.rating) || 0) / 5 + Math.min(2, Math.log10(1 + listed) / 1.5) + (days ? Math.max(0, (8 - days) / 4) : 0);
     return { l, x, from, sc };
   }).filter((c) => c.x.photos >= 2 && c.x.s.price > 0).sort((a, b) => b.sc - a.sc).slice(0, 40);
   if (!pool.length) throw httpError(404, `No ${collection} products are ready for eBay`);
-  const sys = 'You are the senior eBay UK merchandiser of Kinan, an online shop. You choose products that sell well on eBay UK in the Christmas season and you are strict about quality, safety and eBay rules.';
+  const sys = `You are the senior eBay UK merchandiser of Kinan, an online shop. You choose products that sell well on eBay UK in ${season} and you are strict about quality, safety and eBay rules.`;
   let order = pool.map((_, i) => i);
   try {
     const r = await ai.structured({
       system: sys, name: 'shortlist', schema: SHORTLIST, kind: 'ebay', maxTokens: 300, timeoutMs: 45000,
-      text: `Shortlist the ${Math.min(pool.length, n * 3)} products most likely to sell on eBay UK for Christmas ${new Date().getFullYear()}. They must be varied: never two of the same kind of product (e.g. only one gift-box set, one string-lights item).\n` +
-        pool.map((c, i) => `${i}. ${c.l.title.slice(0, 110)} · £${c.x.s.price} · ships from ${c.from} · ${c.x.photos} photos${c.x.margin != null ? ` · margin ${c.x.margin}%` : ''}`).join('\n')
+      text: `Shortlist the ${Math.min(pool.length, n * 3)} products most likely to sell on eBay UK in ${season}. They must be varied: never two of the same kind of product (e.g. only one gift-box set, one string-lights item).\n` +
+        pool.map((c, i) => `${i}. ${c.l.title.slice(0, 110)} · £${c.x.s.price} · ships from ${c.from}${c.l.sourcing?.gb_days ? ` (${c.l.sourcing.gb_days} days to UK)` : ''} · ${c.x.photos} photos${c.l.sourcing?.listed ? ` · sold by ${c.l.sourcing.listed} shops` : ''}${c.x.margin != null ? ` · margin ${c.x.margin}%` : ''}`).join('\n')
     });
     const seen = new Set(); const p = (r.picks || []).map(Number).filter((i) => pool[i] && !seen.has(i) && seen.add(i));
     if (p.length >= n) order = [...p, ...order.filter((i) => !seen.has(i))];
@@ -512,7 +534,12 @@ async function bestPicks({ collection = 'christmas', n = 5, list: doList = true 
       let title = String(d.ebay_title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
       if (title === title.toLowerCase()) title = title.replace(/\b([a-z])/g, (c) => c.toUpperCase()); // eBay titles read better in Title Case
       reviewed.push({ id: l.id, ok: d.ok !== false && title.length >= 20, score: Number(d.score) || 0, reason: String(d.reason || '').slice(0, 200), title, was: fresh.title });
-    } catch (e) { console.warn('[ebay] best picks review:', l.id, e.message); }
+    } catch (e) {
+      console.warn('[ebay] best picks review:', l.id, e.message);
+      // AI unavailable: the sourcing check already reviewed it for eBay UK — use that verdict and title
+      const t = String(fresh.sourcing?.ebay_title || '').trim();
+      if (fresh.sourcing?.ebay_ok && t.length >= 20 && (Number(fresh.sourcing.quality) || 0) >= 7) reviewed.push({ id: l.id, ok: true, score: Number(fresh.sourcing.quality), reason: `Sourcing check: ${String(fresh.sourcing.reason || 'passed').slice(0, 150)}`, title: t.slice(0, 80), was: fresh.title });
+    }
   }
   // Varied picks: skip one that is the same kind of product as a better one already chosen (e.g. two gift-box sets)
   const kw2 = (t) => new Set(String(t).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !/^(christmas|xmas|festive|holiday|gift|gifts|decoration|decorations|set|pcs|with|for)$/.test(w)).map((w) => w.replace(/(es|s)$/, '')));
@@ -530,6 +557,7 @@ async function bestPicks({ collection = 'christmas', n = 5, list: doList = true 
 async function autopick() {
   const v = String(process.env.EBAY_AUTOPICK || '').trim();
   if (!v || state().autopick_done === v || !ebay.connected()) return;
+  if (!db.settings.get('ebay_launch_v1') || db.settings.get('ebay_launch')) return; // the eBay launch (review + competitor prices) replaces it
   saveState({ autopick_done: v });
   const [collection, n] = v.split(':');
   try { const r = await bestPicks({ collection: collection || 'christmas', n: Number(n) || 5 }); console.log(`[ebay] autopick ${v}: ${r.picks.length} picked from ${r.reviewed} reviewed`); }
@@ -557,7 +585,7 @@ async function sync() {
     for (const [key, offerId] of Object.entries(l.ebay.offers || {})) {
       const s = list(l.skus).find((x) => skuKey(l, x) === key);
       const q = s && (prefs().from.includes(String(l.cj_from || 'CN').toUpperCase())) ? qtyOf(l, s) : 0;
-      let price; try { price = s ? ebayPrice(s.price, l.ebay.ship_fee) : null; } catch { price = null; }
+      let price; try { price = s ? priceFor(l, s, l.ebay.ship_fee) : null; } catch { price = null; }
       reqs.push({ sku: key, shipToLocationAvailability: { quantity: q }, offers: [{ offerId, availableQuantity: q, ...(price ? { price: { value: price, currency: MARKETS[l.ebay.marketplace]?.currency || market().currency } } : {}) }] });
     }
   }
@@ -765,7 +793,7 @@ function sellerView(seller) {
     const rows = db.listings.all((l) => mine(l)).map((l) => {
       const why = eligible(l);
       const st = l.ebay?.listing_id && (l.ebay.account || 'kinan') === acct ? 'live' : why ? 'not_eligible' : l.ebay?.error ? 'failed' : 'ready';
-      let price = null; try { const s0 = [...l.skus].sort((a, b) => a.price - b.price)[0]; price = s0 ? Number(ebayPrice(s0.price, l.ebay?.ship_fee || 0)) : null; } catch { price = null; }
+      let price = null; try { const s0 = [...l.skus].sort((a, b) => a.price - b.price)[0]; price = s0 ? Number(priceFor(l, s0, l.ebay?.ship_fee || 0)) : null; } catch { price = null; }
       return { id: l.id, title: l.title.slice(0, 80), status: st, reason: why || l.ebay?.error || null, ebay_id: st === 'live' ? l.ebay.listing_id : null, price };
     });
     const orders = db.orders.all((o) => o.channel === 'ebay' && o.lines.some((x) => x.seller_id === seller.id)).sort((a, b) => b.created_at - a.created_at).slice(0, 50).map((o) => {
@@ -841,11 +869,12 @@ function products({ filter = 'all' } = {}) {
     const status = e.listing_id ? 'live' : e.error ? 'failed' : 'ready';
     const ship = Number(e.ship_fee) || 0;
     const variants = list(l.skus).filter((s) => s.cj_vid).map((s) => {
-      let price = null; try { price = Number(ebayPrice(s.price, ship)); } catch { price = null; }
+      let price = null; try { price = Number(priceFor(l, s, ship)); } catch { price = null; }
       const cost = fx ? (Number(s.cost_sale || 0) + ship) * fx : null; // CJ product + CJ delivery, in the site's currency
+      const vat = price != null ? price - price / (1 + VAT_PCT() / 100) : null; // collected by eBay
       const fees = price != null ? price * FEE_PCT() / 100 + FEE_FIXED() : null;
-      const profit = price != null && cost != null ? price - fees - cost : null;
-      return { props: s.props || '', stock: s.stock, qty: qtyOf(l, s), kinan_usd: s.price, cj_cost_usd: s.cost_sale, price: price != null ? r2(price) : null, fees: fees != null ? r2(fees) : null, cost: cost != null ? r2(cost) : null, profit: profit != null ? r2(profit) : null, margin_pct: profit != null && price ? Math.round(profit / price * 100) : null };
+      const profit = price != null && cost != null ? price - vat - fees - cost : null;
+      return { props: s.props || '', stock: s.stock, qty: qtyOf(l, s), kinan_usd: s.price, cj_cost_usd: s.cost_sale, price: price != null ? r2(price) : null, vat: vat != null ? r2(vat) : null, fees: fees != null ? r2(fees) : null, cost: cost != null ? r2(cost) : null, profit: profit != null ? r2(profit) : null, margin_pct: profit != null && price ? Math.round(profit / price * 100) : null };
     });
     const main = [...variants].sort((a, b) => (a.price ?? 1e9) - (b.price ?? 1e9))[0] || {};
     return {
@@ -853,7 +882,7 @@ function products({ filter = 'all' } = {}) {
       warehouse: l.cj_from || 'CN', warehouse_name: COUNTRY[l.cj_from] || l.cj_from || 'China', collection: (l.collections || [])[0] || '',
       ebay_id: e.listing_id || null, ebay_url: e.listing_id ? url(e.listing_id, e.marketplace || p.marketplace) : null, category: e.category || null,
       listed_at: e.listed_at || null, synced_at: e.synced_at || null, ship_usd: ship, variants: variants.length, qty: variants.reduce((a, v) => a + (v.qty || 0), 0),
-      price: main.price ?? null, profit: main.profit ?? null, margin_pct: main.margin_pct ?? null, cost: main.cost ?? null, fees: main.fees ?? null, all: variants
+      price: main.price ?? null, vat: main.vat ?? null, profit: main.profit ?? null, margin_pct: main.margin_pct ?? null, cost: main.cost ?? null, fees: main.fees ?? null, all: variants
     };
   }).filter((x) => filter === 'all' || x.status === filter);
   rows.sort((a, b) => a.section.localeCompare(b.section) || ({ live: 0, failed: 1, ready: 2 }[a.status] - { live: 0, failed: 1, ready: 2 }[b.status]) || (b.listed_at || 0) - (a.listed_at || 0));
@@ -861,7 +890,7 @@ function products({ filter = 'all' } = {}) {
     const cost = list(o.sub_orders).reduce((a, s) => a + (Number(s.cj_amount) || 0), 0);
     const total = Number(o.ebay?.total) || 0; const c = o.ebay?.currency || cur;
     let fxo = null; try { fxo = rate(c); } catch { fxo = null; }
-    const fees = total ? total * FEE_PCT() / 100 + FEE_FIXED() : 0;
+    const fees = total ? total * FEE_PCT() / 100 + FEE_FIXED() + (total - total / (1 + VAT_PCT() / 100)) : 0; // eBay fees + the VAT eBay keeps
     return {
       id: o.id, ebay_order: o.ebay?.order_id, buyer: o.ebay?.buyer || '', created: o.created_at, status: o.status, currency: c, total, fees: r2(fees),
       cj_cost: cost ? r2(cost * (fxo || 0)) : null, profit: cost && fxo ? r2(total - fees - cost * fxo) : null,
@@ -872,7 +901,7 @@ function products({ filter = 'all' } = {}) {
   const live = rows.filter((x) => x.status === 'live');
   const avg = (arr) => (arr.length ? Math.round(arr.reduce((a, x) => a + x, 0) / arr.length) : 0);
   return {
-    currency: cur, fee_pct: FEE_PCT(), fee_fixed: FEE_FIXED(), markup_pct: p.markup_pct, rate: fx,
+    currency: cur, fee_pct: FEE_PCT(), fee_fixed: FEE_FIXED(), vat_pct: VAT_PCT(), min_margin_pct: MIN_MARGIN(), markup_pct: p.markup_pct, rate: fx,
     summary: {
       live: live.length, ready: rows.filter((x) => x.status === 'ready').length, failed: rows.filter((x) => x.status === 'failed').length,
       avg_margin_pct: avg(live.map((x) => x.margin_pct).filter((x) => x != null)), avg_profit: live.length ? r2(live.reduce((a, x) => a + (x.profit || 0), 0) / live.length) : 0,
@@ -909,4 +938,4 @@ function status() {
 
 function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
 
-module.exports = { sellerMoney, ledgerFor, fundOwnOrder, payLink, sellerSettings, approveSeller, sellerView, sellerList, sellerConnectUrl, sellerDisconnect, sellerMode, onThisAccount, ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+module.exports = { shipFee, priceFor, floorFor, netOf, rate, market, VAT_PCT, MIN_MARGIN, FEE_PCT, FEE_FIXED, sellerMoney, ledgerFor, fundOwnOrder, payLink, sellerSettings, approveSeller, sellerView, sellerList, sellerConnectUrl, sellerDisconnect, sellerMode, onThisAccount, ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };

@@ -37,6 +37,14 @@ global.fetch = async (url, opts = {}) => {
     if (f.get('grant_type') === 'authorization_code') assert.strictEqual(f.get('redirect_uri'), 'Kinan-RuName');
     return J({ access_token: `at-${f.get('grant_type')}`, expires_in: 7200, refresh_token: 'rt-1', refresh_token_expires_in: 47304000 });
   }
+  if (p === '/sell/account/v1/privilege') return J({ sellerRegistrationCompleted: true, sellingLimit: { amount: { value: '1000', currency: 'GBP' }, quantity: 20 } });
+  if (p === '/sell/account/v1/program/get_opted_in_programs') return J({ programs: [{ programType: 'SELLING_POLICY_MANAGEMENT' }] });
+  if (/\/return_policy\/[^/]+$/.test(p)) return J({ returnsAccepted: true, returnPeriod: { value: 30, unit: 'DAY' }, returnShippingCostPayer: 'BUYER' });
+  if (/\/fulfillment_policy\/[^/]+$/.test(p) && opts.method !== 'PUT') return J({ handlingTime: { value: 3 }, shippingOptions: [{ shippingServices: [{ shippingServiceCode: 'UK_OtherCourier5Days', freeShipping: true }] }] });
+  if (p === '/buy/browse/v1/item_summary/search') {
+    assert.strictEqual(opts.headers['X-EBAY-C-MARKETPLACE-ID'], 'EBAY_GB'); assert.match(u.searchParams.get('filter'), /deliveryCountry:GB/);
+    return J({ total: 812, itemSummaries: (globalThis.COMP || []).map((v, i) => ({ price: { value: String(v), currency: 'GBP' }, shippingOptions: [{ shippingCost: { value: '0.00' } }], itemLocation: { country: i % 2 ? 'GB' : 'CN' } })) });
+  }
   if (p.endsWith('/fulfillment_policy') && opts.method !== 'POST') return J({ fulfillmentPolicies: [] });
   if (p.endsWith('/payment_policy') && opts.method !== 'POST') return J({ paymentPolicies: [{ paymentPolicyId: 'PAY1', name: 'Default' }] });
   if (p.endsWith('/return_policy') && opts.method !== 'POST') return J({ returnPolicies: [] });
@@ -151,7 +159,8 @@ test('eBay: connect, list, sync, orders and tracking', async () => {
   assert.strictEqual(row.status, 'live');
   assert.strictEqual(row.warehouse_name, 'Germany');
   assert.ok(row.price > 0 && row.fees > 0 && row.cost > 0);
-  assert.strictEqual(row.profit, Math.round((row.price - row.fees - row.cost) * 100) / 100);
+  assert.ok(row.vat > 0, 'eBay keeps the UK VAT');
+  assert.strictEqual(row.profit, Math.round((row.price - row.vat - row.fees - row.cost) * 100) / 100);
   assert.strictEqual(tab.orders.length, 1);
   assert.match(ebay.csv(), /Kinan ID.*Profit/);
   const st = ebay.status();
@@ -290,4 +299,35 @@ test('sellers on eBay: on Kinan’s account (after approval, profit share) or on
   assert.notStrictEqual(db.orders.get(ob.id).status, 'pending_payment');
   assert.strictEqual(money.sellerBalance(b.id).available, Math.round((50 - ob.total) * 100) / 100);
   assert.ok(db.ledger.find((x) => x.order_id === ob.id && x.type === 'ebay_charge' && x.net === -ob.total));
+});
+
+test('eBay launch: account check, competitor prices with a VAT-aware profit floor', async () => {
+  const L = require('../src/services/ebayLaunch');
+  const rv = await L.review();
+  assert.strictEqual(rv.ok, true, JSON.stringify(rv.blockers));
+  assert.strictEqual(rv.facts.limit.quantity, 20); assert.strictEqual(rv.facts.business_policies, true);
+  assert.match(rv.facts.policies.returns, /30 days/); assert.match(rv.facts.policies.delivery, /free/);
+  assert.strictEqual(rv.facts.vat_pct, 20);
+  assert.match(L.reviewText(rv, false), /all good/);
+  // floor: price must cover 20% VAT, 12.8% fees, 15% profit and the cost
+  const fl = ebay.floorFor(10);
+  assert.ok(Math.abs(ebay.netOf(fl) - 10 - fl * 0.15) < 0.01);
+  assert.strictEqual(L.query('LED Christmas Tree Lights 100 Pcs Warm White for Garden', 7), 'LED Christmas Tree Lights Warm White Garden');
+  const l = db.listings.insert({ seller_id: 'sel_kinan', source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'GB', title: 'Heated Hand Warmer Rechargeable', images: ['https://img.example/h1.jpg'],
+    skus: [{ cj_vid: 'VH1', mp_sku_id: 'cj_VH1', props: '', price: 14, cost_sale: 4, stock: 30 }] });
+  // a crowded market: priced just under the middle, above the floor
+  globalThis.COMP = [19.99, 22.5, 23.99, 24.99, 25.49, 25.99, 26.99, 27.99, 29.99, 34.99, 3, 120];
+  const ok = await L.pricePlan(db.listings.get(l.id), 'Rechargeable Hand Warmer USB');
+  assert.strictEqual(ok.ok, true, ok.why + JSON.stringify(ok.plan));
+  assert.strictEqual(ok.plan.compared, 10, 'outliers (accessories, bundles) left out');
+  assert.ok(ok.plan.price <= ok.plan.median && ok.plan.price >= ok.plan.floor, JSON.stringify(ok.plan));
+  assert.ok(ok.plan.profit > 0 && ok.plan.margin_pct >= 14);
+  assert.strictEqual(db.listings.get(l.id).ebay_comp.marketplace, 'EBAY_GB');
+  const s0 = db.listings.get(l.id).skus[0];
+  assert.strictEqual(Number(ebay.priceFor(db.listings.get(l.id), s0, await ebay.shipFee(db.listings.get(l.id), s0))), ok.plan.price, 'listing and hourly sync use the same price');
+  // others sell far cheaper than we can: not listed
+  db.listings.update(l.id, (x) => ({ ...x, skus: [{ ...x.skus[0], cost_sale: 9 }] }));
+  globalThis.COMP = [6.99, 7.49, 7.99, 8.49, 8.99, 9.49, 9.99];
+  const no = await L.pricePlan(db.listings.get(l.id), 'Rechargeable Hand Warmer USB');
+  assert.strictEqual(no.ok, false); assert.match(no.why, /at least/);
 });
