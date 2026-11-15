@@ -73,7 +73,7 @@ async function search(kw, country) {
 /** AliExpress's ready-made product feeds (bestsellers, fast delivery, local warehouses…), refreshed daily. */
 async function feeds() {
   const c = state().feeds;
-  if (c && now() - c.at < 24 * 3600e3) return c.list;
+  if (c && now() - c.at < (c.list.length ? 24 : 3) * 3600e3) return c.list; // no feeds yet (app in Test): ask again in 3 hours
   const ae = require('../aliexpress/client'); const tok = await require('./aliexpress').token();
   const j = await ae.call('aliexpress.ds.feedname.get', {}, tok);
   logShape('feednames', j);
