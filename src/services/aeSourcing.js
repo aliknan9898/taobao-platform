@@ -49,9 +49,16 @@ const logged = {};
 function logShape(name, j) { if (logged[name]) return; logged[name] = true; console.log(`[ae-sourcing] ${name} response:`, JSON.stringify(j).slice(0, 1200)); }
 
 /** Dropshipping search, most-ordered first. */
+const wait = (ms) => new Promise((r) => setTimeout(r, process.env.NODE_TEST_CONTEXT ? 0 : ms));
+let lastSearch = 0;
 async function search(kw, country) {
   const ae = require('../aliexpress/client'); const tok = await require('./aliexpress').token();
-  const j = await ae.call('aliexpress.ds.text.search', { keyWord: kw, local: 'en_US', countryCode: country, currency: String(config.currency).toUpperCase(), pageSize: 30, pageIndex: 1, sortBy: 'orders,desc' }, tok);
+  // AliExpress refuses searches sent too close together (NGSELECTION_SEARCH_ERROR): at most one every 3 seconds, one retry after 8
+  const gap = 3000 - (now() - lastSearch); if (gap > 0) await wait(gap);
+  lastSearch = now();
+  const ask = () => ae.call('aliexpress.ds.text.search', { keyWord: kw, local: 'en_US', countryCode: country, currency: String(config.currency).toUpperCase(), pageSize: 30, pageIndex: 1, sortBy: 'orders,desc' }, tok);
+  let j;
+  try { j = await ask(); } catch (e) { if (!/SEARCH_ERROR|frequen|limit/i.test(e.message)) throw e; await wait(8000); lastSearch = now(); j = await ask(); }
   logShape('search', j);
   return findAll(j, ['itemId', 'item_id', 'product_id', 'productId']).map((x) => ({
     id: String(x.itemId || x.item_id || x.product_id || x.productId),
@@ -106,7 +113,7 @@ async function run({ count } = {}, by = 'auto') {
       try { found = await search(item.kw, 'GB'); fails = 0; } catch (e) {
         // one keyword AliExpress cannot search: skip it; several in a row: stop until the next run
         fails++; console.warn('[ae-sourcing] search', item.kw, e.message);
-        if (fails >= 3) { st.error = `AliExpress search: ${e.message}`; break; }
+        if (fails >= 5) { st.error = `AliExpress search: ${e.message}`; break; }
         continue;
       }
       for (const c of found.filter((x) => !have.has(x.id) && !tried.has(x.id) && x.orders >= p.min_orders).slice(0, 4)) {
