@@ -275,12 +275,15 @@ async function aspects(l, cat) {
 }
 
 const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// eBay refuses listings that send buyers elsewhere or show contact details: no web addresses, e-mails or phone numbers
+const clean = (t) => String(t).replace(/<[^>]*>/g, ' ').replace(/\b(?:https?:\/\/|www\.)\S+/gi, '').replace(/\b[\w.+-]+@[\w-]+\.[\w.]+\b/g, '').replace(/\b[a-z0-9-]+\.(?:com|shop|net|org|co\.uk|cn|store)\b/gi, '').replace(/\+?\d[\d\s-]{8,}\d/g, '').replace(/\s+/g, ' ').trim();
 function description(l) {
-  const paras = String(l.description || l.title).split(/\n+/).map((x) => x.trim()).filter(Boolean).slice(0, 30);
+  const paras = String(l.description || l.title).split(/\n+/).map(clean).filter(Boolean).slice(0, 30);
   const from = l.cj_from && l.cj_from !== 'CN' ? `<p><b>Ships from a warehouse in ${esc(require('../countries').countryName?.(l.cj_from) || l.cj_from)}</b> — free tracked delivery.</p>` : '';
   const g = require('./gpsr').forListing(l);
-  const safety = g ? `<p><b>Safety information</b></p><ul>${g.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><p><b>EU responsible person:</b> ${esc(g.responsible.name)}, ${esc(g.responsible.address)}, ${esc(g.responsible.email)}</p>${g.manufacturer ? `<p><b>Manufacturer:</b> ${esc(g.manufacturer.name)}${g.manufacturer.address ? `, ${esc(g.manufacturer.address)}` : ''}</p>` : ''}` : '';
-  return `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">${paras.map((p) => `<p>${esc(p)}</p>`).join('')}${from}${safety}<p>Sold by Kinan · kinan.shop</p></div>`;
+  const safety = g ? `<p><b>Safety information</b></p><ul>${g.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><p><b>EU responsible person:</b> ${esc(g.responsible.name)}, ${esc(g.responsible.address)}</p>${g.manufacturer ? `<p><b>Manufacturer:</b> ${esc(g.manufacturer.name)}${g.manufacturer.address ? `, ${esc(g.manufacturer.address)}` : ''}</p>` : ''}` : '';
+  // the responsible person's e-mail goes in eBay's own product-safety fields (regulatory), not in the text
+  return `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">${paras.map((p) => `<p>${esc(p)}</p>`).join('')}${from}${safety}</div>`;
 }
 
 // ---------------- eBay Store categories: the same departments and sections as the Kinan shop ----------------
@@ -938,4 +941,4 @@ function status() {
 
 function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
 
-module.exports = { shipFee, priceFor, floorFor, netOf, rate, market, VAT_PCT, MIN_MARGIN, FEE_PCT, FEE_FIXED, sellerMoney, ledgerFor, fundOwnOrder, payLink, sellerSettings, approveSeller, sellerView, sellerList, sellerConnectUrl, sellerDisconnect, sellerMode, onThisAccount, ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+module.exports = { description, shipFee, priceFor, floorFor, netOf, rate, market, VAT_PCT, MIN_MARGIN, FEE_PCT, FEE_FIXED, sellerMoney, ledgerFor, fundOwnOrder, payLink, sellerSettings, approveSeller, sellerView, sellerList, sellerConnectUrl, sellerDisconnect, sellerMode, onThisAccount, ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };

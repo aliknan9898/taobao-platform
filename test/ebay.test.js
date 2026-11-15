@@ -316,6 +316,9 @@ test('eBay launch: account check, competitor prices with a VAT-aware profit floo
   const l = db.listings.insert({ seller_id: 'sel_kinan', source: 'cj', fulfillment: 'direct', status: 'active', cj_from: 'GB', title: 'Heated Hand Warmer Rechargeable', images: ['https://img.example/h1.jpg'],
     skus: [{ cj_vid: 'VH1', mp_sku_id: 'cj_VH1', props: '', price: 14, cost_sale: 4, stock: 30 }] });
   // a crowded market: priced just under the middle, above the floor
+  // nothing in the eBay text that points elsewhere or gives contact details
+  const d = ebay.description({ title: 'X', description: 'Great lamp. Visit www.shop-x.com or mail sales@shop-x.com, call +86 138 0000 0000. kinan.shop' });
+  assert.doesNotMatch(d, /www\.|@|kinan\.shop|shop-x|138/); assert.match(d, /Great lamp/);
   globalThis.COMP = [19.99, 22.5, 23.99, 24.99, 25.49, 25.99, 26.99, 27.99, 29.99, 34.99, 3, 120];
   const ok = await L.pricePlan(db.listings.get(l.id), 'Rechargeable Hand Warmer USB');
   assert.strictEqual(ok.ok, true, ok.why + JSON.stringify(ok.plan));

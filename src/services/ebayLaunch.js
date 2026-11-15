@@ -134,6 +134,7 @@ async function launch({ n = 10 } = {}) {
   try {
     const rv = await review();
     out.review = rv;
+    console.log('[ebay] launch check:', JSON.stringify({ ok: rv.ok, blockers: rv.blockers, warnings: rv.warnings, facts: rv.facts }).slice(0, 1500));
     if (!rv.ok) { saveState({ last: out }); await push.telegram(reviewText(rv, true)); return out; }
     // fit the monthly selling limit: units per listing so that n listings stay inside it
     if (rv.facts.limit?.quantity) {
