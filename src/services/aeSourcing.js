@@ -1,6 +1,7 @@
 'use strict';
 /**
  * AliExpress catalog builder — the same rules as the CJ one (sourcing.js):
+ *  (delivery: at most `max_days`, 14 by default)
  *  1. searches AliExpress (dropshipping search) with the same department keywords, most-ordered first
  *  2. keeps only products that reach the customer in at most `max_days` (10) days — the fastest delivery option
  *     of each "ships from" option, for the UK and for Germany (EU)
@@ -24,7 +25,7 @@ function prefs() {
     enabled: p.enabled !== false,
     per_run: Math.min(50, Math.max(1, Math.floor(Number(p.per_run) || 12))),
     per_day: Math.min(500, Math.max(0, Math.floor(Number(p.per_day ?? 60)))),
-    max_days: Math.min(30, Math.max(3, Math.floor(Number(p.max_days) || 10))),
+    max_days: Math.min(30, Math.max(3, Math.floor(Number(p.max_days) || 14))),
     min_orders: Math.max(0, Math.floor(Number(p.min_orders ?? 200))),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || require('./sourcing').prefs().markup_pct)),
     min_cost: Math.max(0, Number(p.min_cost ?? 2)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40))
@@ -99,7 +100,10 @@ async function run({ count } = {}, by = 'auto') {
   running = true; stopAsked = false;
   const kinan = require('./buyforme').systemSeller();
   const have = new Set(db.listings.all((l) => l.ae_product_id).map((l) => String(l.ae_product_id)));
-  const tried = new Set(list(s0.tried));
+  // products refused under different rules (delivery days, price range) get a second look when the rules change
+  const rules = `${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`;
+  const tried = new Set(s0.rules === rules ? list(s0.tried) : []);
+  if (s0.rules !== rules) save({ rules, tried: [] });
   const st = { started_at: now(), by, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, running: true };
   const added = [];
   const skip = (why, id) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (id) tried.add(id); };
