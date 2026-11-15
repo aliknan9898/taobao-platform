@@ -460,7 +460,7 @@ r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => {
 r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
   const led = db.ledger.all((l) => l.seller_id === seller.id && l.status !== 'void');
   const b = moneySvc.sellerBalance(seller.id);
-  return { ...b, payable: b.available, paid: b.withdrawn, entries: led.slice(-100).reverse(), payouts: moneySvc.listPayouts({ sellerId: seller.id }).slice(0, 50), payout_details: seller.payout_details || null };
+  return { ...b, payable: b.available, paid: b.withdrawn, entries: led.slice(-100).reverse(), payouts: moneySvc.listPayouts({ sellerId: seller.id }).slice(0, 50), payout_methods: moneySvc.methodsOf(seller).filter((m) => m.status !== 'removed').map(moneySvc.methodView) };
 });
 r('GET', '/api/seller/statement.pdf', SELLER, async ({ seller, url, res }) => {
   const f = ops.sellerStatementPdf(seller, { from: url.searchParams.get('from'), to: url.searchParams.get('to') });
@@ -468,6 +468,11 @@ r('GET', '/api/seller/statement.pdf', SELLER, async ({ seller, url, res }) => {
   res.end(f.body);
 });
 r('POST', '/api/seller/payouts', SELLER, async ({ req, seller }) => moneySvc.requestWithdrawal(seller, await readJson(req)));
+// Payout accounts (IBAN, PayPal, Payoneer, Wise), each confirmed with a small test payment
+r('POST', '/api/seller/payout-methods', SELLER, async ({ req, seller }) => moneySvc.addMethod(seller, await readJson(req)));
+r('POST', '/api/seller/payout-methods/:id/confirm', SELLER, async ({ req, seller, params }) => { throttleLight(req); return moneySvc.confirmMethod(seller, params.id, await readJson(req)); });
+r('POST', '/api/seller/payout-methods/:id/default', SELLER, async ({ seller, params }) => moneySvc.setDefault(seller, params.id));
+r('DELETE', '/api/seller/payout-methods/:id', SELLER, async ({ seller, params }) => moneySvc.removeMethod(seller, params.id));
 
 // Admin
 r('GET', '/api/admin/overview', STAFF, async () => admin.overview());
@@ -673,6 +678,8 @@ r('GET', '/api/admin/reports/orders.csv', FIN, async ({ url, res }) => {
   res.end(csv);
 });
 r('GET', '/api/admin/payouts', FIN, async ({ url }) => moneySvc.listPayouts({ status: url.searchParams.get('status') || undefined }));
+r('GET', '/api/admin/payout-methods', FIN, async ({ url }) => moneySvc.adminMethods({ status: url.searchParams.get('status') || undefined }));
+r('POST', '/api/admin/payout-methods/:sid/:id', FIN, async ({ req, params, user }) => moneySvc.decideMethod(params.sid, params.id, await readJson(req), user));
 r('POST', '/api/admin/payouts/:id', FIN, async ({ req, params, user }) => moneySvc.decidePayout(params.id, await readJson(req), user));
 r('GET', '/api/admin/returns', PEOPLE, async () => moneySvc.adminReturns());
 r('POST', '/api/admin/returns/:id', PEOPLE, async ({ req, params, user }) => {

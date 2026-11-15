@@ -4,7 +4,8 @@
 /**
  * Seller withdrawals and customer returns.
  *  - Seller balance: payable ledger net (incl. negative refund entries) − withdrawals requested or paid.
- *  - Withdrawals are paid by hand (bank / Wise) and recorded by the admin with a reference.
+ *  - Withdrawals go to a verified payout account (IBAN, PayPal, Payoneer, Wise), are paid by hand and recorded by the
+ *    admin with a reference.
  *  - Returns: the customer asks within RETURN_DAYS of delivery; the admin approves/rejects and refunds
  *    to the Kinan wallet or the original card. Refunds can be charged back to the seller's earnings.
  */
@@ -32,25 +33,140 @@ function sellerBalance(sellerId) {
   return { currency: config.currency, pending: sum((l) => l.status === 'pending_payout'), available: money(earned - requested - paid), requested, withdrawn: paid, min_withdrawal: MIN_WITHDRAWAL };
 }
 
-function cleanDetails(d = {}) {
-  const out = { method: ['bank', 'wise', 'paypal'].includes(d.method) ? d.method : 'bank', holder: str(d.holder, 100), iban: str(d.iban, 50).replace(/\s+/g, '').toUpperCase(), bic: str(d.bic, 20).toUpperCase(), email: str(d.email, 120), note: str(d.note, 200) };
-  if (!out.holder) throw httpError(400, 'Enter the account holder name');
-  if (out.method === 'bank' && !/^[A-Z]{2}\d{2}[A-Z0-9]{8,30}$/.test(out.iban)) throw httpError(400, 'Enter a valid IBAN');
-  if (out.method !== 'bank' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw httpError(400, `Enter the email of your ${out.method === 'wise' ? 'Wise' : 'PayPal'} account`);
+// ---------------- Payout methods (verified with a small test payment) ----------------
+// A seller adds where they want to be paid: a bank account (IBAN), PayPal, Payoneer or Wise. Kinan sends a small test
+// payment with random cents (0.51–0.99) and the seller types the exact amount they received: only then is the method
+// verified and usable for withdrawals. This proves the account exists and belongs to the seller, and stops a stolen
+// login from redirecting earnings. Card numbers are never collected (card payouts need a licensed provider).
+const TYPES = { bank: 'Bank account (IBAN)', paypal: 'PayPal', payoneer: 'Payoneer', wise: 'Wise' };
+const MAX_METHODS = 4; const TRIES = 3;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** IBAN check digits (ISO 13616, mod 97). */
+function ibanOk(iban) {
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(iban)) return false;
+  const r = (iban.slice(4) + iban.slice(0, 4)).replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let m = 0; for (const ch of r) m = (m * 10 + Number(ch)) % 97;
+  return m === 1;
+}
+const norm = (v) => String(v || '').toLowerCase().normalize('NFKD').replace(/[^a-z ]/g, '').split(/\s+/).filter(Boolean);
+/** Does the account holder look like the person verified for the shop (KYC) or the shop owner? */
+function nameMatches(seller, holder) {
+  const want = [seller.kyc?.details?.full_name, db.users.get(seller.user_id)?.name].filter(Boolean).map(norm);
+  const h = norm(holder); if (!h.length || !want.length) return null;
+  return want.some((w) => w.length && w.filter((x) => h.includes(x)).length >= Math.min(2, w.length));
+}
+function cleanMethod(d = {}) {
+  const type = Object.hasOwn(TYPES, d.type || d.method) ? (d.type || d.method) : null;
+  if (!type) throw httpError(400, 'Choose bank account, PayPal, Payoneer or Wise');
+  const out = { type, holder: str(d.holder, 100) };
+  if (!out.holder) throw httpError(400, 'Enter the account holder name, exactly as on the account');
+  if (type === 'bank') {
+    out.iban = str(d.iban, 50).replace(/\s+/g, '').toUpperCase(); out.bic = str(d.bic, 20).replace(/\s+/g, '').toUpperCase();
+    if (!ibanOk(out.iban)) throw httpError(400, 'This IBAN is not valid — check it on your bank statement');
+    if (out.bic && !/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(out.bic)) throw httpError(400, 'This BIC / SWIFT code is not valid');
+  } else {
+    out.email = str(d.email, 120).toLowerCase();
+    if (!EMAIL.test(out.email)) throw httpError(400, `Enter the email of your ${TYPES[type]} account`);
+    if (type === 'payoneer' && d.payoneer_id) out.payoneer_id = str(d.payoneer_id, 30).replace(/\D/g, '');
+  }
   return out;
 }
+const masked = (m) => (m.type === 'bank' ? `IBAN ${m.iban.slice(0, 4)} •••• ${m.iban.slice(-4)}` : m.email.replace(/^(.).*(@.*)$/, '$1•••$2'));
+/** What the seller sees (never the test amount). */
+function methodView(m) {
+  return { id: m.id, type: m.type, type_name: TYPES[m.type], label: masked(m), holder: m.holder, status: m.status, tries_left: Math.max(0, TRIES - (m.tries || 0)), note: m.note || null,
+    created_at: m.created_at, test_sent_at: m.test_sent_at || null, verified_at: m.verified_at || null, is_default: Boolean(m.is_default) };
+}
+function methodsOf(seller) { return Array.isArray(seller.payout_methods) ? seller.payout_methods : []; }
+function saveMethods(seller, list) { return db.sellers.update(seller.id, { payout_methods: list }); }
 
-function requestWithdrawal(seller, { amount, details }) {
+function addMethod(seller, body) {
+  const list = methodsOf(seller).filter((m) => m.status !== 'removed');
+  if (list.length >= MAX_METHODS) throw httpError(400, `You can keep up to ${MAX_METHODS} payout methods — remove one first`);
+  const m = cleanMethod(body);
+  const key = m.type === 'bank' ? m.iban : m.email;
+  if (list.some((x) => x.type === m.type && (x.iban || x.email) === key)) throw httpError(409, 'You already added this account');
+  const cents = 51 + require('crypto').randomInt(0, 49);
+  const rec = { id: `pm_${require('crypto').randomBytes(6).toString('hex')}`, ...m, status: 'pending_test', test_amount: cents / 100,
+    test_currency: m.type === 'bank' && /^GB/.test(m.iban) ? 'GBP' : m.type === 'bank' ? 'EUR' : 'USD', tries: 0, name_ok: nameMatches(seller, m.holder), created_at: Date.now(), is_default: !list.some((x) => x.status === 'verified') };
+  saveMethods(seller, [...methodsOf(seller), rec]);
+  try { require('../push').telegram(`🏦 Payout method to verify: ${seller.shop_name} — ${TYPES[m.type]} (${masked(rec)}). Send a test of ${rec.test_amount} ${rec.test_currency}.\n${config.publicBaseUrl}/admin`); } catch { /* optional */ }
+  try { notify.payoutMethodChanged(seller, rec); } catch { /* optional */ }
+  return methodView(rec);
+}
+function removeMethod(seller, id) {
+  const list = methodsOf(seller); const m = list.find((x) => x.id === id && x.status !== 'removed');
+  if (!m) throw httpError(404, 'Payout method not found');
+  if (db.payouts.find((p) => p.seller_id === seller.id && p.status === 'requested' && p.method_id === id)) throw httpError(409, 'A withdrawal to this account is in progress');
+  saveMethods(seller, list.map((x) => (x.id === id ? { ...x, status: 'removed', is_default: false, removed_at: Date.now() } : x)));
+  return { ok: true };
+}
+function setDefault(seller, id) {
+  const list = methodsOf(seller); if (!list.some((x) => x.id === id && x.status === 'verified')) throw httpError(400, 'Only a verified account can be the default');
+  saveMethods(seller, list.map((x) => ({ ...x, is_default: x.id === id }))); return { ok: true };
+}
+/** The seller types the amount of the test payment they received. */
+function confirmMethod(seller, id, { amount }) {
+  const list = methodsOf(seller); const m = list.find((x) => x.id === id);
+  if (!m || m.status === 'removed') throw httpError(404, 'Payout method not found');
+  if (m.status === 'verified') return methodView(m);
+  if (m.status !== 'test_sent') throw httpError(409, 'Kinan has not sent the test payment yet — you will get an email when it is on its way');
+  const a = Math.round(Number(String(amount).replace(',', '.')) * 100) / 100;
+  if (!(a > 0)) throw httpError(400, 'Enter the amount you received, for example 0.73');
+  const tries = (m.tries || 0) + 1; let upd;
+  if (a === m.test_amount) upd = { status: 'verified', verified_at: Date.now(), tries, is_default: m.is_default || !list.some((x) => x.status === 'verified') };
+  else upd = { tries, ...(tries >= TRIES ? { status: 'failed', note: 'The amount did not match 3 times. Kinan will check it with you.' } : {}) };
+  const out = { ...m, ...upd };
+  saveMethods(seller, list.map((x) => (x.id === id ? out : x)));
+  if (out.status === 'verified') { try { require('../push').telegram(`✅ Payout method verified: ${seller.shop_name} — ${TYPES[m.type]} (${masked(m)})`); } catch { /* optional */ } }
+  if (upd.status !== 'verified' && out.status !== 'failed') throw httpError(400, `That is not the amount we sent — ${TRIES - tries} try(s) left`);
+  if (out.status === 'failed') throw httpError(400, out.note);
+  return methodView(out);
+}
+/** Owner: payout methods waiting for a test payment (or for the seller to confirm). */
+function adminMethods({ status } = {}) {
+  const out = [];
+  for (const s of db.sellers.all((x) => methodsOf(x).length)) for (const m of methodsOf(s)) {
+    if (m.status === 'removed' || (status && status !== 'all' && m.status !== status)) continue;
+    out.push({ seller_id: s.id, shop: s.shop_name, ...m, label: masked(m), type_name: TYPES[m.type] });
+  }
+  return out.sort((a, b) => b.created_at - a.created_at);
+}
+function decideMethod(sellerId, id, { action, note, reference }, admin) {
+  const s = db.sellers.get(sellerId); if (!s) throw httpError(404, 'Shop not found');
+  const list = methodsOf(s); const m = list.find((x) => x.id === id && x.status !== 'removed');
+  if (!m) throw httpError(404, 'Payout method not found');
+  let upd;
+  if (action === 'test_sent') {
+    if (!['pending_test', 'failed'].includes(m.status)) throw httpError(409, 'This account is not waiting for a test payment');
+    const again = m.status === 'failed';
+    upd = { status: 'test_sent', test_sent_at: Date.now(), test_reference: str(reference, 80), tries: 0, note: null, ...(again ? { test_amount: (51 + require('crypto').randomInt(0, 49)) / 100 } : {}), by: admin.id };
+  } else if (action === 'verify') upd = { status: 'verified', verified_at: Date.now(), verified_by: admin.id, note: str(note, 200) || 'Verified by Kinan' };
+  else if (action === 'reject') {
+    if (!str(note, 300)) throw httpError(400, 'Tell the seller why');
+    upd = { status: 'rejected', note: str(note, 300), by: admin.id };
+  } else throw httpError(400, 'Unknown action');
+  const out = { ...m, ...upd };
+  saveMethods(s, list.map((x) => (x.id === id ? out : x)));
+  try { notify.payoutMethodUpdate(s, out); } catch { /* optional */ }
+  return { ...out, label: masked(out) };
+}
+
+function requestWithdrawal(seller, { amount, method_id }) {
   if (seller.status !== 'active') throw httpError(403, 'Your shop is not active');
   const bal = sellerBalance(seller.id);
   const a = money(amount);
   if (!(a >= MIN_WITHDRAWAL)) throw httpError(400, `The minimum withdrawal is ${MIN_WITHDRAWAL} ${config.currency.toUpperCase()}`);
   if (a > bal.available) throw httpError(409, 'That is more than your available earnings');
   if (db.payouts.find((p) => p.seller_id === seller.id && p.status === 'requested')) throw httpError(409, 'You already have a withdrawal waiting — Kinan will process it soon');
-  const d = cleanDetails(details || seller.payout_details || {});
-  db.sellers.update(seller.id, { payout_details: d });
-  require('../push').telegram(`💸 Withdrawal request: ${seller.shop_name} — ${a} ${config.currency.toUpperCase()}\n${config.publicBaseUrl}/admin`);
-  return db.payouts.insert({ seller_id: seller.id, amount: a, currency: config.currency, details: d, status: 'requested' });
+  const verified = methodsOf(seller).filter((m) => m.status === 'verified');
+  const m = verified.find((x) => x.id === method_id) || (!method_id ? verified.find((x) => x.is_default) || verified[0] : null);
+  if (!m) throw httpError(400, 'Add a payout account and confirm the test payment first');
+  // a payout account verified in the last 24 hours: wait (a stolen login cannot redirect earnings at once)
+  if (Date.now() - (m.verified_at || 0) < 24 * 3600e3 && verified.length > 1) throw httpError(409, 'This account was verified less than 24 hours ago — for your safety, withdraw to it from tomorrow');
+  const d = { method: m.type, holder: m.holder, iban: m.iban || '', bic: m.bic || '', email: m.email || '', payoneer_id: m.payoneer_id || '' };
+  require('../push').telegram(`💸 Withdrawal request: ${seller.shop_name} — ${a} ${config.currency.toUpperCase()} to ${TYPES[m.type]} (${masked(m)})\n${config.publicBaseUrl}/admin`);
+  return db.payouts.insert({ seller_id: seller.id, amount: a, currency: config.currency, details: d, method_id: m.id, status: 'requested' });
 }
 
 function listPayouts({ sellerId, status } = {}) {
@@ -145,4 +261,4 @@ function adminReturns() {
   });
 }
 
-module.exports = { sellerBalance, requestWithdrawal, listPayouts, decidePayout, requestReturn, decideReturn, buyerReturnView, adminReturns, RETURN_DAYS, REASON_LABEL };
+module.exports = { addMethod, removeMethod, setDefault, confirmMethod, adminMethods, decideMethod, methodView, methodsOf, ibanOk, TYPES, sellerBalance, requestWithdrawal, listPayouts, decidePayout, requestReturn, decideReturn, buyerReturnView, adminReturns, RETURN_DAYS, REASON_LABEL };

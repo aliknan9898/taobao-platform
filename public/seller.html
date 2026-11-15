@@ -736,24 +736,41 @@ async function earnings() {
   const e = await api('/api/seller/earnings');
   const ST = { pending_payout: ['On the way', 'warn'], payable: ['Available', 'ok'], paid: ['Paid out', ''] };
   const PS = { requested: ['Requested', 'warn'], paid: ['Sent', 'ok'], declined: ['Declined', 'bad'] };
-  const d = e.payout_details || {};
+  const PMS = e.payout_methods || []; const VER = PMS.filter((m) => m.status === 'verified');
+  const PMS_ST = { pending_test: ['Waiting for test payment', 'warn'], test_sent: ['Confirm the amount', 'warn'], verified: ['Confirmed', 'ok'], failed: ['Not confirmed', 'bad'], rejected: ['Rejected', 'bad'] };
+  const PM_ICON = { bank: '🏦', paypal: '🅿️', payoneer: '💳', wise: '🌍' };
   const waiting = e.payouts.find((p) => p.status === 'requested');
   $('#view').innerHTML = `<div class="head"><h1>Earnings</h1></div>
     <div class="kpis"><div class="kpi"><span>On the way (order not delivered yet)</span><b>${money(e.pending, e.currency)}</b></div>
       <div class="kpi"><span>Available to withdraw</span><b class="ok">${money(e.available, e.currency)}</b></div>
       <div class="kpi"><span>Withdrawal in progress</span><b>${money(e.requested, e.currency)}</b></div>
       <div class="kpi"><span>Withdrawn</span><b>${money(e.withdrawn, e.currency)}</b></div></div>
+    <section class="panel stack" style="max-width:720px"><div><h2>Payout accounts</h2><p class="muted small" style="margin:4px 0 0">Where Kinan sends your money: a bank account (IBAN), PayPal, Payoneer or Wise. To protect your earnings, Kinan sends a small test payment (under 1) to each new account — enter the exact amount you received to confirm it.</p></div>
+      ${PMS.length ? `<div class="stack" style="gap:8px">${PMS.map((m) => `<div class="panel" style="padding:12px;display:grid;gap:8px">
+        <div class="row between"><div><b>${PM_ICON[m.type] || '🏦'} ${esc(m.type_name)}</b>${m.is_default ? ' <span class="pill ok">Default</span>' : ''}<div class="muted small" dir="ltr" style="text-align:start">${esc(m.label)} · ${esc(m.holder)}</div></div><span class="pill ${PMS_ST[m.status][1]}">${PMS_ST[m.status][0]}</span></div>
+        ${m.status === 'pending_test' ? '<div class="muted small">Kinan will send the test payment within 1–2 working days. We email you when it is on its way.</div>' : ''}
+        ${m.status === 'test_sent' ? `<form class="row" data-pmc="${esc(m.id)}" style="gap:8px;flex-wrap:wrap"><span class="small">Test payment sent ${date(m.test_sent_at, false)}. Amount you received:</span><input name="amount" inputmode="decimal" placeholder="0.00" required style="width:110px"><button class="btn sm">Confirm</button><span class="muted small">${m.tries_left} try(s) left</span></form>` : ''}
+        ${m.note && m.status !== 'verified' ? `<div class="small ${m.status === 'rejected' || m.status === 'failed' ? 'bad' : 'muted'}">${esc(m.note)}</div>` : ''}
+        <div class="row" style="gap:8px">${m.status === 'verified' && !m.is_default ? `<button class="btn ghost sm" data-pmd="${esc(m.id)}">Make default</button>` : ''}<button class="btn ghost sm" data-pmx="${esc(m.id)}">Remove</button></div></div>`).join('')}</div>` : ''}
+      <details ${PMS.length ? '' : 'open'}><summary class="btn ghost sm" style="display:inline-flex">+ Add a payout account</summary>
+        <form class="stack" id="pmf" style="margin-top:10px">
+          <div class="seg" id="pmt" style="grid-template-columns:repeat(4,1fr)"><button type="button" data-t="bank">🏦 IBAN</button><button type="button" data-t="paypal">PayPal</button><button type="button" data-t="payoneer">Payoneer</button><button type="button" data-t="wise">Wise</button></div>
+          <label class="field">Account holder (exactly as on the account)<input name="holder" required autocomplete="name" value="${esc(me?.name || '')}"></label>
+          <div class="grid-2" id="pmbank"><label class="field">IBAN<input name="iban" autocomplete="off" dir="ltr" placeholder="MT84 MALT 0110 0001 2345 MTLC AST0 01S"></label><label class="field">BIC / SWIFT (optional)<input name="bic" dir="ltr"></label></div>
+          <label class="field" id="pmmail" hidden><span id="pmmaill">Account email</span><input name="email" type="email" dir="ltr"></label>
+          <label class="field" id="pmpid" hidden>Payoneer customer ID (optional)<input name="payoneer_id" inputmode="numeric" dir="ltr"></label>
+          <p class="muted small">Card numbers are never asked for. To get money on your Visa or Mastercard, use PayPal or Payoneer and withdraw to your card from there.</p>
+          <div class="error" id="pme"></div><button class="btn" style="justify-self:start">Add account</button></form></details>
+    </section>
     <section class="panel stack" style="max-width:720px"><h2>Withdraw</h2>
       ${waiting ? `<p>Your request for <b>${money(waiting.amount, waiting.currency)}</b> is waiting — Kinan pays withdrawals by hand, usually within a few working days.</p>`
+      : !VER.length ? '<p class="muted">Add a payout account above and confirm its test payment to withdraw.</p>'
       : e.available < e.min_withdrawal ? `<p class="muted">You can withdraw once you have at least ${money(e.min_withdrawal, e.currency)} available.</p>`
       : `<form class="stack" id="wf">
-        <div class="seg" id="wm"><button type="button" data-m="bank">Bank (IBAN)</button><button type="button" data-m="wise">Wise</button><button type="button" data-m="paypal">PayPal</button></div>
         <div class="grid-2"><label class="field">Amount (${esc(String(e.currency).toUpperCase())})<input name="amount" type="number" step="0.01" min="${e.min_withdrawal}" max="${e.available}" value="${e.available}" required></label>
-        <label class="field">Account holder<input name="holder" required value="${esc(d.holder || '')}" autocomplete="name"></label></div>
-        <div class="grid-2" id="wbank"><label class="field">IBAN<input name="iban" value="${esc(d.iban || '')}" autocomplete="off"></label><label class="field">BIC / SWIFT (optional)<input name="bic" value="${esc(d.bic || '')}"></label></div>
-        <label class="field" id="wmail" hidden>Account email<input name="email" type="email" value="${esc(d.email || '')}"></label>
+        <label class="field">To<select name="method_id">${VER.map((m) => `<option value="${esc(m.id)}" ${m.is_default ? 'selected' : ''}>${esc(m.type_name)} · ${esc(m.label)}</option>`).join('')}</select></label></div>
         <div class="error" id="we"></div><button class="btn" style="justify-self:start">Request withdrawal</button></form>`}
-      ${e.payouts.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr></thead><tbody>${e.payouts.map((p) => `<tr><td class="muted">${date(p.created_at, false)}</td><td>${money(p.amount, p.currency)}</td><td class="muted">${esc(p.details.method === 'bank' ? `IBAN …${p.details.iban.slice(-4)}` : p.details.email)}</td><td>${pill(...(PS[p.status] || [p.status, '']))}${p.reference ? ` <span class="muted small">${esc(p.reference)}</span>` : ''}${p.note ? `<div class="small bad">${esc(p.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
+      ${e.payouts.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr></thead><tbody>${e.payouts.map((p) => `<tr><td class="muted">${date(p.created_at, false)}</td><td>${money(p.amount, p.currency)}</td><td class="muted">${esc(p.details.method === 'bank' ? `IBAN …${p.details.iban.slice(-4)}` : `${({ paypal: 'PayPal', payoneer: 'Payoneer', wise: 'Wise' })[p.details.method] || ''} ${p.details.email}`)}</td><td>${pill(...(PS[p.status] || [p.status, '']))}${p.reference ? ` <span class="muted small">${esc(p.reference)}</span>` : ''}${p.note ? `<div class="small bad">${esc(p.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
     </section>
     <section class="panel stack" style="max-width:720px"><div><h2>Account statement</h2><p class="muted small" style="margin:4px 0 0">A PDF of your sales, Kinan commission, refunds and withdrawals for a period, with your balance.</p></div>
       <div class="seg" id="stp"><button type="button" data-p="this">This month</button><button type="button" data-p="last">Last month</button><button type="button" data-p="3m">Last 3 months</button><button type="button" data-p="year">This year</button></div>
@@ -785,13 +802,28 @@ async function earnings() {
     } catch (e) { $('#ste').textContent = e.message; }
     btn.disabled = false; btn.textContent = 'Download PDF';
   };
+  // payout accounts
+  let ptype = 'bank';
+  const pmPaint = () => { $$('#pmt button').forEach((b) => b.classList.toggle('on', b.dataset.t === ptype)); $('#pmbank').hidden = ptype !== 'bank'; $('#pmmail').hidden = ptype === 'bank'; $('#pmpid').hidden = ptype !== 'payoneer'; $('#pmmaill').textContent = `${({ paypal: 'PayPal', payoneer: 'Payoneer', wise: 'Wise' })[ptype] || ''} account email`; };
+  if ($('#pmf')) {
+    $$('#pmt button').forEach((b) => b.onclick = () => { ptype = b.dataset.t; pmPaint(); }); pmPaint();
+    $('#pmf').onsubmit = async (ev) => {
+      ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.target)); $('#pme').textContent = '';
+      try { await api('/api/seller/payout-methods', 'POST', { type: ptype, ...f }); toast('Account added — Kinan will send the test payment'); earnings(); }
+      catch (err) { $('#pme').textContent = err.message; }
+    };
+  }
+  $$('[data-pmc]').forEach((f) => f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    try { await api(`/api/seller/payout-methods/${f.dataset.pmc}/confirm`, 'POST', { amount: f.amount.value }); toast('Account confirmed ✓'); } catch (err) { toast(err.message); }
+    earnings();
+  });
+  $$('[data-pmd]').forEach((b) => b.onclick = async () => { try { await api(`/api/seller/payout-methods/${b.dataset.pmd}/default`, 'POST'); earnings(); } catch (err) { toast(err.message); } });
+  $$('[data-pmx]').forEach((b) => b.onclick = async () => { if (!confirm('Remove this payout account?')) return; try { await api(`/api/seller/payout-methods/${b.dataset.pmx}`, 'DELETE'); earnings(); } catch (err) { toast(err.message); } });
   const wf = $('#wf'); if (!wf) return;
-  let method = d.method || 'bank';
-  const paint = () => { $$('#wm button').forEach((b) => b.classList.toggle('on', b.dataset.m === method)); $('#wbank').hidden = method !== 'bank'; $('#wmail').hidden = method === 'bank'; };
-  $$('#wm button').forEach((b) => b.onclick = () => { method = b.dataset.m; paint(); }); paint();
   wf.onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target; $('#we').textContent = '';
-    try { await api('/api/seller/payouts', 'POST', { amount: Number(f.amount.value), details: { method, holder: f.holder.value, iban: f.iban.value, bic: f.bic.value, email: f.email.value } }); toast('Withdrawal requested'); earnings(); }
+    try { await api('/api/seller/payouts', 'POST', { amount: Number(f.amount.value), method_id: f.method_id.value }); toast('Withdrawal requested'); earnings(); }
     catch (err) { $('#we').textContent = err.message; }
   };
 }

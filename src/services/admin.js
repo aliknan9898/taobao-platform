@@ -50,6 +50,8 @@ function overview() {
   if (losing.length) alerts.push({ kind: 'listings', text: `${losing.length} product(s) now cost more than their price after the last price sync${losing.some((l) => l.price_alert.paused) ? ' (AliExpress ones were paused)' : ''}` });
   const payReq = db.payouts.all((p) => p.status === 'requested');
   if (payReq.length) alerts.push({ kind: 'payouts', text: `${payReq.length} seller withdrawal request(s) to pay` });
+  const pmWait = db.sellers.all().reduce((n, s) => n + (s.payout_methods || []).filter((m) => m.status === 'pending_test' || m.status === 'failed').length, 0);
+  if (pmWait) alerts.push({ kind: 'payouts', text: `${pmWait} payout account(s) waiting for a test payment` });
   const retReq = db.returns.all((r) => r.status === 'requested');
   if (retReq.length) alerts.push({ kind: 'returns', text: `${retReq.length} return request(s) to review` });
   const demoPaid = all.filter((o) => require('../payments/stripe').isTestPayment(o) && !['pending_payment', 'cancelled', 'refunded'].includes(o.status));

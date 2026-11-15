@@ -553,11 +553,30 @@ test('seller withdrawals and customer returns', async () => {
   let e = (await api('GET', '/api/seller/earnings', null, sTok)).body;
   assert.ok(e.available >= 20, `has earnings (${e.available})`);
   const start = e.available;
-  assert.strictEqual((await api('POST', '/api/seller/payouts', { amount: start + 1, details: { method: 'bank', holder: 'Ali', iban: 'MT84MALT011000012345MTLCAST001S' } }, sTok)).status, 409);
-  assert.strictEqual((await api('POST', '/api/seller/payouts', { amount: 15, details: { method: 'bank', holder: 'Ali', iban: 'nope' } }, sTok)).status, 400);
-  const p = await api('POST', '/api/seller/payouts', { amount: 15, details: { method: 'bank', holder: 'Ali', iban: 'MT84 MALT 0110 0001 2345 MTLC AST0 01S' } }, sTok);
+  // payout accounts: checked, then confirmed with a small test payment before any withdrawal
+  assert.strictEqual((await api('POST', '/api/seller/payouts', { amount: 15 }, sTok)).status, 400, 'no verified account yet');
+  assert.strictEqual((await api('POST', '/api/seller/payout-methods', { type: 'bank', holder: 'Ali', iban: 'MT84MALT011000012345MTLCAST002S' }, sTok)).status, 400, 'IBAN check digits');
+  assert.strictEqual((await api('POST', '/api/seller/payout-methods', { type: 'paypal', holder: 'Ali', email: 'nope' }, sTok)).status, 400);
+  const pm = await api('POST', '/api/seller/payout-methods', { type: 'bank', holder: 'Ali', iban: 'MT84 MALT 0110 0001 2345 MTLC AST0 01S' }, sTok);
+  assert.strictEqual(pm.status, 200, JSON.stringify(pm.body)); assert.strictEqual(pm.body.status, 'pending_test'); assert.ok(!('test_amount' in pm.body), 'the seller never sees the amount');
+  assert.strictEqual((await api('POST', '/api/seller/payout-methods', { type: 'bank', holder: 'Ali', iban: 'MT84MALT011000012345MTLCAST001S' }, sTok)).status, 409, 'same account twice');
+  const py = (await api('POST', '/api/seller/payout-methods', { type: 'payoneer', holder: 'Ali', email: 'ali@payoneer.test' }, sTok)).body;
+  assert.strictEqual((await api('POST', `/api/seller/payout-methods/${pm.body.id}/confirm`, { amount: 0.5 }, sTok)).status, 409, 'test not sent yet');
+  const waiting = (await api('GET', '/api/admin/payout-methods?status=pending_test', null, aTok)).body;
+  const row = waiting.find((x) => x.id === pm.body.id); assert.ok(row && row.test_amount >= 0.51 && row.test_amount <= 0.99);
+  assert.strictEqual((await api('POST', `/api/admin/payout-methods/${row.seller_id}/${row.id}`, { action: 'test_sent', reference: 'T-1' }, aTok)).status, 200);
+  assert.strictEqual((await api('POST', `/api/seller/payout-methods/${pm.body.id}/confirm`, { amount: row.test_amount === 0.99 ? 0.98 : row.test_amount + 0.01 }, sTok)).status, 400, 'wrong amount');
+  const ok = await api('POST', `/api/seller/payout-methods/${pm.body.id}/confirm`, { amount: String(row.test_amount).replace('.', ',') }, sTok);
+  assert.strictEqual(ok.body.status, 'verified', JSON.stringify(ok.body));
+  // three wrong amounts lock the other one until Kinan sends a new test
+  const r2 = (await api('GET', '/api/admin/payout-methods?status=pending_test', null, aTok)).body.find((x) => x.id === py.id);
+  await api('POST', `/api/admin/payout-methods/${r2.seller_id}/${r2.id}`, { action: 'test_sent' }, aTok);
+  for (let i = 0; i < 3; i++) await api('POST', `/api/seller/payout-methods/${py.id}/confirm`, { amount: 5 }, sTok);
+  assert.strictEqual((await api('GET', '/api/seller/earnings', null, sTok)).body.payout_methods.find((m) => m.id === py.id).status, 'failed');
+  assert.strictEqual((await api('POST', '/api/seller/payouts', { amount: start + 1 }, sTok)).status, 409);
+  const p = await api('POST', '/api/seller/payouts', { amount: 15 }, sTok);
   assert.strictEqual(p.status, 200, JSON.stringify(p.body));
-  assert.strictEqual(p.body.details.iban, 'MT84MALT011000012345MTLCAST001S');
+  assert.strictEqual(p.body.details.iban, 'MT84MALT011000012345MTLCAST001S'); assert.strictEqual(p.body.method_id, pm.body.id);
   assert.strictEqual((await api('POST', '/api/seller/payouts', { amount: 10 }, sTok)).status, 409, 'one at a time');
   e = (await api('GET', '/api/seller/earnings', null, sTok)).body;
   assert.deepStrictEqual([e.available, e.requested], [Math.round((start - 15) * 100) / 100, 15]);

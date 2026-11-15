@@ -941,19 +941,37 @@ VIEWS.shipping = async (v) => {
 VIEWS.payouts = async (v) => {
   const filter = v.dataset.pf || 'requested';
   const list = await api('/api/admin/payouts' + (filter === 'all' ? '' : `?status=${filter}`));
+  const pms = (await api('/api/admin/payout-methods').catch(() => [])).filter((m) => ['pending_test', 'test_sent', 'failed'].includes(m.status));
   const PS = { requested: ['Waiting', 'warn'], paid: ['Paid', 'ok'], declined: ['Declined', 'bad'] };
   v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h2>Seller withdrawals</h2>
       <div class="row">${[['requested','Waiting'],['paid','Paid'],['declined','Declined'],['all','All']].map(([k, t]) => `<button class="btn ${k === filter ? '' : 'ghost'}" data-pf="${k}">${t}</button>`).join('')}</div></div>
-      <p class="muted">Pay each request from your bank or Wise, then record it here with the transfer reference. The seller is emailed either way.</p></div>
+      <p class="muted">Pay each request from your bank, Wise, PayPal or Payoneer, then record it here with the transfer reference. The seller is emailed either way. Withdrawals only go to accounts the seller confirmed with a test payment.</p></div>
+    <div class="card"><h2>Payout accounts to confirm (${pms.length})</h2>
+      <p class="muted">For each new account, send the exact test amount shown (from your bank, PayPal or Payoneer), then tap “Test sent”. The seller confirms by typing the amount they received. “Confirm without test” only if you checked the account another way.</p>
+      ${pms.map((m) => `<div style="border-top:1px solid var(--line);padding:10px 0;display:grid;gap:6px">
+        <div class="row" style="justify-content:space-between"><div><b>${esc(m.shop)}</b> · ${esc(m.type_name)} <span class="muted">· ${date(m.created_at)}</span></div><span class="pill ${m.status === 'failed' ? 'bad' : 'warn'}">${{ pending_test: 'Send the test', test_sent: 'Waiting for the seller', failed: '3 wrong amounts' }[m.status]}</span></div>
+        <div>${esc(m.holder)} ${m.name_ok === false ? '<span class="pill bad">name differs from the verified seller</span>' : m.name_ok ? '<span class="pill ok">name matches</span>' : ''} · ${m.type === 'bank' ? `IBAN <code>${esc(m.iban)}</code>${m.bic ? ` · BIC <code>${esc(m.bic)}</code>` : ''}` : `<code>${esc(m.email)}</code>${m.payoneer_id ? ` · Payoneer ID <code>${esc(m.payoneer_id)}</code>` : ''}`}</div>
+        <div>Test amount: <b style="font-size:18px">${Number(m.test_amount).toFixed(2)} ${esc(m.test_currency)}</b>${m.test_sent_at ? ` <span class="muted">sent ${date(m.test_sent_at)}${m.test_reference ? ` · ref ${esc(m.test_reference)}` : ''}</span>` : ''}</div>
+        <div class="row">${m.status !== 'test_sent' ? `<input data-pmref="${esc(m.id)}" placeholder="Reference (optional)" style="flex:1;min-width:140px"><button class="btn" data-pmsent="${esc(m.seller_id)}|${esc(m.id)}">${m.status === 'failed' ? 'Send a new test' : 'Test sent'}</button>` : ''}
+          <button class="btn ghost" data-pmok="${esc(m.seller_id)}|${esc(m.id)}">Confirm without test</button>
+          <input data-pmnote="${esc(m.id)}" placeholder="Reason to reject" style="flex:1;min-width:140px"><button class="btn ghost bad" data-pmno="${esc(m.seller_id)}|${esc(m.id)}">Reject</button></div>
+        ${m.status === 'failed' ? '<div class="muted small">A new test uses a new amount.</div>' : ''}</div>`).join('') || '<p class="muted">Nothing waiting.</p>'}</div>
     ${list.map((p) => `<div class="card" style="display:grid;gap:8px">
       <div class="row" style="justify-content:space-between"><div><b>${esc(p.shop)}</b> <span class="muted">· ${date(p.created_at)}</span></div><span class="pill ${PS[p.status][1]}">${PS[p.status][0]}</span></div>
       <div style="font-size:22px;font-weight:700">${fmt(p.amount, p.currency)}</div>
-      <div class="muted">${esc(p.details.holder)} · ${p.details.method === 'bank' ? `IBAN <code>${esc(p.details.iban)}</code>${p.details.bic ? ` · BIC <code>${esc(p.details.bic)}</code>` : ''}` : `${p.details.method === 'wise' ? 'Wise' : 'PayPal'} <code>${esc(p.details.email)}</code>`}</div>
+      <div class="muted">${esc(p.details.holder)} · ${p.details.method === 'bank' ? `IBAN <code>${esc(p.details.iban)}</code>${p.details.bic ? ` · BIC <code>${esc(p.details.bic)}</code>` : ''}` : `${({ wise: 'Wise', paypal: 'PayPal', payoneer: 'Payoneer' })[p.details.method] || ''} <code>${esc(p.details.email)}</code>${p.details.payoneer_id ? ` · ID <code>${esc(p.details.payoneer_id)}</code>` : ''}`}</div>
       ${p.reference ? `<div class="muted">Reference: ${esc(p.reference)}</div>` : ''}${p.note ? `<div class="bad">${esc(p.note)}</div>` : ''}
       ${p.status === 'requested' ? `<div class="row"><input data-ref="${esc(p.id)}" placeholder="Transfer reference" style="flex:1;min-width:160px"><button class="btn" data-pay="${esc(p.id)}">Mark paid</button>
         <input data-note="${esc(p.id)}" placeholder="Reason to decline" style="flex:1;min-width:160px"><button class="btn ghost bad" data-dec="${esc(p.id)}">Decline</button></div>` : ''}
     </div>`).join('') || '<div class="card muted">Nothing here.</div>'}`;
   v.querySelectorAll('[data-pf]').forEach((b) => b.onclick = () => { v.dataset.pf = b.dataset.pf; render(); });
+  const pmAct = (sel, action, extra) => v.querySelectorAll(sel).forEach((b) => b.onclick = async () => {
+    const [sid, id] = b.dataset[Object.keys(b.dataset)[0]].split('|'); const body = { action, ...extra(id) };
+    if (action === 'verify' && !confirm('Confirm this account without a test payment?')) return;
+    b.disabled = true; try { await api(`/api/admin/payout-methods/${sid}/${id}`, 'POST', body); render(); } catch (e) { alert(e.message); b.disabled = false; } });
+  pmAct('[data-pmsent]', 'test_sent', (id) => ({ reference: v.querySelector(`[data-pmref="${id}"]`)?.value || '' }));
+  pmAct('[data-pmok]', 'verify', () => ({}));
+  pmAct('[data-pmno]', 'reject', (id) => ({ note: v.querySelector(`[data-pmnote="${id}"]`)?.value || '' }));
   v.querySelectorAll('[data-pay]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/payouts/${b.dataset.pay}`, 'POST', { action: 'paid', reference: v.querySelector(`[data-ref="${b.dataset.pay}"]`).value }); render(); } catch (e) { alert(e.message); b.disabled = false; } });
   v.querySelectorAll('[data-dec]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/payouts/${b.dataset.dec}`, 'POST', { action: 'decline', note: v.querySelector(`[data-note="${b.dataset.dec}"]`).value }); render(); } catch (e) { alert(e.message); b.disabled = false; } });
 };

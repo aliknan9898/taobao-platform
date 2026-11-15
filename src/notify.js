@@ -178,6 +178,21 @@ function payoutUpdate(p) {
     button: { text: 'Open earnings', url: `${base()}/seller#/earnings` } }));
 }
 
+// Payout accounts: an email whenever one is added (so a stolen login is noticed) and when Kinan sends the test payment
+const PM_NAMES = { bank: 'bank account', paypal: 'PayPal account', payoneer: 'Payoneer account', wise: 'Wise account' };
+function payoutMethodChanged(seller, m) {
+  const label = m.type === 'bank' ? `IBAN ending ${String(m.iban).slice(-4)}` : String(m.email).replace(/^(.).*(@.*)$/, '$1•••$2');
+  fire(mailer.send({ to: emailOf(seller.user_id), key: `pm:${m.id}:added`, kind: 'payout', subject: `New payout account added to your Kinan shop`,
+    title: 'A payout account was added', lines: [`A ${PM_NAMES[m.type]} (${label}) was added to ${seller.shop_name}.`, 'Kinan will send a small test payment to it. When it arrives, enter the exact amount in Earnings to confirm the account.', 'If this was not you, change your password now and write to us.'],
+    button: { text: 'Open earnings', url: `${base()}/seller#/earnings` } }));
+}
+function payoutMethodUpdate(seller, m) {
+  const t = { test_sent: ['Your test payment is on its way', 'Kinan sent a small test payment (less than 1) to your account. When it arrives (banks can take 1–2 working days), open Earnings and enter the exact amount to confirm the account.'],
+    verified: ['Your payout account is confirmed', 'You can now withdraw your earnings to it.'], rejected: ['Your payout account could not be confirmed', `Reason: ${m.note || '—'}. You can add another account in Earnings.`] }[m.status];
+  if (!t) return;
+  fire(mailer.send({ to: emailOf(seller.user_id), key: `pm:${m.id}:${m.status}:${m.test_sent_at || ''}`, kind: 'payout', subject: t[0], title: t[0], lines: [t[1]], button: { text: 'Open earnings', url: `${base()}/seller#/earnings` } }));
+}
+
 function returnUpdate(r) {
   const o = db.orders.get(r.order_id);
   push.toUser(r.buyer_id, { title: 'Return request update', body: `Order ${o ? ref(o) : ''}: ${r.status}`, url: `/#/orders/${r.order_id}` });
@@ -187,4 +202,4 @@ function returnUpdate(r) {
     button: { text: 'View order', url: `${base()}/#/orders/${r.order_id}` } }));
 }
 
-module.exports = { trackingStage, STAGES, priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerUnderReview, customerWelcome, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, returnUpdate, qcPhotos };
+module.exports = { trackingStage, STAGES, priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerUnderReview, customerWelcome, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, payoutMethodChanged, payoutMethodUpdate, returnUpdate, qcPhotos };
