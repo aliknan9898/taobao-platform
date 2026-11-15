@@ -45,7 +45,7 @@ function findAll(v, keys, out = []) {
 }
 const num = (...v) => { for (const x of v) { const n = Number(String(x ?? '').replace(/[^\d.]/g, '')); if (x !== undefined && x !== null && x !== '' && Number.isFinite(n)) return n; } return null; };
 
-let logged = {};
+const logged = {};
 function logShape(name, j) { if (logged[name]) return; logged[name] = true; console.log(`[ae-sourcing] ${name} response:`, JSON.stringify(j).slice(0, 1200)); }
 
 /** Dropshipping search, most-ordered first. */

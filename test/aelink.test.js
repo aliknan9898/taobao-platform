@@ -24,3 +24,10 @@ test('AliExpress links: full, short (redirects), short (script page), and not Al
   assert.strictEqual(await ae.resolveProductId('https://evil.example/_x'), null);
   assert.strictEqual(await ae.resolveProductId('https://a.aliexpress.com/_Nothing'), null);
 });
+
+test('AliExpress replies: "00" / "Call succeeds" is success, other codes are errors', () => {
+  const c = require('../src/aliexpress/client');
+  assert.ok(c._unwrap({ aliexpress_ds_text_search_response: { code: '00', msg: 'Call succeeds', data: { products: [] } } }));
+  assert.throws(() => c._unwrap({ aliexpress_ds_text_search_response: { code: '501', msg: 'Invalid parameter' } }), /Invalid parameter/);
+  assert.throws(() => c._unwrap({ error_response: { code: '27', msg: 'Invalid session' } }), /Invalid session/);
+});

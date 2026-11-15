@@ -38,9 +38,11 @@ const ser = (v) => (v === undefined || v === null ? undefined : typeof v === 'ob
 function unwrap(j) {
   const key = Object.keys(j || {}).find((k) => k.endsWith('_response'));
   const body = key ? j[key] : j;
-  const err = j.error_response || (body && body.code && String(body.code) !== '0' ? body : null);
+  // success is "0", and "00" ("Call succeeds") for the dropshipping search / feed calls
+  const ok = (c) => ['0', '00', '200'].includes(String(c));
+  const err = j.error_response || (body && body.code && !ok(body.code) && !/succe/i.test(String(body.msg || '')) ? body : null);
   if (err) throw new AliExpressError(err.msg || err.message || err.sub_msg || `AliExpress error ${err.code}`, { code: err.code || err.sub_code, requestId: err.request_id });
-  const r = body?.result ?? body;
+  const r = body?.result ?? (body?.data !== undefined ? body : body);
   if (r && r.rsp_code !== undefined && String(r.rsp_code) !== '200' && String(r.rsp_code) !== '0' && r.rsp_msg) throw new AliExpressError(r.rsp_msg, { code: r.rsp_code });
   return r;
 }
@@ -70,4 +72,4 @@ async function system(path, params = {}) {
   return post(`${config.aliexpress.apiUrl}/rest${path}`, all);
 }
 
-module.exports = { API, call, system, sign, enabled, AliExpressError };
+module.exports = { _unwrap: unwrap, API, call, system, sign, enabled, AliExpressError };
