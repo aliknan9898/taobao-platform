@@ -270,7 +270,7 @@ function addStart(err = '') {
         : `<p class="small">Import by Taobao link will be available soon. Meanwhile, <a href="#/manual">add the product manually</a>.</p>`}
       </section>
       <section class="panel stack srccard"><div class="srchead"><span class="srcico ae">AE</span><div><b>From AliExpress</b><div class="muted small">Ships straight to the customer · about ${esc(cfg.aliexpress?.delivery_days || '10–20')} days.</div></div></div>
-        ${cfg.aliexpress?.import ? `<form class="stack" id="aef"><label class="field">AliExpress link<input name="link" required placeholder="https://www.aliexpress.com/item/1005….html" autocomplete="off"></label><div class="error" id="aee"></div><button class="btn" id="aego">Import from AliExpress</button></form><div id="aeprev"></div>`
+        ${cfg.aliexpress?.import ? `<form class="stack" id="aef"><label class="field">AliExpress link<input name="link" required placeholder="Share link from the app, or …/item/1005….html" autocomplete="off"></label><div class="error" id="aee"></div><button class="btn" id="aego">Import from AliExpress</button></form><div id="aeprev"></div>`
         : `<p class="small">Add the title, photos and price yourself; Kinan orders it on AliExpress when it sells.</p><a class="btn" href="#/manual?ae">Add AliExpress product</a>`}
       </section>
       ${cfg.cj ? `<section class="panel stack srccard"><div class="srchead"><span class="srcico ae" style="background:#1f6feb">CJ</span><div><b>From CJdropshipping</b><div class="muted small">Ships from CJ straight to the customer. Kinan orders and pays CJ for you; shipping is added at checkout.</div></div></div>

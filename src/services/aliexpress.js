@@ -84,6 +84,30 @@ function productIdFromLink(input) {
   const m = s.match(/aliexpress\.[a-z.]+\/(?:item|i)\/(?:[^/?#]*?)(\d{9,20})\.html/i) || s.match(/[?&](?:productId|product_id|itemId)=(\d{9,20})/i) || s.match(/^(\d{9,20})$/);
   return m ? m[1] : null;
 }
+/**
+ * Same, for the short links the AliExpress app shares (a.aliexpress.com/_xxxx, s.click.aliexpress.com/e/_xxxx):
+ * follow the redirects until the product page address shows the product ID.
+ */
+async function resolveProductId(input) {
+  const direct = productIdFromLink(input);
+  if (direct) return direct;
+  let url = String(input || '').trim().match(/https?:\/\/\S+/)?.[0];
+  if (!url || !/^https?:\/\/([a-z0-9-]+\.)*aliexpress\.[a-z.]+\//i.test(url)) return null;
+  for (let hop = 0; hop < 6 && url; hop++) {
+    const id = productIdFromLink(url) || productIdFromLink(decodeURIComponent(url));
+    if (id) return id;
+    let r;
+    try { r = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36', Accept: 'text/html' } }); }
+    catch { return null; }
+    const loc = r.headers.get('location');
+    if (loc) { url = new URL(loc, url).toString(); continue; }
+    // some short links answer with a page that redirects in script: look for the product address in it
+    const html = await r.text().catch(() => '');
+    const m = html.match(/aliexpress\.[a-z.]+\/(?:item|i)\/(\d{9,20})\.html/i) || html.match(/[?&](?:productId|product_id|itemId)=(\d{9,20})/i);
+    return m ? m[1] : null;
+  }
+  return null;
+}
 const isAliExpressLink = (s) => /aliexpress\.|a\.aliexpress|s\.click\.aliexpress/i.test(String(s || '')) || /^\d{12,20}$/.test(String(s || '').trim());
 
 const asArr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
@@ -116,10 +140,10 @@ const suggested = (cost, markupPct) => money(Math.max(0.5, cost * (1 + Number(ma
 
 async function preview(seller, link) {
   if (!apiReady()) throw httpError(503, 'AliExpress import is not switched on yet — add the product manually');
-  const id = productIdFromLink(link);
-  if (!id) throw httpError(400, 'Paste a full AliExpress product link (…/item/1005….html)');
+  const id = await resolveProductId(link);
+  if (!id) throw httpError(400, 'Paste an AliExpress product link (from the app’s Share button or the …/item/1005….html address)');
   const p = await fetchProduct(id);
-  return { ...p, source_link: String(link).trim().slice(0, 500), skus: p.skus.map((s) => ({ ...s, suggested_price: suggested(s.cost_sale, seller.default_markup_pct) })) };
+  return { ...p, source_link: productIdFromLink(link) ? String(link).trim().slice(0, 500) : `https://www.aliexpress.com/item/${id}.html`, skus: p.skus.map((s) => ({ ...s, suggested_price: suggested(s.cost_sale, seller.default_markup_pct) })) };
 }
 
 /** Import (or re-import) an AliExpress product via the API with the seller's prices. */
@@ -227,6 +251,6 @@ function manualUpdate(sub, { ae_order_no, tracking, carrier, delivered } = {}) {
 }
 
 module.exports = {
-  status, apiReady, authorizeUrl, handleCallback, disconnect, productIdFromLink, isAliExpressLink, normalizeProduct,
+  status, apiReady, authorizeUrl, handleCallback, disconnect, productIdFromLink, resolveProductId, isAliExpressLink, normalizeProduct,
   preview, publish, resync, newDirectSub, place, sync, manualUpdate, LABEL, DS_STATUS
 };
