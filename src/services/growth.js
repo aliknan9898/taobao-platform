@@ -248,6 +248,18 @@ function saveCart(user, items) {
  *  2. after 24 hours: email + notification with a personal 5% code for 72 hours (CART_COUPON_PCT, 0 = no code)
  */
 const HOUR = 3600e3;
+/** The cart's products for the reminder email: photo, name (in the customer's language), quantity and current price. */
+function cartProducts(c, u) {
+  const cat = require('./catalog'); const out = [];
+  for (const it of c.items) {
+    let p; try { p = cat.buyerListing(it.listing_id); } catch { continue; } // no longer for sale: left out
+    const sku = (p.skus || []).find((s) => s.mp_sku_id === it.mp_sku_id) || (p.skus || [])[0];
+    const price = sku?.price ?? p.min_price;
+    let money = ''; try { money = Number(price).toLocaleString('en-US', { style: 'currency', currency: String(p.currency || 'usd').toUpperCase() }); } catch { money = `${price}`; }
+    out.push({ title: (u.lang === 'ar' && p.title_ar) || p.title || it.title, image: sku?.image || (p.images || [])[0] || '', price: money, qty: it.qty, url: `/p/${p.id}` });
+  }
+  return out;
+}
 function cartReminders(now = Date.now()) {
   const push = require('../push');
   const pct = Math.max(0, Math.min(30, Number(process.env.CART_COUPON_PCT ?? 5)));
@@ -258,6 +270,7 @@ function cartReminders(now = Date.now()) {
     const step = (c.reminded_step || 0) + 1;
     if (step === 2 && now - c.changed_at < DAY) continue; // second reminder waits a day
     const names = c.items.map((x) => x.title).filter(Boolean).slice(0, 3).join(', ');
+    const products = cartProducts(c, u);
     let code = null;
     if (step === 2 && pct > 0) {
       do { code = `CART-${crypto.randomBytes(3).toString('hex').toUpperCase()}`; } while (db.coupons.find((x) => x.code === code));
@@ -267,8 +280,8 @@ function cartReminders(now = Date.now()) {
       to: u.email, key: `cart:${c.id}:${c.changed_at}:${step}`, kind: 'growth',
       subject: step === 1 ? 'You left something in your Kinan cart' : code ? `${pct}% off your cart — 72 hours only` : 'Your Kinan cart is waiting',
       title: step === 1 ? 'Still thinking about it?' : code ? `Here is ${pct}% off to finish your order` : 'Your cart is waiting',
-      lines: [`${c.items.length} item(s) are waiting in your cart: ${names}.`, ...(code ? [`Use code ${code} at checkout — ${pct}% off, valid for 72 hours.`] : ['Prices and stock can change, so complete your order soon.'])],
-      button: { text: 'Go to your cart', url: `${base()}/#/cart` }
+      lines: [products.length ? `${c.items.length} item(s) are waiting in your cart:` : `${c.items.length} item(s) are waiting in your cart: ${names}.`, ...(code ? [`Use code ${code} at checkout — ${pct}% off, valid for 72 hours.`] : ['Prices and stock can change, so complete your order soon.'])],
+      button: { text: 'Go to your cart', url: `${base()}/#/cart` }, products
     }));
     try {
       push.toUser(u.id, step === 1
@@ -286,5 +299,5 @@ module.exports = {
   refCode, attachReferrer, payReferrals, referralInfo, REF_REWARD,
   wishlist, save, unsave, isSaved, wishlistAlerts,
   addReview, reviewsFor, ratingMap, ratingFor, resetRatings, reviewPhoto, publicReview,
-  saveCart, cartReminders
+  saveCart, cartReminders, cartProducts
 };

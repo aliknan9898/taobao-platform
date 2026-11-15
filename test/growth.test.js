@@ -80,6 +80,11 @@ test('growth features', async () => {
   // abandoned cart: a reminder after 1 hour, a personal 5% code after a day, then nothing more
   await api('PUT', '/api/buyer/cart', { items: [{ listing_id: p.id, mp_sku_id: 'x', qty: 1, title: 'Lamp' }] }, a);
   assert.strictEqual(growth.cartReminders(), 0, 'too early');
+  // the reminder email shows each product with a medium photo, name and current price
+  const shown = growth.cartProducts(db.carts.all((c) => c.items.some((i) => i.listing_id === p.id))[0], {});
+  assert.strictEqual(shown.length, 1); assert.ok(shown[0].image); assert.match(shown[0].price, /40/); assert.strictEqual(shown[0].url, `/p/${p.id}`);
+  const html = require('../src/mailer').layout({ title: 'Still thinking about it?', lines: ['x'], products: shown });
+  assert.match(html, /<img src="https:\/\/kinan\.example\/img\/[^"]+" width="120"/); assert.match(html, new RegExp(`href="https://kinan.example/p/${p.id}"`));
   assert.strictEqual(growth.cartReminders(Date.now() + 2 * 3600e3), 1);
   assert.strictEqual(growth.cartReminders(Date.now() + 3 * 3600e3), 0, 'the second waits a day');
   assert.strictEqual(growth.cartReminders(Date.now() + 25 * 3600e3), 1);
