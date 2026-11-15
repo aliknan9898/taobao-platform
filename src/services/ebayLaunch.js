@@ -37,6 +37,16 @@ async function review() {
   // listings already on eBay (they use up the monthly limit)
   try { const inv = await ebay.api('GET', '/sell/inventory/v1/inventory_item', undefined, { query: { limit: '1' } }); facts.inventory_items = Number(inv.total) || 0; } catch (e) { warnings.push(`eBay inventory could not be read: ${e.message}`); }
   facts.live_on_kinan = db.listings.all((l) => l.ebay?.listing_id && (l.ebay.account || 'kinan') === 'kinan').length;
+  // what is live on the eBay account right now (it all counts against the monthly limit: price × quantity)
+  try {
+    const r = await ebay.trading('GetMyeBaySelling', '<ActiveList><Include>true</Include><Pagination><EntriesPerPage>200</EntriesPerPage><PageNumber>1</PageNumber></Pagination></ActiveList>', { marketplace: mk });
+    const items = ebay.kidsOf(ebay.kid(ebay.kid(r, 'ActiveList'), 'ItemArray'), 'Item').map((it) => {
+      const price = Number(ebay.kid(ebay.kid(it, 'SellingStatus'), 'CurrentPrice')?.text || ebay.kid(it, 'BuyItNowPrice')?.text || 0);
+      const qty = Number(ebay.kid(it, 'QuantityAvailable')?.text || ebay.kid(it, 'Quantity')?.text || 1);
+      return { id: ebay.kid(it, 'ItemID')?.text, title: ebay.kid(it, 'Title')?.text, sku: ebay.kid(it, 'SKU')?.text || '', price, qty };
+    });
+    facts.active = { count: items.length, value: r2(items.reduce((a, x) => a + x.price * x.qty, 0)), kinan: items.filter((x) => /^K-/.test(x.sku)).length, sample: items.slice(0, 8).map((x) => `${x.title} — ${x.price} × ${x.qty}`) };
+  } catch (e) { warnings.push(`Active eBay listings could not be read: ${e.message}`); }
   // business policies
   try {
     const opted = await ebay.api('GET', '/sell/account/v1/program/get_opted_in_programs');
@@ -137,10 +147,8 @@ async function launch({ n = 10 } = {}) {
     console.log('[ebay] launch check:', JSON.stringify({ ok: rv.ok, blockers: rv.blockers, warnings: rv.warnings, facts: rv.facts }).slice(0, 1500));
     if (!rv.ok) { saveState({ last: out }); await push.telegram(reviewText(rv, true)); return out; }
     // fit the monthly selling limit: units per listing so that n listings stay inside it
-    if (rv.facts.limit?.quantity) {
-      const per = Math.max(1, Math.min(E.prefs().max_qty, Math.floor(rv.facts.limit.quantity / Math.max(1, n + (rv.facts.inventory_items || 0)))));
-      if (per < E.prefs().max_qty) { E.savePrefs({ max_qty: per }); out.max_qty = per; }
-    }
+    // eBay counts price × quantity against the monthly limit: start new listings with 1 unit each (the hourly sync tops it up after a sale)
+    if (E.prefs().max_qty > 1) { E.savePrefs({ max_qty: 1 }); out.max_qty = 1; }
     await push.telegram(reviewText(rv, false));
     const picks = await E.bestPicks({ collection: null, n: Math.min(20, n * 2), list: false });
     for (const pk of picks.picks) {
@@ -177,7 +185,7 @@ function reviewText(rv, stopped) {
     `🔎 eBay check before listing — ${stopped ? '⛔ NOT listing' : '✅ all good, listing now'}`,
     `Account: ${f.account || '?'} (${f.env}) · site ${f.site} · ${f.currency}`,
     f.limit ? `Monthly selling limit: ${f.limit.quantity ?? '?'} items / ${f.limit.currency} ${f.limit.amount ?? '?'}` : '',
-    f.inventory_items != null ? `Already on eBay: ${f.inventory_items} item(s)` : '',
+    f.active ? `Live on eBay now: ${f.active.count} listing(s), worth ${f.currency} ${f.active.value} (price × quantity)${f.active.count ? `\n${f.active.sample.map((x) => `  · ${x}`).join('\n')}` : ''}` : '',
     f.policies ? `Returns: ${f.policies.returns}\nDelivery: ${f.policies.delivery}` : '',
     f.business_policies != null ? `Business policies: ${f.business_policies ? 'on' : 'off'}` : '',
     f.rate ? `Rate: 1 USD = ${f.rate} ${f.currency} · VAT ${f.vat_pct}% (eBay collects) · fees ${f.fee_pct}% · min profit ${f.min_margin_pct}%` : '',

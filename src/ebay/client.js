@@ -141,6 +141,7 @@ async function api1(method, path, body, { user = true, lang, marketplace, query 
     const errs = j.errors || [];
     const msg = errs.map((x) => x.longMessage || x.message).filter(Boolean).join(' · ') || `HTTP ${res.status}`;
     console.warn(`[ebay] ${method} ${path} → ${res.status}: ${msg}`.slice(0, 400));
+    if (/publish/.test(path)) console.warn('[ebay] publish error detail:', JSON.stringify(errs).slice(0, 1500));
     const e = httpError(res.status >= 500 ? 502 : res.status === 401 ? 409 : 400, `eBay: ${msg}`.slice(0, 600));
     e.errors = errs; e.ebayStatus = res.status;
     throw e;
