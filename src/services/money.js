@@ -88,7 +88,7 @@ function addMethod(seller, body) {
   if (list.some((x) => x.type === m.type && (x.iban || x.email) === key)) throw httpError(409, 'You already added this account');
   const cents = 51 + require('crypto').randomInt(0, 49);
   const rec = { id: `pm_${require('crypto').randomBytes(6).toString('hex')}`, ...m, status: 'pending_test', test_amount: cents / 100,
-    test_currency: m.type === 'bank' && /^GB/.test(m.iban) ? 'GBP' : m.type === 'bank' ? 'EUR' : 'USD', tries: 0, name_ok: nameMatches(seller, m.holder), created_at: Date.now(), is_default: !list.some((x) => x.status === 'verified') };
+    test_currency: m.type === 'bank' && /^GB/.test(m.iban) ? 'GBP' : m.type === 'bank' ? 'EUR' : 'USD', tries: 0, name_ok: nameMatches(seller, m.holder), created_at: Date.now(), is_default: false };
   saveMethods(seller, [...methodsOf(seller), rec]);
   try { require('../push').telegram(`🏦 Payout method to verify: ${seller.shop_name} — ${TYPES[m.type]} (${masked(rec)}). Send a test of ${rec.test_amount} ${rec.test_currency}.\n${config.publicBaseUrl}/admin`); } catch { /* optional */ }
   try { notify.payoutMethodChanged(seller, rec); } catch { /* optional */ }
@@ -114,7 +114,7 @@ function confirmMethod(seller, id, { amount }) {
   const a = Math.round(Number(String(amount).replace(',', '.')) * 100) / 100;
   if (!(a > 0)) throw httpError(400, 'Enter the amount you received, for example 0.73');
   const tries = (m.tries || 0) + 1; let upd;
-  if (a === m.test_amount) upd = { status: 'verified', verified_at: Date.now(), tries, is_default: m.is_default || !list.some((x) => x.status === 'verified') };
+  if (a === m.test_amount) upd = { status: 'verified', verified_at: Date.now(), tries, is_default: !list.some((x) => x.id !== id && x.status === 'verified' && x.is_default) };
   else upd = { tries, ...(tries >= TRIES ? { status: 'failed', note: 'The amount did not match 3 times. Kinan will check it with you.' } : {}) };
   const out = { ...m, ...upd };
   saveMethods(seller, list.map((x) => (x.id === id ? out : x)));
@@ -141,7 +141,7 @@ function decideMethod(sellerId, id, { action, note, reference }, admin) {
     if (!['pending_test', 'failed'].includes(m.status)) throw httpError(409, 'This account is not waiting for a test payment');
     const again = m.status === 'failed';
     upd = { status: 'test_sent', test_sent_at: Date.now(), test_reference: str(reference, 80), tries: 0, note: null, ...(again ? { test_amount: (51 + require('crypto').randomInt(0, 49)) / 100 } : {}), by: admin.id };
-  } else if (action === 'verify') upd = { status: 'verified', verified_at: Date.now(), verified_by: admin.id, note: str(note, 200) || 'Verified by Kinan' };
+  } else if (action === 'verify') upd = { status: 'verified', verified_at: Date.now(), verified_by: admin.id, note: str(note, 200) || 'Verified by Kinan', is_default: !list.some((x) => x.id !== id && x.status === 'verified' && x.is_default) };
   else if (action === 'reject') {
     if (!str(note, 300)) throw httpError(400, 'Tell the seller why');
     upd = { status: 'rejected', note: str(note, 300), by: admin.id };
