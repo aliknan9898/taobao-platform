@@ -85,6 +85,9 @@
   .srcico.tb { background: #ff5000; } .srcico.ae { background: #e62e04; font-size: 14px; } .srcico.mn { background: var(--jade); }
   .callout { font-size: 13px; padding: 10px 12px; border-radius: var(--r-md); background: var(--chip); color: var(--ink-2); }
   .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.kgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin: 14px 0; }
+.kitem { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.kitem img, .kitem .kimg { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--surface-2, #f2f4f7); }
 </style>
 </head>
 <body>
@@ -128,7 +131,7 @@ function shell() {
 }
 async function signOut() { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; shop = null; authScreen(); }
 
-const routes = [[/^#\/?$/, dashboard], [/^#\/products$/, products], [/^#\/add$/, addStart], [/^#\/edit\/([\w-]+)$/, editProduct], [/^#\/review$/, editorScreen], [/^#\/manual(?:\/([\w-]+)|\?(ae))?$/, manualForm], [/^#\/orders$/, orders], [/^#\/earnings$/, earnings], [/^#\/ebay$/, ebayPage], [/^#\/settings$/, settings]];
+const routes = [[/^#\/?$/, dashboard], [/^#\/products$/, products], [/^#\/add$/, addStart], [/^#\/catalog(?:\?(.*))?$/, catalogPage], [/^#\/edit\/([\w-]+)$/, editProduct], [/^#\/review$/, editorScreen], [/^#\/manual(?:\/([\w-]+)|\?(ae))?$/, manualForm], [/^#\/orders$/, orders], [/^#\/earnings$/, earnings], [/^#\/ebay$/, ebayPage], [/^#\/settings$/, settings]];
 async function route() {
   if (!me) return;
   if (shop && shop.terms_ok === false) return termsScreen();
@@ -241,16 +244,22 @@ async function products() {
           ${p.status === 'rejected' && p.review?.reason ? `<div class="small bad">Kinan’s note: ${esc(p.review.reason)}</div>` : ''}
           ${p.sync_error ? `<div class="small warn">${esc(p.sync_error)}</div>` : ''}
           ${p.ai_review?.at && p.ai_review.decision === 'ok' ? `<div class="small muted">✓ Checked by Kinan AI${[p.ai_review.removed_photos ? `${p.ai_review.removed_photos} photo(s) taken off` : '', (p.ai_review.photo_issues || []).some((x) => x.verdict === 'fix') ? 'some photos have text or blur — upload cleaner ones if you can' : ''].filter(Boolean).map((x) => ` · ${x}`).join('')}</div>` : ''}
-          ${p.price_alert?.skus?.length ? `<div class="small bad">Supplier price went up — ${p.price_alert.skus.map((s) => `${esc(s.props || 'Standard')}: price ${money(s.price, p.currency)} < cost ${money(s.cost, p.currency)}`).join('; ')}.${p.price_alert.paused ? ' Paused to avoid a loss.' : ''} Raise the price.</div>` : ''}</div>
+          ${p.price_alert?.skus?.length ? `<div class="small bad">${p.supplier_hidden ? "Kinan price went up" : "Supplier price went up"} — ${p.price_alert.skus.map((s) => `${esc(s.props || 'Standard')}: price ${money(s.price, p.currency)} < cost ${money(s.cost, p.currency)}`).join('; ')}.${p.price_alert.paused ? ' Paused to avoid a loss.' : ''} Raise the price.</div>` : ''}</div>
         <div class="row acts">
-          <a class="btn sm ghost" href="${['manual', 'aliexpress'].includes(p.source) ? '#/manual/' : '#/edit/'}${esc(p.id)}">Edit</a>
+          ${p.supplier_hidden ? `<button class="btn sm ghost" data-kprice="${esc(p.id)}">Change price</button>` : `<a class="btn sm ghost" href="${['manual', 'aliexpress'].includes(p.source) ? '#/manual/' : '#/edit/'}${esc(p.id)}">Edit</a>`}
           ${p.status === 'active' ? `<button class="btn sm ghost" data-st="paused" data-id="${esc(p.id)}">Pause</button>` : ''}
           ${p.status === 'paused' ? `<button class="btn sm" data-st="active" data-id="${esc(p.id)}">Go live</button>` : ''}
-          ${p.source === 'cj' ? `<span class="pill">CJdropshipping · ships direct</span><button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : p.source === 'aliexpress' ? `<span class="pill">AliExpress · ships direct</span>${p.ae_product_id && cfg.aliexpress?.import ? `<button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : ''}` : p.source === 'manual' ? '<span class="muted small">Added manually</span>' : `<button class="btn sm quiet" data-sync="${esc(p.id)}" title="Refresh cost and stock from Taobao">Refresh</button>`}
+          ${p.source === 'kinan' || p.supplier_hidden ? '<span class="pill">Kinan catalogue · Kinan ships it</span>' : p.source === 'cj' ? `<span class="pill">${shop?.supplier_imports ? 'CJdropshipping' : 'Kinan'} · ships direct</span><button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : p.source === 'aliexpress' ? `<span class="pill">${shop?.supplier_imports ? 'AliExpress' : 'Kinan'} · ships direct</span>${p.ae_product_id && cfg.aliexpress?.import ? `<button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : ''}` : p.source === 'manual' ? '<span class="muted small">Added manually</span>' : `<button class="btn sm quiet" data-sync="${esc(p.id)}" title="Refresh cost and stock from Taobao">Refresh</button>`}
         </div></div>`; }).join('') || `<div class="empty"><h3>${list.length ? 'Nothing in this list' : 'No products yet'}</h3><p>Paste a Taobao link to import your first product.</p><a class="btn" href="#/add">Add product</a></div>`}</section>
     <p class="muted">New products and changes to titles, descriptions or photos are reviewed by Kinan before buyers see them. Price changes go live right away.</p>`;
   $$('[data-f]').forEach((b) => b.onclick = () => { prodFilter = b.dataset.f; products(); });
   $$('[data-st]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/seller/products/${b.dataset.id}`, 'PATCH', { status: b.dataset.st }); toast(b.dataset.st === 'active' ? 'Product is live' : 'Product paused'); } catch (e) { toast(e.message); } products(); });
+  $$('[data-kprice]').forEach((b) => b.onclick = async () => {
+    const p = list.find((x) => x.id === b.dataset.kprice); if (!p) return;
+    const prices = {};
+    for (const k of p.skus) { const v = prompt(`${k.props || 'Price'} — Kinan price ${Number(k.kinan_price).toFixed(2)}. Your price:`, Number(k.price).toFixed(2)); if (v === null) return; prices[k.mp_sku_id] = Number(v); }
+    try { await api(`/api/seller/products/${p.id}`, 'PATCH', { prices }); toast('Price saved'); products(); } catch (e) { toast(e.message); }
+  });
   $$('[data-sync]').forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = 'Refreshing…'; try { await api(`/api/seller/products/${b.dataset.sync}/resync`, 'POST'); toast('Cost and stock updated'); } catch (e) { toast(e.message); } products(); });
 }
 
@@ -258,13 +267,59 @@ async function products() {
 function stepper(n) {
   return `<div class="steps">${['Paste link', 'Edit details', 'Kinan review'].map((t, i) => `${i ? '<i></i>' : ''}<span class="${i + 1 <= n ? 'on' : ''}"><b>${i + 1}</b> ${t}</span>`).join(' ')}</div>`;
 }
+// ---------- Kinan catalogue ----------
+async function catalogPage(qs = '') {
+  const v = $('#view');
+  const P = new URLSearchParams(qs || ''); const q = P.get('q') || ''; const dept = P.get('dept') || ''; const page = Number(P.get('page')) || 1;
+  v.innerHTML = '<div class="skeleton" style="height:240px"></div>';
+  const d = await api(`/api/seller/kinan-catalog?q=${encodeURIComponent(q)}&dept=${encodeURIComponent(dept)}&page=${page}`);
+  const m = (n) => K.money ? K.money(n, cfg.currency) : `${Number(n).toFixed(2)}`;
+  const go = (o) => { const n = new URLSearchParams({ q, dept, page: 1, ...o }); for (const [k, val] of [...n]) if (!val || val === '1' && k === 'page' && !o.page) n.delete(k); location.hash = `#/catalog${[...n].length ? `?${n}` : ''}`; };
+  v.innerHTML = `<div class="head"><div><h1>Kinan catalogue</h1><p class="muted">${d.total} products ready to sell. You pay the Kinan price only when a customer buys; your profit is your price − the Kinan price − Kinan’s commission. Delivery is added at checkout.</p></div></div>
+    <form class="row" id="kcf" style="gap:8px;flex-wrap:wrap"><input name="q" value="${esc(q)}" placeholder="Search products" style="flex:1;min-width:180px">
+      <select name="dept"><option value="">All departments</option>${d.departments.map((x) => `<option value="${esc(x.id)}" ${x.id === dept ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select><button class="btn">Search</button></form>
+    <div class="kgrid">${d.items.map((x) => `<div class="panel kitem">
+        ${x.image ? `<img src="${esc(x.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="kimg"></div>'}
+        <b class="small">${esc(x.title)}</b>
+        <div class="small muted">Kinan price <b>${m(x.kinan_price)}</b>${x.options > 1 ? ' (from)' : ''}${x.delivery_days ? ` · delivery ${esc(x.delivery_days)} days` : ''}</div>
+        ${x.added ? '<span class="pill ok">In your shop</span>' : `<button class="btn sm" data-kadd="${esc(x.id)}">Add to my shop</button>`}
+      </div>`).join('') || '<div class="empty"><h3>Nothing found</h3><p>Try another word or department.</p></div>'}</div>
+    ${d.pages > 1 ? `<div class="row" style="justify-content:center;gap:8px">${page > 1 ? `<button class="btn ghost sm" data-pg="${page - 1}">‹ Previous</button>` : ''}<span class="muted small">Page ${d.page} of ${d.pages}</span>${page < d.pages ? `<button class="btn ghost sm" data-pg="${page + 1}">Next ›</button>` : ''}</div>` : ''}
+    <div id="kdlg"></div>`;
+  $('#kcf').onsubmit = (e) => { e.preventDefault(); go({ q: e.target.q.value.trim(), dept: e.target.dept.value }); };
+  $$('[data-pg]').forEach((b) => b.onclick = () => go({ page: b.dataset.pg }));
+  $$('[data-kadd]').forEach((b) => b.onclick = () => catalogAdd(b.dataset.kadd));
+}
+async function catalogAdd(id) {
+  const box = $('#kdlg'); box.innerHTML = '<div class="skeleton" style="height:160px"></div>'; box.scrollIntoView({ behavior: 'smooth' });
+  const d = await api(`/api/seller/kinan-catalog/${id}`);
+  box.innerHTML = `<div class="panel stack"><h2 style="margin:0">${esc(d.title)}</h2>
+    <div class="photos">${d.images.slice(0, 6).map((u) => `<img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer">`).join('')}</div>
+    <div class="scroll"><table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>Kinan price</th><th>Your price</th><th>Your profit*</th></tr></thead><tbody>
+      ${d.options.map((o) => `<tr><td>${esc(o.props)}</td><td class="num">${o.kinan_price.toFixed(2)}</td><td class="num"><input type="number" step="0.01" min="${(o.kinan_price + 0.01).toFixed(2)}" data-kp="${o.kinan_price}" data-sku="${esc(o.mp_sku_id)}" value="${o.suggested_price.toFixed(2)}" style="width:90px"></td><td class="num" data-pf></td></tr>`).join('')}</tbody></table></div>
+    <p class="muted small">*Before Kinan’s commission (${esc(shop?.commission_pct ?? '')}%). ${d.delivery_days ? `Delivery to the customer: about ${esc(d.delivery_days)} days.` : ''}</p>
+    <div class="row"><button class="btn" id="kgo">Add to my shop</button><button class="btn ghost" id="kno" type="button">Cancel</button><span class="error" id="ke"></span></div></div>`;
+  const calc = () => $$('[data-sku]').forEach((i) => { const pf = Number(i.value) - Number(i.dataset.kp); i.closest('tr').querySelector('[data-pf]').innerHTML = `<b class="${pf > 0 ? 'ok' : 'bad'}">${pf.toFixed(2)}</b>`; });
+  $$('[data-sku]').forEach((i) => i.oninput = calc); calc();
+  $('#kno').onclick = () => { box.innerHTML = ''; };
+  $('#kgo').onclick = async () => {
+    const prices = {}; $$('[data-sku]').forEach((i) => { prices[i.dataset.sku] = Number(i.value); });
+    $('#kgo').disabled = true;
+    try { await api(`/api/seller/kinan-catalog/${id}`, 'POST', { prices }); toast('Added to your shop — it is live'); route(); }
+    catch (e) { $('#ke').textContent = e.message; $('#kgo').disabled = false; }
+  };
+}
 function addStart(err = '') {
   const v = $('#view');
   const connected = cfg.taobao_kinan || shop.taobao?.connected;
-  v.innerHTML = `<div class="head"><div><h1>Add product</h1><p class="muted">Choose where your product comes from.</p></div></div>
-    <a class="panel ebaycta" href="#/ebay">${cfg.ebay_icon ? `<span class="srcico ebayico img"><img src="${esc(cfg.ebay_icon)}" alt="eBay"></span>` : '<span class="srcico ebayico">eBay</span>'}<div><b>Sell on eBay</b><div class="muted small">Your CJ products from European and UK warehouses can also be sold on eBay — on Kinan’s eBay shop or your own eBay account. Kinan ships every order.</div><div class="small" id="ebaystat"></div></div><span class="btn sm">Open</span></a>
+  const sup = Boolean(shop?.supplier_imports);
+  v.innerHTML = `<div class="head"><div><h1>Add product</h1><p class="muted">${sup ? 'Choose where your product comes from.' : 'Pick products from the Kinan catalogue, or add your own.'}</p></div></div>
+    <a class="panel ebaycta" href="#/ebay">${cfg.ebay_icon ? `<span class="srcico ebayico img"><img src="${esc(cfg.ebay_icon)}" alt="eBay"></span>` : '<span class="srcico ebayico">eBay</span>'}<div><b>Sell on eBay</b><div class="muted small">Your products from European and UK warehouses can also be sold on eBay — on Kinan’s eBay shop or your own eBay account. Kinan ships every order.</div><div class="small" id="ebaystat"></div></div><span class="btn sm">Open</span></a>
     <div class="srcgrid">
-      <section class="panel stack srccard"><div class="srchead"><span class="srcico tb">淘</span><div><b>From Taobao</b><div class="muted small">Ships to Kinan’s China warehouse, is checked, then sent with the customer’s other items.</div></div></div>
+      <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">K</span><div><b>From the Kinan catalogue</b><div class="muted small">Ready products, checked by Kinan, with clear photos and delivery in 15 days or less. You set your price; Kinan buys and ships each order.</div></div></div>
+        <a class="btn" href="#/catalog">Browse the Kinan catalogue</a>
+      </section>
+      ${sup ? `<section class="panel stack srccard"><div class="srchead"><span class="srcico tb">淘</span><div><b>From Taobao</b><div class="muted small">Ships to Kinan’s China warehouse, is checked, then sent with the customer’s other items.</div></div></div>
         ${connected ? `<form class="stack" id="lf"><label class="field">Taobao or Tmall link<input name="link" required placeholder="https://item.taobao.com/item.htm?id=…" autocomplete="off"></label>
           <span class="muted small">You can also paste just the product ID.</span><div class="error">${esc(err)}</div><button class="btn" id="go">Import product</button></form>`
         : `<p class="small">Import by Taobao link will be available soon. Meanwhile, <a href="#/manual">add the product manually</a>.</p>`}
@@ -281,9 +336,9 @@ function addStart(err = '') {
         <details id="bgbrowse"><summary class="small" style="cursor:pointer"><b>Or browse Banggood by category</b></summary>
           <div class="stack" style="margin-top:10px"><label class="field">Category<select id="bgcatsel"><option value="">Loading…</option></select></label><div id="bglist" class="stack"></div></div></details>
         <div id="bgprev" class="stack"></div>
-      </section>` : ''}
-      <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">✎</span><div><b>Add manually</b><div class="muted small">Any Taobao item — type it in yourself. Kinan buys it when it sells.</div></div></div>
-        <p class="small">No Taobao account needed.</p><a class="btn ghost" href="#/manual">Add manually</a>
+      </section>` : ''}` : ''}
+      <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">✎</span><div><b>Add manually</b><div class="muted small">${sup ? 'Any Taobao item — type it in yourself. Kinan buys it when it sells.' : 'Your own product — type in the title, photos, options and price.'}</div></div></div>
+        <a class="btn ghost" href="#/manual">Add manually</a>
       </section>
       <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">⇪</span><div><b>Upload a spreadsheet</b><div class="muted small">Many products at once from Excel or Google Sheets (saved as CSV).</div></div></div>
         <p class="small">Columns: title, price, stock, option, cost_cny, category, weight_kg, source_link, image_urls, description. Rows with the same title become one product with options. Leave the price empty to use your markup on cost_cny.</p>
@@ -659,7 +714,7 @@ function orderRow(o) {
     <div style="display:grid;gap:4px;min-width:0"><div class="row"><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><span class="muted">${date(o.created_at)}</span></div>
       <div class="small">${o.lines.map((l) => `${l.qty} × ${esc(l.title)}${l.props ? ` <span class="muted">(${esc(variantLabel(l.props))})</span>` : ''}`).join('<br>')}</div>
       <div class="row">${pill(o.status_label, ['delivered', 'shipped'].includes(o.status) ? 'ok' : ['cancelled', 'refunded'].includes(o.status) ? 'bad' : 'warn')}
-        ${p ? pill(p.manual ? p.status_label : `${p.direct ? (p.source === 'cj' ? 'CJ' : 'AliExpress') : 'Taobao'}: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
+        ${p ? pill(p.manual ? p.status_label : `${p.direct ? (shop?.supplier_imports ? (p.source === 'cj' ? 'CJ' : 'AliExpress') : 'Kinan') : 'Taobao'}: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
         ${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
       ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
       ${(p?.logistics || []).length ? `<div class="small muted">${p.direct ? 'To the customer' : 'To warehouse'}: ${p.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}</div>
@@ -701,7 +756,7 @@ async function ebayPage() {
   const ownOk = d.own && d.own.connected;
   const canList = d.enabled && (d.mode === 'own' ? ownOk : d.approved && d.kinan_connected);
   const stLabel = { live: '<span class="pill ok">On eBay</span>', ready: '<span class="pill">Ready</span>', failed: '<span class="pill bad">Failed</span>', not_eligible: '<span class="pill">Not for eBay</span>' };
-  v.innerHTML = `<div class="pagehead"><div><h1>Sell on eBay</h1><p class="muted">Show your products to eBay’s shoppers in the UK and Europe. Kinan ships every order from the supplier’s warehouse, just like Kinan orders, and sends the tracking to eBay.</p></div></div>
+  v.innerHTML = `<div class="pagehead"><div><h1>Sell on eBay</h1><p class="muted">Show your products to eBay’s shoppers in the UK and Europe. Kinan ships every order from its warehouses, just like Kinan orders, and sends the tracking to eBay.</p></div></div>
     <div class="card stack">
       <label class="row" style="gap:10px"><input type="checkbox" id="ebon" ${d.enabled ? 'checked' : ''}> <b>Sell my products on eBay</b></label>
       <div class="grid2" style="display:grid;grid-template-columns:1fr;gap:12px">
@@ -714,7 +769,7 @@ async function ebayPage() {
       ${d.job?.running ? `<p class="small">Listing… ${d.job.done}/${d.job.total}</p>` : ''}<span class="muted small" id="ebm"></span>
     </div>
     <div class="card"><h2>Products <span class="muted small">${live} on eBay · ${ready} ready</span></h2>
-      <p class="muted small">CJ products from European or UK warehouses can go on eBay (fast delivery is what eBay shoppers expect).</p>
+      <p class="muted small">Products with fast delivery from European or UK warehouses can go on eBay (fast delivery is what eBay shoppers expect).</p>
       ${d.products.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Status</th><th>eBay price</th><th></th></tr></thead><tbody>${d.products.map((p) => `<tr><td>${esc(p.title)}${p.reason && p.status !== 'live' ? `<div class="muted small">${esc(p.reason)}</div>` : ''}</td><td>${stLabel[p.status] || ''}</td><td>${p.price != null ? esc(String(p.price)) : '—'}</td><td>${p.status === 'live' ? `<button class="btn sm quiet" data-ebend="${esc(p.id)}">End</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No CJ products yet — add products from CJdropshipping first.</p>'}</div>
     <div class="card"><h2>eBay orders</h2>${d.orders.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>eBay order</th><th>Items</th><th>Sold for</th><th>eBay fees</th><th>Product + delivery</th><th>Kinan ${d.pct}%</th><th>Your share</th><th>Status</th></tr></thead><tbody>${d.orders.map((o) => `<tr><td>${date(o.created)}</td><td>${esc(o.ebay_order || '')}</td><td class="small">${esc(o.items)}</td><td>${m(o.money.revenue)}</td><td>${m(o.money.fees)}</td><td>${m(o.money.goods + o.money.ship)}</td><td>${m(o.money.cut)}</td><td><b>${m(o.money.seller_net)}</b></td><td>${o.to_pay ? `<button class="btn sm" data-ebpay="${esc(o.id)}">Pay ${m(o.to_pay)} to ship</button>` : esc(o.status)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No eBay orders yet. They appear here within 15 minutes of being paid on eBay.</p>'}
       <p class="muted small">Your share = what the buyer paid − eBay’s fees (about 12.8% + a small fixed fee) − the product and delivery − Kinan’s ${d.pct}% of what is left. VAT on these orders is collected and paid by eBay.</p></div>`;

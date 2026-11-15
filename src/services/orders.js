@@ -105,9 +105,9 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       line_no: String(lines.length + 1), listing_id: l.id, seller_id: l.seller_id,
       mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: sku.props,
       ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
-      ...(l.fulfillment === 'direct' && l.source === 'cj' ? { direct: true, source: 'cj', source_link: l.source_link || '', cj_pid: l.cj_pid, cj_vid: sku.cj_vid, cj_from: l.cj_from || 'CN', cost_sale: sku.cost_sale ?? null } : {}),
-      ...(l.fulfillment === 'direct' && l.source === 'banggood' ? { direct: true, source: 'banggood', source_link: l.source_link || '', bg_pid: l.bg_pid, bg_poa: sku.bg_poa || '', bg_warehouse: l.bg_warehouse || 'CN', cost_sale: sku.cost_sale ?? null } : {}),
-      ...(l.fulfillment === 'direct' && !['cj', 'banggood'].includes(l.source) ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null } : {}),
+      ...(l.fulfillment === 'direct' && l.source === 'cj' ? { direct: true, source: 'cj', source_link: l.source_link || '', cj_pid: l.cj_pid, cj_vid: sku.cj_vid, cj_from: l.cj_from || 'CN', cost_sale: sku.cost_sale ?? null, ...(l.from_kinan ? { seller_cost: require('./kinanCatalog').lineCost(l, sku), from_kinan: l.from_kinan } : {}) } : {}),
+      ...(l.fulfillment === 'direct' && l.source === 'banggood' ? { direct: true, source: 'banggood', source_link: l.source_link || '', bg_pid: l.bg_pid, bg_poa: sku.bg_poa || '', bg_warehouse: l.bg_warehouse || 'CN', cost_sale: sku.cost_sale ?? null, ...(l.from_kinan ? { seller_cost: require('./kinanCatalog').lineCost(l, sku), from_kinan: l.from_kinan } : {}) } : {}),
+      ...(l.fulfillment === 'direct' && !['cj', 'banggood'].includes(l.source) ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null, ...(l.from_kinan ? { seller_cost: require('./kinanCatalog').lineCost(l, sku), from_kinan: l.from_kinan } : {}) } : {}),
       image: (l.own_images || []).length ? catalog.photoUrl(l, 0, l.own_images[0]) : (l.images || [])[0] || null,
       ...(l.source === 'manual' || (l.source === 'aliexpress' && !sku.ae_sku_id) ? { own_stock: true } : {}), // typed-in stock, not synced from an API
       qty, price: require('./deals').priceOf(l, sku), ...(require('./deals').dealFor(l) ? { deal_pct: require('./deals').dealFor(l).pct, list_price: sku.price } : {}), cost_cny: sku.cost_cny
@@ -169,7 +169,8 @@ async function markPaid(orderId, { provider, intent_id }) {
     // have their purchase cost deducted from the seller's earnings. (Only with a seller's own Taobao account,
     // the old setup, does the seller pay Taobao directly, so nothing is deducted.)
     const kinanBuysTaobao = require('../taobao/sellerAuth').platformConnected();
-    const cost = money(lines.reduce((a, l) => a + (l.direct ? Number(l.cost_sale || 0) : (l.manual || kinanBuysTaobao) && l.cost_cny ? l.cost_cny / config.cnyRate : 0) * l.qty, 0));
+    // Kinan-catalogue products: the seller pays the Kinan price (supplier cost + Kinan's share), not the supplier cost
+    const cost = money(lines.reduce((a, l) => a + (l.direct ? Number(l.seller_cost ?? l.cost_sale ?? 0) : (l.manual || kinanBuysTaobao) && l.cost_cny ? l.cost_cny / config.cnyRate : 0) * l.qty, 0));
     db.ledger.insert({ order_id: o.id, seller_id: sellerId, type: 'sale', currency: o.currency, gross, commission, cost, net: money(gross - commission - cost), status: 'pending_payout' });
   }
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));

@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+process.env.SELLER_SUPPLIER_IMPORTS = '1'; // these tests import from suppliers as a seller (in production that is Kinan only)
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'plat-'));
 Object.assign(process.env, {
   TAOBAO_APP_KEY: 'appk', TAOBAO_APP_SECRET: 'apps', TAOBAO_API_URL: 'http://taobao.mock/rest',
