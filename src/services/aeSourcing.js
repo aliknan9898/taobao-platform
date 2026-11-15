@@ -140,6 +140,7 @@ async function run({ count } = {}, by = 'auto') {
           const eus = inStock.find((s) => s.mp_sku_id === gb?.sku) || inStock[0];
           eu = await freight(c.id, eus.ae_sku_id, 'DE');
         } catch (e) { skip('delivery check failed', c.id); console.warn('[ae-sourcing] freight', c.id, e.message); continue; }
+        if (gb) { const b = gb.days <= 10 ? '≤10' : gb.days <= 14 ? '11-14' : gb.days <= 20 ? '15-20' : gb.days <= 30 ? '21-30' : '30+'; st.days = st.days || {}; st.days[b] = (st.days[b] || 0) + 1; } else { st.days = st.days || {}; st.days.none = (st.days.none || 0) + 1; }
         if (!gb || gb.days > p.max_days) { skip(`no UK delivery in ${p.max_days} days`, c.id); continue; }
         // add (not visible until the AI keeps it)
         let l;
@@ -170,7 +171,7 @@ async function run({ count } = {}, by = 'auto') {
     running = false; st.running = false; st.finished_at = now();
     save((x) => ({ ...x, last: st, tried: [...tried].slice(-3000) }));
   }
-  console.log(`[ae-sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}`);
+  console.log(`[ae-sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)} fastest UK delivery (days): ${JSON.stringify(st.days || {})}${st.error ? ` — ${st.error}` : ''}`);
   if (st.added || st.error) src.telegramReport(st, added, 'Kinan × AliExpress catalog builder');
   return st;
 }
