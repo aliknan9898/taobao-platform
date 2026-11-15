@@ -294,7 +294,17 @@ function cartReminders(now = Date.now()) {
   return n;
 }
 
-module.exports = {
+/** A sample cart reminder to `to` with real products from the shop (for the owner to see the email). */
+function testCartMail(to, lang) {
+  const items = db.listings.all((l) => l.status === 'active' && ((l.images || []).length || (l.own_images || []).length)).sort((a, b) => (b.created_at || 0) - (a.created_at || 0)).slice(0, 3)
+    .map((l, i) => ({ listing_id: l.id, mp_sku_id: l.skus?.[0]?.mp_sku_id, qty: i === 1 ? 2 : 1, title: l.title }));
+  const products = cartProducts({ items }, { lang });
+  if (!products.length) throw require('../auth').httpError(409, 'No products with photos to show');
+  return mailer.send({ to, kind: 'growth', lang: lang || 'en', subject: '[TEST] You left something in your Kinan cart', title: 'Still thinking about it?',
+    lines: [`${products.length} item(s) are waiting in your cart:`, 'Prices and stock can change, so complete your order soon.'], button: { text: 'Go to your cart', url: `${base()}/#/cart` }, products });
+}
+
+module.exports = { testCartMail,
   saveCoupon, couponFor, redeem, ensureWelcome, normCode,
   refCode, attachReferrer, payReferrals, referralInfo, REF_REWARD,
   wishlist, save, unsave, isSaved, wishlistAlerts,

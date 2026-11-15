@@ -481,6 +481,7 @@ r('GET', '/api/admin/overview', STAFF, async () => admin.overview());
 // Live visitors (Kinan Shop / Seller Center heartbeats)
 r('POST', '/api/presence', null, async ({ req }) => ({ ok: require('./services/presence').ping(await readJson(req).catch(() => ({}))) }));
 r('GET', '/api/admin/live', STAFF, async () => require('./services/presence').counts());
+r('POST', '/api/admin/test-cart-mail', ADMIN, async ({ user }) => { const m = await require('./services/growth').testCartMail(user.email); return { status: m?.status, to: user.email }; });
 // The owner's Kinan business dashboard: Kinan's own products, sales, profit, eBay and the other shops
 r('GET', '/api/admin/kinan', ADMIN, async ({ url }) => require('./services/kinanDash').dashboard({ days: url.searchParams.get('days') }));
 r('GET', '/api/admin/kinan/products.csv', ADMIN, async ({ url, res }) => {
@@ -1049,6 +1050,8 @@ if (require.main === module) (async () => {
       console.log(`[ebay] keys found: ${near.map((k) => JSON.stringify(k)).join(', ')} · missing: ${['EBAY_CLIENT_ID', 'EBAY_CLIENT_SECRET', 'EBAY_RUNAME'].filter((k) => !String(process.env[k] || '').trim()).join(', ') || 'none'}`);
       if (require('./ebay/client').configured()) require('./ebay/client').checkKeys().then((r) => { console.log(`[ebay] ${r}`); const c = require('./ebay/client'); if (c.connected()) { c.whoAmI().catch((e) => console.warn('[ebay] GetUser:', e.message)); setTimeout(() => require('./cj/client').background(() => require('./services/ebay').autopick()).catch((e) => console.warn('[ebay] autopick', e.message)), 60000); } }).catch((e) => console.warn(`[ebay] key check: ${e.message}`));
     } }
+  // once: a sample cart reminder (with the shop's real product photos) to the owner
+  setTimeout(() => { try { if (!db.settings.get('test_cart_mail_v1') && !process.env.NODE_TEST_CONTEXT) { const to = config.adminGoogleEmails[0] || config.bootstrapAdminEmail; if (to) { db.settings.insert({ id: 'test_cart_mail_v1', at: Date.now() }); require('./services/growth').testCartMail(to).then((m) => console.log('[mail] test cart email:', m?.status)).catch((e) => console.warn('[mail] test cart:', e.message)); } } } catch (e) { console.warn('[mail] test cart:', e.message); } }, 60e3).unref();
   // once: sort the whole shop into departments (products imported before departments existed showed nowhere)
   setTimeout(() => { try { if (!db.settings.get('reclassify_v1') && !process.env.NODE_TEST_CONTEXT) { db.settings.insert({ id: 'reclassify_v1', at: Date.now() }); require('./cj/client').background(() => runReclassify(require('./services/sourcing'))).catch((e) => console.warn('[classify]', e.message)); } } catch (e) { console.warn('[classify]', e.message); } }, 45e3).unref();
   try { require('./services/seasonal').ensureCoupon(); } catch (e) { console.warn('[xmas] coupon:', e.message); }
