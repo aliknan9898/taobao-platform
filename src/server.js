@@ -612,6 +612,8 @@ r('PUT', '/api/admin/ebay/icon', ADMIN, async ({ req }) => {
   return { icon: `/brand/ebay-icon?v=${doc.at}` };
 });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
+r('GET', '/api/admin/delivery-audit', ADMIN, async () => require('./services/deliveryAudit').status());
+r('POST', '/api/admin/delivery-audit', ADMIN, async () => { require('./cj/client').background(() => require('./services/deliveryAudit').run({ restart: true })).catch(() => {}); return { started: true }; });
 r('GET', '/api/admin/ae-sourcing', ADMIN, async () => require('./services/aeSourcing').status());
 r('PUT', '/api/admin/ae-sourcing', ADMIN, async ({ req }) => require('./services/aeSourcing').savePrefs(await readJson(req)));
 r('POST', '/api/admin/ae-sourcing/run', ADMIN, async ({ req }) => { const A = require('./services/aeSourcing'); if (A._running()) throw httpError(409, 'Already running'); const n = Number((await readJson(req)).count) || undefined; require('./cj/client').background(() => A.run({ count: n }, 'admin')).catch((e) => console.warn('[ae-sourcing]', e.message)); return { started: true }; });
@@ -993,6 +995,9 @@ function startJobs() {
   every(3600e3, async () => warehouse.releaseExpired());
   every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); });
   every(15 * 60e3, async () => growth.cartReminders());
+  // delivery check of the live catalogue (≤15 days): once after this update, then it resumes until done
+  setTimeout(() => { if (!db.settings.get('delivery_audit_v1')) { db.settings.insert({ id: 'delivery_audit_v1', at: Date.now() }); require('./cj/client').background(() => require('./services/deliveryAudit').run({ restart: true })).catch((e) => console.warn('[delivery-audit]', e.message)); } }, 90e3).unref?.();
+  every(30 * 60e3, () => require('./services/deliveryAudit').tick());
   // AliExpress catalog builder (same rules as CJ: ≤10 days delivery, AI review, clean photos) — every 30 minutes, first run 4 minutes after start
   setTimeout(() => require('./services/aeSourcing').tick(), 4 * 60e3).unref?.(); every(30 * 60e3, () => require('./services/aeSourcing').tick());
   every(5 * 60e3, () => require('./services/deals').tick());

@@ -455,4 +455,4 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
   for (const t of msgs.slice(0, 12)) push.telegram(t);
 }
 
-module.exports = { applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
+module.exports = { delivery, applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
