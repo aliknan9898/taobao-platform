@@ -66,7 +66,7 @@ const config = {
     appKey: e.ALIEXPRESS_APP_KEY || '', appSecret: e.ALIEXPRESS_APP_SECRET || '',
     apiUrl: (e.ALIEXPRESS_API_URL || 'https://api-sg.aliexpress.com').replace(/\/$/, ''),
     shippingService: e.ALIEXPRESS_SHIPPING_SERVICE || '', // e.g. CAINIAO_STANDARD; empty = AliExpress default
-    deliveryDays: e.ALIEXPRESS_DELIVERY_DAYS || '10–20'
+    deliveryDays: e.ALIEXPRESS_DELIVERY_DAYS || '7–15'
   },
 
   // Your China warehouse — every Taobao purchase order ships here

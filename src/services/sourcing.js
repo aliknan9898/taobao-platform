@@ -115,7 +115,8 @@ function prefs() {
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || 70)),
     min_cost: Math.max(0, Number(p.min_cost ?? 2)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40)),
     min_listed: Math.max(0, Math.floor(Number(p.min_listed ?? 20))), min_stock: Math.max(1, Math.floor(Number(p.min_stock) || 20)),
-    max_days_eu: Math.min(30, Math.max(2, Math.floor(Number(p.max_days_eu) || 7))), max_days_gb: Math.min(30, Math.max(2, Math.floor(Number(p.max_days_gb) || 10))),
+    // the owner's rule: nothing that takes more than 15 days to arrive (CJ and AliExpress)
+    max_days_eu: Math.min(15, Math.max(2, Math.floor(Number(p.max_days_eu) || 15))), max_days_gb: Math.min(15, Math.max(2, Math.floor(Number(p.max_days_gb) || 15))),
     min_quality: Math.min(10, Math.max(1, Math.floor(Number(p.min_quality) || 7))), per_keyword: Math.min(20, Math.max(1, Math.floor(Number(p.per_keyword) || 4))),
     warehouses: (list(p.warehouses).length ? p.warehouses : EUROPE).map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x) && x !== 'CN'),
     departments: deps.length ? deps : Object.keys(DEPARTMENTS)

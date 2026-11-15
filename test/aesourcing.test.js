@@ -39,7 +39,7 @@ ai.structured = async ({ text }) => {
 test('AliExpress builder: only fast, AI-approved products with clean photos are added, sorted and live', async () => {
   const st = await A.run({ count: 5 }, 'test');
   assert.strictEqual(st.added, 1, JSON.stringify(st.reasons));
-  assert.ok(st.reasons['no UK delivery in 14 days'] >= 1);
+  assert.ok(st.reasons['no UK delivery in 15 days'] >= 1);
   assert.ok(st.reasons['AI: fewer than 2 clean photos'] >= 1);
   assert.ok(st.reasons['AI: not a good product'] >= 1);
   const l = db.listings.find((x) => x.ae_product_id === '1005000000000001');

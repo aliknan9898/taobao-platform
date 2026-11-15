@@ -1,7 +1,7 @@
 'use strict';
 /**
  * AliExpress catalog builder — the same rules as the CJ one (sourcing.js):
- *  (delivery: at most `max_days`, 14 by default)
+ *  (delivery: at most `max_days`, 15 — the owner's rule for CJ and AliExpress)
  *  1. searches AliExpress (dropshipping search) with the same department keywords, most-ordered first
  *  2. keeps only products that reach the customer in at most `max_days` (10) days — the fastest delivery option
  *     of each "ships from" option, for the UK and for Germany (EU)
@@ -25,7 +25,7 @@ function prefs() {
     enabled: p.enabled !== false,
     per_run: Math.min(50, Math.max(1, Math.floor(Number(p.per_run) || 12))),
     per_day: Math.min(500, Math.max(0, Math.floor(Number(p.per_day ?? 60)))),
-    max_days: Math.min(30, Math.max(3, Math.floor(Number(p.max_days) || 14))),
+    max_days: Math.min(15, Math.max(3, Math.floor(Number(p.max_days) || 15))), // the owner's rule: at most 15 days
     min_orders: Math.max(0, Math.floor(Number(p.min_orders ?? 200))),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || require('./sourcing').prefs().markup_pct)),
     min_cost: Math.max(0, Number(p.min_cost ?? 2)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40))
@@ -76,7 +76,7 @@ async function freight(productId, skuId, country) {
   const j = await ae.call('aliexpress.ds.freight.query', { queryDeliveryReq: { quantity: 1, shipToCountry: country, productId, selectedSkuId: skuId, language: 'en_US', currency: String(config.currency).toUpperCase(), locale: 'en_US' } }, tok);
   logShape('freight', j);
   const opts = findAll(j, ['max_delivery_days', 'maxDeliveryDays', 'delivery_date_desc', 'code']).map((o) => ({
-    days: num(o.max_delivery_days, o.maxDeliveryDays, o.guaranteed_delivery_days),
+    days: num(o.max_delivery_days, o.maxDeliveryDays, o.guaranteed_delivery_days), min: num(o.min_delivery_days, o.minDeliveryDays),
     // "shipping_fee_cent" is sent in currency units ("1.99"), despite its name; free shipping → 0
     fee: o.free_shipping === true ? 0 : (num(o.shipping_fee_format, o.shipping_fee, o.shippingFee) ?? (String(o.shipping_fee_cent ?? '').includes('.') ? num(o.shipping_fee_cent) : (num(o.shipping_fee_cent) ?? 0) / 100) ?? 0),
     from: String(o.ship_from_country || o.shipFromCountry || '').toUpperCase() || null, method: String(o.code || o.company || '')
@@ -157,7 +157,7 @@ async function run({ count } = {}, by = 'auto') {
         db.listings.update(l.id, (x) => ({
           ...x, status: 'active', review: { state: 'approved', decided_at: now(), decided_by: 'ai' }, collections: [dept], collection_group: sec, category: D[dept].category, ae_auto: true, auto_added_at: now(),
           ...(list(d.keywords).length ? { keywords: list(d.keywords).slice(0, 12) } : {}),
-          sourcing: { source: 'aliexpress', dept, group: sec, keyword: item.kw, orders: c.orders, rating: c.rating, from: gb.from, cost, at: now(), gb_days: gb.days, gb_fee: gb.fee, eu_days: eu?.days || null, eu_fee: eu?.fee ?? null,
+          sourcing: { source: 'aliexpress', dept, group: sec, keyword: item.kw, orders: c.orders, rating: c.rating, from: gb.from, cost, at: now(), gb_days: gb.days, gb_min: gb.min || null, gb_fee: gb.fee, eu_days: eu?.days || null, eu_min: eu?.min || null, eu_fee: eu?.fee ?? null,
             ai: 'ok', quality: Number(d.quality) || null, reason: String(d.reason || '').slice(0, 200), ebay_ok: false, ebay_title: String(d.ebay_title || '').slice(0, 80) }
         }));
         require('./translate').translateListing(l.id).catch(() => {});
