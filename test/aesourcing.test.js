@@ -22,6 +22,8 @@ const PRODUCTS = {
 };
 aeClient.call = async (method, params) => {
   if (method === 'aliexpress.ds.text.search') return { data: { products: { selection_search_product: Object.keys(PRODUCTS).map((id) => ({ itemId: id, title: PRODUCTS[id].title, orders: 900, targetSalePrice: '5.00' })).concat([{ itemId: '1005000000000009', title: 'Unpopular', orders: 3 }]) } } };
+  if (method === 'aliexpress.ds.feedname.get') return { resp_result: { result: { promos: { promo: [{ promo_name: 'DS_UK_FastDelivery', product_num: 300, promo_desc: 'UK fast' }, { promo_name: 'Random', product_num: 9 }] } } } };
+  if (method === 'aliexpress.ds.recommend.feed.get') { assert.strictEqual(params.feed_name, 'DS_UK_FastDelivery'); return { result: { products: { traffic_product_d_t_o: params.page_no === 1 ? [{ product_id: '1005000000000001', product_title: 'Fast lamp', lastest_volume: 500 }] : [] } } }; }
   if (method === 'aliexpress.ds.freight.query') { const r = params.queryDeliveryReq; return { result: { delivery_options: { delivery_option_d_t_o: [{ code: 'CAINIAO', max_delivery_days: PRODUCTS[r.productId].days + (r.shipToCountry === 'DE' ? 1 : 0), shipping_fee_cent: '0', ship_from_country: 'ES' }, { code: 'SLOW', max_delivery_days: 30 }] } } }; }
   throw new Error(`unmocked ${method}`);
 };
@@ -39,6 +41,7 @@ ai.structured = async ({ text }) => {
 test('AliExpress builder: only fast, AI-approved products with clean photos are added, sorted and live', async () => {
   const st = await A.run({ count: 5 }, 'test');
   assert.strictEqual(st.added, 1, JSON.stringify(st.reasons));
+  assert.strictEqual(db.listings.find((x) => x.ae_product_id === '1005000000000001').sourcing.keyword, 'DS_UK_FastDelivery', 'found first in the fast feed');
   assert.ok(st.reasons['no UK delivery in 15 days'] >= 1);
   assert.ok(st.reasons['AI: fewer than 2 clean photos'] >= 1);
   assert.ok(st.reasons['AI: not a good product'] >= 1);

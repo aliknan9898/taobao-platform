@@ -28,7 +28,7 @@ function prefs() {
     max_days: Math.min(15, Math.max(3, Math.floor(Number(p.max_days) || 15))), // the owner's rule: at most 15 days
     min_orders: Math.max(0, Math.floor(Number(p.min_orders ?? 200))),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || require('./sourcing').prefs().markup_pct)),
-    min_cost: Math.max(0, Number(p.min_cost ?? 2)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40))
+    min_cost: Math.max(0, Number(p.min_cost ?? 1)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40))
   };
 }
 function savePrefs(b = {}) {
@@ -70,6 +70,28 @@ async function search(kw, country) {
   })).filter((x) => /^\d{9,20}$/.test(x.id));
 }
 
+/** AliExpress's ready-made product feeds (bestsellers, fast delivery, local warehouses…), refreshed daily. */
+async function feeds() {
+  const c = state().feeds;
+  if (c && now() - c.at < 24 * 3600e3) return c.list;
+  const ae = require('../aliexpress/client'); const tok = await require('./aliexpress').token();
+  const j = await ae.call('aliexpress.ds.feedname.get', {}, tok);
+  logShape('feednames', j);
+  const all = findAll(j, ['promo_name']).map((x) => ({ name: String(x.promo_name), count: num(x.product_num) || 0, desc: String(x.promo_desc || '') }));
+  // fast and local ones first: UK / Europe / fast delivery / Choice
+  const rank = (f) => (/(\buk\b|gb|united kingdom|britain)/i.test(f.name + f.desc) ? 4 : 0) + (/fast|express|local|warehouse|overseas|3 ?days|5 ?days|7 ?days/i.test(f.name + f.desc) ? 3 : 0) + (/choice|plaza|europe|\beu\b/i.test(f.name + f.desc) ? 2 : 0) + (/best ?sell|top|hot/i.test(f.name + f.desc) ? 1 : 0);
+  const pick = all.filter((f) => rank(f) > 0 && f.count > 0).sort((a, b) => rank(b) - rank(a) || b.count - a.count).slice(0, 12);
+  console.log('[ae-sourcing] feeds:', JSON.stringify(pick.map((f) => `${f.name} (${f.count})`)));
+  save({ feeds: { at: now(), list: pick } });
+  return pick;
+}
+async function feedItems(name, page) {
+  const ae = require('../aliexpress/client'); const tok = await require('./aliexpress').token();
+  const j = await ae.call('aliexpress.ds.recommend.feed.get', { feed_name: name, country: 'GB', target_currency: String(config.currency).toUpperCase(), target_language: 'EN', page_size: 50, page_no: page, sort: 'volumeDesc' }, tok);
+  logShape('feed', j);
+  return findAll(j, ['product_id']).map((x) => ({ id: String(x.product_id), title: String(x.product_title || ''), orders: num(x.lastest_volume, x.volume) || 0, price: num(x.target_sale_price, x.sale_price), rating: num(x.evaluate_rate) })).filter((x) => /^\d{9,20}$/.test(x.id));
+}
+
 /** The fastest delivery of one option (sku) to a country: { days, fee, from, method } or null. */
 async function freight(productId, skuId, country) {
   const ae = require('../aliexpress/client'); const tok = await require('./aliexpress').token();
@@ -109,18 +131,36 @@ async function run({ count } = {}, by = 'auto') {
   const skip = (why, id) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (id) tried.add(id); };
   const q = src.queue(src.prefs());
   const start = Number(s0.cursor) || 0; let fails = 0;
-  try {
-    for (let qi = 0; qi < q.length && st.added < target && !stopAsked; qi++) {
+  // where candidates come from: AliExpress's fast/local feeds first (a few pages each run), then the department keywords
+  async function* candidates() {
+    let fl = []; try { fl = await feeds(); } catch (e) { console.warn('[ae-sourcing] feeds:', e.message); }
+    const pages = state().feed_pages || {};
+    const general = { kw: '', dept: Object.keys(src.DEPARTMENTS)[0], group: Object.keys(src.DEPARTMENTS[Object.keys(src.DEPARTMENTS)[0]].groups)[0] };
+    for (const f of fl) {
+      for (let k = 0; k < 2; k++) {
+        const pg = (pages[f.name] || 0) + 1;
+        let items = [];
+        try { items = await feedItems(f.name, pg); } catch (e) { console.warn('[ae-sourcing] feed', f.name, e.message); break; }
+        pages[f.name] = items.length ? pg : 0; save({ feed_pages: pages });
+        for (const c of items.filter((x) => !have.has(x.id) && !tried.has(x.id) && x.orders >= p.min_orders)) yield { c, item: { ...general, kw: f.name } };
+        if (!items.length) break;
+      }
+    }
+    for (let qi = 0; qi < q.length; qi++) {
       const item = q[(start + qi) % q.length];
       save({ cursor: (start + qi + 1) % q.length });
       let found;
       try { found = await search(item.kw, 'GB'); fails = 0; } catch (e) {
         // one keyword AliExpress cannot search: skip it; several in a row: stop until the next run
         fails++; console.warn('[ae-sourcing] search', item.kw, e.message);
-        if (fails >= 5) { st.error = `AliExpress search: ${e.message}`; break; }
+        if (fails >= 5) { st.error = `AliExpress search: ${e.message}`; return; }
         continue;
       }
-      for (const c of found.filter((x) => !have.has(x.id) && !tried.has(x.id) && x.orders >= p.min_orders).slice(0, 4)) {
+      for (const c of found.filter((x) => !have.has(x.id) && !tried.has(x.id) && x.orders >= p.min_orders).slice(0, 4)) yield { c, item };
+    }
+  }
+  try {
+    for await (const { c, item } of candidates()) {
         if (st.added >= target || stopAsked) break;
         st.checked++;
         let prod;
@@ -165,7 +205,6 @@ async function run({ count } = {}, by = 'auto') {
         const fresh = db.listings.get(l.id);
         added.push({ id: l.id, title: d.ebay_title || fresh.title, dept, from: gb.from || 'AE', quality: Number(d.quality) || null, eu: eu?.days || null, gb: gb.days, cost, price: Math.min(...fresh.skus.map((s) => s.price)), kw: list(d.keywords).slice(0, 4), listed: null });
         save((x) => ({ ...x, day: today, day_added: (x.day === today ? x.day_added || 0 : 0) + 1 }));
-      }
     }
   } finally {
     running = false; st.running = false; st.finished_at = now();
@@ -180,4 +219,4 @@ async function tick() { if (!prefs().enabled) return null; return run({}, 'auto'
 function status() { return { prefs: prefs(), running, last: state().last || null, today: state().day === new Date().toISOString().slice(0, 10) ? state().day_added || 0 : 0 }; }
 function stop() { stopAsked = true; return status(); }
 
-module.exports = { prefs, savePrefs, run, tick, status, stop, search, freight, findAll, _running: () => running };
+module.exports = { prefs, savePrefs, run, tick, status, stop, search, freight, feeds, feedItems, findAll, _running: () => running };
