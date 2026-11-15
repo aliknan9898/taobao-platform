@@ -69,7 +69,8 @@ async function freight(productId, skuId, country) {
   logShape('freight', j);
   const opts = findAll(j, ['max_delivery_days', 'maxDeliveryDays', 'delivery_date_desc', 'code']).map((o) => ({
     days: num(o.max_delivery_days, o.maxDeliveryDays, o.guaranteed_delivery_days),
-    fee: (num(o.shipping_fee_cent, o.shippingFeeCent) ?? 0) / 100 || num(o.shipping_fee, o.shippingFee) || 0,
+    // "shipping_fee_cent" is sent in currency units ("1.99"), despite its name; free shipping → 0
+    fee: o.free_shipping === true ? 0 : (num(o.shipping_fee_format, o.shipping_fee, o.shippingFee) ?? (String(o.shipping_fee_cent ?? '').includes('.') ? num(o.shipping_fee_cent) : (num(o.shipping_fee_cent) ?? 0) / 100) ?? 0),
     from: String(o.ship_from_country || o.shipFromCountry || '').toUpperCase() || null, method: String(o.code || o.company || '')
   })).filter((o) => o.days);
   opts.sort((a, b) => a.days - b.days || a.fee - b.fee);
@@ -96,13 +97,18 @@ async function run({ count } = {}, by = 'auto') {
   const added = [];
   const skip = (why, id) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (id) tried.add(id); };
   const q = src.queue(src.prefs());
-  const start = Number(s0.cursor) || 0;
+  const start = Number(s0.cursor) || 0; let fails = 0;
   try {
     for (let qi = 0; qi < q.length && st.added < target && !stopAsked; qi++) {
       const item = q[(start + qi) % q.length];
       save({ cursor: (start + qi + 1) % q.length });
       let found;
-      try { found = await search(item.kw, 'GB'); } catch (e) { st.error = `AliExpress search: ${e.message}`; console.warn('[ae-sourcing]', st.error); break; }
+      try { found = await search(item.kw, 'GB'); fails = 0; } catch (e) {
+        // one keyword AliExpress cannot search: skip it; several in a row: stop until the next run
+        fails++; console.warn('[ae-sourcing] search', item.kw, e.message);
+        if (fails >= 3) { st.error = `AliExpress search: ${e.message}`; break; }
+        continue;
+      }
       for (const c of found.filter((x) => !have.has(x.id) && !tried.has(x.id) && x.orders >= p.min_orders).slice(0, 4)) {
         if (st.added >= target || stopAsked) break;
         st.checked++;
