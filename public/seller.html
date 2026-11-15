@@ -314,7 +314,7 @@ function addStart(err = '') {
   const connected = cfg.taobao_kinan || shop.taobao?.connected;
   const sup = Boolean(shop?.supplier_imports);
   v.innerHTML = `<div class="head"><div><h1>Add product</h1><p class="muted">${sup ? 'Choose where your product comes from.' : 'Pick products from the Kinan catalogue, or add your own.'}</p></div></div>
-    <a class="panel ebaycta" href="#/ebay">${cfg.ebay_icon ? `<span class="srcico ebayico img"><img src="${esc(cfg.ebay_icon)}" alt="eBay"></span>` : '<span class="srcico ebayico">eBay</span>'}<div><b>Sell on eBay</b><div class="muted small">Your products from European and UK warehouses can also be sold on eBay — on Kinan’s eBay shop or your own eBay account. Kinan ships every order.</div><div class="small" id="ebaystat"></div></div><span class="btn sm">Open</span></a>
+    <a class="panel ebaycta" href="#/ebay">${cfg.ebay_icon ? `<span class="srcico ebayico img"><img src="${esc(cfg.ebay_icon)}" alt="eBay"></span>` : '<span class="srcico ebayico">eBay</span>'}<div><b>Sell on eBay</b><div class="muted small">Your products from European and UK warehouses can also be sold on Kinan’s eBay shop. Kinan ships every order.</div><div class="small" id="ebaystat"></div></div><span class="btn sm">Open</span></a>
     <div class="srcgrid">
       <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">K</span><div><b>From the Kinan catalogue</b><div class="muted small">Ready products, checked by Kinan, with clear photos and delivery in 15 days or less. You set your price; Kinan buys and ships each order.</div></div></div>
         <a class="btn" href="#/catalog">Browse the Kinan catalogue</a>
