@@ -370,7 +370,9 @@ const Locale = {
     if (s.v !== 2) s = {}; // older versions saved a guess from the phone language (often "US"): guess again
     const guess = savedAddress().country_code || tzCountry() || (navigator.language.split('-')[1] || '').toUpperCase() || 'US';
     const country = savedAddress().country_code || s.country || guess;
-    return { country, currency: currencyFor(country), chosen: Boolean(s.country || savedAddress().country_code) };
+    // the currency chosen in Account (USD / EUR / GBP) wins over the country's
+    const own = ['USD', 'EUR', 'GBP'].includes(s.cur) && (s.cur === String(cfg.currency || 'usd').toUpperCase() || (cfg.fx && cfg.fx.rates && cfg.fx.rates[s.cur])) ? s.cur : null;
+    return { country, currency: own || currencyFor(country), cur: own, chosen: Boolean(s.country || savedAddress().country_code) };
   },
   set(v) { try { localStorage.setItem('kinan_locale', JSON.stringify({ ...Locale.get(), ...v, v: 2 })); } catch {} }
 };
@@ -1031,7 +1033,7 @@ async function checkout() {
     Book.upsert({ ...Object.fromEntries(ADDR_KEYS.map((k) => [k, addr[k] ?? (Book.list().find((x) => x.id === sid) || {})[k] ?? ''])), ...(sid ? { id: sid } : {}) });
     $('#go').disabled = true; $('#go').textContent = 'Placing order…';
     try {
-      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '' });
+      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '', currency: Locale.get().currency });
       Cart.set([]);
       K.track('begin_checkout', { currency: o.currency, value: o.total });
       location.hash = `#/pay/${o.id}`;
@@ -1338,11 +1340,13 @@ async function account() {
   api('/api/buyer/points').then((d) => { const el = $('#acpts'); if (el) el.textContent = `★ ${d.balance.toLocaleString()}${d.pending ? ` (+${d.pending.toLocaleString()} ⏳)` : ''}`; }).catch(() => {});
   $('#view').innerHTML = `<div class="pagehead"><h1>Account</h1></div>
     <div class="stack" style="max-width:520px">
-      <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email)}</div></div>
+      <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email || me.phone || '')}</div></div>
         <a class="btn ghost" href="#/orders">Your orders</a>${KinanTheme.button('btn ghost', true)}</div>
       <div class="panel stack" id="addrbook"></div>
       <div class="panel stack" id="cardbox"></div>
       ${KinanLang.folded('Language', 'The app and our emails use this language.', 'panel')}
+      <div class="panel stack" id="curbox"><div><b>${KinanLang.t('Currency')}</b><div class="muted small">${KinanLang.t('Prices are shown and charged in this currency.')}</div></div>
+        <div class="seg" role="group" aria-label="Currency" style="grid-template-columns:repeat(4,1fr)">${[['', `${KinanLang.t('Auto')} (${currencyFor(Locale.get().country)})`], ['USD', '$ USD'], ['EUR', '€ EUR'], ['GBP', '£ GBP']].map(([c, t]) => `<button type="button" data-cur="${c}" class="${(Locale.get().cur || '') === c ? 'on' : ''}" aria-pressed="${(Locale.get().cur || '') === c}">${esc(t)}</button>`).join('')}</div></div>
       <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
       <a class="panel acrow" href="#/giftcards"><span class="acticon">🎁</span><span><b>${KinanLang.t('Kinan gift cards')}</b><div class="muted small">${KinanLang.t('Send one, or add a code to your wallet')}</div></span></a>
       <a class="panel acrow" href="#/points"><span class="acticon">★</span><span><b>Kinan points</b><div class="muted small">Earn points on every order, turn them into discounts</div></span><b id="acpts"></b></a>
@@ -1356,6 +1360,7 @@ async function account() {
       <button class="btn danger" id="out">Sign out</button>
       <p class="muted">Want to sell on Kinan? <a href="/seller">Open the Seller Center</a></p>
     </div>`;
+  $$('#curbox [data-cur]').forEach((b) => b.onclick = () => { Locale.set({ cur: b.dataset.cur || null }); Book.sync?.(); toast(`${KinanLang.t('Currency')}: ${Locale.get().currency}`); account(); });
   $('#out').onclick = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; toast('Signed out'); location.hash = '#/'; };
   wireInstall();
   paintBook(); paintCards();

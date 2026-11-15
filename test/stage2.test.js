@@ -243,3 +243,21 @@ test('Kinan business dashboard: Kinan’s own sales, profit, products, eBay and 
   const csv = await realFetch(`${base}/api/admin/kinan/products.csv`, { headers: { Authorization: `Bearer ${boss}` } });
   assert.strictEqual(csv.status, 200); assert.match(await csv.text(), /Kinan Test Lamp/);
 });
+
+test('currency chosen in Account (USD / EUR / GBP) is what the customer pays in, whatever the country', async () => {
+  const A2 = db.listings.find((l) => l.title === 'Table Lamp');
+  const items = [{ listing_id: A2.id, mp_sku_id: A2.skus[0].mp_sku_id, qty: 1 }];
+  const gb = { ...addr, country_code: 'GB', country: 'United Kingdom' };
+  const fx = require('../src/services/fx');
+  const doc = { base: 'USD', rates: { CNY: 7.1, EUR: 0.92, GBP: 0.79 }, updated_at: Date.now(), source: 'test' };
+  if (db.settings.get('set_fx')) db.settings.update('set_fx', doc); else db.settings.insert({ id: 'set_fx', ...doc });
+  assert.ok(fx.chargeRate('GBP') && fx.chargeRate('EUR'));
+  const o1 = (await api('POST', '/api/buyer/checkout', { items, shipping_address: gb }, cust)).body;
+  assert.strictEqual(o1.currency, 'gbp', 'UK by default pays in GBP');
+  const o2 = (await api('POST', '/api/buyer/checkout', { items, shipping_address: gb, currency: 'EUR' }, cust)).body;
+  assert.strictEqual(o2.currency, 'eur'); assert.strictEqual(db.orders.get(o2.id).pay_currency, 'EUR');
+  const o3 = (await api('POST', '/api/buyer/checkout', { items, shipping_address: gb, currency: 'USD' }, cust)).body;
+  assert.strictEqual(String(o3.currency).toLowerCase(), 'usd'); assert.ok(!db.orders.get(o3.id).charge, 'USD is the sale currency: no conversion');
+  const o4 = (await api('POST', '/api/buyer/checkout', { items, shipping_address: gb, currency: 'JPY' }, cust)).body;
+  assert.strictEqual(o4.currency, 'gbp', 'other currencies are ignored');
+});

@@ -65,9 +65,13 @@ function validateAddress(a) {
   return out;
 }
 
-/** Customers in the UK pay in GBP and in Europe in EUR; the order itself stays in the sale currency (USD). */
-function chargeFor(total, country) {
-  const fx = require('./fx'); const cur = fx.currencyFor(country);
+/** Customers pay in the currency they chose in the app (USD, EUR or GBP), otherwise the one for their country (UK GBP,
+ *  Europe EUR); the order itself stays in the sale currency (USD). */
+const PAY_CURRENCIES = ['USD', 'EUR', 'GBP'];
+function chargeFor(total, country, chosen) {
+  const fx = require('./fx');
+  const pick = String(chosen || '').toUpperCase();
+  const cur = PAY_CURRENCIES.includes(pick) && (pick === config.currency.toUpperCase() || fx.chargeRate(pick)) ? pick : fx.currencyFor(country);
   if (cur === config.currency.toUpperCase()) return {};
   const rate = fx.chargeRate(cur);
   return rate ? { charge: { currency: cur.toLowerCase(), rate, total: money(total * rate) } } : {};
@@ -76,7 +80,8 @@ function chargeFor(total, country) {
 const PACKAGING = { standard: 0, no_boxes: 0, protect: Number(process.env.PACKAGING_PROTECT_FEE ?? 2) };
 const STORAGE_DAYS = Number(process.env.STORAGE_DAYS || 30);
 
-async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false, coupon = '' }) {
+async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false, coupon = '', currency = '' }) {
+  const payCur = PAY_CURRENCIES.includes(String(currency).toUpperCase()) ? String(currency).toUpperCase() : null;
   if (!Object.prototype.hasOwnProperty.call(PACKAGING, packaging)) throw httpError(400, 'Unknown packaging option');
   if (!Array.isArray(items) || !items.length) throw httpError(400, 'Cart is empty');
   if (items.length > 100) throw httpError(400, 'Too many items');
@@ -129,7 +134,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     ...(bundle.amount ? { bundle_discount: bundle.amount, bundle_lines: bundle.lines } : {}),
     ...(freeEu ? { free_shipping: { amount: freeEu, over: fso } } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
-    total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
+    total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code, payCur), ...(payCur ? { pay_currency: payCur } : {}), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     ...(cjShip ? { cj_shipping: { method: cjShip.method, methods: cjShip.methods || {}, origins: cjShip.origins || {}, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
     ...(bgShip ? { bg_shipping: { fee: bgShip.fee, days: bgShip.days, methods: bgShip.methods || [], estimated: Boolean(bgShip.estimated) } } : {}),
     status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
@@ -266,7 +271,7 @@ async function applyWallet(orderId, buyer) {
   if (bal >= o.total) return payWithWallet(orderId, buyer);
   const w = money(bal); const rest = money(o.total - w);
   if (o.payment?.provider === 'stripe') await stripe.cancelIntent(o.payment.intent_id);
-  const ch = chargeFor(rest, o.shipping_address?.country_code);
+  const ch = chargeFor(rest, o.shipping_address?.country_code, o.pay_currency);
   return db.orders.update(o.id, (x) => {
     const { charge, ...y } = x;
     return { ...y, ...ch, wallet_applied: w, total: rest, payment: { provider: 'stripe' }, timeline: log(x, 'wallet_applied', { amount: w }) };
@@ -277,7 +282,7 @@ function removeWallet(orderId, buyer) {
   if (!o || o.buyer_id !== buyer.id) throw httpError(404, 'Not found');
   if (o.status !== 'pending_payment' || !o.wallet_applied) return o;
   const full = money(o.total + o.wallet_applied);
-  return db.orders.update(o.id, (x) => { const { charge, wallet_applied, ...y } = x; return { ...y, ...chargeFor(full, o.shipping_address?.country_code), total: full, payment: { provider: 'stripe' } }; });
+  return db.orders.update(o.id, (x) => { const { charge, wallet_applied, ...y } = x; return { ...y, ...chargeFor(full, o.shipping_address?.country_code, o.pay_currency), total: full, payment: { provider: 'stripe' } }; });
 }
 
 /** Products typed in by hand keep their own stock count: take it when paid, give it back on cancel. */
