@@ -478,6 +478,9 @@ r('DELETE', '/api/seller/payout-methods/:id', SELLER, async ({ seller, params })
 
 // Admin
 r('GET', '/api/admin/overview', STAFF, async () => admin.overview());
+// Live visitors (Kinan Shop / Seller Center heartbeats)
+r('POST', '/api/presence', null, async ({ req }) => ({ ok: require('./services/presence').ping(await readJson(req).catch(() => ({}))) }));
+r('GET', '/api/admin/live', STAFF, async () => require('./services/presence').counts());
 // The owner's Kinan business dashboard: Kinan's own products, sales, profit, eBay and the other shops
 r('GET', '/api/admin/kinan', ADMIN, async ({ url }) => require('./services/kinanDash').dashboard({ days: url.searchParams.get('days') }));
 r('GET', '/api/admin/kinan/products.csv', ADMIN, async ({ url, res }) => {

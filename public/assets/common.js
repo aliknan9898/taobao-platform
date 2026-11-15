@@ -219,5 +219,21 @@ const K = (() => {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show); else setTimeout(show, 50);
   }
 
-  return { googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, SOCIAL, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
+  /** Heartbeat so Kinan Admin can show how many people are on Kinan Shop / Seller Center right now (a random id, nothing personal). */
+  function presence(app) {
+    let id;
+    try { id = sessionStorage.getItem('k_live'); if (!id) { id = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem('k_live', id); } }
+    catch { id = Math.random().toString(36).slice(2) + Date.now().toString(36); }
+    const send = (leave) => {
+      const body = JSON.stringify({ app, id, leave: leave || undefined });
+      if (leave && navigator.sendBeacon) { navigator.sendBeacon('/api/presence', body); return; }
+      fetch('/api/presence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+    };
+    const beat = () => { if (document.visibilityState === 'visible') send(); };
+    beat(); setInterval(beat, 30e3);
+    document.addEventListener('visibilitychange', () => (document.visibilityState === 'visible' ? send() : send(true)));
+    addEventListener('pagehide', () => send(true));
+  }
+
+  return { presence, googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, SOCIAL, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
 })();

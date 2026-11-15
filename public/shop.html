@@ -1800,6 +1800,7 @@ function wireInstall() {
   assistantButton();
   if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
   K.registerSW();
+  try { K.presence('shop'); } catch { /* optional */ }
 })();
 </script>
 </body>

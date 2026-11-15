@@ -1073,6 +1073,7 @@ function wireInstall() {
   if (me) takeNext();
   if (!me) authScreen('in', loginError); else { route(); if (connected) toast('Taobao account connected'); }
   K.registerSW();
+  try { K.presence('seller'); } catch { /* optional */ }
 })();
 </script>
 </body>
