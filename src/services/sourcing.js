@@ -189,16 +189,31 @@ const SCHEMA = (deptIds, groupIds) => ({
     quality: { type: 'integer', description: '1–10: how good the product AND its photos are for a premium marketplace (10 = clean studio photos, clear useful product, strong demand).' },
     photos_ok: { type: 'boolean', description: 'false if the photos are blurry, collages with lots of text, watermarked with another shop, show Chinese text everywhere, or do not match the title.' },
     photo_issues: { type: 'string', description: 'Short note on photo problems, empty if none.' },
+    clean_photos: { type: 'array', items: { type: 'integer' }, description: 'Numbers (1 = first photo) of the photos to KEEP on the shop: the real product shown clearly, on its own or in simple use, sharp, with no added text, no prices, no watermark or other shop name, no collage of many pictures, no Chinese writing, no size chart. Best first.' },
+    main_photo: { type: 'integer', description: 'Number of the best photo to show first: the whole product alone, centred, on a plain light background if there is one.' },
     department: { type: 'string', enum: deptIds, description: 'The best department.' },
     section: { type: 'string', enum: groupIds, description: 'The best section inside that department (dept:section).' },
     ebay_ok: { type: 'boolean', description: 'false if eBay UK restricts it (brands/logos of others, weapons, medical claims, adult, batteries shipped alone, food, cosmetics needing safety files, etc.).' },
     ebay_title: { type: 'string', description: 'eBay title: max 80 characters, the words buyers search first, no brand names, no ALL CAPS, no symbols like ! or ★.' },
     keywords: { type: 'array', items: { type: 'string' }, description: '8–12 lower-case search phrases a UK/EU shopper ready to buy would type, 2–4 words each, specific to THIS product: about 3 with the product type and its main feature or material (e.g. "rechargeable led desk lamp"), 3 with the benefit or problem it solves, 2–3 with the use, room, occasion or who it is for (e.g. "gift for runners"), 1–2 British/European spellings or synonyms. No single generic words, no brand names, no features it does not have, no near-duplicates.' }
   },
-  required: ['keep', 'reason', 'quality', 'photos_ok', 'photo_issues', 'department', 'section', 'ebay_ok', 'ebay_title', 'keywords']
+  required: ['keep', 'reason', 'quality', 'photos_ok', 'photo_issues', 'clean_photos', 'main_photo', 'department', 'section', 'ebay_ok', 'ebay_title', 'keywords']
 });
 
 /** The AI looks at the photos and text (null when the AI is off or busy: the product then waits for the AI review). */
+/** Keep only the clean photos the AI chose, best first (the others are kept aside, not shown). Returns how many are shown. */
+function applyPhotos(id, d) {
+  const l = db.listings.get(id); const imgs = list(l?.images);
+  if (!l || !d || d.error || !Array.isArray(d.clean_photos)) return imgs.length;
+  const seen = new Set(); const pick = [];
+  for (const n of [Number(d.main_photo), ...d.clean_photos.map(Number)]) { const i = n - 1; if (Number.isInteger(i) && i >= 0 && i < Math.min(8, imgs.length) && !seen.has(i)) { seen.add(i); pick.push(imgs[i]); } }
+  if (!pick.length) return 0;
+  // photos after the 8th were not seen by the AI: not shown either (they are usually size charts and adverts)
+  const hidden = imgs.filter((u) => !pick.includes(u));
+  db.listings.update(id, (x) => ({ ...x, images: pick, images_hidden: [...new Set([...list(x.images_hidden), ...hidden])].slice(0, 30), photos_curated_at: Date.now() }));
+  return pick.length;
+}
+
 async function curate(l, item) {
   const ai = require('./ai');
   if (!ai.enabled()) return null;
@@ -208,8 +223,8 @@ async function curate(l, item) {
   try {
     return await ai.structured({
       system: 'You are the head buyer of Kinan, a marketplace that sells to the UK and Europe and also lists on eBay UK. You decide which supplier products are good enough to sell, and you organise them like a big marketplace. Judge the photos strictly and keep only products you would be proud to sell: clear real photos, useful, likely to sell well, and fair for the price. Be honest and brief.',
-      name: 'product_decision', schema: SCHEMA(deptIds, groupIds), images: list(l.images).slice(0, 4), kind: 'sourcing', maxTokens: 900,
-      text: `Supplier title: ${l.title}\nSearched as: "${item.kw}" (department ${item.dept}, section ${item.group})\nOptions: ${opts.join(', ') || 'one'}\nShips from: ${l.cj_from} warehouse\nDescription:\n${String(l.description || '').slice(0, 1800)}`
+      name: 'product_decision', schema: SCHEMA(deptIds, groupIds), images: list(l.images).slice(0, 8), kind: 'sourcing', maxTokens: 1000,
+      text: `Photos attached: ${Math.min(8, list(l.images).length)} (numbered 1, 2, 3… in order)\nSupplier title: ${l.title}\nSearched as: "${item.kw}" (department ${item.dept}, section ${item.group})\nOptions: ${opts.join(', ') || 'one'}\nShips from: ${l.cj_from || l.ae_from || '?'} warehouse\nDescription:\n${String(l.description || '').slice(0, 1800)}`
     });
   } catch (e) { return { error: e.message }; }
 }
@@ -274,6 +289,7 @@ async function run(opts = {}, by = 'admin') {
         const d = await curate(l, item);
         if (d && !d.error) {
           if (!d.keep || !d.photos_ok || (Number(d.quality) || 0) < p.min_quality) { drop(!d.photos_ok ? 'AI: photos not good enough' : !d.keep ? 'AI: not a good product' : 'AI: quality too low'); continue; }
+          if (applyPhotos(l.id, d) < 2) { drop('AI: fewer than 2 clean photos'); continue; }
         }
         const [dept, group] = d && !d.error && /:/.test(d.section || '') && DEPARTMENTS[d.section.split(':')[0]]?.groups[d.section.split(':')[1]] ? d.section.split(':') : [d?.department && DEPARTMENTS[d.department] ? d.department : item.dept, item.group];
         const sec = DEPARTMENTS[dept].groups[group] ? group : Object.keys(DEPARTMENTS[dept].groups)[0];
@@ -438,4 +454,4 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
   for (const t of msgs.slice(0, 12)) push.telegram(t);
 }
 
-module.exports = { telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
+module.exports = { applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };

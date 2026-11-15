@@ -612,6 +612,10 @@ r('PUT', '/api/admin/ebay/icon', ADMIN, async ({ req }) => {
   return { icon: `/brand/ebay-icon?v=${doc.at}` };
 });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
+r('GET', '/api/admin/ae-sourcing', ADMIN, async () => require('./services/aeSourcing').status());
+r('PUT', '/api/admin/ae-sourcing', ADMIN, async ({ req }) => require('./services/aeSourcing').savePrefs(await readJson(req)));
+r('POST', '/api/admin/ae-sourcing/run', ADMIN, async ({ req }) => { const A = require('./services/aeSourcing'); if (A._running()) throw httpError(409, 'Already running'); const n = Number((await readJson(req)).count) || undefined; require('./cj/client').background(() => A.run({ count: n }, 'admin')).catch((e) => console.warn('[ae-sourcing]', e.message)); return { started: true }; });
+r('POST', '/api/admin/ae-sourcing/stop', ADMIN, async () => require('./services/aeSourcing').stop());
 r('GET', '/api/admin/ebay/review', ADMIN, async () => require('./services/ebayLaunch').review());
 r('POST', '/api/admin/ebay/launch', ADMIN, async ({ req }) => { const L = require('./services/ebayLaunch'); if (L._running()) throw httpError(409, 'The eBay launch is already running'); const n = Math.min(50, Math.max(1, Number((await readJson(req)).n) || 10)); require('./cj/client').background(() => L.launch({ n })).catch((e) => console.warn('[ebay] launch', e.message)); return { started: true, n }; });
 r('GET', '/api/admin/sourcing', ADMIN, async () => require('./services/sourcing').status());
@@ -989,6 +993,8 @@ function startJobs() {
   every(3600e3, async () => warehouse.releaseExpired());
   every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); });
   every(15 * 60e3, async () => growth.cartReminders());
+  // AliExpress catalog builder (same rules as CJ: ≤10 days delivery, AI review, clean photos) — every 30 minutes, first run 4 minutes after start
+  setTimeout(() => require('./services/aeSourcing').tick(), 4 * 60e3).unref?.(); every(30 * 60e3, () => require('./services/aeSourcing').tick());
   every(5 * 60e3, () => require('./services/deals').tick());
   every(60e3, () => require('./services/telegram').tick()); // link the owner's Telegram; morning report // today's deals: new ones at midnight (Malta)
   setTimeout(() => require('./services/deals').tick().catch(() => {}), 20e3); // abandoned cart: after 1 hour, then after a day with a code

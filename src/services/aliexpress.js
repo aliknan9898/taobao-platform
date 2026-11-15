@@ -131,7 +131,7 @@ function normalizeProduct(r, productId) {
   return { ae_product_id: String(base.product_id || productId), title: String(base.subject || `AliExpress ${productId}`).slice(0, 200), description: String(base.detail || base.mobile_detail || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000), images, skus };
 }
 
-async function fetchProduct(productId, shipTo = 'SA') {
+async function fetchProduct(productId, shipTo = 'GB') {
   const r = await ae.call(ae.API.PRODUCT_GET, { product_id: productId, ship_to_country: shipTo, target_currency: String(config.currency).toUpperCase(), target_language: 'EN' }, await token());
   return normalizeProduct(r, productId);
 }
@@ -252,5 +252,5 @@ function manualUpdate(sub, { ae_order_no, tracking, carrier, delivered } = {}) {
 
 module.exports = {
   status, apiReady, authorizeUrl, handleCallback, disconnect, productIdFromLink, resolveProductId, isAliExpressLink, normalizeProduct,
-  preview, publish, resync, newDirectSub, place, sync, manualUpdate, LABEL, DS_STATUS
+  token, fetchProduct, preview, publish, resync, newDirectSub, place, sync, manualUpdate, LABEL, DS_STATUS
 };
