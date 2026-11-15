@@ -456,7 +456,7 @@ async function listMany({ collection, ids, limit = 50 } = {}, by = 'admin') {
         job.failed += 1; console.warn('[ebay] list', l.id, e.message);
         job.errors = [...job.errors, { id: l.id, title: l.title.slice(0, 60), error: e.message }].slice(-30);
         db.listings.update(l.id, (x) => ({ ...x, ebay: { ...(x.ebay || {}), error: e.message, tried_at: now() } }));
-        if (/not connected|keys are not set|business policies|delivery \(postage\) policy/i.test(e.message)) break; // nothing else will work
+        if (/not connected|keys are not set|business policies|delivery \(postage\) policy|overseas warehouse|different from your registered address/i.test(e.message)) { job.stopped = e.message; break; } // nothing else will work
         // The same eBay error 5 times in a row is a setup problem, not the products: stop instead of failing all of them
         same = e.message === lastErr ? same + 1 : 1; lastErr = e.message;
         if (same >= 5) { job.stopped = `Stopped: the same eBay error 5 times — ${e.message}`; break; }
