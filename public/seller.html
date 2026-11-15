@@ -704,13 +704,10 @@ async function ebayPage() {
   v.innerHTML = `<div class="pagehead"><div><h1>Sell on eBay</h1><p class="muted">Show your products to eBay’s shoppers in the UK and Europe. Kinan ships every order from the supplier’s warehouse, just like Kinan orders, and sends the tracking to eBay.</p></div></div>
     <div class="card stack">
       <label class="row" style="gap:10px"><input type="checkbox" id="ebon" ${d.enabled ? 'checked' : ''}> <b>Sell my products on eBay</b></label>
-      <div class="grid2" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
-        <label class="card flat ${d.mode === 'kinan' ? 'on' : ''}" style="cursor:pointer"><input type="radio" name="ebmode" value="kinan" ${d.mode === 'kinan' ? 'checked' : ''}> <b>On Kinan’s eBay shop</b> <span class="pill ok">Easiest</span>
+      <div class="grid2" style="display:grid;grid-template-columns:1fr;gap:12px">
+        <div class="card flat on"><b>On Kinan’s eBay shop</b>
           <p class="small muted">No eBay account needed. Kinan lists your products in its eBay shop and is paid by eBay. You get the profit after eBay’s fees, the product and delivery, less Kinan’s ${d.pct}% of that profit — added to your balance like your Kinan sales.</p>
-          ${d.mode === 'kinan' && d.enabled ? (d.approved ? '<span class="pill ok">Approved by Kinan</span>' : '<span class="pill warn">Waiting for Kinan to approve your shop</span>') : ''}</label>
-        <label class="card flat ${d.mode === 'own' ? 'on' : ''}" style="cursor:pointer"><input type="radio" name="ebmode" value="own" ${d.mode === 'own' ? 'checked' : ''}> <b>On my own eBay account</b>
-          <p class="small muted">eBay pays you directly. For each eBay order Kinan takes the product, delivery and its ${d.pct}% of the profit from your balance (or you pay it by card), then ships the order.</p>
-          ${d.mode === 'own' ? (ownOk ? `<span class="pill ok">Connected${d.own.account ? ` as ${esc(d.own.account)}` : ''}</span> <button class="btn sm quiet" id="ebdis" type="button">Disconnect</button>` : '<button class="btn sm" id="ebcon" type="button">Connect my eBay account</button>') : ''}</label>
+          ${d.enabled ? (d.approved ? '<span class="pill ok">Approved by Kinan</span>' : '<span class="pill warn">Waiting for Kinan to approve your shop</span>') : ''}</div>
       </div>
       <div class="row between"><span class="muted small">Your balance: <b>${m(d.balance.available)}</b> available</span>
         ${canList ? `<button class="btn" id="eblist" ${ready ? '' : 'disabled'}>List ${ready} ready product${ready === 1 ? '' : 's'} on eBay</button>` : ''}</div>
@@ -723,8 +720,7 @@ async function ebayPage() {
       <p class="muted small">Your share = what the buyer paid − eBay’s fees (about 12.8% + a small fixed fee) − the product and delivery − Kinan’s ${d.pct}% of what is left. VAT on these orders is collected and paid by eBay.</p></div>`;
   const msg = (t) => { $('#ebm').textContent = t; };
   const save = async (b) => { try { await api('/api/seller/ebay', 'PUT', b); ebayPage(); } catch (e) { msg(e.message); } };
-  $('#ebon').onchange = (e) => save({ enabled: e.target.checked, mode: (document.querySelector('[name=ebmode]:checked') || {}).value || 'kinan' });
-  $$('[name=ebmode]').forEach((r) => r.onchange = () => save({ mode: r.value, enabled: $('#ebon').checked }));
+  $('#ebon').onchange = (e) => save({ enabled: e.target.checked, mode: 'kinan' });
   const con = $('#ebcon'); if (con) con.onclick = async () => { try { const r = await api('/api/seller/ebay/connect', 'POST'); location.href = r.url; } catch (e) { msg(e.message); } };
   const dis = $('#ebdis'); if (dis) dis.onclick = async () => { if (!confirm('Disconnect your eBay account? Your listings stay on eBay but stop updating.')) return; await api('/api/seller/ebay/disconnect', 'POST'); ebayPage(); };
   const li = $('#eblist'); if (li) li.onclick = async () => { li.disabled = true; try { const r = await api('/api/seller/ebay/list', 'POST', {}); msg(`Listing ${r.count} product(s) — about 20 seconds each`); setTimeout(ebayPage, 20000); } catch (e) { msg(e.message); li.disabled = false; } };

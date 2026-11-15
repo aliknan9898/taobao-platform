@@ -114,11 +114,15 @@ const skuKey = (l, s) => `K-${l.id.replace(/^lst_/, '')}-${String(s.cj_vid || s.
 const groupKey = (l) => `KG-${l.id.replace(/^lst_/, '')}`.slice(0, 50);
 const qtyOf = (l, s) => (l.status === 'active' ? Math.max(0, Math.min(prefs().max_qty, Math.floor(Number(s.stock) || 0))) : 0);
 
-/** How a seller sells on eBay: 'kinan' (on Kinan's eBay account, once Kinan approves) or 'own' (their own eBay account). */
+/**
+ * How a seller sells on eBay: only on Kinan's eBay shop, once Kinan approves (the owner's rule: sellers do not list
+ * on their own eBay accounts through Kinan). A seller who had chosen "own account" before is treated like the others.
+ */
+const OWN_ALLOWED = () => process.env.EBAY_SELLER_OWN_ACCOUNTS === '1';
 function sellerMode(sellerId) {
   const s = db.sellers.get(sellerId);
   if (!s || s.status !== 'active' || !s.ebay?.enabled) return null;
-  if (s.ebay.mode === 'own') return 'own';
+  if (s.ebay.mode === 'own' && OWN_ALLOWED()) return 'own';
   return s.ebay.approved ? 'kinan' : null;
 }
 /** Does this product belong on the eBay account being worked on? */
@@ -772,8 +776,8 @@ function sellerSettings(seller, b = {}) {
   const cur = seller.ebay || {};
   const next = { ...cur };
   if (b.enabled !== undefined) next.enabled = Boolean(b.enabled);
-  if (b.mode !== undefined) { if (!['kinan', 'own'].includes(b.mode)) throw httpError(400, 'Choose Kinan’s eBay account or your own'); if (b.mode !== cur.mode) { next.mode = b.mode; if (b.mode === 'kinan') next.requested_at = now(); } }
-  if (!next.mode) next.mode = 'kinan';
+  if (b.mode !== undefined) { if (!(OWN_ALLOWED() ? ['kinan', 'own'] : ['kinan']).includes(b.mode)) throw httpError(400, 'Selling on eBay is through Kinan’s eBay shop'); if (b.mode !== cur.mode) { next.mode = b.mode; if (b.mode === 'kinan') next.requested_at = now(); } }
+  if (!next.mode || (next.mode === 'own' && !OWN_ALLOWED())) next.mode = 'kinan';
   if (next.enabled && next.mode === 'kinan' && !cur.requested_at) next.requested_at = now();
   if (next.enabled && next.mode === 'kinan' && !cur.approved && !cur.notified) {
     try { require('../push').telegram(`🏷 ${seller.shop_name} wants to sell on Kinan’s eBay account — approve in the admin (eBay)`); } catch { /* optional */ }
@@ -789,7 +793,7 @@ function approveSeller(sellerId, approve = true) {
 }
 /** Everything the seller's eBay page shows. */
 function sellerView(seller) {
-  const e = seller.ebay || {}; const mode = e.mode || 'kinan';
+  const e = seller.ebay || {}; const mode = e.mode === 'own' && OWN_ALLOWED() ? 'own' : 'kinan';
   const acct = mode === 'own' ? seller.id : 'kinan';
   return ebay.withAccount(acct, () => {
     const mine = (l) => l.seller_id === seller.id && l.status === 'active' && l.source === 'cj';
@@ -850,7 +854,7 @@ async function tickOne() {
 async function tick() {
   ticks += 1;
   await ebay.withAccount('kinan', tickOne);
-  for (const s of db.sellers.all((x) => x.ebay?.enabled && x.ebay.mode === 'own' && x.status === 'active')) await ebay.withAccount(s.id, tickOne);
+  if (OWN_ALLOWED()) for (const s of db.sellers.all((x) => x.ebay?.enabled && x.ebay.mode === 'own' && x.status === 'active')) await ebay.withAccount(s.id, tickOne);
   for (const o of db.orders.all((x) => x.status === 'pending_payment' && x.ebay?.account && x.ebay.account !== 'kinan')) await fundOwnOrder(o.id).catch(() => {});
 }
 
@@ -935,7 +939,7 @@ function status() {
     store: s.store ? { has: s.store.has, error: s.store.error || null, categories: list(s.store.paths).length, at: s.store.at } : null, organizing,
     failed, connect_error: ebay.connected() ? null : s.connect_error || null, job: s.job || null, last_sync: s.last_sync || null, last_orders: s.last_orders || null,
     orders: db.orders.all((o) => o.channel === 'ebay' && (o.ebay?.account || 'kinan') === ebay.account()).length,
-    ...(ebay.account() === 'kinan' ? { seller_requests: db.sellers.all((x) => x.ebay?.enabled && x.ebay.mode !== 'own').map((x) => ({ id: x.id, shop: x.shop_name, approved: Boolean(x.ebay.approved), products: db.listings.all((l) => l.seller_id === x.id && l.status === 'active' && l.source === 'cj').length })) } : {})
+    ...(ebay.account() === 'kinan' ? { seller_requests: db.sellers.all((x) => x.ebay?.enabled && (x.ebay.mode !== 'own' || !OWN_ALLOWED())).map((x) => ({ id: x.id, shop: x.shop_name, approved: Boolean(x.ebay.approved), products: db.listings.all((l) => l.seller_id === x.id && l.status === 'active' && l.source === 'cj').length })) } : {})
   };
 }
 

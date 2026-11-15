@@ -244,7 +244,15 @@ test('GPSR: Kinan as the EU responsible person, warnings by kind of product, on 
   assert.match(offer.body.listingDescription, /Safety information/);
 });
 
+test('sellers on eBay: only Kinan’s eBay shop unless own accounts are switched on', async () => {
+  const sl = db.sellers.insert({ user_id: 'u_only', shop_name: 'Only Kinan', status: 'active' });
+  await assert.rejects(async () => ebay.sellerSettings(sl, { enabled: true, mode: 'own' }), /Kinan’s eBay shop/);
+  ebay.sellerSettings(db.sellers.get(sl.id), { enabled: true }); const v = {};
+  assert.strictEqual((v.mode || db.sellers.get(sl.id).ebay.mode), 'kinan');
+});
+
 test('sellers on eBay: on Kinan’s account (after approval, profit share) or on their own account (they fund Kinan’s part)', async () => {
+  process.env.EBAY_SELLER_OWN_ACCOUNTS = '1';
   const money = require('../src/services/money');
   const mkSeller = (name) => { const u = db.users.insert({ email: `${name}@s.example`, role: 'seller', name }); return db.sellers.insert({ user_id: u.id, shop_name: name, status: 'active', commission_pct: 10 }); };
   const mkProduct = (sel, vid) => db.listings.insert({
