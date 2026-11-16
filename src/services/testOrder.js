@@ -48,7 +48,7 @@ function basket({ country = 'MT', n = 8, max_price = 5, max_days = 12, departmen
   const subtotal = money(items.reduce((a, x) => a + x.price, 0));
   let shipping = null;
   try { shipping = require('./shipping').quote(items.map((x) => ({ listing_id: x.listing_id, mp_sku_id: x.mp_sku_id, qty: 1 })), cc).fee; } catch { /* shown at checkout */ }
-  const base = require('../config').publicBaseUrl;
+  const base = ''; // same site as the admin (kinan.shop), so the cart fills where the customer shops
   return {
     country: cc, max_price: maxP, max_days: maxD, found: cands.length, items, subtotal,
     shipping: shipping == null ? null : money(shipping), total: shipping == null ? null : money(subtotal + shipping),

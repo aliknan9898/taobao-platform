@@ -16,7 +16,7 @@ test('test basket: cheap, fast, one per department, cart link works', () => {
   mk('Too dear', 'toys', 40, 6, 'cj');
   const b = require('../src/services/testOrder').basket({ country: 'MT', n: 2, max_price: 5, max_days: 12 });
   assert.deepStrictEqual(b.items.map((x) => x.listing_id).sort(), [a.id, c.id].sort());
-  assert.ok(b.link.includes('#/add/'));
+  assert.ok(b.link.startsWith('/#/add/'));
   const l = require('../src/services/testOrder').lines(`${a.id}~S1,missing~X`);
   assert.strictEqual(l.items.length, 1);
   assert.strictEqual(l.items[0].price, 2);

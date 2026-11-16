@@ -335,7 +335,7 @@ const VIEWS = {
         if (!b.items.length) { o.innerHTML = `<p class="warn">No live product matches (${b.found} found). Try a higher price or more days.</p>`; return; }
         o.innerHTML = `<div style="overflow-x:auto"><table style="margin-top:10px"><tr><th></th><th>Product</th><th>Department</th><th>Supplier</th><th>Days</th><th>Price</th></tr>${b.items.map((x) => `<tr><td>${x.image ? `<img src="${esc(x.image)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px" referrerpolicy="no-referrer">` : ''}</td><td>${esc(x.title.slice(0, 70))}${x.props ? `<br><small class="muted">${esc(x.props)}</small>` : ''}</td><td>${esc(x.department)}${x.section ? ` · ${esc(x.section)}` : ''}</td><td>${esc(x.supplier)}</td><td>${x.days}</td><td>${fmt(x.price, b.currency)}</td></tr>`).join('')}</table></div>
           <p><b>Products: ${fmt(b.subtotal, b.currency)}</b>${b.shipping != null ? ` · delivery to ${esc(b.country)} ≈ ${fmt(b.shipping, b.currency)} · <b>total ≈ ${fmt(b.total, b.currency)}</b>` : ''} · slowest ${b.slowest_days} days</p>
-          <p><a class="btn" href="${esc(b.link)}" target="_blank" rel="noopener">Open in the shop cart →</a> <small class="muted">Sign in to the shop as a buyer with your own address, then pay as a normal customer.</small></p>`;
+          <p><a class="btn" href="${esc(b.link)}">Open in the shop cart →</a> <small class="muted">Sign in to the shop as a buyer with your own address, then pay as a normal customer.</small></p>`;
       } catch (e) { o.innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
     };
     const aiCard = () => api('/api/admin/ai').then((st) => {
