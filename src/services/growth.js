@@ -116,7 +116,7 @@ function wishlist(user) {
   return db.wishlist.all((w) => w.user_id === user.id).sort((a, b) => b.created_at - a.created_at).map((w) => {
     const l = db.listings.get(w.listing_id); const s = l && db.sellers.get(l.seller_id);
     if (!l || !s || !['active', 'paused', 'unavailable'].includes(l.status)) return null;
-    return { listing_id: l.id, title: l.title, title_ar: l.title_ar || '', image: [...(l.own_images || []).map((u, i) => catalog.photoUrl(l, i, u)), ...(l.images || [])][0] || null, price: priceOf(l), price_when_saved: w.price_at_add, in_stock: inStock(l), currency: l.currency, saved_at: w.created_at };
+    return { listing_id: l.id, title: l.title, title_ar: l.title_ar || '', image: require('./media').hosted([...(l.own_images || []).map((u, i) => catalog.photoUrl(l, i, u)), ...(l.images || [])][0]) || null, price: priceOf(l), price_when_saved: w.price_at_add, in_stock: inStock(l), currency: l.currency, saved_at: w.created_at };
   }).filter(Boolean);
 }
 

@@ -266,6 +266,15 @@ r('POST', '/api/auth/phone/verify', null, async ({ req, res }) => {
   if (out.created) { try { require('./push').telegram(`👤 New customer signed up with a phone number (${String(out.user.phone).slice(0, 4)}…)`); } catch { /* optional */ } }
   return { token: out.token, user: auth.publicUser(out.user), created: out.created }; // token: for the apps (Bearer); the site uses the cookie
 });
+// Google and Apple sign-in from the native apps (ID token from the provider's SDK → Kinan session). Off until configured.
+r('POST', '/api/auth/google/native', null, async ({ req }) => {
+  throttle(clientIp(req)); const b = await readJson(req);
+  try { return await require('./nativeAuth').google({ id_token: b.id_token, lang: b.lang || reqLang(req) }); } catch (e) { if ([400, 401].includes(e.status)) recordFailure(clientIp(req)); throw e; }
+});
+r('POST', '/api/auth/apple', null, async ({ req }) => {
+  throttle(clientIp(req)); const b = await readJson(req);
+  try { return await require('./nativeAuth').apple({ identity_token: b.identity_token, nonce: b.nonce, name: b.name, authorization_code: b.authorization_code, lang: b.lang || reqLang(req) }); } catch (e) { if ([400, 401].includes(e.status)) recordFailure(clientIp(req)); throw e; }
+});
 r('POST', '/api/auth/login', null, async ({ req, res }) => {
   throttle(clientIp(req));
   const { email, password, app } = await readJson(req);
@@ -347,7 +356,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const extra = (c?.fee || 0) - fe.free + (g?.fee || 0);
   return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
 });
-r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), google_native: require('./nativeAuth').googleEnabled(), apple_signin: require('./nativeAuth').appleEnabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 // Idempotency-Key (optional, sent by the apps): the same key from the same customer returns the same order instead of a new one,
@@ -690,6 +699,7 @@ r('POST', '/api/admin/keywords/ideas', ADMIN, async ({ req }) => { const b = awa
 r('POST', '/api/admin/keywords/product/:id', ADMIN, async ({ params }) => require('./services/keywords').improve(params.id));
 r('GET', '/api/catalog/:id/delivery', null, async ({ params, url }) => catalog.delivery(params.id, url.searchParams.get('country')));
 r('GET', '/api/catalog/:id/together', null, async ({ params }) => require('./services/together').view(params.id));
+r('GET', '/api/admin/media', ADMIN, async () => require('./services/media').status());
 r('GET', '/api/admin/telegram', ADMIN, async () => require('./services/telegram').status());
 r('POST', '/api/admin/telegram/check', ADMIN, async () => { await require('./services/telegram').poll(); return require('./services/telegram').status(); });
 r('POST', '/api/admin/telegram/test', ADMIN, async () => require('./services/telegram').test());
@@ -877,6 +887,8 @@ async function runReclassify(s) {
   return st;
 }
 
+/** Routes used by Kinan Shop customers (site and apps); errors there are shown to customers. */
+const CUSTOMER_PATH = /^\/(api\/(buyer|catalog|shops|categories|shipping|search|assistant|buyforme|auth|me|push|config|presence)(\/|$)|invoice\/)/;
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
@@ -1078,9 +1090,15 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     const status = e.status || (e.name === 'TaobaoApiError' ? 502 : 500);
-    if (status >= 500) { console.error('[error]', req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message}`); }
+    const errorId = status >= 500 ? require('crypto').randomBytes(4).toString('hex') : undefined;
+    if (status >= 500) { console.error('[error]', errorId, req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message} (${errorId})`); }
+    // Customers never see internal or supplier error text (it can name a supplier or a system): a plain message and an id
+    // that matches the server log. Staff and seller pages keep the full message, which they need to act on it.
+    if (CUSTOMER_PATH.test(p) && (status === 500 || status === 502 || e.name === 'TaobaoApiError')) {
+      return send(res, status, { error: status === 502 ? 'A service we rely on did not answer. Please try again in a moment.' : 'Something went wrong on our side. Please try again.', error_id: errorId });
+    }
     const TB_MSG = { SETTLE_NOT_FINISH: 'Your Taobao (TaoWorld) distributor account has not finished onboarding yet. Complete the registration at distributor.taobao.global, then try again.' };
-    send(res, status, { error: TB_MSG[e.code] || e.message || 'Error', code: e.code, request_id: e.requestId });
+    send(res, status, { error: TB_MSG[e.code] || e.message || 'Error', code: e.code, request_id: e.requestId, ...(errorId ? { error_id: errorId } : {}) });
   }
 });
 
@@ -1098,6 +1116,8 @@ function startJobs() {
   const every = (ms, fn) => setInterval(() => Promise.resolve(require('./cj/client').background(fn)).catch(() => {}), ms).unref();
   every(30e3, webhooks.processInbox);
   every(3600e3, () => webhooks.checkUnpaidCards()); // card payments whose webhook failed or never came
+  every(10 * 60e3, () => require('./services/media').tick()); // supplier photos → Kinan's own storage (off unless R2_* is set)
+  every(3600e3, async () => { if (new Date().getUTCHours() === 3) require('./services/account').redactDeletedOrders(); }); // retention for deleted accounts (off unless ORDER_PII_RETENTION_DAYS is set)
   every(config.orderSyncMinutes * 60e3, orders.syncOpen);
   every(3600e3, catalog.resyncStale);
   every(6 * 3600e3, sellerAuth.refreshAllDue);

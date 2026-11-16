@@ -331,7 +331,18 @@ function optionGroups(skus) {
   return { groups, picks: parts.map((p) => p.map((x) => x.value)) };
 }
 
+/** Customers see Kinan's copy of supplier photos once it exists (services/media.js); unchanged while that is off. */
 function toBuyerView(l, seller) {
+  const v = toBuyerViewRaw(l, seller);
+  const media = require('./media');
+  if (!media.enabled()) return v;
+  const h = media.hosted;
+  return {
+    ...v, images: (v.images || []).map(h), skus: (v.skus || []).map((s) => (s.image ? { ...s, image: h(s.image) } : s)),
+    option_groups: v.option_groups ? v.option_groups.map((g) => ({ ...g, values: g.values.map((x) => (x.image ? { ...x, image: h(x.image) } : x)) })) : v.option_groups
+  };
+}
+function toBuyerViewRaw(l, seller) {
   return {
     id: l.id, title: l.title, images: galleryOf(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,

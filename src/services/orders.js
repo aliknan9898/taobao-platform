@@ -598,7 +598,7 @@ function buyerViewBase(o) {
     discount: o.discount || 0, coupon_code: o.coupon_code || null, bundle_discount: o.bundle_discount || 0, wallet_applied: o.wallet_applied || 0, packaging: o.packaging || 'standard', packaging_fee: o.packaging_fee || 0, hold: Boolean(o.hold), hold_until: o.hold && o.paid_at ? o.paid_at + STORAGE_DAYS * 86400e3 : null, ship_group: o.ship_group || null,
     qc: { photos: (o.qc_photos || []).length, review: o.qc_review || null, note: o.qc_note || null, at: o.qc_at || null },
     shipping_due: o.shipping_due || 0, shipping_settled: o.shipping_settled ? { result: o.shipping_settled.result, diff: o.shipping_settled.diff, actual_weight_kg: o.shipping_settled.actual_weight_kg } : null, shipping_days: o.shipping_quote?.days || null,
-    lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image, listing_id, direct: Boolean(direct) })),
+    lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image: require('./media').hosted(image), listing_id, direct: Boolean(direct) })),
     shipping_address: o.shipping_address,
     payment: { provider: o.payment?.provider, client_secret: o.status === 'pending_payment' ? o.payment?.client_secret : undefined },
     tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, url: shipment.url || require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,

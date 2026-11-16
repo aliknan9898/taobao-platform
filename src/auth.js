@@ -107,6 +107,7 @@ function login(email, password, app) {
     if (list.some((x) => ownerEmail(x.email) && x.role !== 'admin')) throw httpError(401, 'This account uses Google sign-in — tap “Continue with Google”');
     if (list.some((x) => !x.pass && x.google_sub)) throw httpError(401, 'This account uses Google sign-in — tap “Continue with Google”');
     if (list.some((x) => !x.pass && x.facebook_id)) throw httpError(401, 'This account uses Facebook sign-in — tap “Continue with Facebook”');
+    if (list.some((x) => !x.pass && x.apple_sub)) throw httpError(401, 'This account uses Sign in with Apple — tap “Continue with Apple”');
     if (role && !list.length && all.length) throw httpError(401, role === 'seller' ? 'This email has no seller account yet — tap “Open a shop”' : 'This email has no Kinan Shop account yet — tap “Create account”');
     throw httpError(401, 'Incorrect email or password');
   }
