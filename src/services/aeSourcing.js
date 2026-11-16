@@ -133,7 +133,7 @@ async function run({ count } = {}, by = 'auto') {
   let cur = {}; // what is known about the product being checked, for the log
   const skip = (why, id) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (id) tried.add(id); console.log(`[ae-sourcing] ✗ ${id || cur.id} ${why}${cur.cost != null ? ` · cost ${cur.cost}` : ''}${cur.days ? ` · ${cur.days} days` : ''}`); };
   const q = src.queue(src.prefs());
-  const start = Number(s0.cursor) || 0; let fails = 0;
+  const start = Number(s0.cursor) || 0; let fails = 0; let aiFails = 0;
   // where candidates come from: AliExpress's fast/local feeds first (a few pages each run), then the department keywords
   async function* candidates() {
     let fl = []; try { fl = await feeds(); } catch (e) { console.warn('[ae-sourcing] feeds:', e.message); }
@@ -191,7 +191,8 @@ async function run({ count } = {}, by = 'auto') {
         try { l = await aes.publish(kinan, { link: c.id }); } catch (e) { skip(`import failed: ${e.message.slice(0, 60)}`, c.id); continue; }
         db.listings.update(l.id, (x) => ({ ...x, status: 'pending_review', ae_from: gb.from || null, skus: x.skus.map((s) => ({ ...s, price: money(Math.max(0.5, s.cost_sale * (1 + p.markup_pct / 100))) })) }));
         const d = await src.curate(db.listings.get(l.id), item);
-        if (!d || d.error) { db.listings.remove(l.id); skip(d?.error ? 'AI not reachable' : 'AI is off', null); if (!d) { st.error = 'The AI is off — AliExpress products wait for the AI review'; stopAsked = true; } continue; }
+        if (!d || d.error) { db.listings.remove(l.id); skip(d?.error ? 'AI not reachable' : 'AI is off', null); aiFails++; if (!d || aiFails >= 3) { st.error = 'No AI available right now (daily budget used or quota) — AliExpress products wait for the AI review'; stopAsked = true; } continue; }
+        aiFails = 0;
         const minQ = src.prefs().min_quality;
         if (!d.keep || !d.photos_ok || (Number(d.quality) || 0) < minQ) { db.listings.remove(l.id); skip(!d.photos_ok ? 'AI: photos not good enough' : !d.keep ? 'AI: not a good product' : 'AI: quality too low', c.id); continue; }
         if (src.applyPhotos(l.id, d) < 2) { db.listings.remove(l.id); skip('AI: fewer than 2 clean photos', c.id); continue; }
