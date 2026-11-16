@@ -113,15 +113,27 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       qty, price: require('./deals').priceOf(l, sku), ...(require('./deals').dealFor(l) ? { deal_pct: require('./deals').dealFor(l).pct, list_price: sku.price } : {}), cost_cny: sku.cost_cny
     });
   }
+  // Never sell at a loss: Kinan's own supplier products are repriced to the 20%-net price, sellers' are refused
+  const landed = require('./landed');
+  const short = landed.guard(lines, address.country_code);
+  if (short.length) {
+    const own = short.filter((x) => x.own);
+    if (own.length) landed.repriceKinan({ ids: own.map((x) => x.listing.id) });
+    try { require('../push').telegram(`⚠️ Checkout stopped: ${short.map((x) => `${String(x.listing.title).slice(0, 40)} sold at ${x.line.price}, real cost ${x.need}${x.own ? ' (repriced)' : ' (seller price too low)'}`).join(' · ')}`); } catch { /* best effort */ }
+    throw httpError(409, own.length ? `The price of “${String(own[0].listing.title).slice(0, 60)}” has just been updated — please check your cart` : `“${String(short[0].listing.title).slice(0, 60)}” cannot be delivered to your country at this price right now`);
+  }
+  for (const ln of lines) if (ln.direct) { const l = db.listings.get(ln.listing_id); const s = l?.skus.find((x) => x.mp_sku_id === ln.mp_sku_id); if (l && s) { ln.supplier_ship = landed.aeShip(l, address.country_code); ln.unit_cost = landed.unitCost(l, s, address.country_code); } }
   const subtotal = money(lines.reduce((s, x) => s + x.price * x.qty, 0));
   const ship = require('./shipping').quote(lines.map((l) => ({ listing_id: l.listing_id, qty: l.qty })), address.country_code || address.country);
+  // EU import duty (€3 + VAT per item line from outside the EU) and AliExpress's handling fee, charged at cost
+  const imp = landed.importCharges(lines, address.country_code);
   // CJ items: CJ's real shipping price to the customer's country
   const cjShip = await cj.quote(lines.filter((l) => l.source === 'cj').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
   // Banggood items: Banggood's real shipping price to the customer's country
   const bgShip = await banggood.quote(lines.filter((l) => l.source === 'banggood').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
   // Free delivery for items from CJ's European/UK warehouses once they add up to the threshold (Kinan pays that delivery)
   const fe = cj.freeEu(lines.map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), cjShip); const freeEu = fe.free; const fso = fe.over;
-  const shipping = money(ship.fee + (cjShip?.fee || 0) - freeEu + (bgShip?.fee || 0));
+  const shipping = money(ship.fee + (cjShip?.fee || 0) - freeEu + (bgShip?.fee || 0) + imp.fee);
   const warehouseItems = lines.some((l) => !l.direct);
   const packagingFee = warehouseItems ? money(PACKAGING[packaging]) : 0;
   const disc = coupon ? require('./growth').couponFor(coupon, buyer, subtotal) : null;
@@ -133,6 +145,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     ...(disc || bundle.amount ? { discount } : {}), ...(disc ? { coupon_code: disc.code, coupon_id: disc.coupon_id, coupon_discount: disc.discount } : {}),
     ...(bundle.amount ? { bundle_discount: bundle.amount, bundle_lines: bundle.lines } : {}),
     ...(freeEu ? { free_shipping: { amount: freeEu, over: fso } } : {}),
+    ...(imp.fee ? { import_fee: imp.fee, import_detail: imp } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code, payCur), ...(payCur ? { pay_currency: payCur } : {}), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     ...(cjShip ? { cj_shipping: { method: cjShip.method, methods: cjShip.methods || {}, origins: cjShip.origins || {}, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
@@ -170,7 +183,7 @@ async function markPaid(orderId, { provider, intent_id }) {
     // the old setup, does the seller pay Taobao directly, so nothing is deducted.)
     const kinanBuysTaobao = require('../taobao/sellerAuth').platformConnected();
     // Kinan-catalogue products: the seller pays the Kinan price (supplier cost + Kinan's share), not the supplier cost
-    const cost = money(lines.reduce((a, l) => a + (l.direct ? Number(l.seller_cost ?? l.cost_sale ?? 0) : (l.manual || kinanBuysTaobao) && l.cost_cny ? l.cost_cny / config.cnyRate : 0) * l.qty, 0));
+    const cost = money(lines.reduce((a, l) => a + (l.direct ? Number(l.seller_cost ?? l.unit_cost ?? l.cost_sale ?? 0) : (l.manual || kinanBuysTaobao) && l.cost_cny ? l.cost_cny / config.cnyRate : 0) * l.qty, 0));
     db.ledger.insert({ order_id: o.id, seller_id: sellerId, type: 'sale', currency: o.currency, gross, commission, cost, net: money(gross - commission - cost), status: 'pending_payout' });
   }
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));

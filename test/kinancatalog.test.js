@@ -38,7 +38,8 @@ test('Kinan catalogue: browse without suppliers, add at own price, Kinan price a
   const b = await api('GET', '/api/seller/kinan-catalog', null, tok);
   assert.strictEqual(b.status, 200, JSON.stringify(b.body)); assert.strictEqual(b.body.total, 1);
   const it = b.body.items[0];
-  assert.strictEqual(it.kinan_price, 11); assert.strictEqual(it.delivery_days, 5);
+  const kp = require('../src/services/kinanCatalog').lineCost(db.listings.get(it.id), db.listings.get(it.id).skus[0]);
+  assert.ok(kp >= 11, 'at least cost + 10%'); assert.strictEqual(it.kinan_price, kp); assert.strictEqual(it.delivery_days, 5);
   assert.doesNotMatch(JSON.stringify(b.body), /cj|CJ|cjdropshipping|source_link|cost_sale/);
   // price must be above the Kinan price
   assert.strictEqual((await api('POST', `/api/seller/kinan-catalog/${src.id}`, { prices: { cj_V1: 10.5 } }, tok)).status, 400);
@@ -53,11 +54,11 @@ test('Kinan catalogue: browse without suppliers, add at own price, Kinan price a
   // the seller's product list hides the supplier too
   const mine = await api('GET', '/api/seller/products', null, tok);
   assert.doesNotMatch(JSON.stringify(mine.body), /cjdropshipping|cj_vid|cost_sale/);
-  assert.strictEqual(mine.body[0].skus[0].kinan_price, 11);
+  assert.strictEqual(mine.body[0].skus[0].kinan_price, kp);
   // the copy still ships through the supplier internally
   const copy = db.listings.get(add.body.id);
   assert.strictEqual(copy.cj_pid, 'P1'); assert.strictEqual(copy.from_kinan, src.id); assert.strictEqual(copy.seller_id, sid);
-  assert.strictEqual(require('../src/services/kinanCatalog').lineCost(copy, copy.skus[0]), 11);
+  assert.strictEqual(require('../src/services/kinanCatalog').lineCost(copy, copy.skus[0]), kp);
   // price change below the Kinan price is refused
   assert.strictEqual((await api('PATCH', `/api/seller/products/${copy.id}`, { prices: { cj_V1: 9 } }, tok)).status, 400);
   assert.strictEqual((await api('PATCH', `/api/seller/products/${copy.id}`, { prices: { cj_V1: 22 } }, tok)).status, 200);

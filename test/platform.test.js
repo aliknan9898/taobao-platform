@@ -480,9 +480,9 @@ test('AliExpress, manual mode: typed-in product ships direct, admin orders it by
   assert.ok(!JSON.stringify(bv).includes('3001234567'), 'AliExpress order no. stays internal');
   full = (await api('POST', `/api/admin/orders/${o.id}/aliexpress`, { delivered: true }, aTok)).body;
   assert.strictEqual(full.status, 'delivered');
-  // Seller earnings: 40 gross − 10% commission − 16 AliExpress cost = 20, now payable
+  // Seller earnings: 40 gross − 10% commission − 21 AliExpress cost (2 × (8 + 2.50 AliExpress shipping)) = 15, now payable
   const led = (await api('GET', '/api/seller/earnings', null, sTok)).body.entries.find((e) => e.order_id === o.id);
-  assert.deepStrictEqual([led.cost, led.net, led.status], [16, 20, 'payable']);
+  assert.deepStrictEqual([led.cost, led.net, led.status], [21, 15, 'payable']);
 });
 
 test('AliExpress, API mode: connect, import by link, order placed and synced automatically', async () => {

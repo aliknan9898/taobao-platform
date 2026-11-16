@@ -351,10 +351,13 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const c = await cjs.quote(items, cc);
   const g = await require('./services/banggood').quote(items, cc);
   const bundle = require('./services/together').forItems(items);
-  if (!c && !g) return { ...q, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
+  // EU import duty + handling (included in the delivery price shown, at cost)
+  const imp = require('./services/landed').importCharges(items, cc);
+  const impOut = imp.fee ? { import_fee: imp.fee, import: imp } : {};
+  if (!c && !g) return { ...q, fee: Math.round((q.fee + imp.fee) * 100) / 100, ...(imp.fee ? { note: undefined } : {}), ...impOut, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
   const fe = cjs.freeEu(items, c);
-  const extra = (c?.fee || 0) - fe.free + (g?.fee || 0);
-  return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
+  const extra = (c?.fee || 0) - fe.free + (g?.fee || 0) + imp.fee;
+  return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), ...impOut, days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
 });
 r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), google_native: require('./nativeAuth').googleEnabled(), apple_signin: require('./nativeAuth').appleEnabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
@@ -1169,6 +1172,13 @@ function startJobs() {
   every(15 * 60e3, () => require('./services/ebay').tick());
   every(3600e3, () => require('./services/points').settle()); // Kinan points for delivered orders
   every(3600e3, () => require('./services/keywords').tick());
+  // Kinan's supplier products: keep every price at 20% net after all costs (supplier, shipping, card fees)
+  every(3600e3, () => { const r = require('./services/landed').repriceKinan(); if (r.changed) console.log(`[pricing] ${r.changed} product(s) repriced to ${r.rule.net_margin_pct}% net`); });
+  setTimeout(() => {
+    const L = require('./services/landed'); const r = L.repriceKinan();
+    console.log(`[pricing] start: ${r.changed} product(s) repriced (${r.sku_up} options up, ${r.sku_down} down) — rule ${JSON.stringify(r.rule)} samples ${JSON.stringify(r.samples.slice(0, 4))}`);
+    if (r.changed && !db.settings.get('pricing_net20_v1')) { db.settings.insert({ id: 'pricing_net20_v1', at: Date.now(), ...r }); require('./push').telegram(`💷 New prices: ${r.changed} Kinan products repriced so Kinan keeps ${r.rule.net_margin_pct}% after supplier price, shipping and card fees (${r.sku_up} options up, ${r.sku_down} down). EU orders now include the €3 import duty and handling at checkout.`).catch(() => {}); }
+  }, 90e3).unref?.();
   // free trends engine: Google search suggestions scanned once a day (a batch each hour), then product keywords
   every(3600e3, async () => { const t = require('./services/trends'); await t.tick(); t.enrich(); });
   setTimeout(() => { const t = require('./services/trends'); t.tick().then(() => t.enrich()).catch((e) => console.warn('[trends]', e.message)); }, 6 * 60e3).unref?.(); // Google Keyword Planner: real search keywords for products

@@ -2,6 +2,8 @@
 // Proprietary and confidential. See LICENSE.
 'use strict';
 /* Christmas Shop: CJ products from European warehouses, collection browse, CSV, per-warehouse shipping and CJ orders. CJ API is mocked. */
+// these tests check CJ shipping and orders; the EU import duty (landed.js) has its own tests
+process.env.EU_DUTY_EUR = '0'; process.env.EU_IMPORT_HANDLING = '0';
 const test = require('node:test');
 const assert = require('node:assert');
 const os = require('os');

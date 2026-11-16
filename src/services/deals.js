@@ -43,7 +43,9 @@ function priceOf(l, s) {
   if (!d) return s.price;
   const cost = Number(s.cost_sale) || 0;
   const p = money(s.price * (1 - d.pct / 100));
-  return cost ? Math.max(p, money(cost * (d.min_margin || MIN_MARGIN()))) : p;
+  // a deal never goes under the 20%-net price of a supplier-shipped product
+  const floor = l.fulfillment === 'direct' ? require('./landed').minPrice(l, s) : 0;
+  return Math.min(s.price, Math.max(p, floor, cost ? money(cost * (d.min_margin || MIN_MARGIN())) : 0));
 }
 
 const sameDay = (d) => d && d.day === dayInfo().day && (d.campaign || null) === (camp()?.id || null);
@@ -57,7 +59,8 @@ function candidates() {
     const s = [...(l.skus || [])].filter((k) => k.stock >= 5).sort((a, b) => a.price - b.price)[0];
     if (!s || !(s.price > 0)) continue;
     const cost = Number(s.cost_sale) || 0;
-    const room = cost ? Math.floor((1 - (cost * MIN_MARGIN()) / s.price) * 100) : MAX_PCT();
+    const floor = l.fulfillment === 'direct' ? require('./landed').minPrice(l, s) : 0;
+    const room = cost ? Math.floor((1 - Math.max(cost * MIN_MARGIN(), floor) / s.price) * 100) : MAX_PCT();
     const pct = Math.min(MAX_PCT(), room);
     if (pct < 10) continue;
     out.push({ l, pct: Math.floor(pct / 5) * 5, recent: recent.has(l.id), eu: Boolean(l.cj_from && l.cj_from !== 'CN'), dept: l.sourcing?.dept || (l.collections || [])[0] || l.category || 'other' });

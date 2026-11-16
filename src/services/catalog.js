@@ -204,10 +204,15 @@ function publishManual(seller, b = {}, listingId = null) {
  */
 function checkMargins(l) {
   if (!l) return l;
+  const landed = require('./landed');
+  // Kinan's own supplier products follow the supplier's price: always the 20%-net price (see landed.js)
+  if (l.fulfillment === 'direct' && l.seller_id === require('./buyforme').systemSeller().id && !l.from_kinan) { landed.repriceKinan({ ids: [l.id] }); l = db.listings.get(l.id); }
+  // what one unit really costs: supplier price + AliExpress shipping + card fees for supplier-shipped products
+  const costOf = (s) => (l.fulfillment === 'direct' && Number(s.cost_sale) > 0 ? (landed.unitCost(l, s) + 0.35) / 0.96 : s.cost_sale !== undefined && s.cost_sale !== null ? s.cost_sale : s.cost_cny ? s.cost_cny / config.cnyRate : null);
   const losing = l.skus.filter((s) => {
-    const cost = s.cost_sale !== undefined && s.cost_sale !== null ? s.cost_sale : s.cost_cny ? s.cost_cny / config.cnyRate : null;
+    const cost = costOf(s);
     return cost !== null && s.stock > 0 && s.price < cost;
-  }).map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, cost: Math.round((s.cost_sale ?? s.cost_cny / config.cnyRate) * 100) / 100 }));
+  }).map((s) => ({ mp_sku_id: s.mp_sku_id, props: s.props, price: s.price, cost: Math.round(costOf(s) * 100) / 100 }));
   const before = l.price_alert?.skus?.length || 0;
   if (!losing.length) return before ? db.listings.update(l.id, { price_alert: null }) : l;
   const pause = ['aliexpress', 'cj', 'banggood'].includes(l.source) && l.status === 'active';

@@ -873,7 +873,7 @@ async function product(id) {
     el.innerHTML = `<button class="locchip" type="button"></button>
       <div><span>${q.fee ? `Item ${money(sku.price * qty, p.currency)} + shipping ${money(q.fee, p.currency)}` : 'Shipping included'}</span> · <span>arrives in about</span> <b>${esc(days)} days</b></div>
       ${q.weight_kg ? '<div class="muted">Shipping is checked by the real weight — if it weighs less, we refund the difference to your wallet.</div>' : ''}
-      <div class="muted">Import duties or VAT may be charged by your country’s customs on delivery.</div>`;
+      <div class="muted">${q.import_fee ? `Delivery includes the EU import duty (${money(q.import_fee, p.currency)}) — nothing more to pay on delivery.` : 'Import duties or VAT may be charged by your country’s customs on delivery.'}</div>`;
     renderLocaleChip();
   }
   // Opening a product without an address: ask for it (the customer can still look around)
@@ -1033,7 +1033,8 @@ async function checkout() {
     try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: code });
       lastFee = q.fee || 0; bundleOff = Number(q.bundle_discount) || 0;
       $('#kship').textContent = q.fee ? money(q.fee, cur) : 'Included';
-      $('#kshipnote').textContent = [q.weight_kg ? `${q.weight_kg} kg estimated · arrives in about ${q.days} days. If your parcel weighs less, we refund the difference to your wallet.` : '', q.cj?.fee ? `Includes ${money(q.cj.fee, cur)} for items that ship separately${q.cj.days ? ` (about ${String(q.cj.days).replace('-', '–')} days)` : ''}.` : ''].filter(Boolean).join(' ');
+      if (q.import_fee) $('#kship').title = `Includes EU import duty ${money(q.import_fee, cur)}`;
+      $('#kshipnote').textContent = [q.weight_kg ? `${q.weight_kg} kg estimated · arrives in about ${q.days} days. If your parcel weighs less, we refund the difference to your wallet.` : '', q.cj?.fee ? `Includes ${money(q.cj.fee, cur)} for items that ship separately${q.cj.days ? ` (about ${String(q.cj.days).replace('-', '–')} days)` : ''}.` : '', q.import_fee ? `Includes the EU import duty (${money(q.import_fee, cur)}) — nothing more to pay on delivery.` : ''].filter(Boolean).join(' ');
       paintTotal();
     } catch {}
   };

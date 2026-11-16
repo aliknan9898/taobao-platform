@@ -2,6 +2,8 @@
 // Proprietary and confidential. See LICENSE.
 'use strict';
 /* CJdropshipping: sign-in, import, checkout shipping, sandbox order + wallet payment, webhooks, cancel. CJ API is mocked. */
+// these tests check CJ shipping and orders; the EU import duty (landed.js) has its own tests
+process.env.EU_DUTY_EUR = '0'; process.env.EU_IMPORT_HANDLING = '0';
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
