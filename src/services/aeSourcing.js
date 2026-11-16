@@ -128,7 +128,8 @@ async function run({ count } = {}, by = 'auto') {
   if (s0.rules !== rules) save({ rules, tried: [] });
   const st = { started_at: now(), by, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, running: true };
   const added = [];
-  const skip = (why, id) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (id) tried.add(id); };
+  let cur = {}; // what is known about the product being checked, for the log
+  const skip = (why, id) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (id) tried.add(id); console.log(`[ae-sourcing] ✗ ${id || cur.id} ${why}${cur.cost != null ? ` · cost ${cur.cost}` : ''}${cur.days ? ` · ${cur.days} days` : ''}`); };
   const q = src.queue(src.prefs());
   const start = Number(s0.cursor) || 0; let fails = 0;
   // where candidates come from: AliExpress's fast/local feeds first (a few pages each run), then the department keywords
@@ -162,12 +163,12 @@ async function run({ count } = {}, by = 'auto') {
   try {
     for await (const { c, item } of candidates()) {
         if (st.added >= target || stopAsked) break;
-        st.checked++;
+        st.checked++; cur = { id: c.id };
         let prod;
         try { prod = await aes.fetchProduct(c.id, 'GB'); } catch (e) { skip('product details not available', c.id); continue; }
         const inStock = prod.skus.filter((s) => s.stock >= 5);
         if (!inStock.length) { skip('out of stock', c.id); continue; }
-        const cost = Math.min(...inStock.map((s) => s.cost_sale));
+        const cost = Math.min(...inStock.map((s) => s.cost_sale)); cur.cost = cost;
         if (cost < p.min_cost || cost > p.max_cost) { skip('price outside range', c.id); continue; }
         if (prod.images.length < 3) { skip('too few photos', c.id); continue; }
         // fastest delivery among up to 4 options (the "ships from" choice is an option on AliExpress)
@@ -180,6 +181,7 @@ async function run({ count } = {}, by = 'auto') {
           const eus = inStock.find((s) => s.mp_sku_id === gb?.sku) || inStock[0];
           eu = await freight(c.id, eus.ae_sku_id, 'DE');
         } catch (e) { skip('delivery check failed', c.id); console.warn('[ae-sourcing] freight', c.id, e.message); continue; }
+        cur.days = gb?.days || null;
         if (gb) { const b = gb.days <= 10 ? '≤10' : gb.days <= 14 ? '11-14' : gb.days <= 20 ? '15-20' : gb.days <= 30 ? '21-30' : '30+'; st.days = st.days || {}; st.days[b] = (st.days[b] || 0) + 1; } else { st.days = st.days || {}; st.days.none = (st.days.none || 0) + 1; }
         if (!gb || gb.days > p.max_days) { skip(`no UK delivery in ${p.max_days} days`, c.id); continue; }
         // add (not visible until the AI keeps it)
@@ -201,6 +203,7 @@ async function run({ count } = {}, by = 'auto') {
             ai: 'ok', quality: Number(d.quality) || null, reason: String(d.reason || '').slice(0, 200), ebay_ok: false, ebay_title: String(d.ebay_title || '').slice(0, 80) }
         }));
         require('./translate').translateListing(l.id).catch(() => {});
+        console.log(`[ae-sourcing] ✓ ${c.id} added · cost ${cost} · ${gb.days} days`);
         have.add(c.id); st.added++; st.by_dept[dept] = (st.by_dept[dept] || 0) + 1;
         const fresh = db.listings.get(l.id);
         added.push({ id: l.id, title: d.ebay_title || fresh.title, dept, from: gb.from || 'AE', quality: Number(d.quality) || null, eu: eu?.days || null, gb: gb.days, cost, price: Math.min(...fresh.skus.map((s) => s.price)), kw: list(d.keywords).slice(0, 4), listed: null });
