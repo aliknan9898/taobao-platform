@@ -1034,6 +1034,17 @@ function startJobs() {
   every(3600e3, async () => { growth.payReferrals(); growth.wishlistAlerts(); });
   every(15 * 60e3, async () => growth.cartReminders());
   // delivery check of the live catalogue (≤15 days): once after this update, then it resumes until done
+  // Once: fetch each AliExpress product's option photos, so choosing a colour shows that colour
+  setTimeout(async () => {
+    if (db.settings.get('ae_option_photos_v1')) return;
+    db.settings.insert({ id: 'ae_option_photos_v1', at: Date.now() });
+    const ae = require('./services/aliexpress'); let n = 0; let withPics = 0;
+    for (const l of db.listings.all((x) => x.source === 'aliexpress' && x.ae_product_id && ['active', 'private'].includes(x.status))) {
+      try { const u = await ae.resync(l); n++; if ((u?.skus || []).some((s) => s.image)) withPics++; } catch { /* next */ }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    console.log(`[ae-option-photos] ${n} AliExpress products refreshed, ${withPics} with option photos`);
+  }, 150e3).unref?.();
   setTimeout(() => { if (!db.settings.get('delivery_audit_v1')) { db.settings.insert({ id: 'delivery_audit_v1', at: Date.now() }); require('./cj/client').background(() => require('./services/deliveryAudit').run({ restart: true })).catch((e) => console.warn('[delivery-audit]', e.message)); } }, 90e3).unref?.();
   every(30 * 60e3, () => require('./services/deliveryAudit').tick());
   // AliExpress catalog builder (same rules as CJ: ≤10 days delivery, AI review, clean photos) — every 30 minutes, first run 4 minutes after start

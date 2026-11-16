@@ -120,8 +120,13 @@ function normalizeProduct(r, productId) {
   const media = r.ae_multimedia_info_dto || r.multimedia_info || {};
   const images = String(media.image_urls || '').split(';').map((x) => x.trim()).filter((x) => /^https?:\/\//.test(x)).map((x) => x.replace(/^http:/, 'https:')).slice(0, 10);
   const skus = list(r.ae_item_sku_info_dtos || r.sku_info_list).map((s, i) => {
-    const props = list(s.ae_sku_property_dtos || s.sku_property_list).map((p) => p.property_value_definition_name || p.sku_property_value || p.sku_property_name).filter(Boolean).join(' / ');
+    const pr = list(s.ae_sku_property_dtos || s.sku_property_list);
+    const props = pr.map((p) => p.property_value_definition_name || p.sku_property_value || p.sku_property_name).filter(Boolean).join(' / ');
+    // the option's own photo (usually the colour) and its named parts (Color: Red, Size: M)
+    const img = pr.map((p) => p.sku_image || p.sku_image_url).find((u) => /^https?:\/\//.test(String(u || '')));
+    const opts = pr.map((p) => ({ name: String(p.sku_property_name || '').trim(), value: String(p.property_value_definition_name || p.sku_property_value || '').trim() })).filter((o) => o.value);
     return {
+      ...(img ? { image: String(img).replace(/^http:/, 'https:') } : {}), ...(opts.length && opts.every((o) => o.name) ? { opts } : {}),
       mp_sku_id: `AE${s.sku_id || s.id || i}`, ae_sku_id: String(s.sku_id || s.id || ''), ae_sku_attr: String(s.sku_attr || s.id || ''),
       props, stock: Math.max(0, Number(s.sku_available_stock ?? s.ipm_sku_stock ?? s.sku_stock ?? 0)),
       cost_sale: money(s.offer_sale_price || s.sku_price || s.offer_bulk_sale_price || 0), cost_cny: null
@@ -175,7 +180,7 @@ async function resync(l) {
   try {
     const p = await fetchProduct(l.ae_product_id);
     const by = new Map(p.skus.map((s) => [s.ae_sku_id, s]));
-    const skus = l.skus.map((s) => { const f = by.get(s.ae_sku_id); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock } : { ...s, stock: s.ae_sku_id ? 0 : s.stock }; });
+    const skus = l.skus.map((s) => { const f = by.get(s.ae_sku_id); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock, ...(f.image ? { image: f.image } : {}), ...(f.opts ? { opts: f.opts } : {}) } : { ...s, stock: s.ae_sku_id ? 0 : s.stock }; });
     return db.listings.update(l.id, { skus, last_synced_at: now(), sync_error: null });
   } catch (e) { return db.listings.update(l.id, { sync_error: e.message, last_synced_at: now() }); }
 }

@@ -248,6 +248,8 @@ const crypto = require('crypto');
 const ver = (str) => crypto.createHash('sha1').update(str).digest('hex').slice(0, 8);
 function photoUrl(l, i, u) { return /^data:/.test(u) ? `/img/l/${l.id}/${i}?v=${ver(u)}` : u; }
 function logoUrl(seller) { return seller?.logo ? (/^data:/.test(seller.logo) ? `/img/s/${seller.id}?v=${ver(seller.logo)}` : seller.logo) : null; }
+/** The product page gallery: the product photos, then each option's own photo (so choosing a colour can show it). */
+function galleryOf(l) { const g = visibleImages(l); for (const s of l.skus || []) if (s.image && !g.includes(s.image) && g.length < 24) g.push(s.image); return g; }
 function visibleImages(l) { const own = l.own_images || []; return [...own.map((u, i) => photoUrl(l, i, u)), ...(l.images || [])]; }
 /** Decode a stored photo for the /img routes. */
 function imageData(kind, id, n) {
@@ -320,14 +322,18 @@ function optionGroups(skus) {
     }
     groups.push({ name, values });
   }
-  // Only the first group keeps pictures (usually the colour), and only if they differ
-  groups.forEach((g, i) => { if (i > 0 || new Set(g.values.map((v) => v.image)).size < 2) g.values.forEach((v) => delete v.image); });
+  // Only one group keeps pictures: the one whose values each have their own photo (usually the colour, wherever it is)
+  const picsOf = (i, v) => new Set(skus.filter((x, k) => parts[k][i].value === v && x.image).map((x) => x.image));
+  const picGroup = groups.findIndex((g, i) => g.values.every((v) => picsOf(i, v.value).size <= 1) && new Set(g.values.map((v) => [...picsOf(i, v.value)][0]).filter(Boolean)).size >= 2);
+  const keep = picGroup >= 0 ? picGroup : (new Set(groups[0].values.map((v) => v.image)).size >= 2 ? 0 : -1);
+  groups.forEach((g, i) => { if (i !== keep) g.values.forEach((v) => delete v.image); });
+  if (keep >= 0) for (const v of groups[keep].values) v.image = skus.find((x, k) => parts[k][keep].value === v.value && x.image)?.image || v.image;
   return { groups, picks: parts.map((p) => p.map((x) => x.value)) };
 }
 
 function toBuyerView(l, seller) {
   return {
-    id: l.id, title: l.title, images: visibleImages(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
+    id: l.id, title: l.title, images: galleryOf(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(['cj', 'banggood'].includes(l.source) ? { ship_extra: true } : {}), category: l.category || 'other', ...((l.collections || []).length ? { collections: l.collections } : {}), ...(l.cj_from && l.cj_from !== 'CN' ? { ships_from: l.cj_from } : {}),
     // the real delivery time found when the product was checked (to the UK and to the EU): [fastest, slowest] days

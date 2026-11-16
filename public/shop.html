@@ -862,7 +862,9 @@ async function product(id) {
   // Opening a product without an address: ask for it (the customer can still look around)
   if (!hasAddress()) setTimeout(() => { if (!document.querySelector('dialog[open]') && location.hash.startsWith('#/p/')) addressDialog(() => paint(), { first: true }); }, 500);
   $$('.thumbs button').forEach((b) => b.onclick = () => { imgIdx = Number(b.dataset.i); paint(); });
-  $$('#variants button').forEach((b) => b.onclick = () => { sku = p.skus.find((s) => s.mp_sku_id === b.dataset.sku); qty = Math.min(qty, Math.max(1, sku.stock)); paint(); });
+  // Choosing an option shows its own photo (colour, model…) when it has one
+  const showSku = (s) => { const gi = (p.option_groups || []).findIndex((g) => g.values.some((v) => v.image)); const u = s?.image || (gi >= 0 && s?.pick ? p.option_groups[gi].values.find((v) => v.value === s.pick[gi])?.image : null); const i = u ? p.images.indexOf(u) : -1; if (i >= 0) imgIdx = i; };
+  $$('#variants button').forEach((b) => b.onclick = () => { sku = p.skus.find((s) => s.mp_sku_id === b.dataset.sku); qty = Math.min(qty, Math.max(1, sku.stock)); showSku(sku); paint(); });
   // Grouped options (Color, Size…): one value per group; values with no stock for the current choice are faded
   if (p.option_groups) {
     let pick = [...(sku.pick || [])];
@@ -887,14 +889,14 @@ async function product(id) {
         if (s) pick = [...s.pick];
       }
       if (s) { sku = s; qty = Math.min(qty, Math.max(1, sku.stock)); }
-      if (s?.image) { const i = p.images.indexOf(s.image); if (i >= 0) imgIdx = i; }
+      if (s) showSku(s);
       paintOpts(); paint();
     });
     paintOpts();
   }
   const setQty = (n) => { qty = Math.max(1, Math.min(Number(n) || 1, sku.stock || 1, 999)); paint(); };
   $('#qm').onclick = () => setQty(qty - 1); $('#qp').onclick = () => setQty(qty + 1); $('#qv').onchange = (e) => setQty(e.target.value);
-  const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: p.images[0] || null });
+  const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: sku.image || p.images[0] || null });
   K.track('view_item', { currency: p.currency, value: sku.price, items: [{ item_id: p.id, item_name: p.title, price: sku.price }] });
   $('#add').onclick = () => { add(); K.track('add_to_cart', { currency: p.currency, value: sku.price * qty }); toast('Added to cart'); };
   $('#share').onclick = () => shareLink(`${location.origin}/p/${p.id}`, p.title);
