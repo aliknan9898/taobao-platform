@@ -138,10 +138,13 @@ const addedToday = () => (state().day === today() ? state().day_added || 0 : 0);
 
 /** Every (department, section, keyword), departments taken in turns so each one fills evenly. */
 function queue(p) {
+  // first what is selling now: rising Google searches and shop searches that found nothing (free trends engine)
+  let hot = []; try { hot = require('./trends').hotKeywords({ departments: p.departments, n: 20 }).filter((x) => DEPARTMENTS[x.dept]?.groups[x.group]); } catch { /* no trends yet */ }
   const per = p.departments.map((d) => Object.entries(DEPARTMENTS[d].groups).flatMap(([g, x]) => x.keywords.map((kw) => ({ dept: d, group: g, kw }))));
   const out = []; const n = Math.max(...per.map((x) => x.length));
   for (let i = 0; i < n; i++) for (const arr of per) if (arr[i]) out.push(arr[i]);
-  return out;
+  const known = new Set(out.map((x) => x.kw));
+  return [...hot.filter((x) => !known.has(x.kw)).map(({ dept, group, kw }) => ({ dept, group, kw })), ...out];
 }
 
 // ---------------- finding & checking ----------------

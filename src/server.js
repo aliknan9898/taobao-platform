@@ -307,7 +307,12 @@ r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
 });
 
 // Catalog (public for browsing)
-r('GET', '/api/catalog', null, async ({ url }) => cached(`catalog?${url.searchParams}|${db.version('listings')}|${db.version('sellers')}`, 30e3, () => catalog.browse(Object.fromEntries(url.searchParams))));
+r('GET', '/api/catalog', null, async ({ url }) => {
+  const out = await cached(`catalog?${url.searchParams}|${db.version('listings')}|${db.version('sellers')}`, 30e3, () => catalog.browse(Object.fromEntries(url.searchParams)));
+  // what customers look for (free trends engine): only real searches, first page
+  const q = url.searchParams.get('q'); if (q && !Number(url.searchParams.get('offset'))) { try { require('./services/trends').logSearch(q, out.total); } catch { /* never block the shop */ } }
+  return out;
+});
 r('GET', '/api/catalog/lines', null, async ({ url }) => require('./services/testOrder').lines(url.searchParams.get('items')));
 r('GET', '/api/admin/test-basket', ADMIN, async ({ url }) => require('./services/testOrder').basket(Object.fromEntries(url.searchParams)));
 r('GET', '/api/catalog/many', null, async ({ url }) => catalog.many(url.searchParams.get('ids')));
@@ -625,6 +630,8 @@ r('GET', '/api/admin/backup', ADMIN, async ({ res }) => { const f = ops.backupFi
 r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${new Date().toISOString().slice(0, 10)}`; for (const m of db.mail.all((x) => x.key === k)) db.mail.remove(m.id); return { ...(await ops.dailyBackup()), to: ops.backupRecipient() }; });
 // Seasonal collections (Christmas Shop from CJ's European warehouses)
 r('GET', '/api/admin/collections/:id', ADMIN, async ({ params }) => { const sz = require('./services/seasonal'); return { state: sz.state(params.id), rows: sz.rows(params.id) }; });
+r('GET', '/api/admin/trends', ADMIN, async () => require('./services/trends').status());
+r('POST', '/api/admin/trends/run', ADMIN, async () => { require('./services/trends').tick({ force: true }).catch((e) => console.warn('[trends]', e.message)); return { started: true }; });
 r('GET', '/api/admin/keywords', ADMIN, async () => require('./services/keywords').status());
 r('GET', '/api/admin/keywords/connect', ADMIN, async () => ({ url: require('./services/keywords').authUrl() }));
 r('POST', '/api/admin/keywords/disconnect', ADMIN, async () => { require('./services/keywords').disconnect(); return require('./services/keywords').status(); });
@@ -1071,7 +1078,10 @@ function startJobs() {
   every(60e3, () => require('./services/autoreview').tick());
   every(15 * 60e3, () => require('./services/ebay').tick());
   every(3600e3, () => require('./services/points').settle()); // Kinan points for delivered orders
-  every(3600e3, () => require('./services/keywords').tick()); // Google Keyword Planner: real search keywords for products
+  every(3600e3, () => require('./services/keywords').tick());
+  // free trends engine: Google search suggestions scanned once a day (a batch each hour), then product keywords
+  every(3600e3, async () => { const t = require('./services/trends'); await t.tick(); t.enrich(); });
+  setTimeout(() => { const t = require('./services/trends'); t.tick().then(() => t.enrich()).catch((e) => console.warn('[trends]', e.message)); }, 6 * 60e3).unref?.(); // Google Keyword Planner: real search keywords for products
   setTimeout(() => require('./cj/client').background(() => require('./services/keywords').checkAccount()).catch((e) => console.warn('[keywords] check:', e.message)), 45e3);
   every(10 * 60e3, () => require('./services/uilang').tick()); // French, German, Italian, Spanish
   setTimeout(() => require('./services/uilang').tick().catch(() => {}), 90e3); // start translating soon after a deploy

@@ -314,6 +314,7 @@ const VIEWS = {
       <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
       <div class="card" id="aicard"><h2>AI assistant</h2><p class="muted">Loading…</p></div>
       <div class="card" id="qacard" hidden></div>
+      <div class="card" id="trendscard"><h2>📈 Winning products &amp; keywords</h2><p class="muted">Loading…</p></div>
       <div class="card" id="keywords"><h2>Google Keyword Planner</h2><p class="muted">Loading…</p></div>
       <div class="card" id="ebay"><h2>eBay</h2><p class="muted">Loading…</p></div>
       <div class="card" id="tgcard"><h2>Telegram</h2><p class="muted">Loading…</p></div>
@@ -359,6 +360,24 @@ const VIEWS = {
       const go = $('#aigo2'); if (go) go.onclick = async () => { go.disabled = true; $('#aim').textContent = 'Working… about a minute'; try { const r = await api('/api/admin/ai/improve', 'POST', {}); $('#aim').textContent = `Rewritten ${r.done}, ${r.left} left`; aiCard(); } catch (e) { $('#aim').textContent = e.message; go.disabled = false; } };
     }).catch(() => {});
     aiCard();
+    const trendsCard = () => api('/api/admin/trends').then((t) => {
+      const el = $('#trendscard'); if (!el) return;
+      const pct = (g) => (g == null ? '' : `${g > 0 ? '+' : ''}${Math.round(g * 100)}%`);
+      const eb = (x) => (x.ebay ? `${fmt(x.ebay.total)} on eBay${x.ebay.median ? ` · median ${fmt(x.ebay.median, x.ebay.currency)}` : ''}` : '');
+      const kwRow = (x) => `<tr><td><b>${esc(x.phrase)}</b>${x.isNew ? ' <span class="pill ok">new</span>' : ''}</td><td class="small muted">${esc(x.dept)}</td><td>${x.score}</td><td class="${(x.growth || 0) > 0 ? 'ok' : ''}">${pct(x.growth)}</td><td class="small muted">${esc(eb(x))}</td></tr>`;
+      const tbl = (head, rows) => `<div style="overflow-x:auto"><table style="margin-top:6px"><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr>${rows}</table></div>`;
+      const sc = t.scan;
+      el.innerHTML = `<h2>📈 Winning products &amp; keywords</h2>
+        <p class="muted small">Free: ${esc(t.source)}. Google is scanned once a day (${sc.keywords} department keywords); the hottest phrases go first in the CJ / AliExpress product search, and Kinan products get the matching real search phrases as keywords.</p>
+        <p class="small">${sc.done_today ? '<span class="ok">✓ Today’s scan is done</span>' : `Today’s scan: ${sc.progress}%`} · days scanned: ${sc.days_scanned}${sc.last_run ? ` · last ${new Date(sc.last_run).toLocaleString()}` : ''}${sc.error ? ` · <span class="warn">${esc(sc.error)}</span>` : ''} <button class="btn sm ghost" id="trgo">Scan now</button></p>
+        <details open><summary><b>🚀 Rising on Google (UK)</b> <span class="muted small">— growth shows from the 2nd day</span></summary>${t.rising.length ? tbl(['Search phrase', 'Department', 'Strength', 'Change', 'eBay UK'], t.rising.map(kwRow).join('')) : '<p class="muted small">Nothing rising yet — it needs two days of scans to compare.</p>'}</details>
+        <details><summary><b>🔥 Most searched (UK)</b></summary>${t.popular.length ? tbl(['Search phrase', 'Department', 'Strength', 'Change', 'eBay UK'], t.popular.map(kwRow).join('')) : '<p class="muted small">The first scan is running…</p>'}</details>
+        <details><summary><b>🏆 Winning products in Kinan</b> <span class="muted small">— sales, views (7 days), AliExpress orders, CJ sellers</span></summary>${t.winners.length ? tbl(['', 'Product', 'Sold', 'Views', 'AE orders', 'CJ sellers', 'Days'], t.winners.map((x) => `<tr><td>${x.image ? `<img src="${esc(x.image)}" style="width:40px;height:40px;object-fit:cover;border-radius:6px" referrerpolicy="no-referrer">` : ''}</td><td><a href="/p/${esc(x.id)}" target="_blank" rel="noopener">${esc(x.title.slice(0, 60))}</a>${x.on_ebay ? ' <span class="pill">eBay</span>' : ''}</td><td>${x.sold}</td><td>${x.views}</td><td>${x.ae_orders ? fmt(x.ae_orders) : '—'}</td><td>${x.cj_sellers ? fmt(x.cj_sellers) : '—'}</td><td>${x.days || '—'}</td></tr>`).join('')) : '<p class="muted small">No data yet.</p>'}</details>
+        <details><summary><b>🔎 What customers search in the shop</b> <span class="muted small">(7 days)</span></summary>${t.shop_searches.length ? tbl(['Search', 'Times', 'Results'], t.shop_searches.map((x) => `<tr><td>${esc(x.phrase)}</td><td>${x.searches}</td><td class="${x.found ? '' : 'warn'}">${x.found ? x.found : 'none — missing'}</td></tr>`).join('')) : '<p class="muted small">No searches yet.</p>'}</details>
+        <details><summary><b>➡️ Next for the product search</b> <span class="muted small">(CJ / AliExpress look for these first)</span></summary>${t.next_for_sourcing.length ? `<ul class="small">${t.next_for_sourcing.map((x) => `<li><b>${esc(x.kw)}</b> <span class="muted">· ${esc(x.dept)} · ${esc(x.why)}</span></li>`).join('')}</ul>` : '<p class="muted small">Ready after the first scan.</p>'}</details>`;
+      $('#trgo').onclick = async () => { $('#trgo').disabled = true; try { await api('/api/admin/trends/run', 'POST', {}); toast('Scanning — refresh in a few minutes'); } catch (e) { toast(e.message); } };
+    }).catch((e) => { const el = $('#trendscard'); if (el) el.innerHTML = `<h2>📈 Winning products &amp; keywords</h2><p class="warn">${esc(e.message)}</p>`; });
+    trendsCard();
     const xmas = () => api('/api/admin/collections/christmas').then(({ state: st, rows }) => {
       const el = $('#xmascard'); if (!el) return;
       const live = rows.filter((r) => r.status === 'active');
