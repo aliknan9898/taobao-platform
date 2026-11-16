@@ -31,3 +31,12 @@ test('AliExpress replies: "00" / "Call succeeds" is success, other codes are err
   assert.throws(() => c._unwrap({ aliexpress_ds_text_search_response: { code: '501', msg: 'Invalid parameter' } }), /Invalid parameter/);
   assert.throws(() => c._unwrap({ error_response: { code: '27', msg: 'Invalid session' } }), /Invalid session/);
 });
+
+test('AliExpress order phone: country code apart from the number', () => {
+  const { splitPhone } = require('../src/services/aliexpress');
+  assert.deepStrictEqual(splitPhone('+35699630490', 'MT'), { phone_country: '+356', mobile_no: '99630490' });
+  assert.deepStrictEqual(splitPhone('99630490', 'MT'), { phone_country: '+356', mobile_no: '99630490' });
+  assert.deepStrictEqual(splitPhone('07700 900123', 'GB'), { phone_country: '+44', mobile_no: '7700900123' });
+  assert.deepStrictEqual(splitPhone('0044 7700 900123', 'GB'), { phone_country: '+44', mobile_no: '7700900123' });
+  assert.deepStrictEqual(splitPhone('+49 151 2345678', 'MT'), { phone_country: '+49', mobile_no: '1512345678' });
+});

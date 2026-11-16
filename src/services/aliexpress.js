@@ -202,6 +202,22 @@ function newDirectSub(o, sellerId, lines) {
 }
 
 /** Place the AliExpress order with the CUSTOMER's address (API mode). Leaves the sub at AE_TO_BUY with an error if it can't. */
+// Calling codes for the countries Kinan ships to (AliExpress wants the code apart from the number: "+356" + "99630490")
+const DIAL = { GB: '44', IE: '353', MT: '356', DE: '49', FR: '33', IT: '39', ES: '34', PT: '351', NL: '31', BE: '32', LU: '352', AT: '43', CH: '41', DK: '45', SE: '46', NO: '47', FI: '358', PL: '48', CZ: '420', SK: '421', HU: '36', RO: '40', BG: '359', GR: '30', CY: '357', HR: '385', SI: '386', EE: '372', LV: '371', LT: '370', US: '1', CA: '1', AU: '61', NZ: '64', AE: '971', SA: '966', TR: '90', IS: '354' };
+/** Split a phone number into AliExpress's phone_country ("+356") and mobile_no (national digits). */
+function splitPhone(phone, country) {
+  let d = String(phone || '').replace(/[^\d+]/g, '').replace(/^00/, '+');
+  const cc = DIAL[String(country || '').toUpperCase()];
+  if (d.startsWith('+')) {
+    d = d.slice(1);
+    const code = cc && d.startsWith(cc) ? cc : Object.values(DIAL).sort((a, b) => b.length - a.length).find((c) => d.startsWith(c)) || '';
+    return { phone_country: code ? `+${code}` : (cc ? `+${cc}` : ''), mobile_no: code ? d.slice(code.length) : d };
+  }
+  if (cc && d.startsWith(cc) && d.length > cc.length + 7) d = d.slice(cc.length); // 35699… written without +
+  if (cc && cc !== '39' && d.startsWith('0')) d = d.slice(1); // national trunk 0 (not for Italy)
+  return { phone_country: cc ? `+${cc}` : '', mobile_no: d };
+}
+
 async function place(o, sub, lines) {
   if (!apiReady()) return sub;
   const a = o.shipping_address;
@@ -209,7 +225,7 @@ async function place(o, sub, lines) {
   if (lines.some((l) => !l.ae_product_id)) { sub.error = 'Product was added manually — order it by hand'; return sub; }
   const req = {
     logistics_address: {
-      full_name: a.name, contact_person: a.name, mobile_no: a.phone, phone_country: '', address: a.line1, address2: a.line2 || '',
+      full_name: a.name, contact_person: a.name, ...splitPhone(a.phone, a.country_code), address: a.line1, address2: a.line2 || '',
       city: a.city, province: a.state || a.city, zip: a.postal_code || '', country: a.country_code
     },
     product_items: lines.map((l) => ({
@@ -255,7 +271,7 @@ function manualUpdate(sub, { ae_order_no, tracking, carrier, delivered } = {}) {
   return sub;
 }
 
-module.exports = {
+module.exports = { splitPhone,
   status, apiReady, authorizeUrl, handleCallback, disconnect, productIdFromLink, resolveProductId, isAliExpressLink, normalizeProduct,
   token, fetchProduct, preview, publish, resync, newDirectSub, place, sync, manualUpdate, LABEL, DS_STATUS
 };
