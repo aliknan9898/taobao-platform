@@ -100,6 +100,8 @@ async function deleteAccount(user, b = {}, currentToken) {
   for (const o of db.orders.all((x) => x.buyer_id === u.id && x.status === 'pending_payment')) {
     try { await orders.cancelOrder(o.id, u.id); } catch (e) { console.warn('[account] cancel', o.id, e.message); }
   }
+  // Sign in with Apple: revoke the app's authorisation at Apple (best effort; Apple asks apps to do this on deletion)
+  try { await require('../nativeAuth').appleRevoke(u); } catch (e) { console.warn('[account] apple revoke', e.message); }
   // Saved cards: the Stripe customer is deleted (best effort; Stripe keeps its own payment records)
   try { await require('../payments/stripe').deleteCustomer(u); } catch (e) { console.warn('[account] stripe customer', e.message); }
 
@@ -119,4 +121,24 @@ async function deleteAccount(user, b = {}, currentToken) {
   return { deleted: true };
 }
 
-module.exports = { LANGS, updateProfile, changePassword, deletionCheck, deleteAccount };
+/**
+ * Retention for deleted accounts: once an order of a deleted account is older than ORDER_PII_RETENTION_DAYS (counted from
+ * the day it was placed), the name, phone and street address on it are removed; the country stays for the accounts.
+ * Off until the variable is set (the owner decides the period with the accountant). Runs daily.
+ */
+function redactDeletedOrders(now = Date.now()) {
+  const days = Number(process.env.ORDER_PII_RETENTION_DAYS || 0);
+  if (!(days > 0)) return 0;
+  const gone = new Set(db.users.all((u) => u.status === 'deleted').map((u) => u.id));
+  if (!gone.size) return 0;
+  let n = 0;
+  for (const o of db.orders.all((x) => gone.has(x.buyer_id) && !x.pii_redacted_at && now - (x.created_at || 0) > days * 86400e3)) {
+    const a = o.shipping_address || {};
+    db.orders.update(o.id, { shipping_address: { country_code: a.country_code || null, country: a.country || null, redacted: true }, pii_redacted_at: now });
+    n++;
+  }
+  if (n) console.log(`[account] personal details removed from ${n} old order(s) of deleted accounts`);
+  return n;
+}
+
+module.exports = { LANGS, updateProfile, changePassword, deletionCheck, deleteAccount, redactDeletedOrders };

@@ -1,0 +1,17 @@
+# Runs the whole test suite on every push and pull request, so a change that breaks something is seen before it is merged.
+# Render deploys main automatically: keep main green, and merge only pull requests whose check passed.
+name: Tests
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
