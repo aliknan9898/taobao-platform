@@ -69,7 +69,11 @@ async function flush() {
   })();
   try { await flushing; } finally { flushing = null; }
 }
+/** A change counter per collection (caches of public lists use it to know when to refresh). */
+const versions = {};
+const version = (name) => versions[name] || 0;
 function persist(name, docId) {
+  versions[name] = (versions[name] || 0) + 1;
   if (pool) { pending.set(`${name}\u0000${docId}`, { coll: name, id: docId }); schedule(); return; }
   const f = file(name);
   const tmp = `${f}.${process.pid}.tmp`;
@@ -129,7 +133,7 @@ function exportAll() {
 }
 
 module.exports = {
-  id, init, flush, close, exportAll,
+  id, init, flush, close, exportAll, version,
   get mode() { return pool ? 'postgres' : 'json'; },
   pendingWrites: () => pending.size,
   ...Object.fromEntries(COLLECTIONS.map(([name, prefix]) => [name === 'oauth_states' ? 'oauthStates' : name, collection(name, prefix)])),

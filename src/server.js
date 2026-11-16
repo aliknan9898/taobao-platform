@@ -38,10 +38,30 @@ const MAX_BODY = 4 * 1024 * 1024; // manual listings carry up to 6 resized photo
 const { httpError } = auth;
 
 // ---------- helpers ----------
+const zlib = require('zlib');
+/** Send text compressed (brotli or gzip, whichever the browser accepts) when it is worth it — pages and lists shrink ~8×. */
+function endCompressed(res, status, headers, text) {
+  const buf = Buffer.isBuffer(text) ? text : Buffer.from(String(text));
+  const ae = String(res.req?.headers?.['accept-encoding'] || '');
+  const h = { ...headers, Vary: 'Accept-Encoding' };
+  if (buf.length < 1024 || res.req?.method === 'HEAD') { res.writeHead(status, h); return res.end(buf); }
+  if (/\bbr\b/.test(ae)) { res.writeHead(status, { ...h, 'Content-Encoding': 'br' }); return res.end(zlib.brotliCompressSync(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } })); }
+  if (/\bgzip\b/.test(ae)) { res.writeHead(status, { ...h, 'Content-Encoding': 'gzip' }); return res.end(zlib.gzipSync(buf, { level: 6 })); }
+  res.writeHead(status, h); return res.end(buf);
+}
 function send(res, status, body, headers = {}) {
   const json = typeof body !== 'string';
-  res.writeHead(status, { 'Content-Type': json ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', ...headers });
-  res.end(json ? JSON.stringify(body) : body);
+  endCompressed(res, status, { 'Content-Type': json ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', ...headers }, json ? JSON.stringify(body) : body);
+}
+/** Short-lived memory cache for public lists (shop catalogue, categories): many visitors, same answer for a few seconds. */
+const memo = new Map();
+function cached(key, ms, fn) {
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.at < ms) return hit.value;
+  const value = fn();
+  if (memo.size > 500) memo.clear();
+  memo.set(key, { at: Date.now(), value });
+  return value;
 }
 function readRaw(req) {
   return new Promise((resolve, reject) => {
@@ -61,7 +81,7 @@ function page(res, file, { stripe: withStripe = false, head = '', title = '', bo
   const an = ['shop.html', 'download.html'].includes(file) ? seo.analyticsCsp() : { script: '', connect: '' };
   // Stripe.js loads from js.stripe.com and its *.js.stripe.com subdomains (see Stripe's CSP guide)
   const stripeSrc = withStripe ? ' https://js.stripe.com https://*.js.stripe.com' : '';
-  res.writeHead(200, {
+  const headers = ({
     'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
     'Content-Security-Policy': `default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; ` +
       `script-src 'self' 'unsafe-inline'${stripeSrc}${an.script}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}${an.connect}; ` +
@@ -74,7 +94,7 @@ function page(res, file, { stripe: withStripe = false, head = '', title = '', bo
   if (head || meta) html = html.replace('</head>', `${meta}${head}\n</head>`);
   // Readable content for search engines and AI crawlers; the app replaces it as soon as it starts
   if (body) html = html.replace('<main id="view" class="wrap"></main>', `<main id="view" class="wrap">${body}</main>`);
-  res.end(html);
+  endCompressed(res, 200, headers, html);
 }
 
 /**
@@ -127,9 +147,14 @@ function asset(res, rel, cache = 'public, max-age=3600') {
   const type = MIME[path.extname(name)];
   const file = path.join(PUBLIC, 'assets', name);
   if (name !== rel || !type || !fs.existsSync(file)) return send(res, 404, { error: 'Not found' });
+  // versioned files (…?v=hash) never change: browsers keep them a year
+  if (/[?&]v=/.test(res.req?.url || '')) cache = 'public, max-age=31536000, immutable';
+  if (/^(text\/|image\/svg|application\/manifest)/.test(type)) return endCompressed(res, 200, { 'Content-Type': type, 'Cache-Control': cache, 'X-Content-Type-Options': 'nosniff' }, cachedFile(file));
   res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache, 'X-Content-Type-Options': 'nosniff' });
   fs.createReadStream(file).pipe(res);
 }
+const fileCache = new Map();
+function cachedFile(file) { const st = fs.statSync(file); const c = fileCache.get(file); if (c && c.mtime === st.mtimeMs) return c.buf; const buf = fs.readFileSync(file); fileCache.set(file, { mtime: st.mtimeMs, buf }); return buf; }
 
 /** Where to send a seller after Taobao authorization: our own site, or a native app's custom scheme. */
 function safeReturnTo(v) {
@@ -282,7 +307,7 @@ r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
 });
 
 // Catalog (public for browsing)
-r('GET', '/api/catalog', null, async ({ url }) => catalog.browse(Object.fromEntries(url.searchParams)));
+r('GET', '/api/catalog', null, async ({ url }) => cached(`catalog?${url.searchParams}|${db.version('listings')}|${db.version('sellers')}`, 30e3, () => catalog.browse(Object.fromEntries(url.searchParams))));
 r('GET', '/api/catalog/many', null, async ({ url }) => catalog.many(url.searchParams.get('ids')));
 r('GET', '/api/catalog/:id/similar', null, async ({ params }) => catalog.similar(params.id));
 r('GET', '/api/catalog/:id/questions', null, async ({ params }) => require('./services/assistant').questionsFor(params.id));
@@ -294,10 +319,10 @@ r('GET', '/api/catalog/:id', null, async ({ req, params }) => { const out = cata
 r('GET', '/api/catalog/:id/reviews', null, async ({ params }) => growth.reviewsFor(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
-r('GET', '/api/categories', null, async () => {
+r('GET', '/api/categories', null, async () => cached(`categories|${db.version('listings')}`, 60e3, () => {
   const counts = {}; for (const p of catalog.browse({ limit: 100000 }).items) counts[p.category] = (counts[p.category] || 0) + 1;
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
-});
+}));
 r('POST', '/api/shipping/prepare', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return cjs.prepareCountry(String(b.country_code || '').toUpperCase()); });
 r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const b = await readJson(req); const items = Array.isArray(b.items) ? b.items.slice(0, 100) : [];
