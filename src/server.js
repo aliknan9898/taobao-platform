@@ -467,7 +467,7 @@ r('PUT', '/api/admin/ai', ADMIN, async ({ req }) => require('./services/ai').sav
 r('POST', '/api/admin/ai/improve', ADMIN, async () => require('./services/ai').improveKinan(40));
 r('POST', '/api/admin/ai/undo/:id', ADMIN, async ({ params }) => { require('./services/ai').undo(params.id); return { ok: true }; });
 r('POST', '/api/seller/ai/listing', SELLER, async ({ req, seller }) => { throttleLight(req); const b = await readJson(req); return require('./services/ai').assist(seller, { ...b, lang: b.lang || reqLang(req) }); });
-r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id).map((l) => require('./services/kinanCatalog').sellerSafe(l.ai_review ? { ...l, ai_review: { ...l.ai_review, before: undefined } } : l)));
+r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id && l.status !== 'removed').map((l) => require('./services/kinanCatalog').sellerSafe(l.ai_review ? { ...l, ai_review: { ...l.ai_review, before: undefined } } : l)));
 // the Kinan catalogue: sellers add Kinan's products to their shop at their own price (suppliers are not shown)
 r('GET', '/api/seller/kinan-catalog', SELLER, async ({ seller, url }) => require('./services/kinanCatalog').browse(seller, { q: url.searchParams.get('q') || '', dept: url.searchParams.get('dept') || '', page: url.searchParams.get('page') || 1 }));
 r('GET', '/api/seller/kinan-catalog/:id', SELLER, async ({ seller, params }) => require('./services/kinanCatalog').details(seller, params.id));
@@ -480,6 +480,18 @@ r('PATCH', '/api/seller/products/:id', SELLER, async ({ req, seller, params }) =
   const KC = require('./services/kinanCatalog');
   if (b.prices && l.from_kinan) for (const s of patch.skus) { const kp = KC.lineCost(l, s); if (!(s.price > kp)) throw httpError(400, `The price must be higher than the Kinan price (${kp})`); }
   return KC.sellerSafe(b.prices && !l.from_kinan ? catalog.checkMargins(db.listings.update(l.id, patch)) : db.listings.update(l.id, patch));
+});
+// Remove products from the seller's shop (kept in the records for past orders, hidden everywhere, taken off eBay)
+r('POST', '/api/seller/products/remove', SELLER, async ({ req, seller }) => {
+  const ids = [...new Set((await readJson(req)).ids || [])].slice(0, 500);
+  let removed = 0;
+  for (const id of ids) {
+    const l = db.listings.get(id); if (!l || l.seller_id !== seller.id || l.status === 'removed') continue;
+    if (l.ebay?.listing_id) { try { await require('./services/ebay').endOne(l.id); } catch (e) { console.warn('[remove] eBay', e.message); } }
+    db.listings.update(l.id, { status: 'removed', removed_at: Date.now(), removed_by: 'seller', status_before_remove: l.status });
+    removed++;
+  }
+  return { removed };
 });
 r('POST', '/api/seller/products/:id/resync', SELLER, async ({ seller, params }) => {
   const l = db.listings.get(params.id); if (!l || l.seller_id !== seller.id) throw httpError(404, 'Not found'); return require('./services/kinanCatalog').sellerSafe(await catalog.resync(l.id));

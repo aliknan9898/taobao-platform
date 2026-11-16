@@ -22,7 +22,7 @@ const offered = () => db.listings.all((l) => l.seller_id === kinanId() && l.stat
 
 /** One page of the catalogue, without supplier details. */
 function browse(seller, { q = '', dept = '', page = 1 } = {}) {
-  const mine = new Set(db.listings.all((l) => l.seller_id === seller.id && l.from_kinan).map((l) => l.from_kinan));
+  const mine = new Set(db.listings.all((l) => l.seller_id === seller.id && l.from_kinan && l.status !== 'removed').map((l) => l.from_kinan));
   const words = String(q).toLowerCase().split(/\s+/).filter(Boolean);
   let items = offered().filter((l) => (!dept || list(l.collections).includes(dept)) && words.every((w) => `${l.title} ${list(l.keywords).join(' ')}`.toLowerCase().includes(w)));
   items.sort((a, b) => (Number(b.sourcing?.quality) || 0) - (Number(a.sourcing?.quality) || 0) || (b.created_at || 0) - (a.created_at || 0));
@@ -64,7 +64,7 @@ function add(seller, id, b = {}) {
   id = original(id);
   const src = db.listings.get(id);
   if (!src || !offered().some((x) => x.id === id)) throw httpError(404, 'This product is not in the Kinan catalogue any more');
-  if (db.listings.find((l) => l.seller_id === seller.id && l.from_kinan === id)) throw httpError(409, 'This product is already in your shop');
+  if (db.listings.find((l) => l.seller_id === seller.id && l.from_kinan === id && l.status !== 'removed')) throw httpError(409, 'This product is already in your shop');
   const pct = b.markup_pct !== undefined && b.markup_pct !== '' ? Math.min(500, Math.max(0, Number(b.markup_pct))) : null;
   const skus = list(src.skus).filter((s) => s.cost_sale > 0).map((s) => {
     const kp = kinanPrice(s);

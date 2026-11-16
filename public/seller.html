@@ -59,6 +59,13 @@
   .prod .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Product list: when the list itself is narrow (tablet + sidebar, larger phone text), put the buttons under the title instead of squeezing it */
   .prodlist { container-type: inline-size; }
+  .prod .pick { position: relative; display: block; cursor: pointer; }
+  .prod .pick input { position: absolute; top: -6px; inset-inline-start: -6px; width: 22px; height: 22px; margin: 0; accent-color: var(--jade); background: var(--bg, #fff); border-radius: 6px; box-shadow: 0 0 0 2px var(--bg, #fff); }
+  .prod.sel { background: color-mix(in srgb, var(--jade) 7%, transparent); }
+  .selbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 10px; border-radius: var(--r-md); background: var(--chip); }
+  .selbar label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
+  .selbar input { width: 20px; height: 20px; accent-color: var(--jade); }
+  .btn.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
   @container (max-width: 760px) { .prod { grid-template-columns: 64px minmax(0, 1fr); } .prod .acts { grid-column: 2; } }
   @media (max-width: 560px) { .prod { grid-template-columns: 56px minmax(0, 1fr); } .prod .acts { grid-column: 1 / -1; } .prod img, .prod .thumb { width: 56px; height: 56px; } }
   .steps { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
@@ -237,11 +244,11 @@ async function products() {
   const shown = list.filter((p) => prodFilter === 'all' || p.status === prodFilter);
   v.innerHTML = `<div class="head"><h1>Products</h1><a class="btn" href="#/add">Add product</a></div>
     <div class="tabs">${F.map(([k, t]) => `<button data-f="${k}" class="${k === prodFilter ? 'on' : ''}">${t} (${k === 'all' ? list.length : list.filter((p) => p.status === k).length})</button>`).join('')}</div>
-    <section class="panel prodlist">${shown.map((p) => {
+    <section class="panel prodlist">${shown.length ? `<div class="selbar"><label><input type="checkbox" id="selall"> Select all</label><span class="muted small" id="selinfo"></span><span style="flex:1"></span><button class="btn sm danger" id="selremove" disabled>🗑 <span>Remove</span></button></div>` : ''}${shown.map((p) => {
       const img = [...(p.own_images || []), ...(p.images || [])][0];
       const [lab, cls] = PRODUCT_STATUS[p.status] || [p.status, ''];
       const prices = p.skus.map((s) => s.price); const lo = Math.min(...prices), hi = Math.max(...prices);
-      return `<div class="prod">${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<div class="thumb"></div>'}
+      return `<div class="prod" data-row="${esc(p.id)}"><label class="pick" title="Select"><input type="checkbox" data-pick="${esc(p.id)}" aria-label="Select">${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<div class="thumb"></div>'}</label>
         <div style="min-width:0;display:grid;gap:4px"><div class="t">${esc(p.title)}</div>
           <div class="row">${pill(lab, cls)}<span class="muted">${money(lo, p.currency)}${hi !== lo ? ` – ${money(hi, p.currency)}` : ''} · ${p.skus.length} option${p.skus.length > 1 ? 's' : ''}</span></div>
           ${p.status === 'rejected' && p.review?.reason ? `<div class="small bad">Kinan’s note: ${esc(p.review.reason)}</div>` : ''}
@@ -256,6 +263,24 @@ async function products() {
         </div></div>`; }).join('') || `<div class="empty"><h3>${list.length ? 'Nothing in this list' : 'No products yet'}</h3><p>Paste a Taobao link to import your first product.</p><a class="btn" href="#/add">Add product</a></div>`}</section>
     <p class="muted">New products and changes to titles, descriptions or photos are reviewed by Kinan before buyers see them. Price changes go live right away.</p>`;
   $$('[data-f]').forEach((b) => b.onclick = () => { prodFilter = b.dataset.f; products(); });
+  // Select and remove
+  const picks = () => $$('[data-pick]').filter((x) => x.checked).map((x) => x.dataset.pick);
+  const paintSel = () => {
+    const n = picks().length; const all = $$('[data-pick]');
+    $$('[data-pick]').forEach((x) => x.closest('.prod').classList.toggle('sel', x.checked));
+    if ($('#selall')) { $('#selall').checked = n > 0 && n === all.length; $('#selall').indeterminate = n > 0 && n < all.length; }
+    if ($('#selinfo')) $('#selinfo').textContent = n ? `${n} ${KinanLang.t(n === 1 ? 'product selected' : 'products selected')}` : '';
+    if ($('#selremove')) $('#selremove').disabled = !n;
+  };
+  $$('[data-pick]').forEach((x) => x.onchange = paintSel);
+  if ($('#selall')) $('#selall').onchange = (e) => { $$('[data-pick]').forEach((x) => { x.checked = e.target.checked; }); paintSel(); };
+  if ($('#selremove')) $('#selremove').onclick = async () => {
+    const ids = picks(); if (!ids.length) return;
+    if (!confirm(KinanLang.lang === 'ar' ? `إزالة ${ids.length} من منتجاتك من متجرك؟ لن يراها المشترون بعد الآن، ولا تتأثر الطلبات السابقة.` : `Remove ${ids.length} product${ids.length > 1 ? 's' : ''} from your shop? Buyers will no longer see ${ids.length > 1 ? 'them' : 'it'}. Past orders are not affected.`)) return;
+    $('#selremove').disabled = true;
+    try { const r = await api('/api/seller/products/remove', 'POST', { ids }); toast(KinanLang.lang === 'ar' ? `أُزيل ${r.removed} من المنتجات` : `${r.removed} product${r.removed === 1 ? '' : 's'} removed`); } catch (e) { toast(e.message); }
+    products();
+  };
   $$('[data-st]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/seller/products/${b.dataset.id}`, 'PATCH', { status: b.dataset.st }); toast(b.dataset.st === 'active' ? 'Product is live' : 'Product paused'); } catch (e) { toast(e.message); } products(); });
   $$('[data-kprice]').forEach((b) => b.onclick = async () => {
     const p = list.find((x) => x.id === b.dataset.kprice); if (!p) return;
