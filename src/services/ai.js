@@ -34,6 +34,15 @@ function claudeKey() {
  * or AI_DAILY_BUDGET_USD directly. When today's Claude cost reaches it, Gemini answers (or the work waits for tomorrow).
  */
 const DAILY_BUDGET = () => Number(process.env.AI_DAILY_BUDGET_USD) || (Number(process.env.ANTHROPIC_CREDIT_USD) || 5) / Math.max(1, Number(process.env.ANTHROPIC_CREDIT_DAYS) || 15);
+/** Claude's credit: everything spent since the key was added, and what is left of ANTHROPIC_CREDIT_USD (estimate — Claude Console has the exact balance). */
+function claudeCredit() {
+  const days = db.settings.all((x) => String(x.id).startsWith('set_ai_claude_d_'));
+  const spent = days.reduce((a, x) => a + (Number(x.cost) || 0), 0); const calls = days.reduce((a, x) => a + (Number(x.calls) || 0), 0);
+  const credit = Number(process.env.ANTHROPIC_CREDIT_USD) || 5;
+  const first = days.map((x) => x.id.slice(-10)).sort()[0] || null;
+  const perDay = days.length ? spent / days.length : 0;
+  return { credit, spent: Math.round(spent * 1000) / 1000, left: Math.round(Math.max(0, credit - spent) * 1000) / 1000, calls, since: first, days_used: days.length, per_day: Math.round(perDay * 1000) / 1000, days_left: perDay > 0 ? Math.floor(Math.max(0, credit - spent) / perDay) : null };
+}
 function claudeSpentToday() { const x = db.settings.get(`set_ai_claude_d_${new Date().toISOString().slice(0, 10)}`); return x ? x.cost : 0; }
 function providers() {
   const want = String(process.env.AI_PROVIDER || '').toLowerCase();
@@ -71,7 +80,7 @@ function record(m, usage, kind) {
 function usage() {
   const now = new Date(); const blank = { calls: 0, input: 0, output: 0, cost: 0, kinds: {} };
   const pick = (id) => { const x = db.settings.get(id); return x ? { calls: x.calls, input: x.input, output: x.output, cost: x.cost, kinds: x.kinds || {} } : blank; };
-  return { claude_budget_today: { spent: Math.round(claudeSpentToday() * 1000) / 1000, budget: Math.round(DAILY_BUDGET() * 1000) / 1000 }, claude_key_ok: Boolean(claudeKey()), enabled: enabled(), model: model(), price_per_million: { input: priceOf(model())[0], output: priceOf(model())[1] }, daily_limit_per_shop: limit(),
+  return { claude_credit: claudeCredit(), claude_budget_today: { spent: Math.round(claudeSpentToday() * 1000) / 1000, budget: Math.round(DAILY_BUDGET() * 1000) / 1000 }, claude_key_ok: Boolean(claudeKey()), enabled: enabled(), model: model(), price_per_million: { input: priceOf(model())[0], output: priceOf(model())[1] }, daily_limit_per_shop: limit(),
     today: pick(`set_ai_usage_d_${now.toISOString().slice(0, 10)}`), month: pick(`set_ai_usage_m_${now.toISOString().slice(0, 7)}`) };
 }
 
@@ -374,4 +383,4 @@ async function tick() {
   if (enabled() && prefs().auto) return improveKinan(40); return null;
 }
 
-module.exports = { claudeKey, DAILY_BUDGET, claudeSpentToday, enabled, provider, providers, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };
+module.exports = { claudeCredit, claudeKey, DAILY_BUDGET, claudeSpentToday, enabled, provider, providers, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };

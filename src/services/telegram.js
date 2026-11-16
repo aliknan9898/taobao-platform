@@ -108,6 +108,7 @@ function report(now = Date.now()) {
       const failed = db.listings.all((l) => l.ebay?.error && !l.ebay?.listing_id);
       const blk = require('./ebay').blocker();
       const hold = blk?.kind === 'hold';
+      try { const ai = require('./ai'); if (ai.claudeKey()) { const c = ai.claudeCredit(); lines.push(`🤖 Claude: spent $${c.spent.toFixed(2)} of $${c.credit} · left ≈ $${c.left.toFixed(2)}${c.days_left != null ? ` (about ${c.days_left} days)` : ''}`); } } catch { /* optional */ }
       lines.push(`🏷 eBay: ${es.connected ? `connected${es.account ? ` as ${es.account}` : ''}` : '⚠️ not connected'} · ${onEbay} listed${hold ? ' — ⚠️ account on hold (payment): fix in eBay Seller Hub → Payments' : blk?.kind === 'warehouse' ? ' — ⛔ UK warehouse not approved for a Malta-registered account (waiting for eBay)' : failed.length ? ` · ${failed.length} not listed` : ''}`);
     }
   } catch { /* eBay off */ }
