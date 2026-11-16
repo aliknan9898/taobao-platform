@@ -292,6 +292,7 @@ async function catalogPage(qs = '') {
   $('#kcf').onsubmit = (e) => { e.preventDefault(); go({ q: e.target.q.value.trim(), dept: e.target.dept.value }); };
   $$('[data-pg]').forEach((b) => b.onclick = () => go({ page: b.dataset.pg }));
   $$('[data-kadd]').forEach((b) => b.onclick = () => catalogAdd(b.dataset.kadd));
+  if (P.get('add')) catalogAdd(P.get('add')).catch((e) => toast(e.message));
 }
 async function catalogAdd(id) {
   const box = $('#kdlg'); box.innerHTML = '<div class="skeleton" style="height:160px"></div>'; box.scrollIntoView({ behavior: 'smooth' });
@@ -321,6 +322,9 @@ function addStart(err = '') {
     <div class="srcgrid">
       <section class="panel stack srccard"><div class="srchead"><span class="srcico mn">K</span><div><b>From the Kinan catalogue</b><div class="muted small">Ready products, checked by Kinan, with clear photos and delivery in 15 days or less. You set your price; Kinan buys and ships each order.</div></div></div>
         <a class="btn" href="#/catalog">Browse the Kinan catalogue</a>
+        <form class="stack" id="klink" style="gap:6px"><label class="small muted" for="klinkin">Or paste a Kinan product link</label>
+          <div class="row" style="gap:8px"><input id="klinkin" placeholder="https://kinan.shop/#/p/…" style="flex:1;min-width:0" autocomplete="off"><button class="btn ghost">Add</button></div>
+          <span class="error small" id="klinkerr"></span></form>
       </section>
       ${sup ? `<section class="panel stack srccard"><div class="srchead"><span class="srcico tb">淘</span><div><b>From Taobao</b><div class="muted small">Ships to Kinan’s China warehouse, is checked, then sent with the customer’s other items.</div></div></div>
         ${connected ? `<form class="stack" id="lf"><label class="field">Taobao or Tmall link<input name="link" required placeholder="https://item.taobao.com/item.htm?id=…" autocomplete="off"></label>
@@ -471,6 +475,15 @@ function addStart(err = '') {
       draft = { mode: 'new', link: p.taobao_item_id, taobao_item_id: p.taobao_item_id, item_type: p.item_type, title: p.title, description: plain(p.description), taobao_images: p.images, own_images: [], skus: p.skus.map((s) => ({ ...s, price: s.suggested_price })) };
       location.hash = '#/review';
     } catch (err2) { addStart(err2.message); }
+  };
+  const kl = $('#klink');
+  if (kl) kl.onsubmit = async (e) => {
+    e.preventDefault();
+    const raw = $('#klinkin').value.trim(); const id = (raw.match(/lst_[A-Za-z0-9]+/) || [])[0];
+    if (!id) { $('#klinkerr').textContent = 'Paste the link of a product page on kinan.shop'; return; }
+    $('#klinkerr').textContent = '';
+    try { await api(`/api/seller/kinan-catalog/${id}`); location.hash = `#/catalog?add=${encodeURIComponent(id)}`; }
+    catch (er) { $('#klinkerr').textContent = er.message; }
   };
 }
 const catSelect = (cur) => `<label class="field">Category<select name="category" required><option value="">Choose…</option>${(cfg.categories || []).map((c) => `<option value="${c.id}" ${c.id === cur ? 'selected' : ''}>${esc(c.en)}</option>`).join('')}</select></label>`;

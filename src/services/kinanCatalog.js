@@ -45,7 +45,11 @@ function browse(seller, { q = '', dept = '', page = 1 } = {}) {
 }
 
 /** Full details of one catalogue product (options with Kinan price), before adding. */
+/** A link to another seller's copy points to the Kinan original. */
+const original = (id) => { const l = db.listings.get(id); return l?.from_kinan ? l.from_kinan : id; };
+
 function details(seller, id) {
+  id = original(id);
   const l = db.listings.get(id);
   if (!l || !offered().some((x) => x.id === id)) throw httpError(404, 'This product is not in the Kinan catalogue any more');
   return {
@@ -57,6 +61,7 @@ function details(seller, id) {
 /** Add a catalogue product to the seller's shop with their prices ({ prices: { mp_sku_id: price } } or { markup_pct }). */
 function add(seller, id, b = {}) {
   if (seller.status !== 'active') throw httpError(403, 'Your shop must be approved before adding products');
+  id = original(id);
   const src = db.listings.get(id);
   if (!src || !offered().some((x) => x.id === id)) throw httpError(404, 'This product is not in the Kinan catalogue any more');
   if (db.listings.find((l) => l.seller_id === seller.id && l.from_kinan === id)) throw httpError(409, 'This product is already in your shop');

@@ -47,6 +47,9 @@ test('Kinan catalogue: browse without suppliers, add at own price, Kinan price a
   assert.strictEqual(add.body.status, 'active'); assert.strictEqual(add.body.source, 'kinan');
   assert.doesNotMatch(JSON.stringify(add.body), /cjdropshipping|cj_vid|cost_sale|"P1"/);
   assert.strictEqual((await api('POST', `/api/seller/kinan-catalog/${src.id}`, { prices: { cj_V1: 30 } }, tok)).status, 409, 'once per shop');
+  // a link to a seller's copy leads to the Kinan original
+  const viaCopy = await api('GET', `/api/seller/kinan-catalog/${add.body.id}`, null, tok);
+  assert.strictEqual(viaCopy.status, 200); assert.strictEqual(viaCopy.body.id, src.id);
   // the seller's product list hides the supplier too
   const mine = await api('GET', '/api/seller/products', null, tok);
   assert.doesNotMatch(JSON.stringify(mine.body), /cjdropshipping|cj_vid|cost_sale/);
