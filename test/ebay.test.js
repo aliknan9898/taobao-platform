@@ -342,3 +342,15 @@ test('eBay launch: account check, competitor prices with a VAT-aware profit floo
   const no = await L.pricePlan(db.listings.get(l.id), 'Rechargeable Hand Warmer USB');
   assert.strictEqual(no.ok, false); assert.match(no.why, /at least/);
 });
+
+test('eBay blocker: judged from the latest error only (an old payment hold that was fixed does not count)', () => {
+  const now = Date.now();
+  for (const l of db.listings.all((x) => x.ebay?.error || x.ebay?.listing_id)) db.listings.update(l.id, (x) => ({ ...x, ebay: { ...x.ebay, error: null, listed_at: 0 } }));
+  const a = db.listings.insert({ seller_id: 'sel_kinan', title: 'Old', ebay: { error: 'A hold has been placed on your account', tried_at: now - 3 * 864e5 } });
+  assert.strictEqual(ebay.blocker().kind, 'hold');
+  const b = db.listings.insert({ seller_id: 'sel_kinan', title: 'New', ebay: { error: 'Your item is listed in a country different from your registered address. You’ll need to apply at whappeals@ebay.com to use an overseas warehouse.', tried_at: now - 3600e3 } });
+  assert.strictEqual(ebay.blocker().kind, 'warehouse');
+  db.listings.update(b.id, (x) => ({ ...x, ebay: { ...x.ebay, tried_at: now - 10 * 864e5 } }));
+  db.listings.update(a.id, (x) => ({ ...x, ebay: { ...x.ebay, tried_at: now - 9 * 864e5 } }));
+  assert.strictEqual(ebay.blocker(), null, 'nothing recent');
+});

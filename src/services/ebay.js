@@ -945,4 +945,16 @@ function status() {
 
 function noteError(msg) { saveState({ connect_error: { at: now(), message: String(msg).slice(0, 300) } }); }
 
-module.exports = { description, shipFee, priceFor, floorFor, netOf, rate, market, VAT_PCT, MIN_MARGIN, FEE_PCT, FEE_FIXED, sellerMoney, ledgerFor, fundOwnOrder, payLink, sellerSettings, approveSeller, sellerView, sellerList, sellerConnectUrl, sellerDisconnect, sellerMode, onThisAccount, ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };
+/**
+ * What currently stops listing on Kinan's eBay account, judged from the most recent listing error (last 7 days):
+ * { kind: 'hold' | 'warehouse' | 'other', message, at } or null. Older errors (fixed since) do not count.
+ */
+function blocker() {
+  const recent = db.listings.all((l) => l.ebay?.error && (l.ebay.account || 'kinan') === 'kinan' && (l.ebay.tried_at || 0) > now() - 7 * 864e5).sort((a, b) => (b.ebay.tried_at || 0) - (a.ebay.tried_at || 0))[0];
+  const listedSince = recent && db.listings.find((l) => l.ebay?.listing_id && (l.ebay.listed_at || 0) > (recent.ebay.tried_at || 0));
+  if (!recent || listedSince) return null;
+  const m = String(recent.ebay.error);
+  const kind = /hold has been placed/i.test(m) ? 'hold' : /overseas warehouse|different from your registered address/i.test(m) ? 'warehouse' : 'other';
+  return { kind, message: m.slice(0, 300), at: recent.ebay.tried_at };
+}
+module.exports = { blocker, description, shipFee, priceFor, floorFor, netOf, rate, market, VAT_PCT, MIN_MARGIN, FEE_PCT, FEE_FIXED, sellerMoney, ledgerFor, fundOwnOrder, payLink, sellerSettings, approveSeller, sellerView, sellerList, sellerConnectUrl, sellerDisconnect, sellerMode, onThisAccount, ensureEnv, bestPicks, autopick, storePath, syncStore, organize, products, csv, noteError, MARKETS, prefs, savePrefs, status, eligible, candidates, ebayPrice, policies, listOne, listMany, endOne, sync, importOrders, pushTracking, tick, skuKey, findSku, carrierCode, _running: () => running };

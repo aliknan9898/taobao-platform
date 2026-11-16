@@ -128,7 +128,7 @@ function dashboard({ days = 30 } = {}) {
     ebay = { configured: Boolean(st.configured), connected: Boolean(st.connected), account: st.account || null, env: st.env || null,
       live: items.filter((x) => x.status === 'live').length, ready: items.filter((x) => x.status === 'ready').length,
       failed: items.filter((x) => x.status === 'failed').length, not_eligible: items.filter((x) => x.status === 'not_eligible').length,
-      hold: items.some((x) => /hold has been placed/i.test(x.reason || '')), items, orders: (v.orders || []).slice(0, 30) };
+      blocker: require('./ebay').blocker(), items, orders: (v.orders || []).slice(0, 30) };
   } catch (e) { ebay = { error: e.message }; }
 
   // other shops
@@ -157,7 +157,8 @@ function dashboard({ days = 30 } = {}) {
 
   // things worth a look
   const tips = [];
-  if (ebay?.hold) tips.push({ level: 'bad', text: 'eBay account on hold (payment) — products cannot be listed until it is paid in eBay Seller Hub → Payments.' });
+  if (ebay?.blocker?.kind === 'hold') tips.push({ level: 'bad', text: 'eBay account on hold (payment) — products cannot be listed until it is paid in eBay Seller Hub → Payments.' });
+  if (ebay?.blocker?.kind === 'warehouse') tips.push({ level: 'bad', text: 'eBay blocks listings from the UK warehouse because the eBay account is registered in Malta — waiting for eBay’s approval (whappeals@ebay.com) or an eBay account for KINAN SHOP LTD.' });
   if (catalog.out_of_stock) tips.push({ level: 'warn', text: `${catalog.out_of_stock} live product(s) are out of stock.` });
   if (catalog.low_margin) tips.push({ level: 'warn', text: `${catalog.low_margin} product(s) have less than 20 % margin.` });
   const viewedNoSale = active.filter((p) => p.views >= 30 && !p.units).length;
