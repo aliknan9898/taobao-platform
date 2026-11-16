@@ -615,6 +615,7 @@ function buyerViewBase(o) {
 }
 
 /** Seller view: only their lines & sub-order, never the buyer's personal address. */
+const SELLER_DIRECT_LABEL = { AE_TO_BUY: 'Kinan is ordering it', AE_PLACED: 'Ordered by Kinan', AE_PAID: 'Being prepared', AE_SHIPPED: 'Shipped to the customer', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Kinan is replacing the supplier order' };
 function sellerView(o, sellerId) {
   const lines = o.lines.filter((l) => l.seller_id === sellerId);
   const sub = (o.sub_orders || []).find((s) => s.seller_id === sellerId && !s.direct) || (o.sub_orders || []).find((s) => s.seller_id === sellerId);
@@ -623,7 +624,10 @@ function sellerView(o, sellerId) {
     lines: lines.map(({ title, props, qty, price, cost_cny }) => ({ title, props, qty, price, cost_cny })),
     revenue: money(lines.reduce((a, l) => a + l.price * l.qty, 0)),
     cost_cny: money(lines.reduce((a, l) => a + l.cost_cny * l.qty, 0)),
-    purchase: sub ? { direct: Boolean(sub.direct), source: sub.source || null, manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: (LABELS_OF(sub.source) ? LABELS_OF(sub.source)[sub.status] : TB_STATUS_LABEL[sub.status]) || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] } : null
+    purchase: !sub ? null : sub.direct
+      // Kinan orders and pays the supplier: the seller sees neutral steps, never the supplier's name, order numbers or Kinan's to-dos
+      ? { direct: true, source: null, manual: false, status: sub.status, status_label: SELLER_DIRECT_LABEL[sub.status] || 'Kinan is handling it', error: sub.error ? 'Kinan is sorting out a supplier issue with this order — nothing to do on your side' : null, logistics: (sub.logistics || []).map(({ carrier, tracking }) => ({ carrier, tracking })) }
+      : { direct: false, source: sub.source || null, manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: (LABELS_OF(sub.source) ? LABELS_OF(sub.source)[sub.status] : TB_STATUS_LABEL[sub.status]) || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] }
   };
 }
 
