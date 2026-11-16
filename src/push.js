@@ -93,13 +93,57 @@ function subscribe(user, b) {
 }
 function unsubscribe(user, endpoint) { for (const s of db.push_subs.all((x) => x.user_id === user.id && x.endpoint === endpoint)) db.push_subs.remove(s.id); return { ok: true }; }
 
-/** Notify every device of a user. `url` is where tapping the notification opens. */
+/** Notify every device of a user (browsers and native apps). `url` is where tapping the notification opens. */
 function toUser(userId, { title, body, url, tag, ar }) {
   if (!userId) return;
   if (ar && db.users.get(userId)?.lang === 'ar') ({ title, body } = { title: ar.title || title, body: ar.body ?? body });
+  const msg = { title: String(title).slice(0, 80), body: String(body || '').slice(0, 200), url: url || '/', tag: tag || undefined };
   for (const s of db.push_subs.all((x) => x.user_id === userId)) {
-    sendOne(s, { title: String(title).slice(0, 80), body: String(body || '').slice(0, 200), url: url || '/', tag: tag || undefined })
-      .catch((e) => console.warn('[push]', e.message));
+    sendOne(s, msg).catch((e) => console.warn('[push]', e.message));
+  }
+  const devices = db.devices.all((d) => d.user_id === userId);
+  if (devices.length) sendExpo(devices, msg).catch((e) => console.warn('[push] expo', e.message));
+}
+
+// ---------------- Native apps (Expo push service → APNs / FCM) ----------------
+// The apps register their Expo push token after the customer allows notifications. Kinan sends through Expo's push
+// API (EXPO_ACCESS_TOKEN is needed only if "enhanced push security" is switched on in the Expo account).
+const EXPO_TOKEN = /^Expo(nent)?PushToken\[[A-Za-z0-9_-]{10,200}\]$/;
+const EXPO_URL = () => process.env.EXPO_PUSH_URL || 'https://exp.host/--/api/v2/push/send';
+
+function registerDevice(user, b = {}) {
+  const token = String(b.token || '').trim();
+  if (!EXPO_TOKEN.test(token)) throw Object.assign(new Error('Unsupported push token'), { status: 400 });
+  const platform = ['ios', 'android'].includes(b.platform) ? b.platform : null;
+  // One token belongs to one phone: if someone else signed in on it before, it moves to this account
+  for (const d of db.devices.all((x) => x.token === token)) db.devices.remove(d.id);
+  db.devices.insert({ user_id: user.id, token, platform, app: String(b.app || 'shop').slice(0, 10), app_version: String(b.app_version || '').slice(0, 20) || null });
+  const mine = db.devices.all((x) => x.user_id === user.id).sort((a, c) => a.created_at - c.created_at);
+  while (mine.length > 10) db.devices.remove(mine.shift().id);
+  return { ok: true };
+}
+function removeDevice(user, token) {
+  for (const d of db.devices.all((x) => x.user_id === user.id && x.token === String(token || ''))) db.devices.remove(d.id);
+  return { ok: true };
+}
+
+/** Send one message to several app devices; tokens Expo reports as no longer registered are removed. */
+async function sendExpo(devices, msg) {
+  const tokenOf = new Map(devices.map((d) => [d.token, d]));
+  const list = [...tokenOf.keys()];
+  for (let i = 0; i < list.length; i += 100) {
+    const batch = list.slice(i, i + 100);
+    const body = batch.map((to) => ({ to, title: msg.title, body: msg.body, sound: 'default', data: { url: msg.url, tag: msg.tag || null } }));
+    const r = await fetch(EXPO_URL(), {
+      method: 'POST', signal: AbortSignal.timeout(15000),
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(process.env.EXPO_ACCESS_TOKEN ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}) },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) { console.warn('[push] expo HTTP', r.status); continue; }
+    const j = await r.json().catch(() => ({}));
+    (j.data || []).forEach((t, k) => {
+      if (t && t.status === 'error' && t.details && t.details.error === 'DeviceNotRegistered') { const d = tokenOf.get(batch[k]); if (d) db.devices.remove(d.id); }
+    });
   }
 }
 
@@ -143,4 +187,4 @@ function drain() {
   });
   tgTimer = setTimeout(drain, tgQueue.length ? 1050 : 0); tgTimer.unref?.();
 }
-module.exports = { tgChat, vapid, subscribe, unsubscribe, toUser, telegram, tgOn, encrypt, vapidHeader, sendOne };
+module.exports = { tgChat, vapid, subscribe, unsubscribe, registerDevice, removeDevice, sendExpo, toUser, telegram, tgOn, encrypt, vapidHeader, sendOne };

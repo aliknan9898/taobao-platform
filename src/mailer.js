@@ -66,7 +66,7 @@ function layout({ title, lines = [], button, highlight, ar, app, products }) {
 function langOf(to) { const u = db.users.find((x) => x.email === String(to).toLowerCase()); return u?.lang === 'ar' || u?.lang === 'en' ? u.lang : null; }
 
 async function send({ to, subject, title, lines, button, key, kind = 'general', attachments, ar, highlight, app, lang, products }) {
-  if (!to) return null;
+  if (!to || /\.invalid$/i.test(String(to).trim())) return null; // no address, or a deleted account's placeholder
   // Arabic readers get only the Arabic version, English readers only the English one
   const l = lang || langOf(to);
   if (ar && l === 'ar') { title = ar.title; lines = ar.lines; button = ar.button || button; subject = ar.subject || subject; ar = undefined; }
