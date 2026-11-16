@@ -32,7 +32,7 @@ const K = (() => {
     clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hide'), 2800);
   }
 
-  const LOGO = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg>';
+  const LOGO = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66" style="fill:var(--logo,#0e7c66)"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg>';
   const brand = (sub) => `<a class="brand" href="${sub === 'Seller Center' ? '/seller' : sub === 'Admin' ? '/admin' : sub === 'Warehouse' ? '/warehouse' : '/'}">${LOGO}<span>kinan</span>${sub ? `<small>${esc(sub)}</small>` : ''}</a>`;
 
   const ORDER_STATUS = {

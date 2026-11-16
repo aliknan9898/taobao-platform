@@ -5,9 +5,9 @@
  "start_url": "/seller",
  "scope": "/seller",
  "display": "standalone",
- "description": "Import Taobao products into your Kinan shop and manage orders.",
+ "description": "Run your Kinan shop: add products from the Kinan catalogue, manage orders and earnings.",
  "background_color": "#ffffff",
- "theme_color": "#ffffff",
+ "theme_color": "#1f3a8a",
  "icons": [
   {
    "src": "/assets/icon-seller-192.png",

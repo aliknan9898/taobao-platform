@@ -9,13 +9,16 @@
 <script src="/assets/theme.js"></script>
 <script src="/assets/i18n.js"></script>
 <link rel="manifest" href="/assets/seller.webmanifest">
-<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/icon-seller-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon-seller.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kinan Seller">
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/kinan.css">
 <style>
+  /* Seller Center wears the colours of its app icon: deep blue with the Kinan marigold dot (the shop stays green) */
+  :root { --jade: #1f3a8a; --jade-ink: #ffffff; --jade-soft: #e7ecf8; --logo: #1f3a8a; }
+  :root[data-theme="dark"] { --jade: #7d9bff; --jade-ink: #0b1433; --jade-soft: #1c2850; --logo: #2c4cb0; }
   .kyc { max-width: 720px; margin: 0 auto; padding: 18px 16px 60px; display: grid; gap: 16px; }
   .kyc .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .kyc .steps { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -76,7 +79,7 @@
   .vrow { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; align-items: end; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   @media (max-width: 600px) { .vrow { grid-template-columns: 1fr 1fr 1fr auto; } .vrow .vname { grid-column: 1 / -1; } }
   .ebaycta { display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; margin-bottom: 14px; max-width: 1100px; border: 1.5px solid var(--jade, #0e7c66); }
-  .ebaycta > div { flex: 1; } .ebayico { width: 46px; height: 46px; background: linear-gradient(135deg, var(--jade, #0e7c66), #0b4f43); color: #fff; font-size: 14px; font-weight: 800; letter-spacing: -.2px; position: relative; box-shadow: 0 4px 12px rgba(14,124,102,.25); }
+  .ebaycta > div { flex: 1; } .ebayico { width: 46px; height: 46px; background: linear-gradient(135deg, var(--jade, #1f3a8a), #13245a); color: #fff; font-size: 14px; font-weight: 800; letter-spacing: -.2px; position: relative; box-shadow: 0 4px 12px rgba(14,124,102,.25); }
   .ebayico::after { content: ""; position: absolute; top: 5px; inset-inline-end: 5px; width: 7px; height: 7px; border-radius: 50%; background: #f4b400; }
   .ebayico.img { background: #fff; border: 1px solid var(--line); box-shadow: none; padding: 5px; } .ebayico.img::after { display: none; } .ebayico img { width: 100%; height: 100%; object-fit: contain; }
   .srcgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; max-width: 1100px; }
