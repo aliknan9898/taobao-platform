@@ -118,6 +118,9 @@ test('customers see neutral variant ids; old and new ids both work at checkout',
   assert.ok(q.body.weight_kg > 0, 'the variant was recognised');
   const lines = (await api('GET', `/api/catalog/lines?items=${product.id}~${encodeURIComponent(view.skus[1].mp_sku_id)}`)).body;
   assert.strictEqual(lines.items[0].mp_sku_id, view.skus[1].mp_sku_id, 'same variant back, public id');
+  // the website's cart migration: an old id gets its exact public id; an unknown id is never taken as a match
+  const legacy = (await api('GET', `/api/catalog/lines?items=${encodeURIComponent(`${product.id}~cj_998877,${product.id}~cj_gone`)}`)).body.items;
+  assert.deepStrictEqual(legacy.map((x) => [x.requested, x.exact, x.mp_sku_id === view.skus[0].mp_sku_id]), [['cj_998877', true, true], ['cj_gone', false, true]]);
 });
 
 test('checkout with an Idempotency-Key makes one order, even for parallel taps', async () => {
@@ -232,6 +235,7 @@ test('account deletion: checks, then personal data is removed and orders are kep
   assert.strictEqual(db.wishlist.all((w) => w.user_id === me.id).length, 0);
   assert.strictEqual(db.carts.get(`crt_${me.id}`), undefined);
   assert.ok(db.orders.get(o.id), 'the order stays for the accounts');
+  assert.strictEqual(await require('../src/mailer').send({ to: u.email, subject: 'x', title: 'x', lines: ['x'] }), null, 'no email to the placeholder address');
   assert.strictEqual((await api('POST', '/api/auth/register', { role: 'buyer', email: 'del@x.com', password: 'buyerpass1', name: 'Again' })).status, 201, 'the email can be used again');
 
   // the owner's account cannot be deleted from the app

@@ -64,9 +64,9 @@ function lines(spec) {
   for (const part of String(spec || '').split(',').slice(0, 30)) {
     const [id, sk] = part.split('~').map((x) => decodeURIComponent(x || ''));
     try {
-      const p = C.buyerListing(id); const pub = require('./publicIds').skuPub(id, require('./publicIds').skuIn(require('../db').listings.get(id), sk)); const s = p.skus.find((k) => k.mp_sku_id === pub) || p.skus.find((k) => k.in_stock);
+      const p = C.buyerListing(id); const pub = require('./publicIds').skuPub(id, require('./publicIds').skuIn(require('../db').listings.get(id), sk)); const exact = p.skus.find((k) => k.mp_sku_id === pub); const s = exact || p.skus.find((k) => k.in_stock);
       if (!s || !s.in_stock) continue;
-      out.push({ listing_id: p.id, mp_sku_id: s.mp_sku_id, qty: 1, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? s.props : '', price: s.price, currency: p.currency, image: s.image || p.images[0] || null });
+      out.push({ listing_id: p.id, mp_sku_id: s.mp_sku_id, requested: sk, exact: Boolean(exact) && exact === s, qty: 1, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? s.props : '', price: s.price, currency: p.currency, image: s.image || p.images[0] || null });
     } catch { /* gone */ }
   }
   return { items: out };

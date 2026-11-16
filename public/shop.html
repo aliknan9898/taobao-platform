@@ -345,7 +345,24 @@ const Cart = {
     if (ex) ex.qty = Math.min(999, ex.qty + item.qty); else c.push(item);
     Cart.set(c);
   },
-  count() { return Cart.get().reduce((a, x) => a + x.qty, 0); }
+  count() { return Cart.get().reduce((a, x) => a + x.qty, 0); },
+  // Carts saved before variant ids became public (v_…): ask the shop for the new id of each line (exact matches only)
+  async migrate() {
+    const c = Cart.get(); const old = c.filter((x) => x.mp_sku_id && !String(x.mp_sku_id).startsWith('v_'));
+    if (!old.length) return;
+    const map = new Map();
+    for (let i = 0; i < old.length; i += 30) {
+      const spec = old.slice(i, i + 30).map((x) => `${encodeURIComponent(x.listing_id)}~${encodeURIComponent(x.mp_sku_id)}`).join(',');
+      try { const d = await api(`/api/catalog/lines?items=${encodeURIComponent(spec)}`); for (const y of d.items || []) if (y.exact) map.set(`${y.listing_id}|${y.requested}`, y.mp_sku_id); } catch { return; }
+    }
+    const out = [];
+    for (const x of c) {
+      const id = map.get(`${x.listing_id}|${x.mp_sku_id}`) || x.mp_sku_id;
+      const ex = out.find((y) => y.listing_id === x.listing_id && y.mp_sku_id === id);
+      if (ex) ex.qty = Math.min(999, ex.qty + x.qty); else out.push({ ...x, mp_sku_id: id });
+    }
+    Cart.set(out);
+  }
 };
 const countryName = (c) => ((cfg.countries || []).find(([k]) => k === c) || [c, c])[1];
 const savedAddress = () => { try { return JSON.parse(localStorage.getItem('kinan_addr') || '{}'); } catch { return {}; } };
@@ -925,7 +942,7 @@ async function addLink(spec) {
 }
 
 async function cart() {
-  const v = $('#view'); let items = Cart.get();
+  const v = $('#view'); await Cart.migrate(); let items = Cart.get();
   if (!items.length) { v.innerHTML = `<div class="empty"><h3>Your cart is empty</h3><p>Find something you like and add it here.</p><a class="btn" href="#/">Browse products</a></div>`; return; }
   v.innerHTML = '<div class="pagehead"><h1>Cart</h1></div><div class="skeleton" style="height:200px"></div>';
   // Refresh prices and availability
