@@ -190,14 +190,16 @@ function recordFailure(ip) {
 const light = new Map();
 const photoHits = new Map();
 /** Search by photo asks the AI: at most 20 photos per visitor every 10 minutes. */
+/** Who a light limit counts against: the signed-in account (phones on mobile networks share IP addresses), else the IP. */
+function limitKey(req) { let u = null; try { u = auth.authenticate(req); } catch { u = null; } return u ? `u:${u.id}` : clientIp(req); }
 function photoLimit(req) {
-  const ip = clientIp(req); const now = Date.now(); let a = photoHits.get(ip);
+  const ip = limitKey(req); const now = Date.now(); let a = photoHits.get(ip);
   if (!a || now - a.t > 10 * 60e3) { a = { n: 0, t: now }; photoHits.set(ip, a); }
   if (++a.n > 20) throw httpError(429, 'Too many photo searches — try again in a few minutes');
   if (photoHits.size > 5000) for (const [k, v] of photoHits) if (now - v.t > 10 * 60e3) photoHits.delete(k);
 }
 function throttleLight(req) {
-  const ip = clientIp(req); const now = Date.now(); let a = light.get(ip);
+  const ip = limitKey(req); const now = Date.now(); let a = light.get(ip);
   if (!a || now - a.t > 10 * 60e3) { a = { n: 0, t: now }; light.set(ip, a); }
   if (++a.n > 120) throw httpError(429, 'Too many requests, try again in a few minutes');
   if (light.size > 5000) for (const [k, v] of light) if (now - v.t > 10 * 60e3) light.delete(k);
@@ -209,12 +211,14 @@ function errorAlert(text) { if (Date.now() - lastErrAlert < 10 * 60e3) return; l
 process.on('unhandledRejection', (e) => { console.error('[unhandled]', e?.message || e); errorAlert(`Unhandled: ${e?.message || e}`); });
 
 /** Send a stored photo ({ type, body }) as an image response. */
+/** Languages Kinan Shop supports; emails and notifications not yet translated fall back to English. */
+const APP_LANGS = ['en', 'ar', 'fr', 'de', 'it', 'es'];
 /** The app's language (sent by the apps) or, failing that, the browser/phone language. */
 function reqLang(req) {
   const h = String(req.headers['x-kinan-lang'] || '').toLowerCase();
-  if (h === 'ar' || h === 'en') return h;
-  const al = String(req.headers['accept-language'] || '').toLowerCase();
-  return al.startsWith('ar') ? 'ar' : /^[a-z]{2}/.test(al) ? 'en' : null;
+  if (APP_LANGS.includes(h)) return h;
+  const al = String(req.headers['accept-language'] || '').toLowerCase().slice(0, 2);
+  return APP_LANGS.includes(al) ? al : /^[a-z]{2}$/.test(al) ? 'en' : null;
 }
 function sendImage(res, img) {
   if (!img) throw httpError(404, 'Photo not found');
@@ -260,7 +264,7 @@ r('POST', '/api/auth/phone/verify', null, async ({ req, res }) => {
   let out; try { out = await phoneAuth.verify({ phone: b.phone, code: b.code, name: b.name, lang: b.lang || reqLang(req) }); } catch (e) { if (e.status === 400) recordFailure(clientIp(req)); throw e; }
   setSession(res, out.token, 'buyer');
   if (out.created) { try { require('./push').telegram(`👤 New customer signed up with a phone number (${String(out.user.phone).slice(0, 4)}…)`); } catch { /* optional */ } }
-  return { user: auth.publicUser(out.user), created: out.created };
+  return { token: out.token, user: auth.publicUser(out.user), created: out.created }; // token: for the apps (Bearer); the site uses the cookie
 });
 r('POST', '/api/auth/login', null, async ({ req, res }) => {
   throttle(clientIp(req));
@@ -332,7 +336,7 @@ r('GET', '/api/categories', null, async () => cached(`categories|${db.version('l
 }));
 r('POST', '/api/shipping/prepare', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return cjs.prepareCountry(String(b.country_code || '').toUpperCase()); });
 r('POST', '/api/shipping/quote', null, async ({ req }) => {
-  const b = await readJson(req); const items = Array.isArray(b.items) ? b.items.slice(0, 100) : [];
+  const b = await readJson(req); const items = require('./services/publicIds').itemsIn(Array.isArray(b.items) ? b.items.slice(0, 100) : []);
   const q = shipping.quote(items, b.country_code || b.country);
   const cc = q.country_code || require('./countries').countryCode(b.country_code || b.country);
   const c = await cjs.quote(items, cc);
@@ -346,7 +350,34 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
 r('GET', '/api/config/public', null, async () => ({ currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
-r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => orders.buyerView(await orders.checkout(user, await readJson(req))));
+// Idempotency-Key (optional, sent by the apps): the same key from the same customer returns the same order instead of a new one,
+// so a double tap or a retry after a dropped connection never creates (and charges) two orders. Kept 24 hours.
+const checkoutsInFlight = new Map();
+r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => {
+  const body = await readJson(req);
+  const key = String(req.headers['idempotency-key'] || '').trim();
+  if (!key) return orders.buyerView(await orders.checkout(user, body));
+  if (!/^[A-Za-z0-9_-]{8,100}$/.test(key)) throw httpError(400, 'Invalid Idempotency-Key');
+  const crypto = require('crypto');
+  const keyHash = crypto.createHash('sha256').update(`${user.id}|${key}`).digest('hex');
+  const bodyHash = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
+  const replay = () => {
+    const t = db.tokens.find((x) => x.kind === 'idem' && x.token_hash === keyHash && x.expires_at > Date.now());
+    if (!t) return null;
+    if (t.body_hash !== bodyHash) throw httpError(409, 'This Idempotency-Key was already used for a different checkout');
+    const o = db.orders.get(t.order_id);
+    return o && o.buyer_id === user.id ? orders.buyerView(o) : null;
+  };
+  const prior = replay(); if (prior) return prior;
+  if (checkoutsInFlight.has(keyHash)) { await checkoutsInFlight.get(keyHash).catch(() => null); const again = replay(); if (again) return again; }
+  const run = orders.checkout(user, body);
+  checkoutsInFlight.set(keyHash, run);
+  try {
+    const o = await run;
+    db.tokens.insert({ kind: 'idem', token_hash: keyHash, body_hash: bodyHash, user_id: user.id, order_id: o.id, expires_at: Date.now() + 24 * 3600e3 });
+    return orders.buyerView(o);
+  } finally { checkoutsInFlight.delete(keyHash); }
+});
 r('GET', '/api/buyer/orders', BUYER, async ({ user }) => db.orders.all((o) => o.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(orders.buyerView));
 r('GET', '/api/buyer/orders/:id', BUYER, async ({ user, params }) => {
   const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
@@ -423,6 +454,25 @@ r('POST', '/api/buyforme/estimate', null, async ({ req }) => { throttleLight(req
 r('POST', '/api/buyer/requests/:id/accept', BUYER, async ({ user, params }) => require('./services/buyforme').accept(user, params.id));
 r('GET', '/api/buyer/requests', BUYER, async ({ user }) => db.requests.all((x) => x.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(shopSvc.buyerRequestView));
 r('POST', '/api/buyer/requests', BUYER, async ({ req, user }) => shopSvc.buyerRequestView(shopSvc.createRequest(user, await readJson(req))));
+
+// Account self-service (Kinan Shop site and apps)
+r('PATCH', '/api/buyer/profile', BUYER, async ({ req, user }) => require('./services/account').updateProfile(user, await readJson(req)));
+r('POST', '/api/buyer/password', BUYER, async ({ req, user }) => {
+  throttle(clientIp(req));
+  try { return require('./services/account').changePassword(user, await readJson(req), auth.tokenFromRequest(req)); } catch (e) { if (e.status === 401) recordFailure(clientIp(req)); throw e; }
+});
+r('GET', '/api/buyer/account/delete', BUYER, async ({ user }) => require('./services/account').deletionCheck(user));
+r('POST', '/api/buyer/account/delete', BUYER, async ({ req, res, user }) => {
+  throttle(clientIp(req));
+  let out; try { out = await require('./services/account').deleteAccount(user, await readJson(req), auth.tokenFromRequest(req)); } catch (e) { if (e.status === 401) recordFailure(clientIp(req)); throw e; }
+  res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+  return out;
+});
+// The cart saved on the server (PUT /api/buyer/cart), to restore it on another phone; check it with /api/catalog/lines before showing prices
+r('GET', '/api/buyer/cart', BUYER, async ({ user }) => { const c = db.carts.get(`crt_${user.id}`); return { items: require('./services/publicIds').itemsOut(c?.items || []), changed_at: c?.changed_at || null }; });
+// Native app notifications (Expo push tokens)
+r('POST', '/api/push/devices', auth.ROLES, async ({ req, user }) => require('./push').registerDevice(user, await readJson(req)));
+r('DELETE', '/api/push/devices', auth.ROLES, async ({ req, user }) => require('./push').removeDevice(user, (await readJson(req)).token));
 
 // Seller
 /** Supplier imports (Taobao, AliExpress, CJ, Banggood) are for Kinan itself; sellers add from the Kinan catalogue (SELLER_SUPPLIER_IMPORTS=1 opens them to all). */
@@ -1016,7 +1066,7 @@ const server = http.createServer(async (req, res) => {
       const ctx = { req, res, url, params: m.groups || {} };
       // Remember each person's app language so emails and notifications reach them in it
       const hl = req.headers['x-kinan-lang'];
-      if (hl === 'ar' || hl === 'en') { const lu = auth.authenticate(req); const rec = lu && db.users.get(lu.id); if (rec && rec.lang !== hl) db.users.update(rec.id, { lang: hl }); }
+      if (APP_LANGS.includes(hl)) { const lu = auth.authenticate(req); const rec = lu && db.users.get(lu.id); if (rec && rec.lang !== hl) db.users.update(rec.id, { lang: hl }); }
       if (rt.roles) {
         const user = auth.authenticate(req);
         Object.assign(ctx, auth.requireRole(user, ...rt.roles));
@@ -1047,6 +1097,7 @@ function startJobs() {
   // Scheduled jobs are background work: their CJ calls wait behind anything a person is doing
   const every = (ms, fn) => setInterval(() => Promise.resolve(require('./cj/client').background(fn)).catch(() => {}), ms).unref();
   every(30e3, webhooks.processInbox);
+  every(3600e3, () => webhooks.checkUnpaidCards()); // card payments whose webhook failed or never came
   every(config.orderSyncMinutes * 60e3, orders.syncOpen);
   every(3600e3, catalog.resyncStale);
   every(6 * 3600e3, sellerAuth.refreshAllDue);

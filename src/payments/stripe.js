@@ -222,6 +222,13 @@ async function removeCard(user, id) {
   return listCards(user);
 }
 
+/** Account deletion: delete the buyer's Stripe customer (and with it the saved cards). Best effort, no-op without one. */
+async function deleteCustomer(user) {
+  const u = db.users.get(user.id) || user;
+  if (demoMode() || !u.stripe_customer_id || u.stripe_customer_key !== keyFingerprint()) return null;
+  try { return await stripe(`/customers/${u.stripe_customer_id}`, null, null, 'DELETE'); } catch (e) { if (missingCustomer(e)) return null; throw e; }
+}
+
 /** Give an existing unpaid PaymentIntent the buyer's customer so a saved card can pay it. */
 async function attachCustomer(intentId, customer) {
   if (demoMode() || !customer || !/^pi_[\w]+$/.test(String(intentId))) return null;
@@ -239,4 +246,4 @@ async function checkoutUrl({ amount, currency, name, order_id, success_url, canc
   return s.url;
 }
 
-module.exports = { form, checkoutUrl, customerFor, cardSetup, listCards, removeCard, attachCustomer, chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };
+module.exports = { form, checkoutUrl, customerFor, deleteCustomer, cardSetup, listCards, removeCard, attachCustomer, chargeOf, isTestPayment, createPaymentIntent, retrieveIntent, cancelIntent, refundIntent, refund, verifyWebhook, demoMode, toMinor, setup, status, webhookSecrets };

@@ -73,7 +73,7 @@ function register({ email, password, name, role, shop_name, lang, accept_terms, 
   if (ownerEmail(email)) throw httpError(409, 'This email signs in with Google — tap “Continue with Google”');
   const same = usersByEmail(email);
   if (same.some((u) => u.role === role || isStaff(u))) throw httpError(409, role === 'seller' ? 'This email already has a seller account — sign in instead' : 'This email already has a Kinan Shop account — sign in instead');
-  const user = db.users.insert({ email, name: String(name || '').slice(0, 80), role, status: 'active', pass: hashPassword(password), lang: ['ar', 'en'].includes(lang) ? lang : null });
+  const user = db.users.insert({ email, name: String(name || '').slice(0, 80), role, status: 'active', pass: hashPassword(password), lang: ['ar', 'en', 'fr', 'de', 'it', 'es'].includes(lang) ? lang : null });
   if (role === 'seller') {
     // Sellers start as "pending" until an admin approves them
     const seller = db.sellers.insert({

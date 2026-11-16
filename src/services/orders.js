@@ -97,7 +97,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     if (!seller || seller.status !== 'active') throw httpError(409, 'The shop of one of the items is unavailable');
     // Fresh stock/cost before taking money
     if (now() - (l.last_synced_at || 0) > 10 * 60e3) { try { l = await catalog.resync(l.id) || l; } catch { /* the supplier could not be asked right now: use the last known stock and price */ } }
-    const sku = l.skus.find((s) => s.mp_sku_id === String(it.mp_sku_id));
+    const sku = l.skus.find((s) => s.mp_sku_id === require('./publicIds').skuIn(l, it.mp_sku_id));
     if (!sku) throw httpError(409, 'Variant not found');
     if (sku.stock < qty) throw httpError(409, `Not enough stock: ${l.title} (${sku.props})`);
     if (qty < (l.begin_amount || 1)) throw httpError(400, `Minimum order quantity is ${l.begin_amount}`);
@@ -604,7 +604,8 @@ function buyerViewBase(o) {
     tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, url: shipment.url || require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,
     // AliExpress parts travel separately, straight to the customer
     direct: (o.sub_orders || []).filter((s) => s.direct).map((s) => ({
-      status: s.status, label: { AE_TO_BUY: 'Being ordered', AE_PLACED: 'Being ordered', AE_PAID: 'Ordered — preparing', AE_SHIPPED: 'On its way to you', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Being reviewed' }[s.status] || 'Being ordered',
+      // `status` keeps the stored code for the website; apps read the neutral `state` (ordering, preparing, shipped, delivered, review)
+      status: s.status, state: require('./publicIds').directState(s.status), label: { AE_TO_BUY: 'Being ordered', AE_PLACED: 'Being ordered', AE_PAID: 'Ordered — preparing', AE_SHIPPED: 'On its way to you', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Being reviewed' }[s.status] || 'Being ordered',
       items: o.lines.filter((l) => s.line_nos.includes(l.line_no)).map((l) => l.title), tracking: (s.logistics || []).map((x) => ({ carrier: x.carrier, number: x.tracking, url: require('./couriers').trackingUrl(x.carrier, x.tracking) })),
       track: s.track ? { stage: s.track.status || 0, events: (s.track.events || []).slice(0, 25) } : null
     })),

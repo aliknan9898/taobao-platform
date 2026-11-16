@@ -78,3 +78,22 @@ Register a URL scheme in the app (e.g. `myseller://`) and pass it as `return_to`
 | PATCH | `/api/seller/me` | seller | Also accepts `logo` (data URL ≤ 200 KB), `description`, `return_policy` |
 | GET/POST | `/api/admin/wallet/:userId` | admin | POST `{ amount, reason }` — negative to deduct |
 | GET | `/api/admin/requests` · PATCH `/api/admin/requests/:id` | admin | `{ status: new\|quoted\|listed\|declined, reply, quote, listing_id }` |
+
+## Native app additions (Kinan Shop iOS / Android)
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| POST | `/api/buyer/checkout` + header `Idempotency-Key: <8–100 chars>` | buyer | Same key from the same customer within 24 h returns the same order (no second order or charge). Same key with a different cart → 409 |
+| POST | `/api/auth/phone/verify` | public | Now also returns `token` (Bearer for the apps) |
+| PATCH | `/api/buyer/profile` | buyer | `{name?, lang?: en\|ar\|fr\|de\|it\|es}` |
+| POST | `/api/buyer/password` | buyer | `{current, password}` — signs out every other session |
+| GET | `/api/buyer/account/delete` | buyer | `{open_orders[], open_returns, wallet_balance, needs_password, can_delete}` |
+| POST | `/api/buyer/account/delete` | buyer | `{confirm:"DELETE", password?, forfeit_wallet?}`. No password on the account → the session must be < 15 min old. Errors carry `code`: `bad_password`, `reauth`, `open_orders`, `open_returns`, `wallet_balance`. Orders and invoices are kept, personal data removed |
+| GET | `/api/buyer/cart` | buyer | `{items[], changed_at}` — the cart saved with `PUT /api/buyer/cart` |
+| POST | `/api/push/devices` | signed in | `{token: "ExponentPushToken[…]", platform: ios\|android, app_version?}` |
+| DELETE | `/api/push/devices` | signed in | `{token}` — call before signing out |
+
+- Variant ids in buyer views are public ids (`v_…`); every buyer route accepts them and the old ids.
+- `direct[].state` in orders: `ordering | preparing | shipped | delivered | review` (use it instead of `status`).
+- `GET /api/catalog/:id/delivery` gives `known: true` with `basis: GB|EU` when delivery to that market was measured.
+- `X-Kinan-Lang` accepts en, ar, fr, de, it, es. Messages not yet translated arrive in English.
+- Image search, the assistant and other light limits count per signed-in account (per IP when signed out).

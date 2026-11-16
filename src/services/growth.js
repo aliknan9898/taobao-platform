@@ -234,7 +234,7 @@ function reviewPhoto(id, n) {
 
 // ---------------- Carts left behind ----------------
 function saveCart(user, items) {
-  const clean = (Array.isArray(items) ? items : []).slice(0, 100).map((x) => ({ listing_id: str(x.listing_id, 40), mp_sku_id: str(x.mp_sku_id, 60), qty: Math.max(1, Math.min(999, Math.floor(Number(x.qty) || 1))), title: str(x.title, 120) })).filter((x) => x.listing_id);
+  const clean = require('./publicIds').itemsIn(Array.isArray(items) ? items : []).slice(0, 100).map((x) => ({ listing_id: str(x.listing_id, 40), mp_sku_id: str(x.mp_sku_id, 60), qty: Math.max(1, Math.min(999, Math.floor(Number(x.qty) || 1))), title: str(x.title, 120) })).filter((x) => x.listing_id);
   const id = `crt_${user.id}`;
   const ex = db.carts.get(id);
   const doc = { user_id: user.id, items: clean, changed_at: Date.now(), reminded_at: null, reminded_step: 0 };
@@ -253,7 +253,7 @@ function cartProducts(c, u) {
   const cat = require('./catalog'); const out = [];
   for (const it of c.items) {
     let p; try { p = cat.buyerListing(it.listing_id); } catch { continue; } // no longer for sale: left out
-    const sku = (p.skus || []).find((s) => s.mp_sku_id === it.mp_sku_id) || (p.skus || [])[0];
+    const pubId = require('./publicIds').skuPub(it.listing_id, it.mp_sku_id); const sku = (p.skus || []).find((s) => s.mp_sku_id === pubId || s.mp_sku_id === it.mp_sku_id) || (p.skus || [])[0];
     const price = sku?.price ?? p.min_price;
     let money = ''; try { money = Number(price).toLocaleString('en-US', { style: 'currency', currency: String(p.currency || 'usd').toUpperCase() }); } catch { money = `${price}`; }
     out.push({ title: (u.lang === 'ar' && p.title_ar) || p.title || it.title, image: sku?.image || (p.images || [])[0] || '', price: money, qty: it.qty, url: `/p/${p.id}` });

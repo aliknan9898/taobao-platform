@@ -18,19 +18,48 @@ function taobao(rawBody, headers) {
   return { status: 200, body: 'ok' };
 }
 
-/** Stripe: verify signature, then act synchronously (it's fast & idempotent). */
+/**
+ * Stripe: verify signature, answer at once, act in the background (idempotent).
+ * The event is marked processed only once its work succeeded: if it fails, Stripe's next delivery of the same event
+ * runs it again (and checkUnpaidCards() catches anything still missed).
+ */
+const stripeRunning = new Set();
 async function stripeHook(rawBody, headers) {
   if (!stripe.verifyWebhook(rawBody, headers['stripe-signature'])) return { status: 400, body: 'invalid signature' };
   const evt = JSON.parse(rawBody);
   const key = `msg_st_${evt.id}`;
-  if (db.inbox.get(key)) return { status: 200, body: 'dup' };
-  db.inbox.insert({ id: key, source: 'stripe', msg: { type: evt.type, id: evt.id }, processed: true });
-  if (evt.type === 'payment_intent.succeeded') {
-    const pi = evt.data.object;
-    if (String(pi?.metadata?.order_id || '').startsWith('gc_')) require('./services/giftcards').paid(pi).catch((e) => console.error('[stripe→giftcard]', e.message));
-    else orders.stripePaid(pi).catch((e) => console.error('[stripe→paid]', e.message));
-  }
+  const seen = db.inbox.get(key);
+  if (seen && (seen.processed || stripeRunning.has(key))) return { status: 200, body: 'dup' };
+  if (!seen) db.inbox.insert({ id: key, source: 'stripe', msg: { type: evt.type, id: evt.id }, processed: false });
+  if (evt.type !== 'payment_intent.succeeded') { db.inbox.update(key, { processed: true, processed_at: Date.now() }); return { status: 200, body: 'ok' }; }
+  const pi = evt.data.object;
+  const work = String(pi?.metadata?.order_id || '').startsWith('gc_') ? () => require('./services/giftcards').paid(pi) : () => orders.stripePaid(pi);
+  stripeRunning.add(key);
+  Promise.resolve().then(work)
+    .then(() => db.inbox.update(key, { processed: true, processed_at: Date.now() }))
+    .catch((e) => { console.error('[stripe→paid]', e.message); db.inbox.update(key, (x) => ({ ...x, attempts: (x.attempts || 0) + 1, last_error: String(e.message).slice(0, 300) })); })
+    .finally(() => stripeRunning.delete(key));
   return { status: 200, body: 'ok' };
+}
+
+/**
+ * Safety net for card payments: unpaid orders whose PaymentIntent Stripe says succeeded are marked paid
+ * (a webhook that failed or never arrived). Orders from the last 3 days, each checked at most once an hour.
+ */
+async function checkUnpaidCards(now = Date.now()) {
+  if (stripe.demoMode()) return 0;
+  let n = 0;
+  const due = db.orders.all((o) => o.status === 'pending_payment' && o.payment?.provider === 'stripe' && /^pi_/.test(o.payment?.intent_id || '')
+    && now - o.created_at > 10 * 60e3 && now - o.created_at < 3 * 86400e3 && now - (o.payment.checked_at || 0) > 3600e3).slice(-50);
+  for (const o of due) {
+    db.orders.update(o.id, (x) => ({ ...x, payment: { ...x.payment, checked_at: now } }));
+    try {
+      const pi = await stripe.retrieveIntent(o.payment.intent_id);
+      if (pi && pi.status === 'succeeded') { await orders.stripePaid(pi); n++; }
+    } catch (e) { console.warn('[stripe] check unpaid', o.id, e.message); }
+  }
+  if (n) console.log(`[stripe] ${n} paid order(s) found by the hourly check`);
+  return n;
 }
 
 let running = false;
@@ -62,4 +91,4 @@ async function processInbox() {
   } finally { running = false; }
 }
 
-module.exports = { taobao, stripeHook, processInbox };
+module.exports = { taobao, stripeHook, processInbox, checkUnpaidCards };

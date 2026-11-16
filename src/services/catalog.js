@@ -343,7 +343,7 @@ function toBuyerView(l, seller) {
     ...(() => { const d = require('./deals').dealFor(l); return d ? { deal: d, was_min_price: Math.min(...l.skus.map((s) => s.price)) } : {}; })(),
     ...(() => { const og = optionGroups(l.skus); return {
       option_groups: og ? og.groups : null,
-      skus: l.skus.map((s, i) => ({ mp_sku_id: s.mp_sku_id, props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), price: require('./deals').priceOf(l, s), ...(require('./deals').dealFor(l) ? { was: s.price } : {}), in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
+      skus: l.skus.map((s, i) => ({ mp_sku_id: require('./publicIds').skuPub(l.id, s.mp_sku_id), props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), price: require('./deals').priceOf(l, s), ...(require('./deals').dealFor(l) ? { was: s.price } : {}), in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
     }; })()
   };
 }
@@ -399,6 +399,16 @@ function many(ids) {
  * then the delivery time to the shopper's country. Dates are worked out in the shop's time zone (Malta).
  */
 const DISPATCH_DAYS = () => Math.max(0, Number(process.env.DISPATCH_DAYS ?? 1));
+/** Delivery days measured when a supplier-direct product was checked (to the UK, and to the EU for EU countries). */
+const EU_MEMBERS = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
+function measuredDays(l, cc) {
+  const so = l.sourcing || {};
+  const [lo, hi, basis] = cc === 'GB' ? [so.gb_min, so.gb_days, 'GB'] : EU_MEMBERS.has(cc) ? [so.eu_min, so.eu_days, 'EU'] : [];
+  const max = Number(hi); if (!(max > 0 && max < 99)) return null;
+  const min = Number(lo) > 0 && Number(lo) <= max ? Number(lo) : max; // no measured fastest time: show the measured time only
+  return { min, max, known: true, basis };
+}
+
 function delivery(id, country, now = Date.now()) {
   const l = db.listings.get(id);
   if (!l) throw httpError(404, 'Product not found');
@@ -409,7 +419,8 @@ function delivery(id, country, now = Date.now()) {
     const cj = require('./cj');
     if (cj.noDelivery(l, cc)) return { country: cc, none: true };
     d = cj.deliveryDays(l, cc);
-  } else if (l.fulfillment === 'direct') d = { min: 10, max: 20, known: false };
+  } else if (l.fulfillment === 'direct' && measuredDays(l, cc)) d = measuredDays(l, cc);
+  else if (l.fulfillment === 'direct') d = { min: 10, max: 20, known: false };
   else d = { min: 8, max: 18, known: false }; // via Kinan's warehouse in China
   // Skip Sundays for dispatch (warehouses do not ship then)
   let start = now; let left = DISPATCH_DAYS();
@@ -417,7 +428,7 @@ function delivery(id, country, now = Date.now()) {
   const from = start + d.min * 86400e3; const to = start + d.max * 86400e3;
   const xmas = (() => { const y = new Date(now).getUTCFullYear(); const eve = Date.UTC(y, 11, 24, 23, 0); return now < eve ? eve : null; })();
   return {
-    country: cc, min_days: d.min, max_days: d.max, from, to, known: Boolean(d.known),
+    country: cc, min_days: d.min, max_days: d.max, from, to, known: Boolean(d.known), ...(d.basis ? { basis: d.basis } : {}),
     ...(xmas ? { christmas: { before: to <= xmas, order_by: xmas - (d.max + DISPATCH_DAYS() + 1) * 86400e3 } } : {})
   };
 }
