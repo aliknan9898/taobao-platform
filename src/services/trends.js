@@ -90,6 +90,8 @@ async function tick({ force = false } = {}) {
       put(bankId(d), { phrases: b, at: now() });
     }
     const done = cursor >= all.length;
+    const phrases = Object.values(touched).reduce((a, b) => a + Object.keys(b).length, 0);
+    console.log(`[trends] scanned ${cursor}/${all.length} keywords · ${calls} Google calls · ${phrases} phrases in the touched departments${error ? ` · error: ${error}` : ''}`);
     put('trends_state', { day: day(), cursor, done_day: done ? day() : st.done_day || null, last_run: now(), last_calls: calls, error, seeds: all.length, scans: (st.scans || 0) + (done ? 1 : 0) });
     if (done) { try { await ebayCheck(); } catch (e) { console.warn('[trends] eBay check:', e.message); } console.log(`[trends] daily scan done: ${all.length} keywords`); }
     return { cursor, of: all.length, calls, error };
