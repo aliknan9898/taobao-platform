@@ -90,3 +90,21 @@ test('Claude answers first when both keys are set; when it is busy, Gemini answe
     assert.equal(r.ok, true); assert.deepEqual(hits, ['claude', 'gemini']);
   } finally { global.fetch = realFetch; if (keep.G === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = keep.G; if (keep.P !== undefined) process.env.AI_PROVIDER = keep.P; }
 });
+
+test('Claude key: only the sk-ant-… part is used; a daily budget keeps the credit for 15 days', () => {
+  const ai = require('../src/services/ai');
+  const db = require('../src/db');
+  const keep = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = 'curl https://api.anthropic.com/v1/messages \\ --header "x-api-key: $ANTHROPIC_API_KEY"';
+  assert.strictEqual(ai.claudeKey(), null);
+  assert.ok(!ai.providers().includes('claude'), 'no key → Claude off');
+  process.env.ANTHROPIC_API_KEY = ' x-api-key: sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345 ';
+  assert.strictEqual(ai.claudeKey(), 'sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345');
+  assert.ok(Math.abs(ai.DAILY_BUDGET() - 5 / 15) < 1e-9);
+  assert.ok(ai.providers().includes('claude'));
+  const bid = `set_ai_claude_d_${new Date().toISOString().slice(0, 10)}`;
+  if (db.settings.get(bid)) db.settings.update(bid, { cost: 0.34, calls: 900 }); else db.settings.insert({ id: bid, cost: 0.34, calls: 900 });
+  assert.ok(!ai.providers().includes('claude'), 'budget used up today → Claude rests until tomorrow');
+  db.settings.update(bid, { cost: 0, calls: 0 });
+  if (keep === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = keep;
+});

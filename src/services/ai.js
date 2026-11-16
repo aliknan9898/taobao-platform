@@ -19,10 +19,26 @@ const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
  * Which AI answers first. With both keys, Claude (paid: fast, no free-tier queue) answers and Gemini is the backup;
  * AI_PROVIDER=gemini puts Gemini first. When the first one is busy or out of quota, the other one answers.
  */
+/** The Anthropic key: the sk-ant-… part only (a pasted example command around it is ignored); null if there is none. */
+let warnedKey = false;
+function claudeKey() {
+  const raw = String(process.env.ANTHROPIC_API_KEY || '').trim();
+  if (!raw) return null;
+  if (/^[^\s"'$]+$/.test(raw) && !/^curl$/i.test(raw)) return raw; // a plain key
+  const m = raw.match(/sk-ant-[A-Za-z0-9_-]{20,}/);
+  if (!m && !warnedKey) { warnedKey = true; console.warn('[ai] ANTHROPIC_API_KEY does not contain a key (it should start with sk-ant-) — Claude is off until it is fixed in Render'); }
+  return m ? m[0] : null;
+}
+/**
+ * Claude's daily budget, so the prepaid credit lasts: ANTHROPIC_CREDIT_USD over ANTHROPIC_CREDIT_DAYS (5 $ / 15 days ≈ 0.33 $ a day),
+ * or AI_DAILY_BUDGET_USD directly. When today's Claude cost reaches it, Gemini answers (or the work waits for tomorrow).
+ */
+const DAILY_BUDGET = () => Number(process.env.AI_DAILY_BUDGET_USD) || (Number(process.env.ANTHROPIC_CREDIT_USD) || 5) / Math.max(1, Number(process.env.ANTHROPIC_CREDIT_DAYS) || 15);
+function claudeSpentToday() { const x = db.settings.get(`set_ai_claude_d_${new Date().toISOString().slice(0, 10)}`); return x ? x.cost : 0; }
 function providers() {
   const want = String(process.env.AI_PROVIDER || '').toLowerCase();
   const out = [];
-  if (process.env.ANTHROPIC_API_KEY) out.push('claude');
+  if (claudeKey() && claudeSpentToday() < DAILY_BUDGET()) out.push('claude');
   if (process.env.GEMINI_API_KEY) out.push('gemini');
   if (want === 'gemini' && out.length === 2) out.reverse();
   return out;
@@ -55,7 +71,7 @@ function record(m, usage, kind) {
 function usage() {
   const now = new Date(); const blank = { calls: 0, input: 0, output: 0, cost: 0, kinds: {} };
   const pick = (id) => { const x = db.settings.get(id); return x ? { calls: x.calls, input: x.input, output: x.output, cost: x.cost, kinds: x.kinds || {} } : blank; };
-  return { enabled: enabled(), model: model(), price_per_million: { input: priceOf(model())[0], output: priceOf(model())[1] }, daily_limit_per_shop: limit(),
+  return { claude_budget_today: { spent: Math.round(claudeSpentToday() * 1000) / 1000, budget: Math.round(DAILY_BUDGET() * 1000) / 1000 }, claude_key_ok: Boolean(claudeKey()), enabled: enabled(), model: model(), price_per_million: { input: priceOf(model())[0], output: priceOf(model())[1] }, daily_limit_per_shop: limit(),
     today: pick(`set_ai_usage_d_${now.toISOString().slice(0, 10)}`), month: pick(`set_ai_usage_m_${now.toISOString().slice(0, 7)}`) };
 }
 
@@ -164,7 +180,7 @@ async function askClaude({ system, name, description = '', schema, text, images 
     const tool = { name, description: description || 'Return the answer.', input_schema: schema };
     const res = await fetch(API, {
       method: 'POST',
-      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      headers: { 'x-api-key': claudeKey(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({ model: modelFor('claude'), max_tokens: maxTokens, system: `${system}\nAlways answer by calling the ${name} tool.`, tools: [tool], tool_choice: { type: 'tool', name }, messages: [{ role: 'user', content: blocks.length ? [...blocks, { type: 'text', text }] : text }] }),
       signal: AbortSignal.timeout(timeoutMs)
     }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
@@ -174,6 +190,10 @@ async function askClaude({ system, name, description = '', schema, text, images 
       throw httpError(res.status === 429 || res.status === 529 ? 429 : 502, res.status === 429 || res.status === 529 ? 'The AI assistant is busy — try again in a minute' : 'The AI assistant could not answer — try again');
     }
     record(modelFor('claude'), j.usage, kind);
+    // today's Claude spending, for the daily budget
+    { const u = j.usage || {}; const [pi, po] = priceOf(modelFor('claude')); const c = (((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0)) * pi + (u.output_tokens || 0) * po) / 1e6;
+      const id = `set_ai_claude_d_${new Date().toISOString().slice(0, 10)}`; const cur = db.settings.get(id);
+      cur ? db.settings.update(id, { cost: Math.round((cur.cost + c) * 1e6) / 1e6, calls: cur.calls + 1 }) : db.settings.insert({ id, cost: Math.round(c * 1e6) / 1e6, calls: 1 }); }
     const out = (j.content || []).find((c) => c.type === 'tool_use')?.input;
     if (!out) throw httpError(502, 'The AI assistant could not answer — try again');
     return out;
@@ -354,4 +374,4 @@ async function tick() {
   if (enabled() && prefs().auto) return improveKinan(40); return null;
 }
 
-module.exports = { enabled, provider, providers, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };
+module.exports = { claudeKey, DAILY_BUDGET, claudeSpentToday, enabled, provider, providers, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };
