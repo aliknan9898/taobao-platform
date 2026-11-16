@@ -34,6 +34,21 @@ async function review() {
     if (pr.sellingLimit) facts.limit = { amount: Number(pr.sellingLimit.amount?.value) || null, currency: pr.sellingLimit.amount?.currency || m.currency, quantity: Number(pr.sellingLimit.quantity) || null };
     if (!facts.registered) blockers.push('eBay says the seller registration is not complete (finish it in eBay Seller Hub)');
   } catch (e) { warnings.push(`Selling limits could not be read: ${e.message}`); }
+  // the account itself (Trading GetUser): good standing, registered country, feedback, business seller, store
+  try {
+    const r = await ebay.trading('GetUser', '<DetailLevel>ReturnAll</DetailLevel>', { marketplace: mk });
+    const u = ebay.kid(r, 'User'); const t = (n, x = u) => ebay.kid(x, n)?.text;
+    const si = ebay.kid(u, 'SellerInfo'); const addr = ebay.kid(u, 'RegistrationAddress');
+    facts.user = {
+      id: t('UserID'), status: t('Status'), good_standing: t('eBayGoodStanding'), new_user: t('NewUser'), site: t('Site'),
+      registered_country: addr ? t('Country', addr) : null, feedback: Number(t('FeedbackScore')) || 0, positive_pct: t('PositiveFeedbackPercent') || null,
+      business: si ? t('SellerBusinessType', si) : null, store: si ? t('StoreOwner', si) : null, top_rated: si ? t('TopRatedSeller', si) : null,
+      registered: t('RegistrationDate')?.slice(0, 10) || null
+    };
+    if (facts.user.status && facts.user.status !== 'Confirmed') blockers.push(`eBay account status is "${facts.user.status}"`);
+    if (facts.user.good_standing === 'false') blockers.push('eBay says the account is not in good standing');
+    if (facts.user.registered_country && facts.user.registered_country !== m.country) warnings.push(`Account registered in ${facts.user.registered_country}, stock in ${m.country}: eBay must approve the overseas warehouse (whappeals@ebay.com)`);
+  } catch (e) { warnings.push(`Account details could not be read: ${e.message}`); }
   // listings already on eBay (they use up the monthly limit)
   try { const inv = await ebay.api('GET', '/sell/inventory/v1/inventory_item', undefined, { query: { limit: '1' } }); facts.inventory_items = Number(inv.total) || 0; } catch (e) { warnings.push(`eBay inventory could not be read: ${e.message}`); }
   facts.live_on_kinan = db.listings.all((l) => l.ebay?.listing_id && (l.ebay.account || 'kinan') === 'kinan').length;
@@ -184,6 +199,7 @@ function reviewText(rv, stopped) {
   return [
     `🔎 eBay check before listing — ${stopped ? '⛔ NOT listing' : '✅ all good, listing now'}`,
     `Account: ${f.account || '?'} (${f.env}) · site ${f.site} · ${f.currency}`,
+    f.user ? `Status ${f.user.status || '?'} · good standing ${f.user.good_standing ?? '?'} · registered in ${f.user.registered_country || '?'} since ${f.user.registered || '?'} · feedback ${f.user.feedback}${f.user.positive_pct ? ` (${f.user.positive_pct}% positive)` : ''} · ${f.user.business === 'Commercial' ? 'business seller' : f.user.business === 'Private' ? 'private seller' : 'seller type ?'}${f.user.store === 'true' ? ' · has an eBay Store' : ''}${f.user.new_user === 'true' ? ' · new account' : ''}` : '',
     f.limit ? `Monthly selling limit: ${f.limit.quantity ?? '?'} items / ${f.limit.currency} ${f.limit.amount ?? '?'}` : '',
     f.active ? `Live on eBay now: ${f.active.count} listing(s), worth ${f.currency} ${f.active.value} (price × quantity)${f.active.count ? `\n${f.active.sample.map((x) => `  · ${x}`).join('\n')}` : ''}` : '',
     f.policies ? `Returns: ${f.policies.returns}\nDelivery: ${f.policies.delivery}` : '',
