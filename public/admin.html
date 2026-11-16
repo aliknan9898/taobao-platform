@@ -89,6 +89,13 @@
 .lv i{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.5);animation:lvp 2s infinite}
 @keyframes lvp{70%{box-shadow:0 0 0 7px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
 @media (prefers-reduced-motion:reduce){.lv i{animation:none}}
+.pfgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.pfcard{display:grid;gap:12px;cursor:pointer;border:1px solid var(--line);font:inherit;color:inherit;background:var(--card,#fff);text-align:left}
+.pfcard:hover{border-color:var(--accent,#0e7c66)}
+.pfico{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;color:#fff;font-weight:800;font-size:14px;flex:none}
+.pfstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.pfstats div{display:grid;text-align:center;background:var(--bg,#f4f6f9);border-radius:8px;padding:6px 2px}
+.pfstats b{font-size:18px}.pfstats span{font-size:11px;color:var(--muted,#6b7290)}
 </style>
 </head>
 <body>
@@ -131,7 +138,7 @@ function showLogin(msg = '') {
 
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
-const ALL_TABS = [['overview','Overview','*'],['kinan','⭐ Kinan business','admin'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['listings','Products','admin'],
+const ALL_TABS = [['overview','Overview','*'],['kinan','⭐ Kinan business','admin'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['platforms','🗂 Products by platform','admin'],['listings','Product review','admin'],
   ['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
 const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
@@ -625,6 +632,44 @@ const VIEWS = {
     v.querySelectorAll('[data-st]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/admin/sellers/${b.dataset.id}`, 'PATCH', { status: b.dataset.st }); } catch (e) { alert(e.message); } render(); });
     v.querySelectorAll('[data-com]').forEach((i) => i.onchange = async () => { try { await api(`/api/admin/sellers/${i.dataset.com}`, 'PATCH', { commission_pct: Number(i.value) }); } catch (e) { alert(e.message); render(); } });
     v.querySelectorAll('[data-kyc]').forEach((b) => b.onclick = () => openKyc(b.dataset.kyc));
+  },
+
+  async platforms(v) {
+    const sel = v.dataset.pf || '';
+    if (!sel) {
+      const P = await api('/api/admin/platforms');
+      const tot = P.reduce((a, p) => a + p.active, 0);
+      v.innerHTML = `<div class="card"><h2>Products by platform</h2><p class="muted">Every source of products, in one place. ${tot} live products in total. A new platform appears here by itself as soon as it has products.</p></div>
+        <div class="pfgrid">${P.map((p) => `<button class="card pfcard" data-pf="${esc(p.id)}">
+          <div class="row" style="gap:10px"><span class="pfico" style="background:${esc(p.color)}">${esc(p.icon)}</span><div style="text-align:left"><b>${esc(p.name)}</b><div class="muted small">${p.total} products${p.added_today ? ` · <span class="ok">+${p.added_today} today</span>` : ''}</div></div></div>
+          <div class="pfstats"><div><b class="ok">${p.active}</b><span>Live</span></div><div><b class="warn">${p.pending}</b><span>Review</span></div><div><b>${p.paused}</b><span>Paused</span></div><div><b class="bad">${p.rejected}</b><span>Rejected</span></div></div>
+          <div class="muted small" style="text-align:left">${p.kinan_shop} in Kinan’s shop · ${p.seller_shops} seller shop(s)${p.avg_days ? ` · average delivery ${p.avg_days} days` : ''}</div>
+        </button>`).join('') || '<div class="card muted">No products yet.</div>'}</div>`;
+      v.querySelectorAll('[data-pf]').forEach((b) => b.onclick = () => { v.dataset.pf = b.dataset.pf; v.dataset.pst = ''; v.dataset.pq = ''; v.dataset.pp = '1'; render(); });
+      return;
+    }
+    const st = v.dataset.pst || ''; const q = v.dataset.pq || ''; const pg = Number(v.dataset.pp) || 1;
+    const d = await api(`/api/admin/platforms/${encodeURIComponent(sel)}?status=${st}&q=${encodeURIComponent(q)}&page=${pg}`);
+    const LST = { active: ['Live', 'ok'], pending_review: ['Review', 'warn'], paused: ['Paused', ''], rejected: ['Rejected', 'bad'], unavailable: ['Unavailable', 'bad'] };
+    v.innerHTML = `<div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><div class="row" style="gap:8px"><button class="btn ghost" id="pfback">‹ All platforms</button><h2 style="margin:0">${esc(d.name)} <span class="muted">(${d.total})</span></h2></div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${[['', 'All'], ['active', 'Live'], ['pending_review', 'Review'], ['paused', 'Paused'], ['rejected', 'Rejected']].map(([k, t]) => `<button class="btn sm ${k === st ? '' : 'ghost'}" data-pst="${k}">${t}</button>`).join('')}</div></div>
+        <form class="row" id="pfq" style="gap:8px;margin-top:10px"><input name="q" value="${esc(q)}" placeholder="Search title, ID, supplier ID" style="flex:1"><button class="btn">Search</button></form></div>
+      <div class="card"><div class="scroll"><table><thead><tr><th></th><th>Product</th><th>Shop</th><th class="num">Price</th><th class="num">Cost</th><th class="num">Delivery</th><th>Status</th><th></th></tr></thead><tbody>
+        ${d.items.map((x) => `<tr>
+          <td>${x.image ? `<img src="${esc(x.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" style="width:48px;height:48px;object-fit:cover;border-radius:6px">` : ''}</td>
+          <td><b>${esc(x.title)}</b><div class="muted small">${esc(x.id)}${x.department ? ` · ${esc(x.department)}` : ''}${x.from ? ` · ships from ${esc(x.from)}` : ''}${x.quality ? ` · AI ${x.quality}/10` : ''}${x.on_ebay ? ' · <span class="ok">on eBay</span>' : ''}</div>${x.paused_reason ? `<div class="small warn">${esc(x.paused_reason)}</div>` : ''}</td>
+          <td class="small">${esc(x.shop)}</td><td class="num">${x.price != null ? fmt(x.price, x.currency) : '—'}</td><td class="num">${x.cost != null ? fmt(x.cost) : '—'}</td><td class="num">${x.days ? `${x.days} d` : '—'}</td>
+          <td><span class="pill ${(LST[x.status] || ['', ''])[1]}">${esc((LST[x.status] || [x.status])[0])}</span></td>
+          <td><div class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn sm ghost" data-open="/#/p/${esc(x.id)}">View</button>${x.supplier_link ? `<button class="btn sm ghost" data-open="${esc(x.supplier_link)}">Supplier</button>` : ''}
+            ${x.status === 'active' ? `<button class="btn sm ghost" data-pfset="${esc(x.id)}|paused">Pause</button>` : x.status === 'paused' ? `<button class="btn sm" data-pfset="${esc(x.id)}|active">Switch on</button>` : ''}</div></td></tr>`).join('') || '<tr><td colspan="8" class="muted">No products here.</td></tr>'}
+      </tbody></table></div>
+      ${d.pages > 1 ? `<div class="row" style="justify-content:center;gap:8px;margin-top:10px">${pg > 1 ? `<button class="btn ghost sm" data-pp="${pg - 1}">‹ Previous</button>` : ''}<span class="muted">Page ${d.page} of ${d.pages}</span>${pg < d.pages ? `<button class="btn ghost sm" data-pp="${pg + 1}">Next ›</button>` : ''}</div>` : ''}</div>`;
+    v.querySelector('#pfback').onclick = () => { v.dataset.pf = ''; render(); };
+    v.querySelectorAll('[data-open]').forEach((b) => b.onclick = () => window.open(b.dataset.open, '_blank', 'noopener,noreferrer'));
+    v.querySelectorAll('[data-pst]').forEach((b) => b.onclick = () => { v.dataset.pst = b.dataset.pst; v.dataset.pp = '1'; render(); });
+    v.querySelectorAll('[data-pp]').forEach((b) => b.onclick = () => { v.dataset.pp = b.dataset.pp; render(); });
+    v.querySelector('#pfq').onsubmit = (e) => { e.preventDefault(); v.dataset.pq = e.target.q.value.trim(); v.dataset.pp = '1'; render(); };
+    v.querySelectorAll('[data-pfset]').forEach((b) => b.onclick = async () => { const [id, status] = b.dataset.pfset.split('|'); b.disabled = true; try { await api(`/api/admin/platforms/product/${id}/status`, 'POST', { status }); } catch (e) { alert(e.message); } render(); });
   },
 
   async listings(v) {

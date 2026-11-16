@@ -718,6 +718,10 @@ r('POST', '/api/admin/returns/:id', PEOPLE, async ({ req, params, user }) => {
 r('GET', '/api/admin/requests', CARE, async () => shopSvc.adminRequests());
 r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
 r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
+// products by platform (AliExpress, CJ, Taobao, Banggood, Kinan catalogue, sellers' own, any new source)
+r('GET', '/api/admin/platforms', ADMIN, async () => require('./services/platforms').summary());
+r('GET', '/api/admin/platforms/:id', ADMIN, async ({ params, url }) => require('./services/platforms').products(params.id, { status: url.searchParams.get('status') || '', q: url.searchParams.get('q') || '', page: url.searchParams.get('page') || 1 }));
+r('POST', '/api/admin/platforms/product/:id/status', ADMIN, async ({ req, params, user }) => require('./services/platforms').setStatus(params.id, (await readJson(req)).status, user));
 r('GET', '/api/admin/listings', ADMIN, async ({ url }) => admin.listings({ status: url.searchParams.get('status') || undefined }));
 // Many at once from the review queue: each one approved or rejected on its own, failures listed
 r('POST', '/api/admin/sourcing/reclassify', ADMIN, async () => { const s = require('./services/sourcing'); require('./cj/client').background(() => runReclassify(s)).catch(() => {}); return { started: true }; });
