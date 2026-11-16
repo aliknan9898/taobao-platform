@@ -440,9 +440,18 @@ const VIEWS = {
       el.querySelectorAll('[data-aiundo]').forEach((u) => u.onclick = async () => { if (!confirm('Put this product back as it was before the AI review?')) return; u.disabled = true; try { await api(`/api/admin/listings/${u.dataset.aiundo}/ai-undo`, 'POST'); aiReviewCard(); } catch (err) { alert(err.message); u.disabled = false; } });
     }).catch(() => {});
     aiReviewCard();
+    // Domain check file from the Banggood Open Platform (served at kinan.shop/<file name>)
+    const vfWire = () => {
+      if (!isAdmin() || !$('#bgcard') || $('#vfbox')) return;
+      $('#bgcard').insertAdjacentHTML('beforeend', `<div id="vfbox" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px"><b>Site verification file</b> <span class="muted small">— Banggood (and other platforms) give you a file to put on kinan.shop. Upload it here, then press “Verify” on their site.</span>
+        <div class="row" style="margin-top:6px;gap:8px;flex-wrap:wrap"><input type="file" id="vffile" accept=".html,.htm,.txt,.xml"><span class="muted small" id="vfmsg"></span></div><div id="vflist" class="small"></div></div>`);
+      const show = () => api('/api/admin/verify-files').then((v) => { $('#vflist').innerHTML = v.files.map((n) => `<div>✓ <a href="/${esc(n)}" target="_blank" rel="noopener">kinan.shop/${esc(n)}</a> <button class="btn sm ghost" data-vfdel="${esc(n)}">Remove</button></div>`).join(''); $$('[data-vfdel]').forEach((b) => b.onclick = async () => { await api(`/api/admin/verify-files/${encodeURIComponent(b.dataset.vfdel)}`, 'DELETE'); show(); }); }).catch(() => {});
+      $('#vffile').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; try { const r = await api('/api/admin/verify-files', 'POST', { name: f.name, content: await f.text() }); $('#vfmsg').innerHTML = `Live at <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`; show(); } catch (er) { $('#vfmsg').textContent = er.message; } };
+      show();
+    };
     api('/api/admin/banggood').then((g) => {
       const el = $('#bgcard'); if (!el) return;
-      if (!g.configured) { el.innerHTML = '<h2>Banggood</h2><p class="muted">Not connected. Add <code>BANGGOOD_APP_ID</code> and <code>BANGGOOD_APP_SECRET</code> (Banggood Open Platform → Dropship), and register the server’s outbound IP addresses there.</p>'; return; }
+      if (!g.configured) { el.innerHTML = '<h2>Banggood</h2><p class="muted">Not connected. Add <code>BANGGOOD_APP_ID</code> and <code>BANGGOOD_APP_SECRET</code> (Banggood Open Platform → Dropship), and register the server’s outbound IP addresses there.</p>'; vfWire(); return; }
       const p = g.prefs;
       el.innerHTML = `<h2>Banggood</h2>
         <p>${g.connected ? '<span class="pill ok">Connected</span>' : `<span class="pill bad">Not connected</span> ${esc(g.error || '')}`}${g.sandbox ? ' <span class="pill warn">Sandbox</span>' : ''} · ${g.products} product(s)</p>
@@ -451,6 +460,7 @@ const VIEWS = {
           <label>Shipping <select name="shipping">${['cheapest', 'balanced', 'fastest'].map((x) => `<option ${p.shipping === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
           <label>Markup % <input type="number" name="markup_pct" min="0" max="500" value="${esc(p.markup_pct)}" style="width:70px"></label>
           <label>Max days <input type="number" name="max_days" min="3" max="60" value="${esc(p.max_days)}" style="width:64px"></label><button class="btn ghost">Save</button><span class="muted" id="bgm"></span></form>` : ''}`;
+      vfWire();
       const f = $('#bgf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/banggood/settings', 'PUT', { ...x, markup_pct: Number(x.markup_pct), max_days: Number(x.max_days) }); $('#bgm').textContent = 'Saved'; } catch (err) { $('#bgm').textContent = err.message; } };
     }).catch(() => {});
     api('/api/admin/taobao').then((t) => {

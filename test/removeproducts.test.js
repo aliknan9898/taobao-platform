@@ -44,3 +44,11 @@ test('seller selects and removes products', async () => {
   assert.strictEqual((await api('POST', '/api/seller/products/remove', { ids: [c.id] }, osel)).body.removed, 0);
   assert.ok(other.seller_id);
 });
+test('admin uploads a site verification file, served at the root', async () => {
+  const boss = await login('boss@x.com', 'adminpass1');
+  const r = await api('POST', '/api/admin/verify-files', { name: 'banggood_verify_abc123.html', content: 'bg-token-xyz' }, boss);
+  assert.strictEqual(r.status, 200);
+  const res = await fetch(`${base}/banggood_verify_abc123.html`);
+  assert.strictEqual(await res.text(), 'bg-token-xyz');
+  assert.strictEqual((await api('POST', '/api/admin/verify-files', { name: 'evil.js', content: 'x' }, boss)).status, 400);
+});

@@ -643,6 +643,22 @@ r('POST', '/api/admin/orders/:id/nss', PROC, async ({ req, params, user }) => {
 });
 // Banggood (direct supplier)
 const bgs = require('./services/banggood');
+// Ownership files for other platforms (e.g. Banggood's domain check): stored here, served at https://kinan.shop/<name>
+r('GET', '/api/admin/verify-files', ADMIN, async () => ({ files: Object.keys(db.settings.get('verify_files')?.files || {}) }));
+r('POST', '/api/admin/verify-files', ADMIN, async ({ req }) => {
+  const b = await readJson(req); const name = String(b.name || '').trim().replace(/^.*[\\/]/, '');
+  if (!/^[\w.-]{3,100}\.(html|txt|xml)$/.test(name)) throw httpError(400, 'The file must be .html, .txt or .xml');
+  if (['robots.txt', 'llms.txt', 'sitemap.xml'].includes(name)) throw httpError(400, 'This name is used by the site');
+  const content = String(b.content ?? ''); if (content.length > 20000) throw httpError(400, 'File too large');
+  const cur = db.settings.get('verify_files');
+  const files = { ...(cur?.files || {}), [name]: content };
+  cur ? db.settings.update('verify_files', { files }) : db.settings.insert({ id: 'verify_files', files });
+  return { name, url: `${config.publicBaseUrl}/${name}` };
+});
+r('DELETE', '/api/admin/verify-files/:name', ADMIN, async ({ params }) => {
+  const cur = db.settings.get('verify_files'); if (!cur) return { ok: true };
+  const files = { ...cur.files }; delete files[params.name]; db.settings.update('verify_files', { files }); return { ok: true };
+});
 r('GET', '/api/admin/banggood', STAFF, async () => bgs.status());
 r('PUT', '/api/admin/banggood/settings', ADMIN, async ({ req }) => bgs.savePrefs(await readJson(req)));
 r('POST', '/api/admin/banggood/resync', ADMIN, async () => ({ checked: await bgs.resyncStale(300) }));
@@ -910,6 +926,9 @@ const server = http.createServer(async (req, res) => {
       }
       const il = p.match(/^\/i18n\/(fr|de|it|es)\.json$/);
       if (il) { const d = require('./services/uilang').serve(il[1]); res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=600' }); return res.end(JSON.stringify(d)); }
+      // Site-ownership files (Banggood, Google, Pinterest …) uploaded in the admin, served from the site root
+      const vf = /^\/[\w.-]{3,100}\.(html|txt|xml)$/.test(p) ? (db.settings.get('verify_files')?.files || {})[p.slice(1)] : null;
+      if (vf != null) { res.writeHead(200, { 'Content-Type': `${p.endsWith('.html') ? 'text/html' : p.endsWith('.xml') ? 'application/xml' : 'text/plain'}; charset=utf-8`, 'Cache-Control': 'no-cache' }); return res.end(vf); }
       if (p === '/llms.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(seo.llmsTxt()); }
       if (p === '/feeds/openai.jsonl') { res.writeHead(200, { 'Content-Type': 'application/jsonl; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.openaiFeed()); }
       if (p === `/${seo.indexNowKey()}.txt`) { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(seo.indexNowKey()); }
