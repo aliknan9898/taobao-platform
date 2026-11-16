@@ -161,10 +161,14 @@ function boot(user) {
   render();
 }
 
+// Each render gets a number; a view still loading when the user has already moved on (another tab, or the same tab
+// again) must not paint over the newer one — not even with an error.
+let renderSeq = 0;
 async function render() {
+  const run = ++renderSeq;
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.t === tab));
   const v = $('#view'); v.innerHTML = '<p class="muted">Loading…</p>';
-  try { await VIEWS[tab](v); } catch (e) { v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+  try { await VIEWS[tab](v); } catch (e) { if (run === renderSeq) v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 
 function tgCard() {
@@ -499,7 +503,8 @@ const VIEWS = {
       const f = $('#nssf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/nss/settings', 'PUT', { auto_create: Boolean(x.auto_create), auto_ship: Boolean(x.auto_ship), shipping: x.shipping, max_days: Number(x.max_days) }); $('#nssm').textContent = 'Saved.'; } catch (err) { $('#nssm').textContent = err.message; } };
     }).catch(() => {});
     const aeS = await api('/api/admin/aliexpress');
-    $('#aecard').innerHTML = `<h2>AliExpress</h2>
+    const aeEl = $('#aecard'); if (!aeEl) return; // the admin moved to another tab while this was loading
+    aeEl.innerHTML = `<h2>AliExpress</h2>
       <p>${aeS.mode === 'api' ? `<span class="pill ok">Connected</span> ${esc(aeS.account || '')} — products import from a link; orders are placed automatically.${aeS.needs_reauth_soon ? ' <span class="pill warn">Reconnect soon</span>' : ''}`
         : aeS.api_configured ? '<span class="pill warn">Not connected</span> Connect Kinan’s AliExpress account to place orders automatically.'
         : '<span class="pill warn">Manual mode</span> Sellers add AliExpress products by hand and you order them on AliExpress yourself. Add <code>ALIEXPRESS_APP_KEY</code> and <code>ALIEXPRESS_APP_SECRET</code> to switch on automatic import and ordering.'}</p>
