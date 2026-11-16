@@ -97,7 +97,8 @@ async function freight(productId, skuId, country) {
   const ae = require('../aliexpress/client'); const tok = await require('./aliexpress').token();
   const j = await ae.call('aliexpress.ds.freight.query', { queryDeliveryReq: { quantity: 1, shipToCountry: country, productId, selectedSkuId: skuId, language: 'en_US', currency: String(config.currency).toUpperCase(), locale: 'en_US' } }, tok);
   logShape('freight', j);
-  const opts = findAll(j, ['max_delivery_days', 'maxDeliveryDays', 'delivery_date_desc', 'code']).map((o) => ({
+  // look for the delivery options themselves (the envelope also has a "code", so that key must not be used to find them)
+  const opts = findAll(j, ['max_delivery_days', 'maxDeliveryDays', 'min_delivery_days', 'delivery_date_desc']).map((o) => ({
     days: num(o.max_delivery_days, o.maxDeliveryDays, o.guaranteed_delivery_days), min: num(o.min_delivery_days, o.minDeliveryDays),
     // "shipping_fee_cent" is sent in currency units ("1.99"), despite its name; free shipping → 0
     fee: o.free_shipping === true ? 0 : (num(o.shipping_fee_format, o.shipping_fee, o.shippingFee) ?? (String(o.shipping_fee_cent ?? '').includes('.') ? num(o.shipping_fee_cent) : (num(o.shipping_fee_cent) ?? 0) / 100) ?? 0),
@@ -123,7 +124,7 @@ async function run({ count } = {}, by = 'auto') {
   const kinan = require('./buyforme').systemSeller();
   const have = new Set(db.listings.all((l) => l.ae_product_id).map((l) => String(l.ae_product_id)));
   // products refused under different rules (delivery days, price range) get a second look when the rules change
-  const rules = `${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`;
+  const rules = `v2|${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`; // v2: delivery check fixed — look again at everything refused before
   const tried = new Set(s0.rules === rules ? list(s0.tried) : []);
   if (s0.rules !== rules) save({ rules, tried: [] });
   const st = { started_at: now(), by, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, running: true };
