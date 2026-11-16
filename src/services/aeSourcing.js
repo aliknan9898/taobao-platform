@@ -23,8 +23,9 @@ function prefs() {
   const p = state().prefs || {};
   return {
     enabled: p.enabled !== false,
-    per_run: Math.min(50, Math.max(1, Math.floor(Number(p.per_run) || 12))),
-    per_day: Math.min(500, Math.max(0, Math.floor(Number(p.per_day ?? 60)))),
+    // the owner's choice: as many as allowed — 50 per run (every 30 minutes), 500 a day
+    per_run: Math.min(50, Math.max(1, Math.floor(Number(p.per_run) || 50))),
+    per_day: Math.min(500, Math.max(0, Math.floor(Number(p.per_day ?? 500)))),
     max_days: Math.min(15, Math.max(3, Math.floor(Number(p.max_days) || 15))), // the owner's rule: at most 15 days
     min_orders: Math.max(0, Math.floor(Number(p.min_orders ?? 200))),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || require('./sourcing').prefs().markup_pct)),
