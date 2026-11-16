@@ -572,7 +572,7 @@ K.onUnauthorized = () => { me = null; };
 // ---------- router ----------
 const routes = [
   [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
-  [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
+  [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/add\/(.+)$/, addLink], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
   [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/points$/, pointsPage], [/^#\/deals$/, dealsPage], [/^#\/giftcards(?:\/([\w-]+))?$/, (c) => giftcardsPage(c || '')], [/^#\/photo$/, photoPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
   [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
 ];
@@ -913,6 +913,15 @@ function freeBar(items, byId) {
   const pct = Math.min(100, Math.round(sub / over * 100));
   const cur = eu[0].currency || cfg.currency;
   return `<div class="freebar ${pct >= 100 ? 'done' : ''}"><div class="fbtext">${pct >= 100 ? `🎉 ${KinanLang.t('Free delivery on items from European warehouses')}` : `🚚 ${KinanLang.t('Add')} <b>${money(over - sub, cur)}</b> ${KinanLang.t('more for free delivery on items from European warehouses')}`}</div><div class="fbtrack"><span style="width:${pct}%"></span></div></div>`;
+}
+
+/** A link that fills the cart (e.g. Kinan's test order): adds the products, then opens the cart. */
+async function addLink(spec) {
+  $('#view').innerHTML = skeletonGrid();
+  const d = await api(`/api/catalog/lines?items=${encodeURIComponent(decodeURIComponent(spec))}`);
+  for (const it of d.items) { const c = Cart.get(); if (!c.some((x) => x.listing_id === it.listing_id && x.mp_sku_id === it.mp_sku_id)) Cart.add(it); }
+  toast(d.items.length ? `${d.items.length} products added to your cart` : 'These products are not available any more');
+  location.replace('#/cart');
 }
 
 async function cart() {

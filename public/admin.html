@@ -305,6 +305,10 @@ const VIEWS = {
       <div class="card"><h2>Daily revenue (14 days)</h2>
         <div class="bars">${d.daily.map((x) => `<div title="${esc(x.date)}: ${fmt(x.revenue, c)}"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(3))}</small></div>`).join('')}</div></div>
       <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
+      <div class="card" id="testorder"><h2>🧪 Test order</h2><p class="muted">Cheap, fast and varied products to buy for yourself and test everything: checkout, payment, supplier orders, tracking and delivery.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:end"><label>Deliver to<br><select id="toCc">${['MT', 'GB', 'DE', 'FR', 'IT', 'ES', 'NL', 'IE'].map((x) => `<option>${x}</option>`).join('')}</select></label>
+        <label>Max price each<br><input id="toMax" type="number" step="0.5" value="5" style="width:80px"></label><label>Max days<br><input id="toDays" type="number" value="12" style="width:70px"></label>
+        <label>Products<br><input id="toN" type="number" value="8" style="width:60px"></label><button class="btn" id="toGo">Find products</button></div><div id="toOut"></div></div>
       <div class="card" id="aireview"><h2>🤖 AI product review</h2><p class="muted">Loading…</p></div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
       <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
@@ -324,6 +328,16 @@ const VIEWS = {
         Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
         Messages waiting to be processed: ${d.inbox_backlog}</p></div>${isAdmin() ? '' : '-->'}`;
     live();
+    $('#toGo').onclick = async () => {
+      const o = $('#toOut'); o.innerHTML = '<p class="muted">Looking…</p>';
+      try {
+        const b = await api(`/api/admin/test-basket?country=${$('#toCc').value}&max_price=${$('#toMax').value}&max_days=${$('#toDays').value}&n=${$('#toN').value}`);
+        if (!b.items.length) { o.innerHTML = `<p class="warn">No live product matches (${b.found} found). Try a higher price or more days.</p>`; return; }
+        o.innerHTML = `<div style="overflow-x:auto"><table style="margin-top:10px"><tr><th></th><th>Product</th><th>Department</th><th>Supplier</th><th>Days</th><th>Price</th></tr>${b.items.map((x) => `<tr><td>${x.image ? `<img src="${esc(x.image)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px" referrerpolicy="no-referrer">` : ''}</td><td>${esc(x.title.slice(0, 70))}${x.props ? `<br><small class="muted">${esc(x.props)}</small>` : ''}</td><td>${esc(x.department)}</td><td>${esc(x.supplier)}</td><td>${x.days}</td><td>${fmt(x.price, b.currency)}</td></tr>`).join('')}</table></div>
+          <p><b>Products: ${fmt(b.subtotal, b.currency)}</b>${b.shipping != null ? ` · delivery to ${esc(b.country)} ≈ ${fmt(b.shipping, b.currency)} · <b>total ≈ ${fmt(b.total, b.currency)}</b>` : ''} · slowest ${b.slowest_days} days</p>
+          <p><a class="btn" href="${esc(b.link)}" target="_blank" rel="noopener">Open in the shop cart →</a> <small class="muted">Sign in to the shop as a buyer with your own address, then pay as a normal customer.</small></p>`;
+      } catch (e) { o.innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
+    };
     const aiCard = () => api('/api/admin/ai').then((st) => {
       const el = $('#aicard'); if (!el) return;
       const usd = (n) => `$${Number(n || 0).toFixed(n < 1 ? 3 : 2)}`;

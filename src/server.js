@@ -308,6 +308,8 @@ r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
 
 // Catalog (public for browsing)
 r('GET', '/api/catalog', null, async ({ url }) => cached(`catalog?${url.searchParams}|${db.version('listings')}|${db.version('sellers')}`, 30e3, () => catalog.browse(Object.fromEntries(url.searchParams))));
+r('GET', '/api/catalog/lines', null, async ({ url }) => require('./services/testOrder').lines(url.searchParams.get('items')));
+r('GET', '/api/admin/test-basket', ADMIN, async ({ url }) => require('./services/testOrder').basket(Object.fromEntries(url.searchParams)));
 r('GET', '/api/catalog/many', null, async ({ url }) => catalog.many(url.searchParams.get('ids')));
 r('GET', '/api/catalog/:id/similar', null, async ({ params }) => catalog.similar(params.id));
 r('GET', '/api/catalog/:id/questions', null, async ({ params }) => require('./services/assistant').questionsFor(params.id));
