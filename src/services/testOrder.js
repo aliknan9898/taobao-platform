@@ -13,7 +13,8 @@ const money = (v) => Math.round(Number(v) * 100) / 100;
 /** Delivery days to the country (UK or EU) as found when the product was checked. */
 const daysTo = (l, cc) => { const so = l.sourcing || {}; return Number(cc === 'GB' ? so.gb_days : EU.has(cc) ? so.eu_days : null) || null; };
 
-function basket({ country = 'MT', n = 8, max_price = 5, max_days = 12 } = {}) {
+function basket({ country = 'MT', n = 8, max_price = 5, max_days = 12, departments = '' } = {}) {
+  const only = new Set(String(departments || '').split(',').map((x) => x.trim()).filter(Boolean));
   const cc = String(country || 'MT').toUpperCase();
   n = Math.min(20, Math.max(1, Math.floor(Number(n) || 8)));
   const maxP = Math.max(0.5, Number(max_price) || 5); const maxD = Math.max(3, Number(max_days) || 12);
@@ -22,11 +23,12 @@ function basket({ country = 'MT', n = 8, max_price = 5, max_days = 12 } = {}) {
   const ok = (l) => { const s = sellers.has(l.seller_id) ? sellers.get(l.seller_id) : sellers.set(l.seller_id, db.sellers.get(l.seller_id)).get(l.seller_id); return s?.status === 'active'; };
   const cands = [];
   for (const l of db.listings.all((x) => x.status === 'active' && !x.from_kinan)) {
+    if (only.size && !list(l.collections).some((c) => only.has(c))) continue;
     const d = daysTo(l, cc); if (!d || d > maxD) continue;
     if (cc !== 'GB' && cc !== 'MT' && l.source === 'cj' && require('./cj').noDeliveryList(l).includes(cc)) continue;
     const s = list(l.skus).filter((k) => k.stock > 0).map((k) => ({ k, p: priceOf(l, k) })).sort((a, b) => a.p - b.p)[0];
     if (!s || !(s.p > 0) || s.p > maxP || !ok(l)) continue;
-    cands.push({ l, s: s.k, price: money(s.p), days: d, dept: list(l.collections)[0] || l.category || 'other', src: l.source || 'manual', q: Number(l.sourcing?.quality) || 0 });
+    cands.push({ l, s: s.k, price: money(s.p), days: d, dept: list(l.collections)[0] || l.category || 'other', spread: only.size ? `${list(l.collections)[0]}:${l.collection_group || l.sourcing?.group || ''}` : (list(l.collections)[0] || l.category || 'other'), src: l.source || 'manual', q: Number(l.sourcing?.quality) || 0 });
   }
   // fastest and best first, then spread over departments and suppliers
   cands.sort((a, b) => a.days - b.days || b.q - a.q || a.price - b.price);
@@ -35,13 +37,13 @@ function basket({ country = 'MT', n = 8, max_price = 5, max_days = 12 } = {}) {
     for (const c of cands) {
       if (pick.length >= n) break;
       if (pick.includes(c)) continue;
-      if (pass === 0 && (depts.has(c.dept) || (srcN[c.src] || 0) >= Math.ceil(n / 2))) continue;
-      pick.push(c); depts.add(c.dept); srcN[c.src] = (srcN[c.src] || 0) + 1;
+      if (pass === 0 && (depts.has(c.spread) || (srcN[c.src] || 0) >= Math.ceil(n / 2))) continue;
+      pick.push(c); depts.add(c.spread); srcN[c.src] = (srcN[c.src] || 0) + 1;
     }
   }
   const items = pick.map((c) => ({
     listing_id: c.l.id, mp_sku_id: c.s.mp_sku_id, title: c.l.title, props: list(c.l.skus).length > 1 ? String(c.s.props || '') : '', price: c.price,
-    image: c.s.image || list(c.l.images)[0] || null, days: c.days, department: c.dept, supplier: c.src, direct: c.l.fulfillment === 'direct', shop_id: c.l.seller_id, currency: c.l.currency
+    image: c.s.image || list(c.l.images)[0] || null, days: c.days, department: c.dept, section: c.l.collection_group || c.l.sourcing?.group || null, supplier: c.src, direct: c.l.fulfillment === 'direct', shop_id: c.l.seller_id, currency: c.l.currency
   }));
   const subtotal = money(items.reduce((a, x) => a + x.price, 0));
   let shipping = null;
