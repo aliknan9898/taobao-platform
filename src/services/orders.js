@@ -97,13 +97,15 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     if (!seller || seller.status !== 'active') throw httpError(409, 'The shop of one of the items is unavailable');
     // Fresh stock/cost before taking money
     if (now() - (l.last_synced_at || 0) > 10 * 60e3) { try { l = await catalog.resync(l.id) || l; } catch { /* the supplier could not be asked right now: use the last known stock and price */ } }
-    const sku = l.skus.find((s) => s.mp_sku_id === require('./publicIds').skuIn(l, it.mp_sku_id));
+    let sku = l.skus.find((s) => s.mp_sku_id === require('./publicIds').skuIn(l, it.mp_sku_id));
     if (!sku) throw httpError(409, 'Variant not found');
+    // AliExpress warehouse ("Ships From") chosen for this address: in the customer's region if possible, else the cheapest
+    sku = require('./shipsFrom').pick(l, sku, address.country_code, qty);
     if (sku.stock < qty) throw httpError(409, `Not enough stock: ${l.title} (${sku.props})`);
     if (qty < (l.begin_amount || 1)) throw httpError(400, `Minimum order quantity is ${l.begin_amount}`);
     lines.push({
       line_no: String(lines.length + 1), listing_id: l.id, seller_id: l.seller_id,
-      mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: sku.props,
+      mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: require('./shipsFrom').split(sku).props, ...(require('./shipsFrom').originOfSku(sku) ? { ships_from: require('./shipsFrom').originOfSku(sku) } : {}),
       ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
       ...(l.fulfillment === 'direct' && l.source === 'cj' ? { direct: true, source: 'cj', source_link: l.source_link || '', cj_pid: l.cj_pid, cj_vid: sku.cj_vid, cj_from: l.cj_from || 'CN', cost_sale: sku.cost_sale ?? null, ...(l.from_kinan ? { seller_cost: require('./kinanCatalog').lineCost(l, sku), from_kinan: l.from_kinan } : {}) } : {}),
       ...(l.fulfillment === 'direct' && l.source === 'banggood' ? { direct: true, source: 'banggood', source_link: l.source_link || '', bg_pid: l.bg_pid, bg_poa: sku.bg_poa || '', bg_warehouse: l.bg_warehouse || 'CN', cost_sale: sku.cost_sale ?? null, ...(l.from_kinan ? { seller_cost: require('./kinanCatalog').lineCost(l, sku), from_kinan: l.from_kinan } : {}) } : {}),

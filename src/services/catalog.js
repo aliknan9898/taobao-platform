@@ -354,12 +354,13 @@ function toBuyerViewRaw(l, seller) {
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(['cj', 'banggood'].includes(l.source) ? { ship_extra: true } : {}), category: l.category || 'other', ...((l.collections || []).length ? { collections: l.collections } : {}), ...(l.cj_from && l.cj_from !== 'CN' ? { ships_from: l.cj_from } : {}),
     // the real delivery time found when the product was checked (to the UK and to the EU): [fastest, slowest] days
     ...(() => { const so = l.sourcing || {}; const d = {}; if (so.gb_days) d.GB = [so.gb_min || null, so.gb_days]; if (so.eu_days) d.EU = [so.eu_min || null, so.eu_days]; return Object.keys(d).length ? { ship_days: d } : {}; })(),
-    min_price: Math.min(...l.skus.map((s) => require('./deals').priceOf(l, s))), ...require('./growth').ratingFor(l.id),
+    min_price: Math.min(...require('./shipsFrom').visibleSkus(l).map((s) => require('./deals').priceOf(l, s))), ...require('./growth').ratingFor(l.id),
     ...(() => { const no = l.source === 'cj' ? require('./cj').noDeliveryList(l) : []; return no.length ? { no_delivery: no } : {}; })(),
     ...(() => { const d = require('./deals').dealFor(l); return d ? { deal: d, was_min_price: Math.min(...l.skus.map((s) => s.price)) } : {}; })(),
-    ...(() => { const og = optionGroups(l.skus); return {
+    // AliExpress "Ships From" is hidden: one option per colour/size, Kinan picks the warehouse for each address
+    ...(() => { const vis = require('./shipsFrom').visibleSkus(l); const og = optionGroups(vis); return {
       option_groups: og ? og.groups : null,
-      skus: l.skus.map((s, i) => ({ mp_sku_id: require('./publicIds').skuPub(l.id, s.mp_sku_id), props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), price: require('./deals').priceOf(l, s), ...(require('./deals').dealFor(l) ? { was: s.price } : {}), in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
+      skus: vis.map((s, i) => ({ mp_sku_id: require('./publicIds').skuPub(l.id, s.mp_sku_id), props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), price: require('./deals').priceOf(l, s), ...(require('./deals').dealFor(l) ? { was: s.price } : {}), in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
     }; })()
   };
 }

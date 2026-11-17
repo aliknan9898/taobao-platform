@@ -36,8 +36,9 @@ function eurToSale(eur) {
 }
 
 const supplierOf = (l) => (['cj', 'banggood'].includes(l.source) ? l.source : 'aliexpress');
-/** Where the parcel leaves from (2-letter country). */
-function originOf(l) {
+/** Where the parcel leaves from (2-letter country): the option's warehouse if it has one, else the product's. */
+function originOf(l, s = null) {
+  const w = s ? require('./shipsFrom').originOfSku(s) : null; if (w) return w;
   if (l.source === 'cj') return String(l.cj_from || 'CN').toUpperCase();
   if (l.source === 'banggood') return String(l.bg_warehouse || 'CN').toUpperCase().slice(0, 2);
   return String(l.ae_from || l.sourcing?.from || 'CN').toUpperCase() || 'CN';
@@ -88,7 +89,12 @@ function importCharges(items, cc) {
   const lines = new Set(); const aeParcels = new Set();
   for (const it of items) {
     const l = db.listings.get(it.listing_id);
-    if (!isDirect(l) || isEU(originOf(l))) continue;
+    if (!isDirect(l)) continue;
+    let s = null;
+    if (it.mp_sku_id !== undefined) { s = list(l.skus).find((x) => x.mp_sku_id === it.mp_sku_id) || list(l.skus).find((x) => x.mp_sku_id === require('./publicIds').skuIn(l, it.mp_sku_id)) || null; }
+    if (s) s = require('./shipsFrom').pick(l, s, cc, Number(it.qty) || 1);
+    else if (require('./shipsFrom').applies(l)) s = require('./shipsFrom').pick(l, require('./shipsFrom').visibleSkus(l)[0], cc, Number(it.qty) || 1);
+    if (isEU(originOf(l, s))) continue;
     lines.add(`${l.id}`);
     if (supplierOf(l) === 'aliexpress') aeParcels.add(l.seller_id); // one AliExpress order per shop
   }
@@ -124,9 +130,12 @@ function repriceKinan({ ids = null, dry = false } = {}) {
   let changed = 0; let up = 0; let down = 0; const samples = [];
   for (const l of db.listings.all((x) => x.seller_id === kinan && isDirect(x) && (!ids || ids.includes(x.id)))) {
     let touched = false;
+    // every warehouse copy of an option ("Ships From") gets the dearest copy's price: the margin holds whichever ships
+    const SF = require('./shipsFrom'); const groupMax = new Map();
+    if (SF.applies(l)) for (const [k, sibs] of SF.groups(l)) groupMax.set(k, Math.max(...sibs.filter((x) => Number(x.cost_sale) > 0).map((x) => priceFor(l, x)), 0));
     const skus = list(l.skus).map((s) => {
       if (!(Number(s.cost_sale) > 0)) return s;
-      const p = priceFor(l, s);
+      const p = groupMax.size ? (groupMax.get(SF.split(s).props) || priceFor(l, s)) : priceFor(l, s);
       if (Math.abs(p - (Number(s.price) || 0)) < 0.01) return s;
       touched = true; if (p > s.price) up++; else down++;
       if (samples.length < 8) samples.push({ id: l.id, title: String(l.title).slice(0, 50), was: s.price, now: p, cost: s.cost_sale, ship: aeShip(l) });
