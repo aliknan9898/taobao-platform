@@ -41,6 +41,8 @@ const config = {
   mail: { brevoKey: e.BREVO_API_KEY || '', from: e.MAIL_FROM || e.CONTACT_EMAIL || '', fromName: e.MAIL_FROM_NAME || 'Kinan', replyTo: e.MAIL_REPLY_TO || e.CONTACT_EMAIL || '', domainSender: e.MAIL_DOMAIN_SENDER || 'noreply' },
   orderSyncMinutes: Number(e.ORDER_SYNC_MINUTES || 15),
   defaultCommissionPct: Number(e.PLATFORM_COMMISSION_PCT || 10),
+  // Kinan's commission on a seller's profit (sale price − product cost) when the product cost is known
+  profitCommissionPct: Number(e.SELLER_PROFIT_COMMISSION_PCT || 20),
 
   // Legal identity shown on the sites (footer, Terms, Privacy, Legal notice)
   operator: {

@@ -114,13 +114,14 @@ test('operations and growth', async () => {
   rep = (await api('GET', '/api/admin/reports?days=30&include_test=1', null, fin)).body;
   const t = rep.totals;
   // 2×30 = 60 + Gulf shipping 2 kg (8 + 3×3 = 17) = 77; seller: 60 − 6 commission − 20 goods (72¥/7.2 × 2) = 34; goods 20; courier 41.5
-  assert.deepStrictEqual([t.revenue, t.shipping_charged, t.commission, t.seller_earnings, t.goods, t.courier], [77, 17, 6, 34, 20, 41.5]);
-  assert.strictEqual(t.profit, Math.round((77 - 34 - 20 - 41.5 - t.customer_credits) * 100) / 100);
+  // commission = 20% of the seller's profit (60 sale − 20 goods = 40 → 8)
+  assert.deepStrictEqual([t.revenue, t.shipping_charged, t.commission, t.seller_earnings, t.goods, t.courier], [77, 17, 8, 32, 20, 41.5]);
+  assert.strictEqual(t.profit, Math.round((77 - 32 - 20 - 41.5 - t.customer_credits) * 100) / 100);
   assert.strictEqual(rep.best[0].qty, 2); assert.strictEqual(rep.sellers[0].shop, 'Atlas'); assert.strictEqual(rep.countries[0].country, 'Saudi Arabia');
   const csv = await realFetch(`${base}/api/admin/reports/orders.csv?days=30&include_test=1`, { headers: { Authorization: `Bearer ${fin}` } });
   assert.match(csv.headers.get('content-disposition'), /attachment; filename="kinan-orders-/);
   const lines = (await csv.text()).trim().split('\r\n');
-  assert.strictEqual(lines.length, 2); assert.match(lines[1], /cust@x\.com,Saudi Arabia,Atlas,2,60,17,77,20,41\.5,34,demo/);
+  assert.strictEqual(lines.length, 2); assert.match(lines[1], /cust@x\.com,Saudi Arabia,Atlas,2,60,17,77,20,41\.5,32,demo/);
 
   // ---- price alerts ----
   db.listings.update(p.id, (l) => ({ ...l, skus: l.skus.map((s) => ({ ...s, cost_cny: 250 })) })); // supplier price up: 250¥ ≈ 34.72 > 30

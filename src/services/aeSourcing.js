@@ -23,9 +23,10 @@ function prefs() {
   const p = state().prefs || {};
   return {
     enabled: p.enabled !== false,
-    // the owner's choice: as many as allowed — 50 per run (every 30 minutes), 500 a day
-    per_run: Math.min(50, Math.max(1, Math.floor(Number(p.per_run) || 50))),
-    per_day: Math.min(500, Math.max(0, Math.floor(Number(p.per_day ?? 500)))),
+    // the owner's choice (17 Nov): as many as possible, as fast as possible — 150 per run (every 15 minutes), 3,000 a
+    // day; the Claude review budget and AliExpress's own call limits are what really set the pace
+    per_run: Math.min(150, Math.max(1, Math.floor(Number(p.per_run) === 50 ? 150 : Number(p.per_run) || 150))), // 50 was the old maximum
+    per_day: Math.min(3000, Math.max(0, Math.floor(Number(p.per_day) === 500 ? 3000 : Number(p.per_day ?? 3000)))), // 500 was the old maximum
     max_days: Math.min(15, Math.max(3, Math.floor(Number(p.max_days) || 15))), // the owner's rule: at most 15 days
     min_orders: Math.max(0, Math.floor(Number(p.min_orders ?? 200))),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || require('./sourcing').prefs().markup_pct)),

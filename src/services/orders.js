@@ -177,13 +177,19 @@ async function markPaid(orderId, { provider, intent_id }) {
     // Sold on eBay: the seller's share is the profit after eBay's fees, goods and delivery, less Kinan's part of it
     if (o.channel === 'ebay') { const e = require('./ebay').ledgerFor(o, sellerId, lines); if (e) db.ledger.insert(e); continue; }
     const gross = money(lines.reduce((a, l) => a + l.price * l.qty, 0));
-    const commission = money(gross * (Number(s?.commission_pct ?? config.defaultCommissionPct) / 100));
     // Items Kinan buys itself — AliExpress, manual Taobao, and Taobao items bought with Kinan's own Taobao account —
     // have their purchase cost deducted from the seller's earnings. (Only with a seller's own Taobao account,
     // the old setup, does the seller pay Taobao directly, so nothing is deducted.)
     const kinanBuysTaobao = require('../taobao/sellerAuth').platformConnected();
     // Kinan-catalogue products: the seller pays the Kinan price (supplier cost + Kinan's share), not the supplier cost
-    const cost = money(lines.reduce((a, l) => a + (l.direct ? Number(l.seller_cost ?? l.unit_cost ?? l.cost_sale ?? 0) : (l.manual || kinanBuysTaobao) && l.cost_cny ? l.cost_cny / config.cnyRate : 0) * l.qty, 0));
+    const unitCostOf = (l) => (l.direct ? Number(l.seller_cost ?? l.unit_cost ?? l.cost_sale ?? 0) : (l.manual || kinanBuysTaobao) && l.cost_cny ? l.cost_cny / config.cnyRate : 0);
+    const cost = money(lines.reduce((a, l) => a + unitCostOf(l) * l.qty, 0));
+    // Commission: a share of the seller's PROFIT (price − cost) where Kinan knows the cost; on products the seller
+    // buys and ships himself (cost unknown to Kinan) the usual % of the sale price
+    const commission = money(lines.reduce((a, l) => {
+      const c = unitCostOf(l);
+      return a + (c > 0 ? Math.max(0, (l.price - c) * l.qty) * (Number(s?.profit_commission_pct ?? config.profitCommissionPct) / 100) : l.price * l.qty * (Number(s?.commission_pct ?? config.defaultCommissionPct) / 100));
+    }, 0));
     db.ledger.insert({ order_id: o.id, seller_id: sellerId, type: 'sale', currency: o.currency, gross, commission, cost, net: money(gross - commission - cost), status: 'pending_payout' });
   }
   db.orders.update(o.id, (x) => ({ ...x, status: 'paid', paid_at: now(), payment: { ...x.payment, provider, status: 'succeeded' }, timeline: log(x, 'paid') }));

@@ -20,12 +20,14 @@ const list = (v) => (Array.isArray(v) ? v : []);
 const SID = 'sourcing';
 
 // A marketplace's aisles: department → sections → search words that bring the best sellers
+const OLD_DEPTS = ['home-kitchen', 'home-decor', 'garden-outdoor', 'pets', 'beauty', 'sports', 'electronics', 'phone', 'car', 'baby-kids', 'toys', 'fashion', 'tools-diy', 'office'];
 const DEPARTMENTS = {
   'home-kitchen': { en: 'Home & Kitchen', ar: 'المنزل والمطبخ', emoji: '🍳', category: 'home', groups: {
     gadgets: { en: 'Kitchen gadgets', ar: 'أدوات المطبخ', keywords: ['kitchen gadget', 'vegetable chopper', 'garlic press', 'kitchen scale', 'oil sprayer', 'can opener'] },
     storage: { en: 'Storage & organisation', ar: 'التخزين والتنظيم', keywords: ['storage box', 'drawer organizer', 'spice rack', 'food storage container', 'closet organizer', 'under sink organizer'] },
     cookware: { en: 'Cookware & baking', ar: 'أواني الطبخ والخبز', keywords: ['silicone baking mold', 'non stick pan', 'baking tools', 'cooking utensils set', 'air fryer accessories'] },
     cleaning: { en: 'Cleaning', ar: 'التنظيف', keywords: ['cleaning brush', 'microfiber cloth', 'spin mop', 'lint remover', 'electric cleaning brush'] },
+    baking: { en: 'Baking', ar: 'الخَبز', keywords: ['silicone baking mat', 'cake decorating kit', 'cookie cutter set', 'piping bags', 'muffin pan'] },
     drinkware: { en: 'Drinkware', ar: 'أكواب وزجاجات', keywords: ['insulated water bottle', 'travel mug', 'glass cup', 'tumbler with straw'] }
   } },
   'home-decor': { en: 'Home Décor & Lighting', ar: 'ديكور وإضاءة', emoji: '🛋️', category: 'home', groups: {
@@ -97,6 +99,25 @@ const DEPARTMENTS = {
   office: { en: 'Office & School', ar: 'المكتب والمدرسة', emoji: '✏️', category: 'other', groups: {
     desk: { en: 'Desk organisation', ar: 'تنظيم المكتب', keywords: ['desk organizer', 'monitor stand', 'pen holder', 'cable organizer'] },
     stationery: { en: 'Stationery', ar: 'القرطاسية', keywords: ['notebook', 'gel pens', 'sticky notes', 'pencil case', 'highlighter'] }
+  } },
+  // New departments (Nov 2026): popular, small, light products that ship well
+  'health-wellness': { en: 'Health & Wellness', ar: 'الصحة والعافية', emoji: '🧘', category: 'beauty', groups: {
+    relax: { en: 'Relaxation & sleep', ar: 'الاسترخاء والنوم', keywords: ['sleep mask', 'neck pillow', 'acupressure mat', 'aroma diffuser', 'white noise machine'] },
+    posture: { en: 'Posture & support', ar: 'دعم القوام', keywords: ['posture corrector', 'knee brace', 'wrist support', 'lumbar support pillow', 'foot massager roller'] },
+    care: { en: 'Personal care', ar: 'العناية الشخصية', keywords: ['pill organizer', 'electric toothbrush head', 'water flosser', 'nose hair trimmer', 'foot file'] }
+  } },
+  travel: { en: 'Travel & Luggage', ar: 'السفر والحقائب', emoji: '🧳', category: 'other', groups: {
+    organise: { en: 'Packing & organisers', ar: 'تنظيم الحقائب', keywords: ['packing cubes', 'travel organizer bag', 'toiletry bag', 'cable organizer bag', 'shoe bag travel'] },
+    comfort: { en: 'Travel comfort', ar: 'راحة السفر', keywords: ['travel pillow', 'luggage scale', 'travel adapter', 'passport holder', 'luggage tag'] }
+  } },
+  'party-crafts': { en: 'Party & Crafts', ar: 'الحفلات والحِرف', emoji: '🎉', category: 'other', groups: {
+    party: { en: 'Party supplies', ar: 'مستلزمات الحفلات', keywords: ['balloon arch kit', 'birthday decoration', 'led fairy lights', 'party banner', 'photo booth props'] },
+    crafts: { en: 'Arts & crafts', ar: 'الفنون والحِرف', keywords: ['diamond painting kit', 'acrylic paint set', 'crochet kit', 'embroidery kit', 'resin mold'] },
+    gifts: { en: 'Gift ideas', ar: 'أفكار هدايا', keywords: ['gift box', 'personalized keychain', 'night light gift', 'mini projector star', 'novelty mug'] }
+  } },
+  gaming: { en: 'Gaming & Accessories', ar: 'الألعاب الإلكترونية وإكسسواراتها', emoji: '🎮', category: 'electronics', groups: {
+    setup: { en: 'Gaming setup', ar: 'تجهيزات اللعب', keywords: ['controller stand', 'headset stand', 'rgb mouse pad', 'gaming mouse', 'mechanical keyboard'] },
+    console: { en: 'Console accessories', ar: 'إكسسوارات الأجهزة', keywords: ['controller charging dock', 'thumb grips', 'switch case', 'controller skin', 'cooling fan for console'] }
   } }
 };
 const EUROPE = ['DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'GB'];
@@ -119,7 +140,8 @@ function prefs() {
     max_days_eu: Math.min(15, Math.max(2, Math.floor(Number(p.max_days_eu) || 15))), max_days_gb: Math.min(15, Math.max(2, Math.floor(Number(p.max_days_gb) || 15))),
     min_quality: Math.min(10, Math.max(1, Math.floor(Number(p.min_quality) || 7))), per_keyword: Math.min(20, Math.max(1, Math.floor(Number(p.per_keyword) || 4))),
     warehouses: (list(p.warehouses).length ? p.warehouses : EUROPE).map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x) && x !== 'CN'),
-    departments: deps.length ? deps : Object.keys(DEPARTMENTS)
+    // departments added later are switched on even when the owner picked a list before they existed
+    departments: deps.length ? [...new Set([...deps, ...Object.keys(DEPARTMENTS).filter((d) => !list(p.known_departments).includes(d) && !OLD_DEPTS.includes(d))])] : Object.keys(DEPARTMENTS)
   };
 }
 function state() { return db.settings.get(SID) || {}; }
@@ -129,6 +151,7 @@ function savePrefs(b = {}) {
   for (const k of ['batch', 'per_day', 'markup_pct', 'min_cost', 'max_cost', 'min_listed', 'min_stock', 'max_days_eu', 'max_days_gb', 'min_quality', 'per_keyword']) if (b[k] !== undefined && b[k] !== '') next[k] = Number(b[k]);
   if (b.daily !== undefined) next.daily = Boolean(b.daily);
   if (b.warehouses !== undefined) next.warehouses = (Array.isArray(b.warehouses) ? b.warehouses : String(b.warehouses).split(/[\s,]+/)).filter(Boolean);
+  if (b.departments !== undefined) next.known_departments = Object.keys(DEPARTMENTS);
   if (b.departments !== undefined) next.departments = (Array.isArray(b.departments) ? b.departments : String(b.departments).split(/[\s,]+/)).filter((d) => DEPARTMENTS[d]);
   save({ prefs: next });
   return prefs();
