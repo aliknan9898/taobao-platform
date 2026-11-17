@@ -392,7 +392,8 @@ r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => {
 });
 r('GET', '/api/buyer/orders', BUYER, async ({ user }) => db.orders.all((o) => o.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(orders.buyerView));
 r('GET', '/api/buyer/orders/:id', BUYER, async ({ user, params }) => {
-  const o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
+  let o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');
+  o = await require('./services/tracking').freshen(o.id); // the latest steps of the parcel when the customer opens it
   return { ...orders.buyerView(o), returns: db.returns.all((r) => r.order_id === o.id).map(moneySvc.buyerReturnView), return_days: moneySvc.RETURN_DAYS };
 });
 r('POST', '/api/buyer/orders/:id/cancel', BUYER, async ({ user, params }) => {
@@ -571,7 +572,11 @@ r('POST', '/api/seller/orders/:id/messages', SELLER, async ({ req, seller, user,
 r('GET', '/api/seller/orders', SELLER, async ({ seller }) => db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment').sort((a, b) => b.created_at - a.created_at).map((o) => orders.sellerView(o, seller.id)));
 const sellerSub = (seller, id) => { const o = db.orders.get(id); const s = o?.sub_orders.find((x) => x.seller_id === seller.id && !x.direct && !x.manual); if (!s) throw httpError(404, 'Not found'); return { o, s }; };
 r('POST', '/api/seller/orders/:id/pay', SELLER, async ({ seller, params }) => { if (sellerAuth.platformConnected()) throw httpError(403, 'Kinan pays Taobao for this order'); const { o, s } = sellerSub(seller, params.id); return orders.paySub(o.id, s.outer_purchase_id); });
-r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => { const { o, s } = sellerSub(seller, params.id); await orders.syncSub(o.id, s.outer_purchase_id); return orders.sellerView(db.orders.get(o.id), seller.id); });
+r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => {
+  const d = db.orders.get(params.id); const direct = d?.sub_orders.find((x) => x.seller_id === seller.id && x.direct);
+  if (direct && !d.sub_orders.some((x) => x.seller_id === seller.id && !x.direct && !x.manual)) { await require('./services/tracking').refresh(d.id, { maxAgeMs: 2 * 60e3 }); return orders.sellerView(db.orders.get(d.id), seller.id); } // the parcel's latest steps
+  const { o, s } = sellerSub(seller, params.id); await orders.syncSub(o.id, s.outer_purchase_id); return orders.sellerView(db.orders.get(o.id), seller.id);
+});
 r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
   const led = db.ledger.all((l) => l.seller_id === seller.id && l.status !== 'void');
   const b = moneySvc.sellerBalance(seller.id);
@@ -1141,6 +1146,7 @@ function startJobs() {
   every(10 * 60e3, () => require('./services/media').tick()); // supplier photos → Kinan's own storage (off unless R2_* is set)
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) require('./services/account').redactDeletedOrders(); }); // retention for deleted accounts (off unless ORDER_PII_RETENTION_DAYS is set)
   every(config.orderSyncMinutes * 60e3, orders.syncOpen);
+  every(30 * 60e3, () => require('./services/tracking').refreshOpen()); // parcel steps + milestone notices (left the country, arrived, out for delivery, delivered)
   every(3600e3, catalog.resyncStale);
   every(6 * 3600e3, sellerAuth.refreshAllDue);
   every(3600e3, async () => cleanup());

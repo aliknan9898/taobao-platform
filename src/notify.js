@@ -38,7 +38,8 @@ function orderPaid(o) {
 
 function orderShipped(o, tracking = []) {
   const t = tracking.filter((x) => x && x.number);
-  push.toUser(o.buyer_id, { title: 'Your order is on its way', body: `Order ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}`, ar: { title: 'طلبك في الطريق إليك 🚚', body: `الطلب ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}` } });
+  // Parcels sent straight by the supplier: the phone notifications are the journey's milestones (left the country…)
+  if (!(o.lines || []).every((l) => l.direct)) push.toUser(o.buyer_id, { title: 'Your order is on its way', body: `Order ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}`, ar: { title: 'طلبك في الطريق إليك 🚚', body: `الطلب ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}` } });
   fire(mailer.send({ to: emailOf(o.buyer_id), key: `shipped:${o.id}:${t.map((x) => x.number).join(',')}`, kind: 'order', subject: `Order ${ref(o)} is on its way`, title: 'Your order has shipped',
     lines: [...t.map((x) => `Tracking: ${x.carrier ? `${x.carrier} ` : ''}${x.number} — ${require('./services/couriers').trackingUrl(x.carrier, x.number)}`), 'You can follow every step in your Kinan orders.'],
     ar: { subject: `طلبك ${ref(o)} في الطريق 🚚`, title: 'تم شحن طلبك', lines: [...t.map((x) => `رقم التتبع: ${x.carrier ? `${x.carrier} ` : ''}${x.number} — ${require('./services/couriers').trackingUrl(x.carrier, x.number)}`), 'يمكنك متابعة كل خطوة من صفحة طلباتك في كنان.'], button: { text: 'تتبّع طلبك', url: `${base()}/#/orders/${o.id}` } },
@@ -52,25 +53,23 @@ function orderDelivered(o) {
     ar: { subject: `تم تسليم طلبك ${ref(o)} 📦`, title: 'وصل طلبك', lines: ['نتمنى أن ينال إعجابك. إذا كانت هناك مشكلة يمكنك طلب إرجاع من صفحة الطلب.'], button: { text: 'عرض الطلب', url: `${base()}/#/orders/${o.id}` } } }));
 }
 
-// Tracking stages CJ reports (logistics webhook). 1 (shipped) and 12 (delivered) have their own notices.
+// The customer is notified only at the big moments of the journey (every step is still shown on the order page):
+// left the country it ships from → arrived in their country → out for delivery → delivered / not delivered.
+// Codes are CJ's tracking codes (other carriers are mapped to the same codes by services/tracking.js).
 const STAGES = {
-  2: ['Your parcel reached the shipping partner', 'وصل طردك إلى شركة الشحن'],
-  3: ['Your parcel is being sent back to the warehouse', 'يُعاد طردك إلى المستودع'],
-  4: ['Your parcel left with the shipping partner', 'غادر طردك مع شركة الشحن'],
-  5: ['Your parcel is flying to your country', 'طردك في الطريق الدولي إلى بلدك ✈️'],
+  5: ['Your parcel left the country it ships from', 'غادر طردك بلد الشحن ✈️'],
   6: ['Your parcel arrived in your country', 'وصل طردك إلى بلدك 🛬'],
-  7: ['Your parcel is at customs', 'طردك في الجمارك'],
-  8: ['Your parcel cleared customs', 'اجتاز طردك الجمارك ✅'],
-  9: ['Your local post office has your parcel', 'استلم البريد المحلي طردك'],
-  10: ['Out for delivery today', 'طردك خارج للتوصيل اليوم 🚚'],
+  10: ['Out for delivery today', 'طردك خرج للتوصيل إلى بيتك 🚚'],
   11: ['Ready for you to pick up', 'طردك جاهز للاستلام 📍'],
-  13: ['A delivery problem was reported', 'تم الإبلاغ عن مشكلة في التوصيل ⚠️'],
-  14: ['Your parcel is being returned', 'طردك في طريق العودة']
+  12: ['One parcel of your order was delivered', 'تم تسليم أحد طرود طلبك 📦'],
+  13: ['Your parcel could not be delivered', 'لم يتم تسليم طردك ⚠️'],
+  14: ['Your parcel could not be delivered and is going back', 'لم يتم تسليم طردك وهو في طريق العودة ⚠️']
 };
-const STAGE_EMAIL = new Set([6, 10, 11, 13, 14]); // the big moments also by email; the rest as a phone notification
+const STAGE_EMAIL = new Set([5, 6, 10, 11, 13, 14]); // also by email (12: the whole order's delivered email comes apart)
 /** A new tracking stage for a parcel: phone notification (and email for the big moments), never twice for one stage. */
 function trackingStage(o, sub, code) {
   const st = STAGES[code]; if (!o || !st) return;
+  if (code === 12 && o.status === 'delivered') return; // the whole order was delivered: orderDelivered says it
   const key = `trk:${o.id}:${sub.outer_purchase_id || ''}:${code}`;
   if ((o.notices || []).includes(key)) return;
   db.orders.update(o.id, (x) => ({ ...x, notices: [...(x.notices || []), key].slice(-60) }));
@@ -80,8 +79,8 @@ function trackingStage(o, sub, code) {
   if (!STAGE_EMAIL.has(code)) return;
   const tn = (sub.logistics || [])[0];
   fire(mailer.send({ to: emailOf(o.buyer_id), key, kind: 'order', subject: `${st[0]} — order ${ref(o)}`, title: st[0],
-    lines: [...(last ? [`${last.text}${where}${last.at ? ` (${last.at})` : ''}`] : []), ...(code === 13 ? ['We are on it. If the carrier needs something from you, it will be on the tracking page.'] : []), ...(tn ? [`Tracking: ${tn.tracking}`] : [])],
-    ar: { subject: `${st[1]} — الطلب ${ref(o)}`, title: st[1], lines: [...(last ? [`${last.text}${where}${last.at ? ` (${last.at})` : ''}`] : []), ...(code === 13 ? ['نتابع الأمر. إذا احتاجت شركة الشحن شيئاً منك سيظهر في صفحة التتبع.'] : []), ...(tn ? [`رقم التتبع: ${tn.tracking}`] : [])] },
+    lines: [...(last ? [`${last.text}${where}${last.at ? ` (${last.at})` : ''}`] : []), ...(code >= 13 ? ['We are on it. If the carrier needs something from you, it will be on the tracking page.'] : []), ...(tn ? [`Tracking: ${tn.tracking}`] : [])],
+    ar: { subject: `${st[1]} — الطلب ${ref(o)}`, title: st[1], lines: [...(last ? [`${last.text}${where}${last.at ? ` (${last.at})` : ''}`] : []), ...(code >= 13 ? ['نتابع الأمر. إذا احتاجت شركة الشحن شيئاً منك سيظهر في صفحة التتبع.'] : []), ...(tn ? [`رقم التتبع: ${tn.tracking}`] : [])] },
     button: { text: 'Track your order', url: `${base()}/#/orders/${o.id}` } }));
 }
 

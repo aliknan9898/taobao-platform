@@ -1218,12 +1218,7 @@ function wireReturn(o) {
 
 // Where the parcel is: the latest step in bold, the earlier ones under "All updates"
 const TRACK_STAGE = { 1: 'Left the warehouse', 2: 'With the shipping partner', 3: 'Being returned to the warehouse', 4: 'Left with the shipping partner', 5: 'On the way to your country', 6: 'Arrived in your country', 7: 'At customs', 8: 'Cleared customs', 9: 'With your local post', 10: 'Out for delivery', 11: 'Ready to pick up', 12: 'Delivered', 13: 'Delivery problem', 14: 'Being returned' };
-function trackSteps(t) {
-  if (!t || (!t.stage && !(t.events || []).length)) return '';
-  const ev = t.events || []; const row = (e) => `<li><b>${esc(e.text)}</b>${e.place ? ` · ${esc(e.place)}` : ''}<div class="muted small">${esc(e.at || '')}</div></li>`;
-  return `<div class="trk">${t.stage ? `<div class="row between"><span class="muted small">${KinanLang.t('Now')}</span><b>${esc(KinanLang.t(TRACK_STAGE[t.stage] || ''))}</b></div>` : ''}
-    ${ev.length ? `<ul class="trkl">${row(ev[0])}</ul>${ev.length > 1 ? `<details><summary class="small">${KinanLang.t('All updates')} (${ev.length})</summary><ul class="trkl">${ev.slice(1).map(row).join('')}</ul></details>` : ''}` : ''}</div>`;
-}
+function trackSteps(t) { return K.journey(t); }
 async function orderDetail(id) {
   if (!requireBuyer(`/orders/${id}`)) return;
   const o = await api(`/api/buyer/orders/${id}`);

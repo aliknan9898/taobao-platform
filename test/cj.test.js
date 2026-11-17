@@ -204,7 +204,7 @@ test('CJ tracking: every new stage is kept with its events, shown to the shopper
     assert.strictEqual(msg('t2', 5, [e1]).stage, undefined, 'same stage again: no second notice');
     const e2 = ev(6, 'Arrived at destination', 'Malta', '2026-11-20 08:00:00');
     assert.strictEqual(msg('t3', 6, [e1, e2]).stage, 6);
-    assert.deepStrictEqual(pushes.map((p) => p.title), ['Your parcel is flying to your country', 'Your parcel arrived in your country']);
+    assert.deepStrictEqual(pushes.map((p) => p.title), ['Your parcel left the country it ships from', 'Your parcel arrived in your country']);
     assert.match(pushes[1].body, /Malta/);
     const sub = db.orders.get(o.id).sub_orders[0];
     assert.strictEqual(sub.track.status, 6); assert.strictEqual(sub.track.events[0].text, 'Arrived at destination', 'newest first');

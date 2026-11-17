@@ -758,9 +758,10 @@ function orderRow(o) {
         ${p ? pill(p.manual || p.direct ? p.status_label : `Taobao: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
         ${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
       ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
-      ${(p?.logistics || []).length ? `<div class="small muted">${p.direct ? 'To the customer' : 'To warehouse'}: ${p.logistics.map((x) => esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}</div>
+      ${(p?.logistics || []).length ? `<div class="small muted">${p.direct ? 'To the customer' : 'To warehouse'}: ${p.logistics.map((x) => x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(`${x.carrier || ''} ${x.tracking}`)}</a>` : esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}
+      ${p?.direct ? K.journey(p.track, { seller: true }) : ''}</div>
     <div style="text-align:end;display:grid;gap:6px;justify-items:end"><b>${money(o.revenue, o.currency)}</b>${o.cost_cny ? `<span class="muted">cost ¥${num(o.cost_cny)}</span>` : ''}
-      <div class="row">${due && !cfg.taobao_kinan ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p && !p.direct && !p.manual ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">Refresh</button>` : ''}<button class="btn sm quiet" data-msgs="${esc(o.id)}">Messages</button></div></div>
+      <div class="row">${due && !cfg.taobao_kinan ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p && !p.manual && (!p.direct || (p.logistics || []).length) ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">${p.direct ? 'Refresh tracking' : 'Refresh'}</button>` : ''}<button class="btn sm quiet" data-msgs="${esc(o.id)}">Messages</button></div></div>
     <div class="stack" data-mbox="${esc(o.id)}" hidden style="grid-column:1/-1"></div></div>`;
 }
 function wireOrderActions() {

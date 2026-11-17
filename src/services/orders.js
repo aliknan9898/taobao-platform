@@ -649,7 +649,7 @@ function sellerView(o, sellerId) {
     cost_cny: money(lines.reduce((a, l) => a + l.cost_cny * l.qty, 0)),
     purchase: !sub ? null : sub.direct
       // Kinan orders and pays the supplier: the seller sees neutral steps, never the supplier's name, order numbers or Kinan's to-dos
-      ? { direct: true, source: null, manual: false, status: sub.status, status_label: SELLER_DIRECT_LABEL[sub.status] || 'Kinan is handling it', error: sub.error ? 'Kinan is sorting out a supplier issue with this order — nothing to do on your side' : null, logistics: (sub.logistics || []).map(({ carrier, tracking }) => ({ carrier, tracking })) }
+      ? { direct: true, source: null, manual: false, status: sub.status, status_label: SELLER_DIRECT_LABEL[sub.status] || 'Kinan is handling it', error: sub.error ? 'Kinan is sorting out a supplier issue with this order — nothing to do on your side' : null, logistics: (sub.logistics || []).map(({ carrier, tracking }) => ({ carrier, tracking, url: require('./couriers').trackingUrl(carrier, tracking) })), track: sub.track ? { stage: sub.track.status || 0, events: (sub.track.events || []).slice(0, 25) } : null }
       : { direct: false, source: sub.source || null, manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: (LABELS_OF(sub.source) ? LABELS_OF(sub.source)[sub.status] : TB_STATUS_LABEL[sub.status]) || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] }
   };
 }

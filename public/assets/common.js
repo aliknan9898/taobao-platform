@@ -253,5 +253,31 @@ const K = (() => {
   document.addEventListener('error', (e) => { const im = e.target; if (im && im.tagName === 'IMG' && im.dataset.full && im.src !== im.dataset.full) { im.src = im.dataset.full; im.removeAttribute('data-full'); } }, true);
   const img = (u, w, attrs = '') => `<img src="${esc(sized(u, w))}" data-full="${esc(u)}" ${attrs} referrerpolicy="no-referrer">`;
 
-  return { sized, img, presence, googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, SOCIAL, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
+
+  // Parcel journey: 4 big steps (the ones the customer is notified about) + every carrier update below
+  var JOURNEY = [[5, 'Left the country it ships from'], [6, 'Arrived in your country'], [10, 'Out for delivery'], [12, 'Delivered']];
+  var JOURNEY_AT = { 1: -1, 2: -1, 3: -1, 4: -1, 5: 0, 6: 1, 7: 1, 8: 1, 9: 1, 10: 2, 11: 2, 12: 3 };
+  function journeyCss() {
+    if (document.getElementById('jrny-css')) return;
+    var st = document.createElement('style'); st.id = 'jrny-css';
+    st.textContent = '.jrny{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:6px 0 2px}.jrny>div{display:grid;gap:4px;justify-items:center;text-align:center;font-size:12px;color:#6b7280;position:relative}.jrny i{width:14px;height:14px;border-radius:50%;border:2px solid #d1d5db;background:#fff;z-index:1}.jrny>div:not(:first-child):before{content:"";position:absolute;top:6px;inset-inline-end:50%;width:100%;height:2px;background:#d1d5db}.jrny .on{color:inherit;font-weight:600}.jrny .on i{background:#0f766e;border-color:#0f766e}.jrny .on:before{background:#0f766e!important}.jrny .bad i{background:#dc2626;border-color:#dc2626}.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid #0f766e33;display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
+    document.head.appendChild(st);
+  }
+  function journey(t, opts) {
+    if (!t || (!t.stage && !(t.events || []).length)) return '';
+    journeyCss();
+    var tr = function (x) { return window.KinanLang ? KinanLang.t(x) : x; };
+    var stage = t.stage || 0; var at = JOURNEY_AT[stage]; var failed = stage === 13 || stage === 14;
+    if (failed) at = -1;
+    var bar = '<div class="jrny">' + JOURNEY.map(function (j, i) {
+      var label = (opts && opts.seller && j[0] === 6) ? 'Arrived in the customer’s country' : j[1];
+      return '<div class="' + (at !== undefined && i <= at ? 'on' : '') + '"><i></i><span>' + esc(tr(label)) + '</span></div>';
+    }).join('') + '</div>';
+    var bad = failed ? '<div class="jrny-bad">⚠️ ' + esc(tr(stage === 14 ? 'Not delivered — going back' : 'Not delivered')) + '</div>' : '';
+    var ev = t.events || [];
+    var row = function (e) { return '<li><b>' + esc(e.text) + '</b>' + (e.place ? ' · ' + esc(e.place) : '') + '<small>' + esc(e.at || '') + '</small></li>'; };
+    var list = ev.length ? '<ul class="jrny-ev">' + ev.slice(0, 3).map(row).join('') + '</ul>' + (ev.length > 3 ? '<details><summary class="small">' + esc(tr('All updates')) + ' (' + ev.length + ')</summary><ul class="jrny-ev">' + ev.slice(3).map(row).join('') + '</ul></details>' : '') : '';
+    return '<div class="trk">' + bar + bad + list + '</div>';
+  }
+  return { journey, sized, img, presence, googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, SOCIAL, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
 })();
