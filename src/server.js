@@ -1244,6 +1244,14 @@ if (require.main === module) (async () => {
           const by = {}; let ae = 0; for (const x of live) { if (x.source === 'cj' && EU.has(String(x.cj_from || '').toUpperCase())) by[x.cj_from] = (by[x.cj_from] || 0) + 1; if (x.source === 'aliexpress' && (x.skus || []).some((k) => EU.has(SF.originOfSku(k) || '') && k.stock > 0)) ae++; }
           console.log(`[ebay-eu] products in EU warehouses: CJ ${JSON.stringify(by)} · AliExpress with an EU warehouse ${ae} · all live supplier products ${live.length}`);
           L.review().then((rv) => console.log(`[ebay-eu] review ${JSON.stringify(rv).slice(0, 3800)}`)).catch((e) => console.warn('[ebay-eu] review', e.message)); }, 70e3).unref?.();
+        // once (17 Nov, owner): sell on eBay.de from European warehouses only (no UK/China stock), German listings; one test product first
+        setTimeout(async () => { if (db.settings.get('ebay_de_switch_v1')) return; db.settings.insert({ id: 'ebay_de_switch_v1', at: Date.now() });
+          try {
+            const E = require('./services/ebay'); E.savePrefs({ marketplace: 'EBAY_DE', from: 'DE,ES,PL,FR,IT,CZ,NL,AT,BE', max_qty: 1 });
+            const r = await require('./services/ebayLaunch').launch({ n: 1 });
+            console.log(`[ebay-de] test launch ${JSON.stringify({ picked: r.picked, listed: r.listed, failed: r.failed, skipped: r.skipped?.slice(0, 5), blockers: r.review?.blockers, warnings: r.review?.warnings, ready: r.review?.facts?.ready_by_warehouse })}`.slice(0, 3800));
+          } catch (e) { console.warn('[ebay-de] test launch failed:', e.message); }
+        }, 100e3).unref?.();
         // once: the owner's first eBay launch (check everything, then 10 products priced against competitors)
         setTimeout(() => { if (!db.settings.get('ebay_launch_v3')) { db.settings.insert({ id: 'ebay_launch_v3', at: Date.now() }); if (!db.settings.get('ebay_launch_v1')) db.settings.insert({ id: 'ebay_launch_v1', at: Date.now() }); require('./cj/client').background(() => require('./services/ebayLaunch').launch({ n: 10 })).catch((e) => console.warn('[ebay] launch', e.message)); } }, 120000); } }).catch((e) => console.warn(`[ebay] key check: ${e.message}`));
     } }

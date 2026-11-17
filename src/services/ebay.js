@@ -256,7 +256,8 @@ async function category(l) {
 
 /** Item specifics eBay requires: Brand/MPN defaults, the options, then the AI (if switched on) or the closest listed value. */
 async function aspects(l, cat) {
-  const out = { Brand: ['Unbranded'], MPN: ['Does Not Apply'] };
+  const L3 = LBL[langOf()];
+  const out = L3 ? { [L3.brand[0]]: [L3.brand[1]], [L3.mpn[0]]: [L3.mpn[1]] } : { Brand: ['Unbranded'], MPN: ['Does Not Apply'] };
   const missing = cat.required.filter((x) => !out[x.name]);
   if (!missing.length) return out;
   const text = `${l.title}\n${String(l.description || '').slice(0, 1500)}`;
@@ -281,11 +282,44 @@ async function aspects(l, cat) {
 const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // eBay refuses listings that send buyers elsewhere or show contact details: no web addresses, e-mails or phone numbers
 const clean = (t) => String(t).replace(/<[^>]*>/g, ' ').replace(/\b(?:https?:\/\/|www\.)\S+/gi, '').replace(/\b[\w.+-]+@[\w-]+\.[\w.]+\b/g, '').replace(/\b[a-z0-9-]+\.(?:com|shop|net|org|co\.uk|cn|store)\b/gi, '').replace(/\+?\d[\d\s-]{8,}\d/g, '').replace(/\s+/g, ' ').trim();
-function description(l) {
-  const paras = String(l.description || l.title).split(/\n+/).map(clean).filter(Boolean).slice(0, 30);
-  const from = l.cj_from && l.cj_from !== 'CN' ? `<p><b>Ships from a warehouse in ${esc(require('../countries').countryName?.(l.cj_from) || l.cj_from)}</b> — free tracked delivery.</p>` : '';
+// Words in the listing text for each eBay site's language (English sites use the English text as it is)
+const LBL = {
+  de: { from: 'Versand aus einem Lager in', free: 'kostenloser Versand mit Sendungsverfolgung', safety: 'Sicherheitshinweise', rp: 'Verantwortliche Person in der EU', maker: 'Hersteller', brand: ['Marke', 'Markenlos'], mpn: ['Herstellernummer', 'Nicht zutreffend'], opt: { Color: 'Farbe', Colour: 'Farbe', Size: 'Größe', Style: 'Stil', Material: 'Material', Type: 'Typ', Model: 'Modell', Length: 'Länge', Capacity: 'Kapazität' } },
+  fr: { from: 'Expédié depuis un entrepôt en', free: 'livraison suivie gratuite', safety: 'Consignes de sécurité', rp: 'Personne responsable dans l’UE', maker: 'Fabricant', brand: ['Marque', 'Sans marque'], mpn: ['Numéro de pièce fabricant', 'Non applicable'], opt: { Color: 'Couleur', Colour: 'Couleur', Size: 'Taille', Style: 'Style' } },
+  it: { from: 'Spedito da un magazzino in', free: 'spedizione tracciata gratuita', safety: 'Informazioni sulla sicurezza', rp: 'Persona responsabile nell’UE', maker: 'Produttore', brand: ['Marca', 'Senza marca'], mpn: ['MPN', 'Non applicabile'], opt: { Color: 'Colore', Colour: 'Colore', Size: 'Taglia', Style: 'Stile' } },
+  es: { from: 'Enviado desde un almacén en', free: 'envío con seguimiento gratis', safety: 'Información de seguridad', rp: 'Persona responsable en la UE', maker: 'Fabricante', brand: ['Marca', 'Sin marca'], mpn: ['Número de pieza del fabricante', 'No aplicable'], opt: { Color: 'Color', Colour: 'Color', Size: 'Talla', Style: 'Estilo' } }
+};
+const langOf = () => String(market().lang || 'en').slice(0, 2);
+const LANG_NAME = { de: 'German (Germany)', fr: 'French (France)', it: 'Italian', es: 'Spanish (Spain)' };
+/**
+ * Title and description in the eBay site's language (German for eBay.de …), written once by the AI and kept on the
+ * product. English sites use the English text.
+ */
+async function localized(l) {
+  const lang = langOf();
+  const enTitle = String(l.sourcing?.ebay_title || l.title).replace(/\s+/g, ' ').trim().slice(0, 80);
+  const enParas = String(l.description || l.title).split(/\n+/).map(clean).filter(Boolean).slice(0, 30);
+  if (lang === 'en' || !LBL[lang]) return { title: enTitle, paras: enParas, lang };
+  const have = l.ebay_i18n?.[lang];
+  if (have?.title && Array.isArray(have.paras)) return { ...have, lang };
+  const r = await require('./ai').structured({
+    kind: 'ebay', name: 'listing_translation', maxTokens: 1800,
+    system: `You write eBay listings for eBay ${lang.toUpperCase()} shoppers in natural ${LANG_NAME[lang]}. Translate the product title and description faithfully: same facts, no new claims, no brand names that are not in the text, no mention of China, suppliers, AliExpress, CJ or dropshipping. The title must be at most 80 characters and lead with the words local shoppers search for.`,
+    schema: { type: 'object', additionalProperties: false, properties: { title: { type: 'string' }, paras: { type: 'array', items: { type: 'string' } } }, required: ['title', 'paras'] },
+    text: `Title: ${enTitle}\n\nDescription paragraphs:\n${enParas.map((x, i) => `${i + 1}. ${x}`).join('\n')}`
+  });
+  const out = { title: String(r.title || enTitle).replace(/\s+/g, ' ').trim().slice(0, 80), paras: list(r.paras).map((x) => clean(String(x))).filter(Boolean).slice(0, 30) };
+  if (!out.paras.length) out.paras = enParas;
+  db.listings.update(l.id, (x) => ({ ...x, ebay_i18n: { ...(x.ebay_i18n || {}), [lang]: { ...out, at: now() } } }));
+  return { ...out, lang };
+}
+
+function description(l, loc = null) {
+  const paras = loc?.paras || String(l.description || l.title).split(/\n+/).map(clean).filter(Boolean).slice(0, 30);
+  const L2 = (loc && LBL[loc.lang]) || { from: 'Ships from a warehouse in', free: 'free tracked delivery', safety: 'Safety information', rp: 'EU responsible person', maker: 'Manufacturer' };
+  const from = l.cj_from && l.cj_from !== 'CN' ? `<p><b>${L2.from} ${esc(require('../countries').countryName?.(l.cj_from) || l.cj_from)}</b> — ${L2.free}.</p>` : '';
   const g = require('./gpsr').forListing(l);
-  const safety = g ? `<p><b>Safety information</b></p><ul>${g.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><p><b>EU responsible person:</b> ${esc(g.responsible.name)}, ${esc(g.responsible.address)}</p>${g.manufacturer ? `<p><b>Manufacturer:</b> ${esc(g.manufacturer.name)}${g.manufacturer.address ? `, ${esc(g.manufacturer.address)}` : ''}</p>` : ''}` : '';
+  const safety = g ? `<p><b>${L2.safety}</b></p><ul>${g.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><p><b>${L2.rp}:</b> ${esc(g.responsible.name)}, ${esc(g.responsible.address)}</p>${g.manufacturer ? `<p><b>${L2.maker}:</b> ${esc(g.manufacturer.name)}${g.manufacturer.address ? `, ${esc(g.manufacturer.address)}` : ''}</p>` : ''}` : '';
   // the responsible person's e-mail goes in eBay's own product-safety fields (regulatory), not in the text
   return `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5">${paras.map((p) => `<p>${esc(p)}</p>`).join('')}${from}${safety}</div>`;
 }
@@ -396,8 +430,12 @@ async function listOne(listingId) {
   const cat = await category(l);
   const asp = await aspects(l, cat);
   const images = list(l.images).filter((u) => /^https:/.test(u)).slice(0, 12);
-  const title = String(l.sourcing?.ebay_title || l.title).replace(/\s+/g, ' ').trim().slice(0, 80);
-  const desc = description(l);
+  // the site's language (German on eBay.de …)
+  const loc10 = await localized(l);
+  const title = loc10.title;
+  const desc = description(l, loc10);
+  const OPT = LBL[loc10.lang]?.opt || {};
+  const optName = (n) => String(OPT[String(n).trim()] || n).slice(0, 40);
   const skus = list(l.skus).filter((s) => s.cj_vid);
   const multi = skus.length > 1 && skus.every((s) => list(s.opts).length);
   const lang = m.lang;
@@ -409,7 +447,7 @@ async function listOne(listingId) {
   const used = multi ? skus : [skus.find((s) => s.stock > 0) || skus[0]];
   for (const s of used) {
     const key = skuKey(l, s);
-    const own = multi ? Object.fromEntries(list(s.opts).map((o) => [String(o.name).slice(0, 40), [String(o.value).slice(0, 65)]])) : {};
+    const own = multi ? Object.fromEntries(list(s.opts).map((o) => [optName(o.name), [String(o.value).slice(0, 65)]])) : {};
     const img = s.image && /^https:/.test(s.image) ? [s.image, ...images.filter((u) => u !== s.image)].slice(0, 12) : images;
     await ebay.api('PUT', `/sell/inventory/v1/inventory_item/${encodeURIComponent(key)}`, {
       availability: { shipToLocationAvailability: { quantity: qtyOf(l, s) } },
@@ -427,8 +465,8 @@ async function listOne(listingId) {
   let listing;
   if (multi) {
     const gk = groupKey(l);
-    const names = [...new Set(skus.flatMap((s) => list(s.opts).map((o) => String(o.name).slice(0, 40))))];
-    const specs = names.map((n) => ({ name: n, values: [...new Set(skus.map((s) => String(list(s.opts).find((o) => String(o.name).slice(0, 40) === n)?.value || '').slice(0, 65)).filter(Boolean))] }));
+    const names = [...new Set(skus.flatMap((s) => list(s.opts).map((o) => optName(o.name))))];
+    const specs = names.map((n) => ({ name: n, values: [...new Set(skus.map((s) => String(list(s.opts).find((o) => optName(o.name) === n)?.value || '').slice(0, 65)).filter(Boolean))] }));
     await ebay.api('PUT', `/sell/inventory/v1/inventory_item_group/${encodeURIComponent(gk)}`, {
       title, description: desc, imageUrls: images, aspects: asp, variantSKUs: Object.keys(offers),
       variesBy: { aspectsImageVariesBy: [], specifications: specs }
