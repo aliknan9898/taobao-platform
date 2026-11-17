@@ -235,5 +235,23 @@ const K = (() => {
     addEventListener('pagehide', () => send(true));
   }
 
-  return { presence, googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, SOCIAL, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
+  /**
+   * A smaller copy of a supplier photo, served by the supplier's own worldwide image CDN (AliExpress, CJ): a 350px
+   * card photo is ~20–40 KB instead of ~300 KB. If the small copy fails, the original loads instead (see below).
+   */
+  function sized(u, w = 350) {
+    u = String(u || '');
+    if (!/^https:\/\//.test(u)) return u;
+    try {
+      const h = new URL(u).hostname;
+      if (/(^|\.)(alicdn\.com|aliexpress-media\.com)$/.test(h) && /\.(jpe?g|png|webp)$/i.test(u)) return `${u}_${w}x${w}q75.jpg_.webp`;
+      if (/(^|\.)cjdropshipping\.com$/.test(h) && !u.includes('?')) return `${u}?x-oss-process=image/resize,w_${w},m_lfit/format,webp/quality,q_80`;
+    } catch { /* not a URL */ }
+    return u;
+  }
+  // a small copy that does not load falls back to the full photo
+  document.addEventListener('error', (e) => { const im = e.target; if (im && im.tagName === 'IMG' && im.dataset.full && im.src !== im.dataset.full) { im.src = im.dataset.full; im.removeAttribute('data-full'); } }, true);
+  const img = (u, w, attrs = '') => `<img src="${esc(sized(u, w))}" data-full="${esc(u)}" ${attrs} referrerpolicy="no-referrer">`;
+
+  return { sized, img, presence, googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, SOCIAL, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
 })();
