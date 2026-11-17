@@ -992,6 +992,7 @@ async function cart() {
 async function checkout() {
   if (!requireBuyer('/checkout')) return;
   const items = Cart.get(); if (!items.length) { location.hash = '#/cart'; return; }
+  if (cfg.payments_paused) { $('#view').innerHTML = `<div class="panel" style="text-align:center;padding:28px"><h2>${KinanLang.t('Checkout is paused for a short while')}</h2><p class="muted">${KinanLang.t('Your cart is saved. Please come back soon to complete your order.')}</p><a class="btn" href="#/">${KinanLang.t('Keep shopping')}</a></div>`; return; }
   const a = { name: me.name || '', ...savedAddress() };
   const cur = items[0].currency || cfg.currency;
   const sub = items.reduce((s, x) => s + x.price * x.qty, 0);

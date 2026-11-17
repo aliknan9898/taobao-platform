@@ -85,6 +85,8 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   if (!Object.prototype.hasOwnProperty.call(PACKAGING, packaging)) throw httpError(400, 'Unknown packaging option');
   if (!Array.isArray(items) || !items.length) throw httpError(400, 'Cart is empty');
   if (items.length > 100) throw httpError(400, 'Too many items');
+  // Owner's switch while the card payment provider is being changed: no order, no payment attempt
+  if (process.env.PAYMENTS_PAUSED === '1') throw httpError(503, 'Checkout is paused for a short while — your cart is saved. Please try again soon.');
   const address = validateAddress(shipping_address);
 
   const lines = [];
