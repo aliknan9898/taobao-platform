@@ -1244,6 +1244,8 @@ if (require.main === module) (async () => {
           const by = {}; let ae = 0; for (const x of live) { if (x.source === 'cj' && EU.has(String(x.cj_from || '').toUpperCase())) by[x.cj_from] = (by[x.cj_from] || 0) + 1; if (x.source === 'aliexpress' && (x.skus || []).some((k) => EU.has(SF.originOfSku(k) || '') && k.stock > 0)) ae++; }
           console.log(`[ebay-eu] products in EU warehouses: CJ ${JSON.stringify(by)} · AliExpress with an EU warehouse ${ae} · all live supplier products ${live.length}`);
           L.review().then((rv) => console.log(`[ebay-eu] review ${JSON.stringify(rv).slice(0, 3800)}`)).catch((e) => console.warn('[ebay-eu] review', e.message)); }, 70e3).unref?.();
+        // once: forget the cached eBay policies so the next listing picks up a return policy that accepts returns
+        if (!db.settings.get('ebay_policies_reset_v1')) { db.settings.insert({ id: 'ebay_policies_reset_v1', at: Date.now() }); const st = db.settings.get('ebay_state'); if (st?.policies) db.settings.update('ebay_state', { policies: null }); }
         // once (17 Nov, owner): sell on eBay.de from European warehouses only (no UK/China stock), German listings; one test product first
         setTimeout(async () => { if (db.settings.get('ebay_de_switch_v1')) return; db.settings.insert({ id: 'ebay_de_switch_v1', at: Date.now() });
           try {
