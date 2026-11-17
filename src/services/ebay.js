@@ -182,7 +182,8 @@ async function policies() {
   const pick = (arr, name) => arr.find((x) => x.name === name) || arr.find((x) => /kinan/i.test(x.name || ''));
   let payment = pick(pp, 'Kinan payment') || pp[0];
   if (!payment) payment = await ebay.api('POST', '/sell/account/v1/payment_policy', { name: 'Kinan payment', marketplaceId: mk, categoryTypes: cat });
-  let ret = pick(rp, 'Kinan 30-day returns') || rp[0];
+  // a return policy that accepts returns (EU/UK law gives buyers at least 14 days): never an existing "no returns" one
+  let ret = rp.find((x) => x.name === 'Kinan 30-day returns') || rp.find((x) => x.returnsAccepted && Number(x.returnPeriod?.value) >= 14);
   if (!ret) ret = await ebay.api('POST', '/sell/account/v1/return_policy', { name: 'Kinan 30-day returns', marketplaceId: mk, categoryTypes: cat, returnsAccepted: true, returnPeriod: { value: 30, unit: 'DAY' }, refundMethod: 'MONEY_BACK', returnShippingCostPayer: 'BUYER' });
   // Two delivery policies: from a warehouse in the site's own country, and from elsewhere in Europe
   const ship = async (name, code) => {
