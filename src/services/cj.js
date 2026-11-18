@@ -633,7 +633,25 @@ async function importBestSellers(opts = {}, by = 'auto') {
   st.running = false; st.done_at = now();
   setState({ ...st });
   console.log(`[cj] best sellers: added ${st.added}, skipped ${st.skipped}${st.error ? ` — ${st.error}` : ''}`);
-  if (st.added) try { require('../push').telegram(`🛍️ CJ best sellers: ${st.added} new product(s) added to the Kinan shop.`); } catch { /* optional */ }
+  if (st.added || st.error) try {
+    const lines = [
+      `📦 Kinan × CJdropshipping — best sellers report`,
+      `Added: ${st.added} · Checked: ${st.checked} · Skipped: ${st.skipped}`,
+      ...(st.error ? [`⚠️ Error: ${st.error}`] : []),
+      ...(st.last_item_error ? [`Last item error: ${st.last_item_error}`] : []),
+      ...(st.added_titles.length ? ['', 'Products added:', ...st.added_titles.map((title, i) => `${i + 1}. ${String(title).slice(0, 110)}`)] : [])
+    ];
+    // Telegram messages are limited to 4096 characters. Keep CJ reports independent of AliExpress.
+    let message = '';
+    for (const line of lines) {
+      if (message && (message.length + line.length + 1) > 3400) {
+        require('../push').telegram(message);
+        message = '';
+      }
+      message += (message ? '\\n' : '') + line.slice(0, 3300);
+    }
+    if (message) require('../push').telegram(message);
+  } catch (e) { console.warn('[cj] telegram report', e.message); }
   return st;
 }
 
