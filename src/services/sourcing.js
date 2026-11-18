@@ -485,6 +485,7 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
   });
   if (cur2) msgs.push(cur2);
   for (const t of msgs.slice(0, 12)) push.telegram(t);
+  if (cjPointsMessage) push.telegram(cjPointsMessage);
 }
 
 module.exports = { delivery, applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
