@@ -19,6 +19,22 @@ const COLLECTIONS = [['users', 'usr'], ['sessions', 'ses'], ['sellers', 'sel'], 
 
 let pool = null;          // pg Pool when DATABASE_URL is used
 const cache = new Map();
+// Lazy ID lookup: avoids scanning large collections for every product/order lookup.
+const idIndexes = new Map();
+function byId(name, key) {
+  let index = idIndexes.get(name);
+  if (!index) {
+    index = new Map(load(name).map((doc) => [doc.id, doc]));
+    idIndexes.set(name, index);
+  }
+  return index.get(key);
+}
+function syncIndex(name, key, doc) {
+  const index = idIndexes.get(name);
+  if (!index) return;
+  if (doc) index.set(key, doc);
+  else index.delete(key);
+}
 
 if (!config.databaseUrl) {
   try {
@@ -54,7 +70,7 @@ async function flush() {
       const batch = [...pending.values()]; pending.clear();
       try {
         for (const { coll, id } of batch) {
-          const doc = load(coll).find((d) => d.id === id);
+          const doc = byId(coll, id);
           if (doc) await pool.query('INSERT INTO kinan_docs (coll, id, doc, updated_at) VALUES ($1, $2, $3, now()) ON CONFLICT (coll, id) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()', [coll, id, JSON.stringify(doc)]);
           else await pool.query('DELETE FROM kinan_docs WHERE coll = $1 AND id = $2', [coll, id]);
         }
@@ -93,6 +109,7 @@ async function init({ Pool } = {}) {
   await pool.query('CREATE TABLE IF NOT EXISTS kinan_docs (coll text NOT NULL, id text NOT NULL, doc jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (coll, id))');
   const { rows } = await pool.query('SELECT coll, doc FROM kinan_docs');
   cache.clear();
+  idIndexes.clear();
   for (const [name] of COLLECTIONS) cache.set(name, []);
   for (const r of rows) { const d = typeof r.doc === 'string' ? JSON.parse(r.doc) : r.doc; (cache.get(r.coll) || cache.set(r.coll, []).get(r.coll)).push(d); }
   for (const list of cache.values()) list.sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
@@ -108,11 +125,11 @@ const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
 function collection(name, prefix) {
   return {
     all: (pred) => clone(pred ? load(name).filter(pred) : load(name)),
-    get: (key) => clone(load(name).find((d) => d.id === key)),
+    get: (key) => clone(byId(name, key)),
     find: (pred) => clone(load(name).find(pred)),
     insert(doc) {
       const d = { id: doc.id || id(prefix), created_at: Date.now(), updated_at: Date.now(), ...doc };
-      load(name).push(d); persist(name, d.id); return clone(d);
+      load(name).push(d); syncIndex(name, d.id, d); persist(name, d.id); return clone(d);
     },
     update(key, patch) {
       const list = load(name);
@@ -120,11 +137,12 @@ function collection(name, prefix) {
       if (i < 0) return null;
       const next = typeof patch === 'function' ? patch(clone(list[i])) : { ...list[i], ...patch };
       list[i] = { ...next, id: list[i].id, updated_at: Date.now() };
+      syncIndex(name, key, list[i]);
       persist(name, list[i].id); return clone(list[i]);
     },
     remove(key) {
       const list = load(name); const i = list.findIndex((d) => d.id === key);
-      if (i >= 0) { list.splice(i, 1); persist(name, key); }
+      if (i >= 0) { list.splice(i, 1); syncIndex(name, key, null); persist(name, key); }
     }
   };
 }
@@ -140,5 +158,5 @@ module.exports = {
   get mode() { return pool ? 'postgres' : 'json'; },
   pendingWrites: () => pending.size,
   ...Object.fromEntries(COLLECTIONS.map(([name, prefix]) => [name === 'oauth_states' ? 'oauthStates' : name, collection(name, prefix)])),
-  _reset() { cache.clear(); }
+  _reset() { cache.clear(); idIndexes.clear(); }
 };
