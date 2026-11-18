@@ -421,7 +421,15 @@ function sellerSetStatus(l, status) {
 function many(ids) {
   const want = [...new Set(String(ids || '').split(',').map((x) => x.trim()).filter((x) => /^[\w-]{3,40}$/.test(x)))].slice(0, 30);
   if (!want.length) return { items: [] };
-  const all = new Map(browse({ limit: 100000 }).items.filter((p) => want.includes(p.id)).map((p) => [p.id, p]));
+  // Resolve only requested IDs instead of sorting and converting the entire catalogue.
+  const all = new Map();
+  for (const id of want) {
+    const listing = db.listings.get(id);
+    if (!listing || listing.status !== 'active') continue;
+    const seller = db.sellers.get(listing.seller_id);
+    if (!seller || seller.status !== 'active') continue;
+    all.set(id, toBuyerView(listing, seller));
+  }
   return { items: want.map((id) => all.get(id)).filter(Boolean) };
 }
 
