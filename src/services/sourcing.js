@@ -467,7 +467,13 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
     ...Object.entries(st.by_dept || {}).map(([k, v]) => `• ${DEPARTMENTS[k]?.emoji || ''} ${DEPARTMENTS[k]?.en || k}: ${v}`)];
   const why = Object.entries(st.reasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   if (why.length) head.push('', 'Skipped because:', ...why.map(([r, n]) => `• ${r}: ${n}`));
-  try { const u = require('../cj/client').usage(); if (u.points) head.push('', `🔑 CJ points: ${u.points.remaining}/${u.points.total || '?'} (+${u.points.refill_per_minute || '?'}/min)`); } catch { /* optional */ }
+  // Keep CJ account usage out of AliExpress reports: each supplier gets its own Telegram message.
+  let cjPointsMessage = null;
+  try { const u = require('../cj/client').usage(); if (u.points) {
+    const points = `🔑 CJ points: ${u.points.remaining}/${u.points.total || '?'} (+${u.points.refill_per_minute || '?'}/min)`;
+    if (/aliexpress/i.test(title)) cjPointsMessage = `📦 Kinan × CJdropshipping — account usage\n${points}`;
+    else head.push('', points);
+  } } catch { /* optional */ }
   if (st.error) head.push('', `⏸ ${st.error}`);
   const msgs = [head.join('\n')]; let cur2 = '';
   added.forEach((a, i) => {
