@@ -138,7 +138,7 @@ function showLogin(msg = '') {
 
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
-const ALL_TABS = [['overview','Overview','*'],['kinan','⭐ Kinan business','admin'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['platforms','🗂 Products by platform','admin'],['listings','Product review','admin'],
+const ALL_TABS = [['overview','Overview','*'],['kinan','⭐ Kinan business','admin'],['kinanai','🤖 Kinan AI','admin'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['platforms','🗂 Products by platform','admin'],['listings','Product review','admin'],
   ['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
 const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
@@ -807,6 +807,46 @@ const VIEWS = {
 
 // ---------- ⭐ Kinan business: Kinan's own products, sales, profit, eBay and the other shops ----------
 let KB = { sub: 'overview', days: 30, sort: 'revenue', dir: -1, q: '', f: 'all' };
+// Read-only operations assistant: all data comes from existing admin-protected APIs.
+// No model API or automated changes are enabled in this initial release.
+VIEWS.kinanai = async (v) => {
+  v.innerHTML = '<div class="card"><h2>🤖 Kinan AI — Operations Assistant</h2><p class="muted">Read-only operational insights. No AI model is connected yet; recommendations are based on live system status.</p><p id="kai-status">Loading operational data…</p><div id="kai-results"></div><button class="btn ghost" id="kai-refresh">Refresh insights</button></div>';
+  const refresh = async () => {
+    const status = document.getElementById('kai-status');
+    const target = document.getElementById('kai-results');
+    if (!status || !target) return;
+    status.textContent = 'Checking product import systems…';
+    const endpoints = [
+      ['AliExpress', '/api/admin/ae-sourcing'],
+      ['CJ catalog builder', '/api/admin/sourcing'],
+      ['CJ best sellers', '/api/admin/cj/bestsellers']
+    ];
+    const rows = await Promise.all(endpoints.map(async ([name, url]) => {
+      try {
+        const s = await api(url);
+        const r = s.run || s.state || s.last || {};
+        const running = Boolean(s.running || r.running);
+        const added = Number(r.added || 0), checked = Number(r.checked || 0);
+        const error = r.error ? String(r.error).slice(0, 300) : '';
+        const advice = error ? 'Investigate the reported error before restarting.' :
+          running ? 'Import in progress; monitor additions and skipped products.' :
+          checked && !added ? 'No products added in the last recorded run; inspect rejection reasons and delivery rules.' :
+          'No immediate import error reported.';
+        return '<div style="padding:12px 0;border-top:1px solid var(--line)"><b>' + esc(name) + '</b><p class="small">' +
+          (running ? 'Running' : 'Idle') + ' · Checked: ' + checked + ' · Added: ' + added + '</p>' +
+          (error ? '<p class="err small">' + esc(error) + '</p>' : '') +
+          '<p class="muted small">' + esc(advice) + '</p></div>';
+      } catch (e) {
+        return '<p class="err">' + esc(name) + ': ' + esc(e.message) + '</p>';
+      }
+    }));
+    if (document.getElementById('kai-results') !== target) return;
+    target.innerHTML = rows.join('');
+    status.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' · Read-only';
+  };
+  document.getElementById('kai-refresh').onclick = () => { void refresh(); };
+  await refresh();
+};
 VIEWS.kinan = async (v) => {
   const d = await api(`/api/admin/kinan?days=${KB.days}`); const c = d.currency; const k = d.kpi; const pv = d.prev;
   const m = (n) => fmt(n, c);
