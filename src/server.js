@@ -630,6 +630,7 @@ r('GET', '/api/admin/sellers/:id/verification/:kind', ADMIN, async ({ params, re
 });
 r('POST', '/api/admin/sellers/:id/verification', ADMIN, async ({ req, params, user }) => require('./services/kyc').decide(params.id, await readJson(req), user.id));
 r('PATCH', '/api/admin/sellers/:id', ADMIN, async ({ req, params }) => admin.updateSeller(params.id, await readJson(req)));
+r('GET', '/api/admin/invoices', ['admin', 'finance'], async ({ url }) => admin.listInvoices({ q: url.searchParams.get('q') || '', page: url.searchParams.get('page') || 1 }));
 r('GET', '/api/admin/orders', STAFF, async ({ url }) => admin.listOrders({ status: url.searchParams.get('status') || undefined }));
 r('GET', '/api/admin/orders/:id', STAFF, async ({ params }) => orders.decorate(db.orders.get(params.id)) || Promise.reject(httpError(404, 'Not found')));
 r('POST', '/api/admin/orders/:id/procure', PROC, async ({ params }) => orders.decorate(await orders.procure(params.id)));
