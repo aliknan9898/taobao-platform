@@ -8,7 +8,7 @@
   "copyright": "Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.",
   "main": "src/server.js",
   "engines": {
-    "node": ">=18"
+    "node": "22.x"
   },
   "scripts": {
     "start": "node src/server.js",
