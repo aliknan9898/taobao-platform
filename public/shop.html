@@ -676,11 +676,24 @@ async function home(q = '', category = '') {
   Search.set(q);
   const load = async () => {
     $('#results').innerHTML = skeletonGrid();
-    const query = catalogQuery({ q, ...(category ? { category } : {}) }).toString();
-    const d = await api(`/api/catalog?${query}`);
-    followPrices(query, d.items);
-    $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>`
-      : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
+    const query = catalogQuery({ q, limit: 24, ...(category ? { category } : {}) });
+    // Never leave an infinite skeleton if the API stalls or fails.
+    let timeout;
+    try {
+      const d = await Promise.race([
+        api(`/api/catalog?${query}`),
+        new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Catalog request timed out')), 12000); })
+      ]);
+      if (!v.isConnected || $('#view') !== v) return;
+      followPrices(query, d.items);
+      $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>`
+        : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
+    } catch (e) {
+      if (!v.isConnected || $('#view') !== v) return;
+      $('#results').innerHTML = '<div class="empty" role="alert"><h3>Products could not load</h3><p>Please check your connection and try again.</p><button type="button" class="btn" id="retry-catalog">Try again</button></div>';
+      $('#retry-catalog')?.addEventListener('click', () => { void load(); });
+      console.warn('[catalog] failed to load', e.message);
+    } finally { clearTimeout(timeout); }
   };
   wireToolbar(load); renderLocaleChip();
   if ($('#seenrow')) fillSeen($('#seenrow'));
