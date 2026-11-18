@@ -206,9 +206,9 @@ function exportWarehouseCsv() {
   const rows = (data[tab === 'stock' ? 'in_stock' : tab] || []).filter((r) => !query || Object.values(r).some((v) => String(typeof v === 'object' ? JSON.stringify(v) : v ?? '').toLowerCase().includes(query)));
   const fields = { expected: ['tracking','carrier','item','shop','order_id','status'], stock: ['tracking','item','location','weight_g','status','received_at','order_id'], orders: ['id','recipient','destination','items','parcels_received','parcels_total','status'], shipments: ['order_id','carrier','tracking','shipped_at','status'] }[tab];
   if (!fields) return;
-  const cell = (v) => { let x = String(v ?? '').replace(/[\\r\\n]+/g, ' '); if (/^[\\s]*[=+@-]/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"'; };
-  const csv = [fields.map(cell).join(','), ...rows.map((r) => fields.map((k) => cell(r[k])).join(','))].join('\\r\\n');
-  const url = URL.createObjectURL(new Blob(['\\uFEFF', csv], { type:'text/csv;charset=utf-8' }));
+  const cell = (v) => { let x = String(v ?? '').replace(/[\r\n]+/g, ' '); if (/^[\s]*[=+@-]/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"'; };
+  const csv = [fields.map(cell).join(','), ...rows.map((r) => fields.map((k) => cell(r[k])).join(','))].join('\r\n');
+  const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type:'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = 'kinan-warehouse-' + tab + '-' + new Date().toISOString().slice(0,10) + '.csv'; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
