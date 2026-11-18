@@ -60,7 +60,7 @@ async function flush() {
         }
         failures = 0;
       } catch (e) {
-        for (const x of batch) pending.set(`${x.coll}\u0000${x.id}`, x); // keep for retry
+        for (const x of batch) { const key = `${x.coll}\u0000${x.id}`; if (!pending.has(key)) pending.set(key, x); } // preserve newer writes
         failures += 1;
         console.error(`[db] write to PostgreSQL failed (${failures}): ${e.message}`);
         await new Promise((r) => setTimeout(r, Math.min(30000, 500 * 2 ** failures)));
@@ -85,8 +85,11 @@ function persist(name, docId) {
 async function init({ Pool } = {}) {
   if (!config.databaseUrl) return { mode: 'json' };
   const PgPool = Pool || require('pg').Pool;
-  const external = /\.render\.com|sslmode=require/.test(config.databaseUrl);
-  pool = new PgPool({ connectionString: config.databaseUrl, ssl: external ? { rejectUnauthorized: false } : false, max: 5 });
+  const url = new URL(config.databaseUrl);
+  const sslMode = url.searchParams.get('sslmode');
+  // Never disable certificate validation. PostgreSQL internal/private endpoints may use plaintext.
+  const external = /\.render\.com$/.test(url.hostname) || sslMode === 'require' || sslMode === 'verify-full' || sslMode === 'verify-ca';
+  pool = new PgPool({ connectionString: config.databaseUrl, ssl: external ? { rejectUnauthorized: true } : false, max: 5 });
   await pool.query('CREATE TABLE IF NOT EXISTS kinan_docs (coll text NOT NULL, id text NOT NULL, doc jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (coll, id))');
   const { rows } = await pool.query('SELECT coll, doc FROM kinan_docs');
   cache.clear();
