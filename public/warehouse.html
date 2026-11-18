@@ -38,6 +38,12 @@
   .counts { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
   .count { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
   .count b { display:block; font-size:24px; font-variant-numeric:tabular-nums; } .count span { color:var(--muted); font-size:13px; }
+  .warehouse-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .warehouse-toolbar input { flex:1; min-width:180px; max-width:440px; }
+  .warehouse-toolbar .muted { margin-left:auto; font-size:12px; }
+  .count { transition:transform .15s ease,box-shadow .15s ease; }
+  .count:hover { transform:translateY(-2px); box-shadow:0 6px 22px rgba(20,27,58,.08); }
+  @media(max-width:600px) { .warehouse-toolbar .muted { margin-left:0; width:100%; } }
   .scan { display:grid; grid-template-columns:2fr 1fr 1fr auto auto; gap:8px; }
   @media (max-width:700px) { .scan { grid-template-columns:1fr 1fr; } .scan .wide { grid-column:1/-1; } }
   input, select { font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:8px; padding:10px; width:100%; }
@@ -164,11 +170,13 @@ function boot(user) {
       <p class="note">Goods count as legally delivered once signed for here. After they leave this warehouse they can no longer be returned to the Taobao seller, so inspect them before packing.</p>
     </section>
     <div class="counts" id="counts"></div>
-    <section class="card"><div class="tabs" id="tabs"></div><div id="list"></div></section>
+    <section class="card"><div class="warehouse-toolbar"><input id="wh-search" type="search" placeholder="Search tracking, order, customer, carrier…" aria-label="Search warehouse records" autocomplete="off"><button class="btn ghost" id="wh-refresh" type="button">↻ Refresh</button><span class="muted" id="wh-updated" aria-live="polite"></span></div><div class="tabs" id="tabs"></div><div id="list"></div></section>
   </main>`;
   $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
   $('#scan').onsubmit = onScan;
   wireCams($('#scan'));
+  $('#wh-search').addEventListener('input', () => renderWarehouseLists());
+  $('#wh-refresh').onclick = () => load();
   api('/api/warehouse/couriers').then((c) => { couriers = c; }).catch(() => {});
   load();
 }
@@ -189,15 +197,36 @@ async function onScan(e) {
 }
 
 let data;
+let warehouseLoading = false;
+function renderWarehouseLists() {
+  if (!data) return;
+  const query = ($('#wh-search')?.value || '').trim().toLowerCase();
+  const matches = (row) => !query || Object.values(row).some((value) => {
+    if (value == null) return false;
+    if (typeof value === 'object') return JSON.stringify(value).toLowerCase().includes(query);
+    return String(value).toLowerCase().includes(query);
+  });
+  const original = data;
+  if (query) data = { ...original, expected: original.expected.filter(matches), in_stock: original.in_stock.filter(matches), orders: original.orders.filter(matches), shipments: original.shipments.filter(matches) };
+  try { LISTS[tab]($('#list')); } finally { data = original; }
+}
 async function load() {
+  if (warehouseLoading) return;
+  warehouseLoading = true;
+  const refresh = $('#wh-refresh'); if (refresh) refresh.disabled = true;
+  try { await loadWarehouseData(); } catch (e) { const out = $('#list'); if (out) out.innerHTML = '<div class="result bad">' + esc(e.message) + '</div>'; }
+  finally { warehouseLoading = false; if (refresh) refresh.disabled = false; }
+}
+async function loadWarehouseData() {
   data = await api('/api/warehouse/overview');
+  const updated = $('#wh-updated'); if (updated) updated.textContent = 'Updated ' + new Date().toLocaleTimeString();
   const c = data.counts;
   $('#counts').innerHTML = [['expected','Expected parcels'],['in_stock','In stock'],['ready_orders','Orders ready to ship'],['qc_failed','QC failed'],['unmatched','Unmatched'],['in_transit','Shipments in transit']]
     .map(([k, t]) => `<div class="count"><span>${t}</span><b class="${(k === 'qc_failed' || k === 'unmatched') && c[k] ? 'bad' : ''}">${c[k]}</b></div>`).join('');
   const T = [['expected', `Expected (${data.expected.length})`], ['stock', `In stock (${data.in_stock.length})`], ['orders', `Orders (${data.orders.length})`], ['shipments', 'Shipments']];
   $('#tabs').innerHTML = T.map(([k, t]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${t}</button>`).join('');
   $('#tabs').querySelectorAll('button').forEach((b) => b.onclick = () => { tab = b.dataset.t; load(); });
-  LISTS[tab]($('#list'));
+  renderWarehouseLists();
 }
 
 /** Photo from the camera → JPEG up to 1280 px, small enough to upload. */
