@@ -1151,8 +1151,23 @@ function cleanup(now = Date.now()) {
 }
 
 function startJobs() {
-  // Scheduled jobs are background work: their CJ calls wait behind anything a person is doing
-  const every = (ms, fn) => setInterval(() => Promise.resolve(require('./cj/client').background(fn)).catch(() => {}), ms).unref();
+  // Deploy web-only instances with BACKGROUND_JOBS_ENABLED=false. Only one dedicated
+  // instance should run schedulers; this is a per-process guard, not a distributed lock.
+  if (process.env.BACKGROUND_JOBS_ENABLED === 'false') {
+    console.log('[jobs] background schedulers disabled for this instance');
+    return;
+  }
+  // Do not overlap invocations of the same periodic task on a single instance.
+  const every = (ms, fn) => {
+    let running = false;
+    return setInterval(() => {
+      if (running) return;
+      running = true;
+      Promise.resolve().then(() => require('./cj/client').background(fn))
+        .catch((e) => console.warn('[jobs] scheduled task failed:', e.message))
+        .finally(() => { running = false; });
+    }, ms).unref();
+  };
   every(30e3, webhooks.processInbox);
   every(3600e3, () => webhooks.checkUnpaidCards()); // card payments whose webhook failed or never came
   every(10 * 60e3, () => require('./services/media').tick()); // supplier photos → Kinan's own storage (off unless R2_* is set)
