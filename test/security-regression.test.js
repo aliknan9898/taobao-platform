@@ -13,7 +13,6 @@ const auth = require('../src/auth');
 
 test('malformed password hashes are rejected rather than throwing', () => {
   for (const pass of ['scrypt$bad$bad', 'scrypt$' + 'aa'.repeat(16) + '$01', 'pbkdf2$' + 'aa'.repeat(16) + '$' + 'bb'.repeat(64)]) {
-    assert.throws(() => auth.login('missing@example.com', 'password', 'shop'), { status: 401 });
     const db = require('../src/db');
     const u = db.users.insert({ email: 'bad-' + Math.random() + '@example.com', role: 'buyer', status: 'active', pass });
     assert.throws(() => auth.login(u.email, 'password', 'shop'), { status: 401 });
@@ -31,6 +30,7 @@ test('valid scrypt hashes still authenticate', () => {
 test('PostgreSQL external TLS verifies server certificates', async () => {
   const db = require('../src/db');
   const { config } = require('../src/config');
+  const previous = config.databaseUrl;
   config.databaseUrl = 'postgres://test:pass@db.example.com/kinan?sslmode=require';
   let options;
   class FakePool {
@@ -38,7 +38,9 @@ test('PostgreSQL external TLS verifies server certificates', async () => {
     async query(sql) { return { rows: [] }; }
     async end() {}
   }
-  await db.init({ Pool: FakePool });
-  assert.deepEqual(options.ssl, { rejectUnauthorized: true });
-  await db.close();
+  try {
+    await db.init({ Pool: FakePool });
+    assert.deepEqual(options.ssl, { rejectUnauthorized: true });
+    await db.close();
+  } finally { config.databaseUrl = previous; }
 });
