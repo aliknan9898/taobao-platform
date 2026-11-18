@@ -1,0 +1,35 @@
+name: KINAN AI development task
+description: Assign a scoped coding task for Claude Code and review by ChatGPT.
+title: "[AI Task] "
+labels: []
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal and expected behavior
+      description: Describe the change and user-visible outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Allowed files and boundaries
+      description: Specify the files, integrations, and restrictions.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria and tests
+      description: List verifiable checks and rollback considerations.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety requirements
+      options:
+        - label: Work on a feature branch, not main
+          required: true
+        - label: No merge, deployment, payments, refunds, destructive changes, or production database writes without separate owner approval
+          required: true
