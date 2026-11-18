@@ -24,21 +24,39 @@ function taobao(rawBody, headers) {
  * runs it again (and checkUnpaidCards() catches anything still missed).
  */
 const stripeRunning = new Set();
+async function processStripeItem(item) {
+  if (!item || item.processed || stripeRunning.has(item.id)) return;
+  stripeRunning.add(item.id);
+  try {
+    const pi = item.msg?.payment_intent;
+    if (!pi) throw new Error('Missing persisted payment intent; manual reconciliation required');
+    if (String(pi?.metadata?.order_id || '').startsWith('gc_')) await require('./services/giftcards').paid(pi);
+    else await orders.stripePaid(pi);
+    db.inbox.update(item.id, { processed: true, processed_at: Date.now() });
+    await db.flush();
+  } catch (e) {
+    console.error('[stripe→paid]', e.message);
+    db.inbox.update(item.id, (x) => ({ ...x, attempts: (x.attempts || 0) + 1, last_error: String(e.message).slice(0, 300) }));
+    try { await db.flush(); } catch (flushError) { console.error('[stripe] failed to persist retry', flushError.message); }
+  } finally { stripeRunning.delete(item.id); }
+}
 async function stripeHook(rawBody, headers) {
   if (!stripe.verifyWebhook(rawBody, headers['stripe-signature'])) return { status: 400, body: 'invalid signature' };
-  const evt = JSON.parse(rawBody);
+  let evt;
+  try { evt = JSON.parse(rawBody); } catch { return { status: 400, body: 'bad json' }; }
+  if (!evt?.id || !evt?.type) return { status: 400, body: 'invalid event' };
   const key = `msg_st_${evt.id}`;
   const seen = db.inbox.get(key);
-  if (seen && (seen.processed || stripeRunning.has(key))) return { status: 200, body: 'dup' };
-  if (!seen) db.inbox.insert({ id: key, source: 'stripe', msg: { type: evt.type, id: evt.id }, processed: false });
-  if (evt.type !== 'payment_intent.succeeded') { db.inbox.update(key, { processed: true, processed_at: Date.now() }); return { status: 200, body: 'ok' }; }
-  const pi = evt.data.object;
-  const work = String(pi?.metadata?.order_id || '').startsWith('gc_') ? () => require('./services/giftcards').paid(pi) : () => orders.stripePaid(pi);
-  stripeRunning.add(key);
-  Promise.resolve().then(work)
-    .then(() => db.inbox.update(key, { processed: true, processed_at: Date.now() }))
-    .catch((e) => { console.error('[stripe→paid]', e.message); db.inbox.update(key, (x) => ({ ...x, attempts: (x.attempts || 0) + 1, last_error: String(e.message).slice(0, 300) })); })
-    .finally(() => stripeRunning.delete(key));
+  if (seen?.processed || stripeRunning.has(key)) return { status: 200, body: 'dup' };
+  if (!seen) db.inbox.insert({ id: key, source: 'stripe', msg: { type: evt.type, id: evt.id, ...(evt.type === 'payment_intent.succeeded' ? { payment_intent: evt.data?.object } : {}) }, processed: evt.type !== 'payment_intent.succeeded' });
+  try { await db.flush(); } catch (e) {
+    console.error('[stripe] inbox persistence failed', e.message);
+    return { status: 503, body: 'retry later' };
+  }
+  if (evt.type === 'payment_intent.succeeded') {
+    // Persist before acknowledgement; process and replay asynchronously.
+    void processStripeItem(db.inbox.get(key));
+  }
   return { status: 200, body: 'ok' };
 }
 
@@ -67,6 +85,10 @@ async function processInbox() {
   if (running) return;
   running = true;
   try {
+    // Recover acknowledged Stripe events left unfinished by a crash/restart.
+    for (const item of db.inbox.all((m) => m.source === 'stripe' && m.msg?.type === 'payment_intent.succeeded' && !m.processed)) {
+      await processStripeItem(item);
+    }
     for (const item of db.inbox.all((m) => m.source === 'taobao' && !m.processed)) {
       const { msg } = item;
       const type = Number(msg.message_type);
