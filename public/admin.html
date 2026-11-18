@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kinan Admin</title>
+<title>KINAN Admin — Commerce Control Center</title>
 <meta name="theme-color" content="#ffffff">
 <script src="/assets/theme.js"></script>
 <link rel="manifest" href="/assets/admin.webmanifest">
@@ -36,6 +36,14 @@
   nav { display:flex; gap:4px; overflow-x:auto; padding:8px 16px; background:var(--card); border-bottom:1px solid var(--line); }
   nav button { background:transparent; color:var(--muted); border:0; padding:8px 12px; border-radius:8px; font:inherit; cursor:pointer; white-space:nowrap; }
   nav button.on { background:var(--chip); color:var(--ink); font-weight:600; }
+  /* Organized admin workspace: responsive grouped navigation */
+  .admin-shell { display:grid; grid-template-columns:240px minmax(0,1fr); min-height:calc(100vh - 65px); }
+  .admin-shell nav { position:sticky; top:65px; align-self:start; height:calc(100vh - 65px); overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; gap:3px; padding:16px 10px; border-right:1px solid var(--line); border-bottom:0; }
+  .admin-shell nav .nav-group { padding:15px 12px 5px; color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+  .admin-shell nav button { width:100%; text-align:left; white-space:normal; padding:10px 12px; border-radius:9px; }
+  .admin-shell nav button.on { background:var(--chip); color:var(--accent); }
+  .admin-shell main { width:100%; max-width:1500px; padding:24px; align-content:start; }
+  @media(max-width:900px) { .admin-shell { grid-template-columns:minmax(0,1fr); } .admin-shell nav { position:static; height:auto; overflow-x:auto; overflow-y:hidden; flex-direction:row; padding:8px 12px; border-right:0; border-bottom:1px solid var(--line); } .admin-shell nav .nav-group { display:none; } .admin-shell nav button { width:auto; white-space:nowrap; } .admin-shell main { padding:14px; } }
   main { max-width:1100px; margin:0 auto; padding:16px; display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
   main > * { min-width:0; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
@@ -138,8 +146,25 @@ function showLogin(msg = '') {
 
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
-const ALL_TABS = [['overview','Overview','*'],['kinan','⭐ Kinan business','admin'],['orders','Orders','*'],['reports','Reports','admin finance'],['sellers','Sellers','admin'],['platforms','🗂 Products by platform','admin'],['listings','Product review','admin'],
-  ['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],['requests','Item requests','admin procurement support'],['payouts','Withdrawals','admin finance'],['returns','Returns','admin finance support'],['shipping','Shipping','admin'],['coupons','Discount codes','admin'],['backup','Backup','admin'],['reviews','Reviews','admin support'],['users','Users','admin finance support']];
+const ALL_TABS = [
+  ['overview','Overview','*'],['kinan','KINAN Business','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
+  ['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
+  ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
+  ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
+];
+const NAV_GROUPS = [
+  ['Workspace',['overview','kinan']],
+  ['Catalog & Suppliers',['platforms','listings','cj','ebay']],
+  ['Operations',['orders','shipping','returns','requests']],
+  ['People & Trust',['sellers','users','reviews']],
+  ['Business & Settings',['reports','payouts','coupons','backup']]
+];
+function adminNav() {
+  return NAV_GROUPS.map(([name, ids]) => {
+    const links = ids.map(id => TABS.find(([key]) => key === id)).filter(Boolean);
+    return links.length ? '<div class="nav-group">'+name+'</div>'+links.map(([key,label]) => '<button type="button" data-t="'+key+'">'+label+'</button>').join('') : '';
+  }).join('');
+}
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
 const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
 let TABS = ALL_TABS;
@@ -154,7 +179,7 @@ function boot(user) {
   if (!TABS.some(([k]) => k === tab)) tab = 'overview';
   $('#app').innerHTML = `<header><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
       <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Kinan Shop</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a>${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
-    <nav>${TABS.map(([k, t]) => `<button data-t="${k}">${t}</button>`).join('')}</nav><main id="view"></main>
+    <div class="admin-shell"><nav aria-label="Admin sections">${adminNav()}</nav><main id="view"></main></div>
     <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>`;
   $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
   document.querySelectorAll('nav button').forEach((b) => b.onclick = () => { tab = b.dataset.t; render(); });
