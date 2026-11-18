@@ -352,7 +352,13 @@ r('GET', '/api/catalog/:id/reviews', null, async ({ params }) => growth.reviewsF
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
 r('GET', '/api/categories', null, async () => cached(`categories|${db.version('listings')}`, 60e3, () => {
-  const counts = {}; for (const p of catalog.browse({ limit: 100000 }).items) counts[p.category] = (counts[p.category] || 0) + 1;
+  // Count active products directly; avoid materializing every buyer view and sorting 100k items.
+  const activeSellers = new Set(db.sellers.all((s) => s.status === 'active').map((s) => s.id));
+  const counts = {};
+  for (const l of db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id))) {
+    const category = l.category || 'other';
+    counts[category] = (counts[category] || 0) + 1;
+  }
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
 }));
 r('POST', '/api/shipping/prepare', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return cjs.prepareCountry(String(b.country_code || '').toUpperCase()); });
