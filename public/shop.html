@@ -683,15 +683,46 @@ async function home(q = '', category = '') {
       : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
   };
   wireToolbar(load); renderLocaleChip();
-  if ($('#dealstrip')) api(`/api/catalog/many?ids=${encodeURIComponent(cfg.deals.ids.join(','))}`).then((d) => { if (d.items.length) $('#dealstrip').innerHTML = d.items.map(productCard).join(''); else $('#dealsrow')?.remove(); }).catch(() => $('#dealsrow')?.remove());
   if ($('#seenrow')) fillSeen($('#seenrow'));
-  $$('[data-aisle]').forEach((el) => api(`/api/catalog?${catalogQuery({ collection: el.dataset.aisle, limit: 12 })}`).then((d) => { if (d.items.length) el.innerHTML = d.items.map(productCard).join(''); else el.closest('.aisle')?.remove(); }).catch(() => {}));
-  if ($('#xstrip')) api(`/api/catalog?${catalogQuery({ collection: 'christmas', limit: 12 })}`).then((d) => { const el = $('#xstrip'); if (el && d.items.length) el.innerHTML = d.items.map(productCard).join(''); else if (el) el.remove(); }).catch(() => {});
-  api('/api/categories').then((cs) => {
-    const el = $('#cats'); if (!el) return; const shown = cs.filter((c) => c.count > 0);
-    if (shown.length) el.innerHTML = `<a class="chip ${category ? '' : 'on'}" href="#/">All</a>${shown.map((c) => `<a class="chip ${c.id === category ? 'on' : ''}" href="#/c/${c.id}">${esc(c.en)}</a>`).join('')}`;
-  }).catch(() => {});
+  // Prioritize the visible product grid. Secondary shelves should not compete for
+  // network connections or CPU while the main catalogue is loading.
   await load();
+  if (!v.isConnected || $('#view') !== v) return;
+  const secondary = [];
+  if ($('#dealstrip')) secondary.push(async () => {
+    const el = $('#dealstrip');
+    const d = await api(`/api/catalog/many?ids=${encodeURIComponent(cfg.deals.ids.join(','))}`);
+    if (!el?.isConnected) return;
+    if (d.items.length) el.innerHTML = d.items.map(productCard).join('');
+    else el.closest('#dealsrow')?.remove();
+  });
+  $$('[data-aisle]').forEach((el) => secondary.push(async () => {
+    const d = await api(`/api/catalog?${catalogQuery({ collection: el.dataset.aisle, limit: 12 })}`);
+    if (!el.isConnected) return;
+    if (d.items.length) el.innerHTML = d.items.map(productCard).join('');
+    else el.closest('.aisle')?.remove();
+  }));
+  if ($('#xstrip')) secondary.push(async () => {
+    const el = $('#xstrip');
+    const d = await api(`/api/catalog?${catalogQuery({ collection: 'christmas', limit: 12 })}`);
+    if (!el?.isConnected) return;
+    if (d.items.length) el.innerHTML = d.items.map(productCard).join('');
+    else el.remove();
+  });
+  secondary.push(async () => {
+    const cs = await api('/api/categories');
+    const el = $('#cats'); if (!el) return;
+    const shown = cs.filter((item) => item.count > 0);
+    if (shown.length) el.innerHTML = `<a class="chip ${category ? '' : 'on'}" href="#/">All</a>${shown.map((item) => `<a class="chip ${item.id === category ? 'on' : ''}" href="#/c/${item.id}">${esc(item.en)}</a>`).join('')}`;
+  });
+  // At most two optional requests at once, instead of a burst of 6-8.
+  const workers = Array.from({ length: Math.min(2, secondary.length) }, async () => {
+    while (secondary.length && v.isConnected && $('#view') === v) {
+      const task = secondary.shift();
+      try { await task(); } catch { /* optional shelves are best effort */ }
+    }
+  });
+  void Promise.all(workers);
 }
 
 async function collectionPage(id, group = '') {
