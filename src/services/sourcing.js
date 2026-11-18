@@ -423,7 +423,7 @@ async function reclassify({ all = true } = {}) {
               text: `Places:\n${keys.join('\n')}\n\nProducts:\n${batch.map((l, n) => `${n}. ${String(l.title).slice(0, 110)}`).join('\n')}`
             });
             picks = new Map(list(r.items).map((x) => [Number(x.n), String(x.place)]));
-          } catch (e) { console.warn('[classify]', e.message); await new Promise((res) => setTimeout(res, 15000)); }
+          } catch (e) { console.warn('[classify]', e.message); if (/\b(429|503)\b|quota|high demand|unavailable/i.test(e.message)) break; if (t < 2) await new Promise((res) => setTimeout(res, 2000)); }
         }
       }
       batch.forEach((l, n) => {
@@ -447,13 +447,25 @@ async function reclassify({ all = true } = {}) {
 }
 
 function publicDepartments() {
-  const live = db.listings.all((l) => l.status === 'active' && l.sourcing && DEPARTMENTS[l.sourcing.dept] && list(l.collections).includes(l.sourcing.dept));
+  // Single pass over live listings; avoid scanning the full catalogue for every department/group.
+  const counts = new Map();
+  for (const l of db.listings.all((x) => x.status === 'active' && x.sourcing && DEPARTMENTS[x.sourcing.dept] && list(x.collections).includes(x.sourcing.dept))) {
+    const dept = l.sourcing.dept;
+    let entry = counts.get(dept);
+    if (!entry) {
+      entry = { count: 0, image: list(l.images)[0] || null, groups: new Map() };
+      counts.set(dept, entry);
+    }
+    entry.count++;
+    const group = l.sourcing.group || l.collection_group;
+    entry.groups.set(group, (entry.groups.get(group) || 0) + 1);
+  }
   const out = [];
   for (const [id, d] of Object.entries(DEPARTMENTS)) {
-    const mine = live.filter((l) => l.sourcing.dept === id);
-    if (!mine.length) continue;
-    out.push({ id, kind: 'department', name: d.en, name_ar: d.ar, emoji: d.emoji, count: mine.length, image: list(mine[0].images)[0] || null,
-      groups: Object.entries(d.groups).map(([gid, g]) => ({ id: gid, en: g.en, ar: g.ar, count: mine.filter((l) => (l.sourcing.group || l.collection_group) === gid).length })).filter((g) => g.count) });
+    const entry = counts.get(id);
+    if (!entry) continue;
+    out.push({ id, kind: 'department', name: d.en, name_ar: d.ar, emoji: d.emoji, count: entry.count, image: entry.image,
+      groups: Object.entries(d.groups).map(([gid, g]) => ({ id: gid, en: g.en, ar: g.ar, count: entry.groups.get(gid) || 0 })).filter((g) => g.count) });
   }
   return out.sort((a, b) => b.count - a.count);
 }

@@ -15,6 +15,9 @@ const { httpError } = require('../auth');
 
 const API = 'https://api.anthropic.com/v1/messages';
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models';
+const OPENAI_API = 'https://api.openai.com/v1/responses';
+const openaiKey = () => String(process.env.OPENAI_API_KEY || '').trim();
+const openaiModel = () => process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 /**
  * Which AI answers first. With both keys, Claude (paid: fast, no free-tier queue) answers and Gemini is the backup;
  * AI_PROVIDER=gemini puts Gemini first. When the first one is busy or out of quota, the other one answers.
@@ -44,25 +47,28 @@ function claudeCredit() {
   return { credit, spent: Math.round(spent * 1000) / 1000, left: Math.round(Math.max(0, credit - spent) * 1000) / 1000, calls, since: first, days_used: days.length, per_day: Math.round(perDay * 1000) / 1000, days_left: perDay > 0 ? Math.floor(Math.max(0, credit - spent) / perDay) : null };
 }
 function claudeSpentToday() { const x = db.settings.get(`set_ai_claude_d_${new Date().toISOString().slice(0, 10)}`); return x ? x.cost : 0; }
+const openaiBudget = () => Math.max(0, Number(process.env.OPENAI_DAILY_BUDGET_USD ?? 5));
+const openaiSpentToday = () => Number(db.settings.get(`set_ai_openai_d_${new Date().toISOString().slice(0, 10)}`)?.cost || 0);
 function providers() {
   const want = String(process.env.AI_PROVIDER || '').toLowerCase();
   const out = [];
   if (claudeKey() && claudeSpentToday() < DAILY_BUDGET()) out.push('claude');
   if (process.env.GEMINI_API_KEY) out.push('gemini');
-  if (want === 'gemini' && out.length === 2) out.reverse();
+  if (openaiKey() && openaiSpentToday() < openaiBudget()) out.push('openai');
+  if (['gemini', 'claude', 'openai'].includes(want) && out.includes(want)) out.sort((a,b) => (a === want ? -1 : b === want ? 1 : 0));
   return out;
 }
 const provider = () => providers()[0] || null;
 const enabled = () => Boolean(provider());
-const modelFor = (p) => (p === 'gemini' ? process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' : process.env.AI_MODEL || 'claude-haiku-5-5');
+const modelFor = (p) => (p === 'openai' ? openaiModel() : p === 'gemini' ? process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' : process.env.AI_MODEL || 'claude-haiku-5-5');
 const model = () => modelFor(provider());
 const limit = () => Math.max(1, Number(process.env.AI_DAILY_LIMIT) || 40);
 const IMG_RE = /^data:image\/(jpeg|png|webp|gif);base64,([A-Za-z0-9+/=]+)$/;
 const s = (v, n) => String(v ?? '').trim().slice(0, n);
 
 // ---------- usage & cost (USD per million tokens: input / output) ----------
-const PRICES = { haiku: [0.10, 0.50], sonnet: [2, 10], opus: [4, 20], gemini: [0, 0] }; // Gemini: free tier
-const priceOf = (m) => PRICES[(String(m).match(/haiku|sonnet|opus|gemini/) || ['sonnet'])[0]];
+const PRICES = { haiku: [0.10, 0.50], sonnet: [2, 10], opus: [4, 20], gemini: [0, 0], 'gpt-4.1-mini': [0.40, 1.60] }; // Gemini: free tier
+const priceOf = (m) => PRICES[String(m)] || PRICES[(String(m).match(/haiku|sonnet|opus|gemini/) || ['sonnet'])[0]];
 function record(m, usage, kind) {
   if (!usage) return;
   const [pi, po] = priceOf(m);
@@ -173,7 +179,7 @@ async function structured(req) {
   if (!list.length) throw httpError(503, 'The AI assistant is not switched on yet');
   let err;
   for (const p of list) {
-    try { return await (p === 'claude' ? askClaude(req) : askGemini(req)); } catch (e) {
+    try { return await (p === 'claude' ? askClaude(req) : p === 'openai' ? askOpenAI(req) : askGemini(req)); } catch (e) {
       err = e;
       // Busy, out of quota or not reachable: let the other AI answer. A bad request would fail there too.
       if (!(e.status === 429 || e.status === 502 || e.status === 503)) throw e;
@@ -181,6 +187,39 @@ async function structured(req) {
     }
   }
   throw err;
+}
+
+async function askOpenAI({ system, name = 'result', schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
+  if (openaiSpentToday() >= openaiBudget()) throw httpError(429, 'OpenAI daily budget reached');
+  const content = [{ type: 'input_text', text }];
+  for (const img of images.slice(0, 4)) {
+    if (typeof img === 'string' && (/^https:\/\//.test(img) || IMG_RE.test(img))) content.push({ type: 'input_image', image_url: img });
+  }
+  const response = await fetch(OPENAI_API, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${openaiKey()}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model: openaiModel(), instructions: system, input: [{ role: 'user', content }],
+      text: { format: { type: 'json_schema', name: String(name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'result', schema, strict: false } },
+      max_output_tokens: maxTokens }),
+    signal: AbortSignal.timeout(timeoutMs)
+  }).catch(e => { throw httpError(502, `OpenAI unreachable (${e.message})`); });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.warn('[ai] openai', response.status, body.error?.type);
+    throw httpError([429, 500, 502, 503, 504].includes(response.status) ? 503 : 502, 'OpenAI could not answer');
+  }
+  const raw = (body.output || []).flatMap(x => x.content || []).filter(x => x.type === 'output_text').map(x => x.text).join('');
+  let result;
+  try { result = JSON.parse(raw); } catch { throw httpError(502, 'OpenAI returned invalid JSON'); }
+  const usage = { input_tokens: body.usage?.input_tokens || 0, output_tokens: body.usage?.output_tokens || 0 };
+  record(openaiModel(), usage, kind);
+  const [pi, po] = priceOf(openaiModel());
+  const cost = (usage.input_tokens * pi + usage.output_tokens * po) / 1e6;
+  const id = `set_ai_openai_d_${new Date().toISOString().slice(0, 10)}`;
+  const cur = db.settings.get(id);
+  if (cur) db.settings.update(id, { cost: cur.cost + cost, calls: (cur.calls || 0) + 1 });
+  else db.settings.insert({ id, cost, calls: 1 });
+  return result;
 }
 
 async function askClaude({ system, name, description = '', schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
