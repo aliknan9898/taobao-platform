@@ -166,6 +166,7 @@ function boot(user) {
 let renderSeq = 0;
 async function render() {
   const run = ++renderSeq;
+  clearInterval(window.__importMonitor);
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.t === tab));
   const v = $('#view'); v.innerHTML = '<p class="muted">Loading…</p>';
   try { await VIEWS[tab](v); } catch (e) { if (run === renderSeq) v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
@@ -893,7 +894,43 @@ VIEWS.kinan = async (v) => {
       ${d.recent.map((o) => `<tr><td class="muted">${new Date(o.at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</td><td><code>${esc(o.id.slice(-8))}</code>${o.country ? ` <span class="muted">${esc(o.country)}</span>` : ''}</td><td>${o.channel === 'ebay' ? '<span class="pill">eBay</span>' : 'Website'}</td><td>${esc(o.items)}</td><td class="num">${m(o.revenue)}</td><td class="num">${m(o.profit)}</td><td><span class="pill ${statusClass(o.status)}">${esc(STATUS_LABEL[o.status] || o.status)}</span></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No orders yet.</td></tr>'}</tbody></table></div>
       <p><button class="btn ghost" onclick="tab='orders';render()">All orders</button></p></div>`;
   }
+  // Lightweight live import monitor, scoped to Kinan business > Products only.
+  // Reads existing admin-only status endpoints; never triggers an import.
+  if (KB.sub === 'products') {
+    body = `<div class="card" id="import-live" aria-live="polite"><h2>🔴 Live product imports</h2><p class="muted">Connecting to AliExpress and CJ import status…</p></div>` + body;
+  }
   v.innerHTML = head + body + `<p class="muted small">Profit is an estimate: sale price and delivery charged, minus the supplier's price and delivery (and eBay's fees for eBay orders). Card fees and taxes are not deducted.</p>`;
+  if (KB.sub === 'products') {
+    const startedView = renderSeq;
+    const refreshImports = async () => {
+      const panel = document.getElementById('import-live');
+      if (!panel || tab !== 'kinan' || KB.sub !== 'products' || renderSeq !== startedView) return;
+      const sources = [
+        ['AliExpress', '/api/admin/ae-sourcing', (s) => s.last || {}, (s) => Boolean(s.running)],
+        ['CJ catalog builder', '/api/admin/sourcing', (s) => s.run || {}, (s) => Boolean(s.running)],
+        ['CJ best sellers', '/api/admin/cj/bestsellers', (s) => s.state || {}, (s) => Boolean(s.state?.running)]
+      ];
+      const results = await Promise.all(sources.map(async ([name, url, runOf, activeOf]) => {
+        try {
+          const s = await api(url); const r = runOf(s) || {};
+          const running = activeOf(s);
+          const start = Number(r.started_at || 0), elapsed = start ? Math.max(0, (Date.now() - start) / 60000) : 0;
+          const added = Number(r.added || 0), checked = Number(r.checked || 0), skipped = Number(r.skipped || 0);
+          const rate = elapsed > 0 && running ? (added / elapsed).toFixed(2) : '—';
+          const progress = Number(r.target) > 0 ? Math.min(100, Math.round(added / r.target * 100)) : null;
+          return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><b>${esc(name)}</b><span class="pill ${running ? 'warn' : 'ok'}">${running ? '● Running' : 'Idle / last run'}</span></div>
+            <p class="small">Added <b>${added}</b> · Checked ${checked} · Skipped ${skipped} · Speed <b>${rate} products/min</b></p>
+            ${progress === null ? '' : `<progress max="100" value="${progress}" style="width:100%"></progress><small class="muted">${progress}% of target</small>`}
+            ${r.error ? `<p class="err small">${esc(String(r.error).slice(0,250))}</p>` : ''}
+            ${start ? `<p class="muted small">Started ${new Date(start).toLocaleString()}</p>` : ''}</div>`;
+        } catch (e) { return `<p class="err small">${esc(name)}: ${esc(e.message)}</p>`; }
+      }));
+      if (document.getElementById('import-live') === panel && renderSeq === startedView)
+        panel.innerHTML = '<h2>🔴 Live product imports</h2><p class="muted small">Refreshes every 10 seconds · speed is based on the current run</p>' + results.join('');
+    };
+    void refreshImports();
+    window.__importMonitor = setInterval(refreshImports, 10000);
+  }
   v.querySelectorAll('[data-kb]').forEach((b) => b.onclick = () => { KB.sub = b.dataset.kb; render(); });
   const dd = $('#kbdays'); if (dd) dd.onchange = () => { KB.days = Number(dd.value); render(); };
   const kq = $('#kbq'); if (kq) { kq.oninput = () => { KB.q = kq.value; clearTimeout(KB.t); KB.t = setTimeout(() => { render().then(() => { const n = $('#kbq'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 350); }; }
