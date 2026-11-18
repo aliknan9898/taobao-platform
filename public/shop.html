@@ -679,10 +679,11 @@ async function home(q = '', category = '') {
   let requestVersion = 0;
   const pageSize = 24;
   const load = async (append = false) => {
+    append = append === true;
     const version = ++requestVersion;
     const results = $('#results');
     if (!results) return;
-    const existing = append ? results.querySelectorAll('.grid .card').length : 0;
+    const existing = append ? (results.querySelector('.grid')?.children.length || 0) : 0;
     if (!append) results.innerHTML = skeletonGrid();
     else {
       const more = results.querySelector('#catalog-more');
