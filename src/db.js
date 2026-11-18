@@ -53,8 +53,14 @@ async function flush() {
     while (pending.size) {
       const batch = [...pending.values()]; pending.clear();
       try {
+        // Build one lookup per changed collection instead of scanning all products
+        // once for every pending row (quadratic during large imports).
+        const byCollection = new Map();
+        for (const { coll } of batch) {
+          if (!byCollection.has(coll)) byCollection.set(coll, new Map(load(coll).map((doc) => [doc.id, doc])));
+        }
         for (const { coll, id } of batch) {
-          const doc = load(coll).find((d) => d.id === id);
+          const doc = byCollection.get(coll).get(id);
           if (doc) await pool.query('INSERT INTO kinan_docs (coll, id, doc, updated_at) VALUES ($1, $2, $3, now()) ON CONFLICT (coll, id) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()', [coll, id, JSON.stringify(doc)]);
           else await pool.query('DELETE FROM kinan_docs WHERE coll = $1 AND id = $2', [coll, id]);
         }
