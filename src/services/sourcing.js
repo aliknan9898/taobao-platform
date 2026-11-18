@@ -423,7 +423,7 @@ async function reclassify({ all = true } = {}) {
               text: `Places:\n${keys.join('\n')}\n\nProducts:\n${batch.map((l, n) => `${n}. ${String(l.title).slice(0, 110)}`).join('\n')}`
             });
             picks = new Map(list(r.items).map((x) => [Number(x.n), String(x.place)]));
-          } catch (e) { console.warn('[classify]', e.message); await new Promise((res) => setTimeout(res, 15000)); }
+          } catch (e) { console.warn('[classify]', e.message); if (/\b(429|503)\b|quota|high demand|unavailable/i.test(e.message)) break; if (t < 2) await new Promise((res) => setTimeout(res, 2000)); }
         }
       }
       batch.forEach((l, n) => {
