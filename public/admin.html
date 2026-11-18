@@ -908,7 +908,7 @@ VIEWS.kinan = async (v) => {
       const sources = [
         ['AliExpress', '/api/admin/ae-sourcing', (s) => s.last || {}, (s) => Boolean(s.running)],
         ['CJ catalog builder', '/api/admin/sourcing', (s) => s.run || {}, (s) => Boolean(s.running)],
-        ['CJ best sellers', '/api/admin/cj/bestsellers', (s) => s.run || s, (s) => Boolean(s.running || s.run?.running)]
+        ['CJ best sellers', '/api/admin/cj/bestsellers', (s) => s.state || {}, (s) => Boolean(s.state?.running)]
       ];
       const results = await Promise.all(sources.map(async ([name, url, runOf, activeOf]) => {
         try {
