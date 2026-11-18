@@ -648,7 +648,7 @@ async function importBestSellers(opts = {}, by = 'auto') {
         require('../push').telegram(message);
         message = '';
       }
-      message += (message ? '\\n' : '') + line.slice(0, 3300);
+      message += (message ? '\n' : '') + line.slice(0, 3300);
     }
     if (message) require('../push').telegram(message);
   } catch (e) { console.warn('[cj] telegram report', e.message); }
