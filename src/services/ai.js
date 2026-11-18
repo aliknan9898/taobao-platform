@@ -44,11 +44,24 @@ function claudeCredit() {
   return { credit, spent: Math.round(spent * 1000) / 1000, left: Math.round(Math.max(0, credit - spent) * 1000) / 1000, calls, since: first, days_used: days.length, per_day: Math.round(perDay * 1000) / 1000, days_left: perDay > 0 ? Math.floor(Math.max(0, credit - spent) / perDay) : null };
 }
 function claudeSpentToday() { const x = db.settings.get(`set_ai_claude_d_${new Date().toISOString().slice(0, 10)}`); return x ? x.cost : 0; }
+// In-memory provider/model circuit breaker: quota exhaustion should not trigger
+// repeated network calls on every product until the provider can recover.
+const aiCooldowns = new Map();
+const GEMINI_QUOTA_BACKOFF_MS = 60 * 60 * 1000;
+const GEMINI_BUSY_BACKOFF_MS = 60 * 1000;
+function availableAi(key) { return (aiCooldowns.get(key) || 0) <= Date.now(); }
+function coolAi(key, ms) { aiCooldowns.set(key, Date.now() + ms); }
+function geminiModels() {
+  const first = modelFor('gemini');
+  return [...new Set([first, ...String(process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash').split(',').map((x) => x.trim()).filter(Boolean)])];
+}
+function geminiAvailable() { return geminiModels().some((m) => availableAi('gemini:' + m)); }
+
 function providers() {
   const want = String(process.env.AI_PROVIDER || '').toLowerCase();
   const out = [];
   if (claudeKey() && claudeSpentToday() < DAILY_BUDGET()) out.push('claude');
-  if (process.env.GEMINI_API_KEY) out.push('gemini');
+  if (process.env.GEMINI_API_KEY && geminiAvailable()) out.push('gemini');
   if (want === 'gemini' && out.length === 2) out.reverse();
   return out;
 }
@@ -215,7 +228,8 @@ async function askGemini({ system, schema, text, images = [], maxTokens = 2500, 
   const parts = (await Promise.all(images.map(inlineImage))).filter((x) => x && (total += x.inline_data.data.length) <= 14 * 1024 * 1024);
   // Busy (503) or this model's free quota used (429): try the next model in GEMINI_FALLBACK_MODELS (each has its own free quota)
   const first = modelFor('gemini');
-  const models = [first, ...String(process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash').split(',').map((x) => x.trim()).filter((x) => x && x !== first)];
+  const models = geminiModels().filter((m) => availableAi('gemini:' + m));
+  if (!models.length) throw httpError(429, 'The free AI quota is cooling down — try again later');
   let res; let j; let used = models[0]; let busy = false; let quota = false;
   for (let m = 0; m < models.length; m++) {
     used = models[m];
@@ -232,7 +246,8 @@ async function askGemini({ system, schema, text, images = [], maxTokens = 2500, 
     j = await res.json().catch(() => ({}));
     if (res.ok) break;
     console.error('[ai] gemini', used, res.status, j.error?.status, j.error?.message);
-    if (res.status === 503) busy = true; if (res.status === 429) quota = true;
+    if (res.status === 503) { busy = true; coolAi('gemini:' + used, GEMINI_BUSY_BACKOFF_MS); }
+    if (res.status === 429) { quota = true; coolAi('gemini:' + used, GEMINI_QUOTA_BACKOFF_MS); }
     if (![429, 503, 404].includes(res.status) || m === models.length - 1) break;
   }
   if (!res.ok) {
