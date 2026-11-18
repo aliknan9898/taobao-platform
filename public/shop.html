@@ -674,24 +674,53 @@ async function home(q = '', category = '') {
     ${toolbar()}
     <div id="results">${skeletonGrid()}</div>`;
   Search.set(q);
-  const load = async () => {
-    $('#results').innerHTML = skeletonGrid();
-    const query = catalogQuery({ q, limit: 24, ...(category ? { category } : {}) });
-    // Never leave an infinite skeleton if the API stalls or fails.
+  // The catalog API is paginated; keep fetching subsequent pages on demand.
+  // Reset the cursor when search, category or toolbar filters change.
+  let requestVersion = 0;
+  const pageSize = 24;
+  const load = async (append = false) => {
+    const version = ++requestVersion;
+    const results = $('#results');
+    if (!results) return;
+    const existing = append ? results.querySelectorAll('.grid .card').length : 0;
+    if (!append) results.innerHTML = skeletonGrid();
+    else {
+      const more = results.querySelector('#catalog-more');
+      if (more) { more.disabled = true; more.textContent = 'Loading…'; }
+    }
+    const query = catalogQuery({ q, limit: pageSize, offset: existing, ...(category ? { category } : {}) });
     let timeout;
     try {
       const d = await Promise.race([
         api(`/api/catalog?${query}`),
         new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Catalog request timed out')), 12000); })
       ]);
-      if (!v.isConnected || $('#view') !== v) return;
-      followPrices(query, d.items);
-      $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>`
-        : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
+      if (version !== requestVersion || !v.isConnected || $('#view') !== v) return;
+      const items = d.items || [];
+      followPrices(query, items);
+      const total = Number(d.total) || 0;
+      if (append) {
+        const grid = results.querySelector('.grid');
+        if (grid) grid.insertAdjacentHTML('beforeend', items.map(productCard).join(''));
+      } else {
+        results.innerHTML = items.length ? `<div class="grid">${items.map(productCard).join('')}</div>`
+          : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
+      }
+      results.querySelector('#catalog-more-wrap')?.remove();
+      const shown = existing + items.length;
+      if (items.length && shown < total) {
+        results.insertAdjacentHTML('beforeend', `<div id="catalog-more-wrap" style="text-align:center;padding:24px 0"><p class="muted">${shown} of ${total} products</p><button type="button" class="btn" id="catalog-more">Load more products</button></div>`);
+        results.querySelector('#catalog-more')?.addEventListener('click', () => { void load(true); });
+      }
     } catch (e) {
-      if (!v.isConnected || $('#view') !== v) return;
-      $('#results').innerHTML = '<div class="empty" role="alert"><h3>Products could not load</h3><p>Please check your connection and try again.</p><button type="button" class="btn" id="retry-catalog">Try again</button></div>';
-      $('#retry-catalog')?.addEventListener('click', () => { void load(); });
+      if (version !== requestVersion || !v.isConnected || $('#view') !== v) return;
+      if (append) {
+        const more = results.querySelector('#catalog-more');
+        if (more) { more.disabled = false; more.textContent = 'Try loading more'; }
+      } else {
+        results.innerHTML = '<div class="empty" role="alert"><h3>Products could not load</h3><p>Please check your connection and try again.</p><button type="button" class="btn" id="retry-catalog">Try again</button></div>';
+        results.querySelector('#retry-catalog')?.addEventListener('click', () => { void load(); });
+      }
       console.warn('[catalog] failed to load', e.message);
     } finally { clearTimeout(timeout); }
   };
