@@ -1230,7 +1230,12 @@ if (require.main === module) (async () => {
     console.log(`Kinan on :${config.port}  store: /  seller: /seller  admin: /admin  warehouse: /warehouse`);
     console.log(`OAuth callback: ${config.redirectUri}`);
   });
-  startJobs();
+  // On deployments with multiple web services sharing the same database, only the
+  // designated worker should run recurring imports, order sync and scheduled payouts.
+  // Default preserves existing single-service installations until operators configure
+  // BACKGROUND_JOBS_ENABLED=false on every secondary service.
+  if (process.env.BACKGROUND_JOBS_ENABLED !== 'false') startJobs();
+  else console.log('[jobs] scheduled background jobs disabled for this service');
   try { require('./services/kyc').enforce(); } catch (e) { console.error('[kyc]', e.message); }
   // Brevo: add/check the site's domain now, then every 30 minutes until it is authenticated
   const mailDomain = () => mailer.setupDomain().catch((e) => console.error('[mail] domain setup:', e.message));
