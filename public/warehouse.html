@@ -169,14 +169,15 @@ function boot(user) {
       <div id="scanOut"></div>
       <p class="note">Goods count as legally delivered once signed for here. After they leave this warehouse they can no longer be returned to the Taobao seller, so inspect them before packing.</p>
     </section>
-    <div class="counts" id="counts"></div>
-    <section class="card"><div class="warehouse-toolbar"><input id="wh-search" type="search" placeholder="Search tracking, order, customer, carrier…" aria-label="Search warehouse records" autocomplete="off"><button class="btn ghost" id="wh-refresh" type="button">↻ Refresh</button><span class="muted" id="wh-updated" aria-live="polite"></span></div><div class="tabs" id="tabs"></div><div id="list"></div></section>
+    <div class="counts" id="counts"></div><section class="card"><h2>Storage locations</h2><div id="wh-locations" class="row" style="gap:8px;flex-wrap:wrap"><span class="muted">Loading locations…</span></div></section>
+    <section class="card"><div class="warehouse-toolbar"><input id="wh-search" type="search" placeholder="Search tracking, order, customer, carrier…" aria-label="Search warehouse records" autocomplete="off"><button class="btn ghost" id="wh-refresh" type="button">↻ Refresh</button><button class="btn ghost" id="wh-export" type="button">Export CSV</button><span class="muted" id="wh-updated" aria-live="polite"></span></div><div class="tabs" id="tabs"></div><div id="list"></div></section>
   </main>`;
   $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
   $('#scan').onsubmit = onScan;
   wireCams($('#scan'));
   $('#wh-search').addEventListener('input', () => renderWarehouseLists());
   $('#wh-refresh').onclick = () => load();
+  $('#wh-export').onclick = exportWarehouseCsv;
   api('/api/warehouse/couriers').then((c) => { couriers = c; }).catch(() => {});
   load();
 }
@@ -198,6 +199,19 @@ async function onScan(e) {
 
 let data;
 let warehouseLoading = false;
+/** Export only the currently visible warehouse list; guard spreadsheet formula injection. */
+function exportWarehouseCsv() {
+  if (!data) return;
+  const query = ($('#wh-search')?.value || '').trim().toLowerCase();
+  const rows = (data[tab === 'stock' ? 'in_stock' : tab] || []).filter((r) => !query || Object.values(r).some((v) => String(typeof v === 'object' ? JSON.stringify(v) : v ?? '').toLowerCase().includes(query)));
+  const fields = { expected: ['tracking','carrier','item','shop','order_id','status'], stock: ['tracking','item','location','weight_g','status','received_at','order_id'], orders: ['id','recipient','destination','items','parcels_received','parcels_total','status'], shipments: ['order_id','carrier','tracking','shipped_at','status'] }[tab];
+  if (!fields) return;
+  const cell = (v) => { let x = String(v ?? '').replace(/[\\r\\n]+/g, ' '); if (/^[\\s]*[=+@-]/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"'; };
+  const csv = [fields.map(cell).join(','), ...rows.map((r) => fields.map((k) => cell(r[k])).join(','))].join('\\r\\n');
+  const url = URL.createObjectURL(new Blob(['\\uFEFF', csv], { type:'text/csv;charset=utf-8' }));
+  const a = document.createElement('a'); a.href = url; a.download = 'kinan-warehouse-' + tab + '-' + new Date().toISOString().slice(0,10) + '.csv'; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function renderWarehouseLists() {
   if (!data) return;
   const query = ($('#wh-search')?.value || '').trim().toLowerCase();
@@ -220,6 +234,11 @@ async function load() {
 async function loadWarehouseData() {
   data = await api('/api/warehouse/overview');
   const updated = $('#wh-updated'); if (updated) updated.textContent = 'Updated ' + new Date().toLocaleTimeString();
+  const loc = $('#wh-locations');
+  if (loc) {
+    const locations = Object.entries(data.by_location || {}).sort((a,b) => b[1].length - a[1].length);
+    loc.innerHTML = locations.length ? locations.slice(0, 30).map(([name, ids]) => '<span class="pill">' + esc(name) + ' · ' + ids.length + ' parcel(s)</span>').join('') : '<span class="muted">No stored parcels</span>';
+  }
   const c = data.counts;
   $('#counts').innerHTML = [['expected','Expected parcels'],['in_stock','In stock'],['ready_orders','Orders ready to ship'],['qc_failed','QC failed'],['unmatched','Unmatched'],['in_transit','Shipments in transit']]
     .map(([k, t]) => `<div class="count"><span>${t}</span><b class="${(k === 'qc_failed' || k === 'unmatched') && c[k] ? 'bad' : ''}">${c[k]}</b></div>`).join('');
