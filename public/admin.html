@@ -148,7 +148,7 @@ let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
   ['overview','Overview','*'],['kinan','KINAN Business','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
-  ['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
+  ['orders','Orders','*'],['invoices','Invoices','admin finance'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
@@ -157,7 +157,7 @@ const NAV_GROUPS = [
   ['Catalog & Suppliers',['platforms','listings','cj','ebay']],
   ['Operations',['orders','shipping','returns','requests']],
   ['People & Trust',['sellers','users','reviews']],
-  ['Business & Settings',['reports','payouts','coupons','backup']]
+  ['Business & Settings',['invoices','reports','payouts','coupons','backup']]
 ];
 function adminNav() {
   return NAV_GROUPS.map(([name, ids]) => {
@@ -692,6 +692,21 @@ const VIEWS = {
       </tbody></table></div></div>`;
     $('#fs').onchange = (e) => { v.dataset.status = e.target.value; render(); };
     v.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => openOrder(tr.dataset.id));
+  },
+
+  async invoices(v) {
+    const q = v.dataset.q || '';
+    const page = Math.max(1, Number(v.dataset.page) || 1);
+    const data = await api('/api/admin/invoices?q=' + encodeURIComponent(q) + '&page=' + page);
+    v.innerHTML = `<div class="card"><h2>Invoices</h2><p class="muted">Paid order invoices · newest first · PDF download</p>
+      <form id="invoice-search" class="row" style="gap:8px;margin-bottom:16px"><input name="q" type="search" aria-label="Search invoice number" placeholder="Search invoice number (KN-2026-…)" value="${esc(q)}" style="flex:1;min-width:180px"><button class="btn" type="submit">Search</button><button class="btn ghost" type="button" id="invoice-clear">Clear</button></form>
+      <p class="muted">${data.total} invoice(s)</p><div class="scroll"><table><thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th>Amount</th><th>Status</th><th>PDF</th></tr></thead><tbody>
+      ${data.invoices.map((o) => `<tr><td><code>${esc(o.number)}</code></td><td>${date(o.date)}</td><td>${esc(o.buyer)}</td><td>${fmt(o.total,o.currency)}</td><td><span class="pill ${statusClass(o.status)}">${esc(o.status)}</span></td><td><a class="btn sm ghost" href="${esc(o.pdf_url)}" target="_blank" rel="noopener" aria-label="Open PDF ${esc(o.number)}">PDF</a></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No invoices found</td></tr>'}
+      </tbody></table></div><div class="row" style="justify-content:space-between;margin-top:12px"><button class="btn ghost" id="invoice-prev" ${data.page <= 1 ? 'disabled' : ''}>Previous</button><span class="muted">Page ${data.page} of ${data.pages}</span><button class="btn ghost" id="invoice-next" ${data.page >= data.pages ? 'disabled' : ''}>Next</button></div></div>`;
+    $('#invoice-search').onsubmit = (e) => { e.preventDefault(); v.dataset.q = new FormData(e.target).get('q').trim(); v.dataset.page = '1'; render(); };
+    $('#invoice-clear').onclick = () => { v.dataset.q = ''; v.dataset.page = '1'; render(); };
+    $('#invoice-prev').onclick = () => { v.dataset.page = String(page - 1); render(); };
+    $('#invoice-next').onclick = () => { v.dataset.page = String(page + 1); render(); };
   },
 
   async sellers(v) {
