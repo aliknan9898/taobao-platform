@@ -147,13 +147,13 @@ function showLogin(msg = '') {
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
-  ['overview','Overview','*'],['kinan','KINAN Business','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
+  ['overview','Overview','*'],['intelligence','KINAN Intelligence','admin'],['kinan','KINAN Business','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
-  ['Workspace',['overview','kinan']],
+  ['Workspace',['overview','intelligence','kinan']],
   ['Catalog & Suppliers',['platforms','listings','cj','ebay']],
   ['Operations',['orders','shipping','returns','requests']],
   ['People & Trust',['sellers','users','reviews']],
@@ -312,6 +312,32 @@ function sourcingCard() {
 }
 
 const VIEWS = {
+  async intelligence(v) {
+    // Read-only operations dashboard. No AI provider, write action, or automated decision is implied.
+    v.innerHTML = '<div class="card"><h2>KINAN Intelligence</h2><p class="muted">Loading operational signals…</p></div>';
+    const results = await Promise.allSettled([api('/api/admin/overview'), api('/api/admin/platforms')]);
+    const overview = results[0].status === 'fulfilled' ? results[0].value : null;
+    const platforms = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : null;
+    const k = overview?.kpis || {};
+    const n = (value) => Number.isFinite(Number(value)) ? fmt(Number(value)) : '—';
+    const cards = [
+      ['Live products', k.listings], ['Orders · 30 days', k.orders_30d],
+      ['Active sellers', k.active_sellers], ['Revenue · 30 days', null]
+    ];
+    const revenue = overview ? fmt(k.revenue_30d ?? 0, overview.currency) : '—';
+    v.innerHTML = `<section class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h1 style="margin:0">KINAN Intelligence</h1><p class="muted" style="margin:4px 0">Commerce operations &amp; automation command center</p></div><button type="button" class="btn ghost" id="ki-refresh">Refresh data</button></div><p class="muted small">Read-only operational overview. AI analysis and autonomous actions are not enabled here.</p></section>
+      <section class="kpis">${cards.map(([label,value],i) => `<div class="kpi"><span>${label}</span><b>${i===3 ? revenue : n(value)}</b></div>`).join('')}</section>
+      <section class="card"><h2>Supplier &amp; catalog signals</h2>${platforms ? (platforms.length ? `<div class="scroll"><table><thead><tr><th>Platform</th><th>Active products</th></tr></thead><tbody>${platforms.map(p => `<tr><td>${esc(p.name || p.label || p.id || 'Unknown')}</td><td>${n(p.active)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No platform records returned.</p>') : '<p class="muted">Catalog signals unavailable. Try refreshing.</p>'}</section>
+      <section class="card"><h2>Operations shortcuts</h2><div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn ghost" data-ki-tab="platforms">Product catalog</button><button class="btn ghost" data-ki-tab="listings">Product review</button><button class="btn ghost" data-ki-tab="cj">CJdropshipping</button><button class="btn ghost" data-ki-tab="orders">Orders</button><button class="btn ghost" data-ki-tab="reports">Reports</button></div><p class="muted small">Actions open the existing admin sections and retain their access controls.</p></section>
+      ${!overview ? '<p class="pill warn">Overview data unavailable</p>' : ''}`;
+    const refresh = document.getElementById('ki-refresh');
+    if (refresh) refresh.onclick = () => { if (tab === 'intelligence') render(); };
+    v.querySelectorAll('[data-ki-tab]').forEach(b => b.onclick = () => {
+      const target = b.dataset.kiTab;
+      if (!TABS.some(([id]) => id === target)) return;
+      tab = target; render();
+    });
+  },
   async overview(v) {
     clearInterval(window.__live);
     const live = async () => {
