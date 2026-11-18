@@ -53,3 +53,22 @@ test('PostgreSQL store: changes survive a restart', async () => {
   assert.strictEqual(db.orders.get('ord_1').total, 10);
   assert.strictEqual(db.oauthStates.get('st_1').kind, 'x');
 });
+
+// The pending queue must preserve a newer update made while a previous write fails.
+test('PostgreSQL retry preserves the newest document after a transient failure', async () => {
+  const db = freshDb();
+  await db.init({ Pool: FakePool });
+  const id = 'retry_latest_1';
+  db.orders.insert({ id, total: 1 });
+  await db.flush();
+  failNext = 1;
+  db.orders.update(id, { total: 2 });
+  const firstFlush = db.flush();
+  db.orders.update(id, { total: 3 });
+  await firstFlush;
+  await db.flush();
+  const saved = table.get('orders/' + id);
+  assert.ok(saved);
+  assert.strictEqual(JSON.parse(saved[1]).total, 3);
+  assert.strictEqual(db.pendingWrites(), 0);
+});

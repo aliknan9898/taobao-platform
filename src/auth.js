@@ -24,10 +24,10 @@ function hashPassword(pw) {
   return `scrypt$${salt.toString('hex')}$${key.toString('hex')}`;
 }
 function checkPassword(pw, stored) {
-  const [, s, k] = String(stored).split('$');
-  if (!s || !k) return false;
-  const key = crypto.scryptSync(pw, Buffer.from(s, 'hex'), 64);
-  return crypto.timingSafeEqual(key, Buffer.from(k, 'hex'));
+  const parts = String(stored).split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt' || !/^[0-9a-f]{32}$/i.test(parts[1]) || !/^[0-9a-f]{128}$/i.test(parts[2])) return false;
+  const key = crypto.scryptSync(String(pw), Buffer.from(parts[1], 'hex'), 64);
+  return crypto.timingSafeEqual(key, Buffer.from(parts[2], 'hex'));
 }
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });

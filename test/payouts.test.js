@@ -120,3 +120,22 @@ test('payout day: sends PayPal/Stripe automatically when switched on, lists the 
   assert.strictEqual(db.payouts.get(a.id).status, 'paid'); assert.strictEqual(db.payouts.get(b.id).status, 'requested');
   assert.strictEqual(await P.tick(Date.parse('2026-11-23T11:30:00Z')), null, 'once a day');
 });
+
+// Regression: a network timeout may occur after the provider accepted a transfer.
+test('ambiguous Stripe transfer failure remains in reconciliation, never automatically requeued', async () => {
+  const s = seller();
+  const p = db.payouts.insert({ seller_id: s.id, amount: 40, net: 40, currency: 'usd', details: { method: 'stripe', account: 'acct_1' }, status: 'requested' });
+  const original = global.fetch;
+  let attempted = 0;
+  global.fetch = async (url, opts) => {
+    if (new URL(url).pathname === '/v1/transfers') { attempted++; throw new Error('network timeout after request'); }
+    return original(url, opts);
+  };
+  try {
+    await assert.rejects(P.send(p.id, { id: 'admin' }), /network timeout/);
+    assert.strictEqual(db.payouts.get(p.id).status, 'processing');
+    assert.strictEqual(db.payouts.get(p.id).reconciliation_required, true);
+    await assert.rejects(P.send(p.id, { id: 'admin' }), /not waiting/);
+    assert.strictEqual(attempted, 1, 'must not attempt another transfer');
+  } finally { global.fetch = original; }
+});

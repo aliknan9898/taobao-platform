@@ -4,6 +4,8 @@ name: Tests
 on:
   push:
   pull_request:
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,3 +17,6 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm test
+      - run: node --check src/server.js
+      - run: node --check src/db.js
+      - run: node --check src/auth.js

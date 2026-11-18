@@ -76,6 +76,17 @@ async function readJson(req) {
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
 }
+// Keep templates in memory; refresh when the underlying file changes during development.
+const pageTemplates = new Map();
+function pageTemplate(name) {
+  const file = path.join(PUBLIC, name);
+  const mtime = fs.statSync(file).mtimeMs;
+  const hit = pageTemplates.get(name);
+  if (hit && hit.mtime === mtime) return hit.html;
+  const html = versionAssets(fs.readFileSync(file, 'utf8'));
+  pageTemplates.set(name, { mtime, html });
+  return html;
+}
 function page(res, file, { stripe: withStripe = false, head = '', title = '', body = '' } = {}) {
   // Customer pages may load analytics tools (only after the visitor accepts cookies)
   const an = ['shop.html', 'download.html'].includes(file) ? seo.analyticsCsp() : { script: '', connect: '' };
@@ -87,7 +98,8 @@ function page(res, file, { stripe: withStripe = false, head = '', title = '', bo
       `script-src 'self' 'unsafe-inline'${stripeSrc}${an.script}; connect-src 'self'${withStripe ? ' https://api.stripe.com' : ''}${an.connect}; ` +
       `frame-src ${withStripe ? 'https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com' : "'none'"}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`
   });
-  let html = versionAssets(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
+  // Reuse unchanged HTML templates instead of blocking the event loop with disk I/O on every page request.
+  let html = pageTemplate(file);
   const meta = ['shop.html', 'download.html'].includes(file) ? seo.verificationMeta() : '';
   if (title) html = html.replace(/<title>[^<]*<\/title>/, `<title>${attr(title)}</title>`);
   if (/name="description"/.test(head)) html = html.replace(/<meta name="description"[^>]*>\n?/, '');

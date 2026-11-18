@@ -162,27 +162,42 @@ async function stripeTransfer({ account, amount, id, note }) {
 
 // ---------------- sending ----------------
 /** Send a requested withdrawal through PayPal or Stripe (the others are paid by hand). */
+// A process-local guard prevents overlapping sends; the persisted processing state
+// prevents a restart from automatically retrying an ambiguous provider request.
+const sending = new Set();
 async function send(payoutId, admin) {
-  const p = db.payouts.get(payoutId);
-  if (!p) throw httpError(404, 'Withdrawal not found');
-  if (p.status !== 'requested') throw httpError(409, 'This withdrawal is not waiting');
-  const method = p.details?.method; const net = money(p.net ?? p.amount);
-  db.payouts.update(p.id, { status: 'processing', sending_at: Date.now(), by: admin?.id || 'auto' });
+  if (sending.has(payoutId)) throw httpError(409, 'Withdrawal is already being sent');
+  sending.add(payoutId);
   try {
-    if (method === 'paypal') {
-      const batch = await paypalSend({ email: p.details.email, amount: net, currency: p.currency, id: p.id, note: `Kinan earnings — ${db.sellers.get(p.seller_id)?.shop_name || ''}` });
-      return db.payouts.update(p.id, { provider: 'paypal', provider_ref: batch, reference: `PayPal ${batch}` });
-    }
-    if (method === 'stripe') {
+    const p = db.payouts.get(payoutId);
+    if (!p) throw httpError(404, 'Withdrawal not found');
+    if (p.status !== 'requested') throw httpError(409, 'This withdrawal is not waiting');
+    const method = p.details?.method; const net = money(p.net ?? p.amount);
+    if (method !== 'paypal' && method !== 'stripe') throw httpError(400, 'This method is paid by hand — send it from your bank, Payoneer or Wise, then tap Mark paid');
+    db.payouts.update(p.id, { status: 'processing', sending_at: Date.now(), by: admin?.id || 'auto', provider: method, send_error: null });
+    // Never call an external money-moving API before the intent is durable.
+    // If the flush fails, leave processing for manual reconciliation.
+    await db.flush();
+    try {
+      if (method === 'paypal') {
+        const batch = await paypalSend({ email: p.details.email, amount: net, currency: p.currency, id: p.id, note: `Kinan earnings — ${db.sellers.get(p.seller_id)?.shop_name || ''}` });
+        const out = db.payouts.update(p.id, { provider_ref: batch, reference: `PayPal ${batch}` });
+        await db.flush();
+        return out;
+      }
       const t = await stripeTransfer({ account: p.details.account, amount: net, id: p.id });
-      const out = db.payouts.update(p.id, { status: 'paid', provider: 'stripe', provider_ref: t.id, reference: `Stripe ${t.id} (${t.amount} ${t.currency})`, paid_at: Date.now() });
-      require('../notify').payoutUpdate(out); return out;
+      const out = db.payouts.update(p.id, { status: 'paid', provider_ref: t.id, reference: `Stripe ${t.id} (${t.amount} ${t.currency})`, paid_at: Date.now() });
+      await db.flush();
+      require('../notify').payoutUpdate(out);
+      return out;
+    } catch (e) {
+      // Timeouts and network errors are ambiguous: the provider may have paid.
+      // Never reset to 'requested' automatically or another click may double-pay.
+      db.payouts.update(p.id, { send_error: String(e.message).slice(0, 300), reconciliation_required: true });
+      try { await db.flush(); } catch (flushError) { console.error('[payouts] reconciliation state persistence failed', flushError.message); }
+      throw e;
     }
-    throw httpError(400, 'This method is paid by hand — send it from your bank, Payoneer or Wise, then tap Mark paid');
-  } catch (e) {
-    db.payouts.update(p.id, { status: 'requested', send_error: e.message, sending_at: null });
-    throw e;
-  }
+  } finally { sending.delete(payoutId); }
 }
 /** Follow PayPal payouts that are still processing. */
 async function checkProcessing() {
