@@ -132,6 +132,27 @@ function listOrders({ status } = {}) {
 }
 
 /** Admin sees cost & margin to judge each product before approving it. */
+/** Paginated invoice index for paid orders; search by invoice or order number. */
+function listInvoices({ q = '', page = 1, limit = 30 } = {}) {
+  const needle = String(q).trim().toUpperCase().slice(0, 100);
+  const current = Math.max(1, Math.floor(Number(page) || 1));
+  const size = Math.max(1, Math.min(100, Math.floor(Number(limit) || 30)));
+  const { invoiceNo } = require('./ops');
+  const rows = db.orders.all((o) => o.status !== 'pending_payment' && Boolean(o.paid_at))
+    .filter((o) => !needle || invoiceNo(o).includes(needle) || o.id.toUpperCase().includes(needle))
+    .sort((a, b) => (b.paid_at || b.created_at) - (a.paid_at || a.created_at));
+  return {
+    total: rows.length, page: current, pages: Math.max(1, Math.ceil(rows.length / size)),
+    invoices: rows.slice((current - 1) * size, current * size).map((o) => ({
+      id: o.id, number: invoiceNo(o), date: o.paid_at || o.created_at,
+      buyer: db.users.get(o.buyer_id)?.email || '', status: o.status,
+      total: Math.round(Number(o.total || 0) * Number(o.charge?.rate || 1) * 100) / 100,
+      currency: o.charge?.currency || o.currency || config.currency,
+      pdf_url: `/invoice/${o.id}.pdf`
+    }))
+  };
+}
+
 function listings({ status } = {}) {
   return db.listings.all((l) => !status || l.status === status)
     .sort((a, b) => (b.review?.submitted_at || b.created_at) - (a.review?.submitted_at || a.created_at))
@@ -148,4 +169,4 @@ function listings({ status } = {}) {
 
 function users() { return db.users.all().map(publicUser); }
 
-module.exports = { overview, sellers, updateSeller, listOrders, listings, users };
+module.exports = { overview, sellers, updateSeller, listOrders, listInvoices, listings, users };
