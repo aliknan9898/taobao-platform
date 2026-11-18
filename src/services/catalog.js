@@ -274,16 +274,30 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
   const ccx = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
   const cjs = ccx ? require('./cj') : null;
   // Products CJ cannot deliver to the shopper's country are left out (they could not be ordered there anyway)
-  let items = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id) && !(cjs && cjs.noDelivery(l, ccx))
+  const listings = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id) && !(cjs && cjs.noDelivery(l, ccx))
     && (!seller_id || l.seller_id === seller_id)
     && (!category || (l.category || 'other') === category)
     && (!collection || (l.collections || []).includes(collection)) && (!group || l.collection_group === group || l.sourcing?.group === group)
-    && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (l.keywords || []).some((k) => k.includes(needle) || needle.includes(k)) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
-    .map((l) => toBuyerView(l, activeSellers.get(l.seller_id)))
-    .filter((p) => p.min_price >= lo && p.min_price <= hi);
-  const order = { price_asc: (a, b) => a.min_price - b.min_price, price_desc: (a, b) => b.min_price - a.min_price, new: (a, b) => b.listed_at - a.listed_at }[sort] || ((a, b) => b.listed_at - a.listed_at);
-  items = items.sort(order);
-  const page = items.slice(Number(offset) || 0, (Number(offset) || 0) + (limit === 100000 ? items.length : Math.min(Number(limit) || 40, 100)));
+    && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (l.keywords || []).some((k) => k.includes(needle) || needle.includes(k)) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)));
+  const start = Number(offset) || 0;
+  const count = limit === 100000 ? listings.length : Math.min(Number(limit) || 40, 100);
+  const newest = (l) => l.review?.decided_at || l.created_at;
+  // Most storefront requests sort by recency without a price filter. Sort lightweight
+  // listing records first, then construct expensive buyer views for the requested page only.
+  // Price sorts/filters retain the full conversion path for exact pricing semantics.
+  let page; let total;
+  if (!min_price && !max_price && !['price_asc', 'price_desc'].includes(sort)) {
+    listings.sort((a, b) => newest(b) - newest(a));
+    total = listings.length;
+    page = listings.slice(start, start + count).map((l) => toBuyerView(l, activeSellers.get(l.seller_id)));
+  } else {
+    let items = listings.map((l) => toBuyerView(l, activeSellers.get(l.seller_id)))
+      .filter((p) => p.min_price >= lo && p.min_price <= hi);
+    const order = { price_asc: (a, b) => a.min_price - b.min_price, price_desc: (a, b) => b.min_price - a.min_price, new: (a, b) => b.listed_at - a.listed_at }[sort] || ((a, b) => b.listed_at - a.listed_at);
+    items = items.sort(order);
+    total = items.length;
+    page = items.slice(start, start + (limit === 100000 ? items.length : count));
+  }
   // With the customer's country: the price of one piece delivered to them (shipping included)
   const cc = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
   if (cc) {
@@ -299,7 +313,7 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
       else if (['cj', 'banggood'].includes(l.source)) p.ship_pending = true;
     }
   }
-  return { total: items.length, items: page };
+  return { total, items: page };
 }
 
 /**
