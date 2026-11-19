@@ -367,7 +367,7 @@ function toBuyerViewRaw(l, seller) {
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(['cj', 'banggood'].includes(l.source) ? { ship_extra: true } : {}), category: l.category || 'other', ...((l.collections || []).length ? { collections: l.collections } : {}), ...(l.cj_from && l.cj_from !== 'CN' ? { ships_from: l.cj_from } : {}),
     // the real delivery time found when the product was checked (to the UK and to the EU): [fastest, slowest] days
-    ...(() => { const so = l.sourcing || {}; const d = {}; if (so.gb_days) d.GB = [so.gb_min || null, so.gb_days]; if (so.eu_days) d.EU = [so.eu_min || null, so.eu_days]; return Object.keys(d).length ? { ship_days: d } : {}; })(),
+    ...(() => { const so = l.sourcing || {}; if (so.delivery_by_country) return { ship_days_exact: true, ship_days: Object.fromEntries(Object.entries(so.delivery_by_country).map(([country, quote]) => [country, [quote.min || null, quote.days]])) }; const d = {}; if (so.gb_days) d.GB = [so.gb_min || null, so.gb_days]; if (so.eu_days) d.EU = [so.eu_min || null, so.eu_days]; return Object.keys(d).length ? { ship_days: d } : {}; })(),
     min_price: Math.min(...require('./shipsFrom').visibleSkus(l).map((s) => require('./deals').priceOf(l, s))), ...require('./growth').ratingFor(l.id),
     ...(() => { const no = l.source === 'cj' ? require('./cj').noDeliveryList(l) : []; return no.length ? { no_delivery: no } : {}; })(),
     ...(() => { const d = require('./deals').dealFor(l); return d ? { deal: d, was_min_price: Math.min(...l.skus.map((s) => s.price)) } : {}; })(),
@@ -434,7 +434,8 @@ const DISPATCH_DAYS = () => Math.max(0, Number(process.env.DISPATCH_DAYS ?? 1));
 const EU_MEMBERS = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
 function measuredDays(l, cc) {
   const so = l.sourcing || {};
-  const [lo, hi, basis] = cc === 'GB' ? [so.gb_min, so.gb_days, 'GB'] : EU_MEMBERS.has(cc) ? [so.eu_min, so.eu_days, 'EU'] : [];
+  const exact = so.delivery_by_country?.[cc];
+  const [lo, hi, basis] = so.delivery_by_country ? [exact?.min, exact?.days, cc] : cc === 'GB' ? [so.gb_min, so.gb_days, 'GB'] : EU_MEMBERS.has(cc) ? [so.eu_min, so.eu_days, 'EU'] : [];
   const max = Number(hi); if (!(max > 0 && max < 99)) return null;
   const min = Number(lo) > 0 && Number(lo) <= max ? Number(lo) : max; // no measured fastest time: show the measured time only
   return { min, max, known: true, basis };

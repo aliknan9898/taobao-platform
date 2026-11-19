@@ -321,7 +321,8 @@ const { $, $$, esc, date, plain, api, toast, ICONS, ORDER_STATUS, pill } = K;
 /** The real delivery time of a product to this country (checked when it was added), e.g. "5–7"; null if unknown. */
 function realDays(p, country) {
   const d = p && p.ship_days; if (!d) return null;
-  const r = String(country || '').toUpperCase() === 'GB' ? (d.GB || d.EU) : (d.EU || d.GB);
+  const cc = String(country || '').toUpperCase();
+  const r = p.ship_days_exact ? d[cc] : cc === 'GB' ? (d.GB || d.EU) : (d.EU || d.GB);
   if (!r || !r[1]) return null;
   return r[0] && r[0] < r[1] ? `${r[0]}–${r[1]}` : String(r[1]);
 }
