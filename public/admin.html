@@ -36,20 +36,35 @@
   nav { display:flex; gap:4px; overflow-x:auto; padding:8px 16px; background:var(--card); border-bottom:1px solid var(--line); }
   nav button { background:transparent; color:var(--muted); border:0; padding:8px 12px; border-radius:8px; font:inherit; cursor:pointer; white-space:nowrap; }
   nav button.on { background:var(--chip); color:var(--ink); font-weight:600; }
-  /* Organized admin workspace: responsive grouped navigation */
-  .admin-shell { display:grid; grid-template-columns:240px minmax(0,1fr); min-height:calc(100vh - 65px); }
-  .admin-shell nav { position:sticky; top:65px; align-self:start; height:calc(100vh - 65px); overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; gap:3px; padding:16px 10px; border-right:1px solid var(--line); border-bottom:0; }
-  .admin-shell nav .nav-group { padding:15px 12px 5px; color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
-  .admin-shell nav button { width:100%; text-align:left; white-space:normal; padding:10px 12px; border-radius:9px; }
-  .admin-shell nav button.on { background:var(--chip); color:var(--accent); }
-  .admin-shell main { width:100%; max-width:1500px; padding:24px; align-content:start; }
-  @media(max-width:900px) { .admin-shell { grid-template-columns:minmax(0,1fr); } .admin-shell nav { position:static; height:auto; overflow-x:auto; overflow-y:hidden; flex-direction:row; padding:8px 12px; border-right:0; border-bottom:1px solid var(--line); } .admin-shell nav .nav-group { display:none; } .admin-shell nav button { width:auto; white-space:nowrap; } .admin-shell main { padding:14px; } }
+  .admin-shell { display:grid; grid-template-columns:226px minmax(0,1fr); min-height:calc(100vh - 65px); background:var(--chip); }
+  .admin-menu { position:sticky; top:65px; align-self:start; max-height:calc(100vh - 65px); overflow:auto; background:var(--card); border-inline-end:1px solid var(--line); }
+  .admin-menu nav { display:grid; gap:15px; padding:16px 10px; border:0; }
+  .nav-group { display:grid; gap:2px; }
+  .nav-label { padding:5px 12px; color:var(--muted); font-size:11px; font-weight:750; text-transform:uppercase; letter-spacing:.08em; }
+  .admin-menu nav button { text-align:start; white-space:normal; }
+  .admin-menu nav button:hover { background:var(--chip); color:var(--ink); }
+  .admin-menu nav button.on { color:var(--accent); }
+  .admin-menu-toggle { display:none; }
+  .admin-content { min-width:0; width:100%; max-width:1500px; margin-inline:auto; padding:24px; }
+  .admin-content h1 { font-size:clamp(23px,3vw,32px); line-height:1.2; margin:0 0 16px; }
+  .admin-shell main { max-width:none; padding:0; align-content:start; }
+  .overview-priority { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+  @media(max-width:1100px) { .overview-priority { grid-template-columns:minmax(0,1fr); } }
+  @media(max-width:900px) {
+    .admin-shell { grid-template-columns:minmax(0,1fr); }
+    .admin-content { padding:14px; }
+    .admin-menu { position:static; max-height:none; border-inline-end:0; border-bottom:1px solid var(--line); }
+    .admin-menu-toggle { display:block; margin:9px 14px; }
+    .admin-menu nav { display:none; }
+    .admin-menu.menu-open nav { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); }
+  }
   main { max-width:1100px; margin:0 auto; padding:16px; display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
   main > * { min-width:0; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
   h2 { font-size:15px; margin:0 0 12px; }
   .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  button.kpi { cursor:pointer; text-align:start; font:inherit; color:var(--ink); }
   .kpi b { display:block; font-size:22px; font-variant-numeric:tabular-nums; } .kpi span { color:var(--muted); font-size:13px; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   th { color:var(--muted); font-weight:500; font-size:12px; }
@@ -128,6 +143,9 @@ async function api(path, method = 'GET', body) {
 }
 
 function showLogin(msg = '') {
+  renderSeq++;
+  clearInterval(window.__live);
+  clearInterval(window.__importMonitor);
   $('#app').innerHTML = `<form class="card login" id="lf"><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>Admin</small></a><h2>Sign in to the admin dashboard</h2>
     ${googleSignin ? `<a class="gbtn" href="/auth/google?app=admin"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.2-8.5 2.2-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>Continue with Google</a><div class="ordiv"><span>or with email</span></div>` : ''}
     <input name="email" type="email" placeholder="Email" required autocomplete="username">
@@ -147,22 +165,26 @@ function showLogin(msg = '') {
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
-  ['overview','Overview','*'],['kinan','KINAN Business','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
+  ['overview','Overview','*'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
+  ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
   ['Workspace',['overview','kinan']],
-  ['Catalog & Suppliers',['platforms','listings','cj','ebay']],
+  ['Products',['imports','platforms','listings','ai-tools']],
   ['Operations',['orders','shipping','returns','requests']],
+  ['Suppliers & Channels',['cj','ebay','connections']],
   ['People & Trust',['sellers','users','reviews']],
-  ['Business & Settings',['reports','payouts','coupons','backup']]
+  ['Finance',['reports','payouts']],
+  ['Settings',['tools','coupons','backup']]
 ];
 function adminNav() {
   return NAV_GROUPS.map(([name, ids]) => {
     const links = ids.map(id => TABS.find(([key]) => key === id)).filter(Boolean);
-    return links.length ? '<div class="nav-group">'+name+'</div>'+links.map(([key,label]) => '<button type="button" data-t="'+key+'">'+label+'</button>').join('') : '';
+    return links.length ? `<div class="nav-group"><div class="nav-label">${name}</div>${links.map(([key, label]) =>
+      `<button type="button" data-t="${key}">${label}</button>`).join('')}</div>` : '';
   }).join('');
 }
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
@@ -179,11 +201,33 @@ function boot(user) {
   if (!TABS.some(([k]) => k === tab)) tab = 'overview';
   $('#app').innerHTML = `<header><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
       <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Kinan Shop</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a>${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
-    <div class="admin-shell"><nav aria-label="Admin sections">${adminNav()}</nav><main id="view"></main></div>
+    <div class="admin-shell">
+      <div class="admin-menu"><button type="button" class="btn ghost admin-menu-toggle" id="menutoggle" aria-controls="adminnav" aria-expanded="false">Sections</button>
+        <nav id="adminnav" aria-label="Admin sections">${adminNav()}</nav></div>
+      <div class="admin-content"><h1 id="viewtitle" tabindex="-1"></h1><main id="view" aria-labelledby="viewtitle"></main></div>
+    </div>
     <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>`;
   $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
-  document.querySelectorAll('nav button').forEach((b) => b.onclick = () => { tab = b.dataset.t; render(); });
+  const toggle = $('#menutoggle');
+  const setMenu = (open) => {
+    toggle.parentElement.classList.toggle('menu-open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+  toggle.onclick = () => setMenu(toggle.getAttribute('aria-expanded') === 'false');
+  $('#adminnav').querySelectorAll('[data-t]').forEach((button) => button.onclick = () => {
+    setMenu(false);
+    openSection(button.dataset.t);
+  });
   render();
+}
+
+function openSection(section, businessTab) {
+  if (!TABS.some(([key]) => key === section)) return;
+  if (businessTab) KB.sub = businessTab;
+  tab = section;
+  render();
+  $('#viewtitle').focus();
+  window.scrollTo(0, 0);
 }
 
 // Each render gets a number; a view still loading when the user has already moved on (another tab, or the same tab
@@ -192,8 +236,18 @@ let renderSeq = 0;
 async function render() {
   const run = ++renderSeq;
   clearInterval(window.__importMonitor);
-  document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.t === tab));
-  const v = $('#view'); v.innerHTML = '<p class="muted">Loading…</p>';
+  clearInterval(window.__live);
+  $('#viewtitle').textContent = TABS.find(([key]) => key === tab)?.[1] || 'Overview';
+  $('#adminnav').querySelectorAll('[data-t]').forEach((button) => {
+    const active = button.dataset.t === tab;
+    button.classList.toggle('on', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  const previous = $('#view');
+  const v = previous.cloneNode(false);
+  v.innerHTML = '<p class="muted">Loading…</p>';
+  previous.replaceWith(v);
   try { await VIEWS[tab](v); } catch (e) { if (run === renderSeq) v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 
@@ -314,13 +368,14 @@ function sourcingCard() {
 
 const VIEWS = {
   async overview(v) {
-    clearInterval(window.__live);
+    const startedView = renderSeq;
     const live = async () => {
-      if (tab !== 'overview') { clearInterval(window.__live); return; } if (!document.getElementById('live')) return;
-      try { const l = await api('/api/admin/live'); $('#lvShop').textContent = fmt(l.shop); $('#lvSeller').textContent = fmt(l.seller); $('#lvPeak').textContent = `Today's peak: ${l.peak_today.shop} shop · ${l.peak_today.seller} seller`; } catch { /* retry next time */ }
+      if (renderSeq !== startedView || !$('#live')) return;
+      try { const l = await api('/api/admin/live'); if (renderSeq !== startedView) return; $('#lvShop').textContent = fmt(l.shop); $('#lvSeller').textContent = fmt(l.seller); $('#lvPeak').textContent = `Today's peak: ${l.peak_today.shop} shop · ${l.peak_today.seller} seller`; } catch { /* retry next time */ }
     };
-    window.__live = setInterval(live, 15e3);
-    const d = await api('/api/admin/overview'); const k = d.kpis; const c = d.currency;
+    const d = await api('/api/admin/overview');
+    if (renderSeq !== startedView) return;
+    const k = d.kpis; const c = d.currency;
     const max = Math.max(1, ...d.daily.map((x) => x.revenue));
     v.innerHTML = `
       <div class="live" id="live"><div class="lv"><i></i><span>Live on Shop</span><b id="lvShop">…</b></div><div class="lv"><i></i><span>Live on Seller</span><b id="lvSeller">…</b></div><small class="muted" id="lvPeak"></small></div>
@@ -331,46 +386,45 @@ const VIEWS = {
         <div class="kpi"><span>Payable to sellers</span><b>${fmt(k.payable_to_sellers, c)}</b></div>
         <div class="kpi"><span>Active sellers</span><b>${fmt(k.active_sellers)}</b></div>
         <div class="kpi"><span>Live products</span><b>${fmt(k.listings)}</b></div>
-        <div class="kpi" style="cursor:pointer" onclick="tab='listings';render()"><span>Awaiting your approval</span><b class="${k.listings_pending ? 'warn' : ''}">${fmt(k.listings_pending)}</b></div>
+        ${isAdmin() ? `<button type="button" class="kpi" onclick="openSection('listings')"><span>Awaiting your approval</span><b class="${k.listings_pending ? 'warn' : ''}">${fmt(k.listings_pending)}</b></button>` : ''}
       </div>
+      <div class="overview-priority">
+      <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
       <div class="card"><h2>Daily revenue (14 days)</h2>
         <div class="bars">${d.daily.map((x) => `<div title="${esc(x.date)}: ${fmt(x.revenue, c)}"><i style="height:${(x.revenue / max) * 100}%"></i><small>${esc(x.date.slice(3))}</small></div>`).join('')}</div></div>
-      <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>
-      <div class="card" id="testorder"><h2>🧪 Test order</h2><p class="muted">Cheap, fast and varied products to buy for yourself and test everything: checkout, payment, supplier orders, tracking and delivery.</p>
-        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:end"><label>Deliver to<br><select id="toCc">${['MT', 'GB', 'DE', 'FR', 'IT', 'ES', 'NL', 'IE'].map((x) => `<option>${x}</option>`).join('')}</select></label>
-        <label>Max price each<br><input id="toMax" type="number" step="0.5" value="5" style="width:80px"></label><label>Max days<br><input id="toDays" type="number" value="12" style="width:70px"></label>
-        <label>Products<br><input id="toN" type="number" value="8" style="width:60px"></label><label>Type<br><select id="toDep"><option value="">Everything (mixed)</option><option value="electronics,phone">Electronics &amp; phone</option><option value="electronics">Electronics only</option><option value="phone">Phone accessories</option><option value="home-kitchen">Home &amp; kitchen</option><option value="beauty">Beauty</option></select></label><button class="btn" id="toGo">Find products</button></div><div id="toOut"></div></div>
-      ${isAdmin() ? '<div class="card"><h2>Local product review</h2><p class="muted">Compare local suggestions with AI reviews from the catalog and active importers. CJ photo-only reviews are counted separately. This check does not publish products or inspect image content.</p><button class="btn ghost" id="localreviewrun">Run comparison</button><div id="localreviewresult" aria-live="polite"></div></div>' : ''}
-      <div class="card" id="aireview"><h2>🤖 AI product review</h2><p class="muted">Loading…</p></div>
+      </div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
-      <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
+      <div class="row">
+        <button type="button" class="btn ghost" onclick="openSection('orders')">View orders</button>
+        ${isAdmin() ? `<button type="button" class="btn ghost" onclick="openSection('imports')">Monitor live imports</button>
+        <button type="button" class="btn ghost" onclick="openSection('ai-tools')">Open AI tools</button>` : ''}
+      </div>`;
+    live();
+    window.__live = setInterval(live, 15e3);
+  },
+
+  async 'ai-tools'(v) {
+    v.innerHTML = `
+      <div class="card" id="aireview"><h2>🤖 AI product review</h2><p class="muted">Loading…</p></div>
+      ${isAdmin() ? `<div class="card"><h2>Local product review</h2><p class="muted">Compare local suggestions with AI reviews from the catalog and active importers. CJ photo-only reviews are counted separately. This check does not publish products or inspect image content.</p><button class="btn ghost" id="localreviewrun">Run comparison</button><div id="localreviewresult" aria-live="polite"></div></div>
       <div class="card" id="aicard"><h2>AI assistant</h2><p class="muted">Loading…</p></div>
       <div class="card" id="qacard" hidden></div>
       <div class="card" id="trendscard"><h2>📈 Winning products &amp; keywords</h2><p class="muted">Loading…</p></div>
-      <div class="card" id="keywords"><h2>Google Keyword Planner</h2><p class="muted">Loading…</p></div>
-      <div class="card" id="ebay"><h2>eBay</h2><p class="muted">Loading…</p></div>
-      <div class="card" id="tgcard"><h2>Telegram</h2><p class="muted">Loading…</p></div>
-      <div class="card" id="gpsrcard"><h2>Product safety (EU GPSR)</h2><p class="muted">Loading…</p></div>
-      <div class="card" id="xmascard"><h2>🎄 Christmas Shop</h2><p class="muted">Loading…</p></div>
-      <div class="card" id="bgcard"><h2>Banggood</h2><p class="muted">Loading…</p></div>
-      <div class="card" id="nsscard"><h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Loading…</p></div>
-      <div class="card" id="aecard"><h2>AliExpress</h2><p class="muted">Loading…</p></div>
-      ${isAdmin() ? '' : '<!--'}<div class="card"><h2>Setup & integrations</h2>
-        ${d.config_problems.length ? `<p class="warn">Missing: ${d.config_problems.map((x) => `<code>${esc(x)}</code>`).join(' ')}</p>` : '<p class="ok">Configuration complete.</p>'}
-        <p class="muted">Taobao Callback URL: <code>${esc(d.webhook_urls.oauth_callback)}</code><br>
-        Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
-        Messages waiting to be processed: ${d.inbox_backlog}</p></div>${isAdmin() ? '' : '-->'}`;
-    live();
-    $('#toGo').onclick = async () => {
-      const o = $('#toOut'); o.innerHTML = '<p class="muted">Looking…</p>';
-      try {
-        const b = await api(`/api/admin/test-basket?country=${$('#toCc').value}&max_price=${$('#toMax').value}&max_days=${$('#toDays').value}&n=${$('#toN').value}&departments=${encodeURIComponent($('#toDep').value)}`);
-        if (!b.items.length) { o.innerHTML = `<p class="warn">No live product matches (${b.found} found). Try a higher price or more days.</p>`; return; }
-        o.innerHTML = `<div style="overflow-x:auto"><table style="margin-top:10px"><tr><th></th><th>Product</th><th>Department</th><th>Supplier</th><th>Days</th><th>Price</th></tr>${b.items.map((x) => `<tr><td>${x.image ? `<img src="${esc(x.image)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px" referrerpolicy="no-referrer">` : ''}</td><td>${esc(x.title.slice(0, 70))}${x.props ? `<br><small class="muted">${esc(x.props)}</small>` : ''}</td><td>${esc(x.department)}${x.section ? ` · ${esc(x.section)}` : ''}</td><td>${esc(x.supplier)}</td><td>${x.days}</td><td>${fmt(x.price, b.currency)}</td></tr>`).join('')}</table></div>
-          <p><b>Products: ${fmt(b.subtotal, b.currency)}</b>${b.shipping != null ? ` · delivery to ${esc(b.country)} ≈ ${fmt(b.shipping, b.currency)} · <b>total ≈ ${fmt(b.total, b.currency)}</b>` : ''} · slowest ${b.slowest_days} days</p>
-          <p><a class="btn" href="${esc(b.link)}">Open in the shop cart →</a> <small class="muted">Sign in to the shop as a buyer with your own address, then pay as a normal customer.</small></p>`;
-      } catch (e) { o.innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
-    };
+      <div class="card" id="keywords"><h2>Google Keyword Planner</h2><p class="muted">Loading…</p></div>` : ''}`;
+    const aiReviewCard = () => api('/api/admin/ai-review').then((a) => {
+      const el = $('#aireview'); if (!el) return;
+      if (!a.enabled) { el.innerHTML = '<h2>🤖 AI product review</h2><p class="muted">Off. Add <code>GEMINI_API_KEY</code> (free from aistudio.google.com) or <code>ANTHROPIC_API_KEY</code> in Render → Environment. Every product — imported or added by hand — is then checked automatically: title, description, keywords (English + Arabic), category and photos.</p>'; return; }
+      const CH = { title: 'title', description: 'description', keywords: 'keywords', category: 'category', arabic: 'Arabic', photos_removed: 'photos removed', photos_ordered: 'photos reordered', stopped: 'stopped', approved: 'went live' };
+      el.innerHTML = `<h2>🤖 AI product review</h2>
+        <p>${a.running ? '<span class="pill ok">On</span>' : '<span class="pill warn">Paused (AI_AUTO_REVIEW=off)</span>'} ${esc(a.provider === 'gemini' ? 'Google Gemini' : 'Claude')} <span class="muted">${esc(a.model || '')}</span> · ${a.reviewed} reviewed · <b>${a.waiting}</b> waiting · today ${a.today}/${a.daily_cap}${a.stopped ? ` · <span class="bad">${a.stopped} stopped</span>` : ''}${a.paused_until ? ` · <span class="warn">AI quota reached, retrying at ${new Date(a.paused_until).toLocaleTimeString()}</span>` : ''}</p>
+        <p class="muted">Checks up to ${a.concurrency ?? 1} new or changed products in parallel. Kinan’s own new imports go live after the check; sellers’ products still wait for your approval. Undo puts a product back as it was.</p>
+        ${isAdmin() ? '<p><button class="btn ghost" id="airun">Review the next 10 now</button> <span class="muted" id="airm"></span></p>' : ''}
+        ${a.recent.length ? `<details><summary>Latest reviews (${a.recent.length})</summary><div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Result</th><th>Changed</th><th></th></tr></thead><tbody>${a.recent.map((r) => `<tr><td><b>${esc(r.title)}</b>${r.before_title && r.before_title !== r.title ? `<div class="muted small">was: ${esc(r.before_title)}</div>` : ''}${r.notes.length ? `<div class="small warn">${r.notes.map(esc).join(' · ')}</div>` : ''}</td><td>${r.decision === 'stopped' ? `<span class="pill bad">Stopped</span><div class="small">${esc(r.reason || '')}</div>` : '<span class="pill ok">OK</span>'}</td><td class="small">${r.changed.map((c) => esc(CH[c] || c)).join(', ')}${r.removed_photos ? ` (${r.removed_photos})` : ''}</td><td>${isAdmin() && r.can_undo ? `<button class="btn ghost" data-aiundo="${esc(r.id)}">Undo</button>` : ''}</td></tr>`).join('')}</tbody></table></div></details>` : ''}`;
+      const b = $('#airun'); if (b) b.onclick = async () => { b.disabled = true; $('#airm').textContent = 'Reviewing… this takes a minute or two'; try { const x = await api('/api/admin/ai-review/run', 'POST'); $('#airm').textContent = `${x.reviewed} reviewed`; aiReviewCard(); } catch (err) { $('#airm').textContent = err.message; b.disabled = false; } };
+      el.querySelectorAll('[data-aiundo]').forEach((u) => u.onclick = async () => { if (!confirm('Put this product back as it was before the AI review?')) return; u.disabled = true; try { await api(`/api/admin/listings/${u.dataset.aiundo}/ai-undo`, 'POST'); aiReviewCard(); } catch (err) { alert(err.message); u.disabled = false; } });
+    }).catch(() => {});
+    aiReviewCard();
+    if (!isAdmin()) return;
     const aiCard = () => api('/api/admin/ai').then((st) => {
       const el = $('#aicard'); if (!el) return;
       const usd = (n) => `$${Number(n || 0).toFixed(n < 1 ? 3 : 2)}`;
@@ -410,23 +464,6 @@ const VIEWS = {
       $('#trgo').onclick = async () => { $('#trgo').disabled = true; try { await api('/api/admin/trends/run', 'POST', {}); toast('Scanning — refresh in a few minutes'); } catch (e) { toast(e.message); } };
     }).catch((e) => { const el = $('#trendscard'); if (el) el.innerHTML = `<h2>📈 Winning products &amp; keywords</h2><p class="warn">${esc(e.message)}</p>`; });
     trendsCard();
-    const xmas = () => api('/api/admin/collections/christmas').then(({ state: st, rows }) => {
-      const el = $('#xmascard'); if (!el) return;
-      const live = rows.filter((r) => r.status === 'active');
-      const avg = live.length ? Math.round(live.reduce((a, r) => a + (r.margin_pct || 0), 0) / live.length) : 0;
-      el.innerHTML = `<h2>🎄 Christmas Shop</h2>
-        <p>${st.running ? `<span class="pill warn">Importing…</span> ${st.added || 0} added, ${st.checked || 0} checked` : `<span class="pill ok">${live.length} products live</span>`} · average margin ${avg}% · shop page <a href="/christmas" target="_blank" rel="noopener">kinan.shop/christmas</a></p>
-        ${st.done_at ? `<p class="muted">Last import ${new Date(st.done_at).toLocaleString()}: added ${st.added}, skipped ${st.skipped}${st.reasons && Object.keys(st.reasons).length ? ` (${Object.entries(st.reasons).map(([k, v]) => `${esc(k)}: ${v}`).join(', ')})` : ''}${st.error ? ` — <span class="bad">${esc(st.error)}</span>` : ''}</p>` : ''}
-        <p class="muted">CJ products kept in European warehouses (Germany, France, Spain, Italy, Poland, Czechia, Netherlands, then UK), checked for stock and shipping. Coupon <b>XMAS10</b> (10%) is in Coupons.</p>
-        ${isAdmin() ? `<form class="row" id="xf"><label>Products <input type="number" name="count" min="1" max="400" value="${esc(st.prefs?.count || 200)}" style="width:70px"></label><label>Markup % <input type="number" name="markup_pct" min="10" max="400" value="${esc(st.prefs?.markup_pct || 100)}" style="width:70px"></label><label>Max CJ cost $ <input type="number" name="max_cost" min="2" max="200" value="${esc(st.prefs?.max_cost || 35)}" style="width:70px"></label><button class="btn" ${st.running ? 'disabled' : ''}>Add products</button><a href="/api/admin/collections/christmas/export.csv" download><button type="button" class="btn ghost">Download CSV</button></a><span class="muted" id="xm"></span></form>` : ''}
-        ${rows.length ? `<details style="margin-top:8px"><summary>Products (${rows.length})</summary><div style="overflow-x:auto"><table><thead><tr><th></th><th>Product</th><th>Group</th><th>CJ cost</th><th>Price</th><th>Margin</th><th>Ship</th><th>From</th><th></th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.image ? `<img src="${esc(r.image)}" alt="" width="40" height="40" style="object-fit:cover;border-radius:6px" referrerpolicy="no-referrer" loading="lazy">` : ''}</td><td><a href="/p/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.status !== 'active' ? ` <span class="pill warn">${esc(r.status)}</span>` : ''}</td><td>${esc(r.group)}</td><td>$${r.cost_usd.toFixed(2)}</td><td>$${r.price_usd.toFixed(2)}</td><td>${r.margin_pct ?? ''}%</td><td>${r.ship_usd != null ? `$${Number(r.ship_usd).toFixed(2)}` : ''} ${esc(r.ship_days)}</td><td>${esc(r.warehouse)}</td><td><a href="${esc(r.cj_link)}" target="_blank" rel="noopener noreferrer">CJ</a></td></tr>`).join('')}</tbody></table></div></details>` : ''}`;
-      const f = $('#xf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/collections/christmas/import', 'POST', { count: Number(x.count), markup_pct: Number(x.markup_pct), max_cost: Number(x.max_cost) }); $('#xm').textContent = 'Started — this takes about 10 minutes'; setTimeout(xmas, 15000); } catch (err) { $('#xm').textContent = err.message; } };
-      if (st.running) setTimeout(xmas, 15000);
-    }).catch(() => {});
-    xmas();
-    tgCard();
-    gpsrCard();
-    ebayCard();
     const kwCard = () => api('/api/admin/keywords').then((k) => {
       const el = $('#keywords'); if (!el) return;
       const setup = `<details ${k.configured ? '' : 'open'}><summary>Setup</summary><ol class="small">
@@ -459,19 +496,6 @@ const VIEWS = {
         f.querySelector('[data-hide]').onclick = () => send('');
       });
     }).catch(() => {});
-    const aiReviewCard = () => api('/api/admin/ai-review').then((a) => {
-      const el = $('#aireview'); if (!el) return;
-      if (!a.enabled) { el.innerHTML = '<h2>🤖 AI product review</h2><p class="muted">Off. Add <code>GEMINI_API_KEY</code> (free from aistudio.google.com) or <code>ANTHROPIC_API_KEY</code> in Render → Environment. Every product — imported or added by hand — is then checked automatically: title, description, keywords (English + Arabic), category and photos.</p>'; return; }
-      const CH = { title: 'title', description: 'description', keywords: 'keywords', category: 'category', arabic: 'Arabic', photos_removed: 'photos removed', photos_ordered: 'photos reordered', stopped: 'stopped', approved: 'went live' };
-      el.innerHTML = `<h2>🤖 AI product review</h2>
-        <p>${a.running ? '<span class="pill ok">On</span>' : '<span class="pill warn">Paused (AI_AUTO_REVIEW=off)</span>'} ${esc(a.provider === 'gemini' ? 'Google Gemini' : 'Claude')} <span class="muted">${esc(a.model || '')}</span> · ${a.reviewed} reviewed · <b>${a.waiting}</b> waiting · today ${a.today}/${a.daily_cap}${a.stopped ? ` · <span class="bad">${a.stopped} stopped</span>` : ''}${a.paused_until ? ` · <span class="warn">AI quota reached, retrying at ${new Date(a.paused_until).toLocaleTimeString()}</span>` : ''}</p>
-        <p class="muted">Checks up to ${a.concurrency ?? 1} new or changed products in parallel. Kinan’s own new imports go live after the check; sellers’ products still wait for your approval. Undo puts a product back as it was.</p>
-        ${isAdmin() ? '<p><button class="btn ghost" id="airun">Review the next 10 now</button> <span class="muted" id="airm"></span></p>' : ''}
-        ${a.recent.length ? `<details><summary>Latest reviews (${a.recent.length})</summary><div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Result</th><th>Changed</th><th></th></tr></thead><tbody>${a.recent.map((r) => `<tr><td><b>${esc(r.title)}</b>${r.before_title && r.before_title !== r.title ? `<div class="muted small">was: ${esc(r.before_title)}</div>` : ''}${r.notes.length ? `<div class="small warn">${r.notes.map(esc).join(' · ')}</div>` : ''}</td><td>${r.decision === 'stopped' ? `<span class="pill bad">Stopped</span><div class="small">${esc(r.reason || '')}</div>` : '<span class="pill ok">OK</span>'}</td><td class="small">${r.changed.map((c) => esc(CH[c] || c)).join(', ')}${r.removed_photos ? ` (${r.removed_photos})` : ''}</td><td>${isAdmin() && r.can_undo ? `<button class="btn ghost" data-aiundo="${esc(r.id)}">Undo</button>` : ''}</td></tr>`).join('')}</tbody></table></div></details>` : ''}`;
-      const b = $('#airun'); if (b) b.onclick = async () => { b.disabled = true; $('#airm').textContent = 'Reviewing… this takes a minute or two'; try { const x = await api('/api/admin/ai-review/run', 'POST'); $('#airm').textContent = `${x.reviewed} reviewed`; aiReviewCard(); } catch (err) { $('#airm').textContent = err.message; b.disabled = false; } };
-      el.querySelectorAll('[data-aiundo]').forEach((u) => u.onclick = async () => { if (!confirm('Put this product back as it was before the AI review?')) return; u.disabled = true; try { await api(`/api/admin/listings/${u.dataset.aiundo}/ai-undo`, 'POST'); aiReviewCard(); } catch (err) { alert(err.message); u.disabled = false; } });
-    }).catch(() => {});
-    aiReviewCard();
     const localReview = $('#localreviewrun');
     if (localReview) localReview.onclick = async () => {
       const output = $('#localreviewresult');
@@ -490,6 +514,28 @@ const VIEWS = {
       }
     };
 
+  },
+
+  async connections(v) {
+    const startedView = renderSeq;
+    v.innerHTML = `
+      <div class="card" id="aecard"><h2>AliExpress</h2><p class="muted">Loading…</p></div>
+      ${isAdmin() ? `<div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
+      <div class="card"><h2>Instagram</h2><div class="row"><button type="button" class="btn ghost" id="instagram-check">Check connection</button>
+        <span class="muted" id="instagram-status" role="status">@kinanshop4u</span></div></div>` : ''}
+      <div class="card" id="bgcard"><h2>Banggood</h2><p class="muted">Loading…</p></div>
+      <div class="card" id="nsscard"><h2>NextSmartShip — China warehouse &amp; shipping</h2><p class="muted">Loading…</p></div>
+      ${isAdmin() ? '<div class="card" id="setupcard"><h2>Setup status</h2><p class="muted">Loading…</p></div>' : ''}`;
+    if (isAdmin()) api('/api/admin/overview').then((d) => {
+      if (renderSeq !== startedView) return;
+      $('#setupcard').innerHTML = `<h2>Setup status</h2>
+        ${d.config_problems.length ? `<p class="warn">Missing: ${d.config_problems.map((x) => `<code>${esc(x)}</code>`).join(' ')}</p>` : '<p class="ok">Configuration complete.</p>'}
+        <p class="muted">Taobao Callback URL: <code>${esc(d.webhook_urls.oauth_callback)}</code><br>
+        Taobao Message Service: <code>${esc(d.webhook_urls.taobao)}</code><br>Stripe Webhook: <code>${esc(d.webhook_urls.stripe)}</code><br>
+        Messages waiting to be processed: ${d.inbox_backlog}</p>`;
+    }).catch((error) => {
+      if (renderSeq === startedView) $('#setupcard').innerHTML = `<h2>Setup status</h2><p class="err">${esc(error.message)}</p>`;
+    });
     // Domain check file from the Banggood Open Platform (served at kinan.shop/<file name>)
     const vfWire = () => {
       if (!isAdmin() || !$('#bgcard') || $('#vfbox')) return;
@@ -513,7 +559,7 @@ const VIEWS = {
       vfWire();
       const f = $('#bgf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/banggood/settings', 'PUT', { ...x, markup_pct: Number(x.markup_pct), max_days: Number(x.max_days) }); $('#bgm').textContent = 'Saved'; } catch (err) { $('#bgm').textContent = err.message; } };
     }).catch(() => {});
-    api('/api/admin/taobao').then((t) => {
+    if (isAdmin()) api('/api/admin/taobao').then((t) => {
       const el = $('#tbcard'); if (!el) return;
       el.innerHTML = `<h2>Taobao — Kinan’s account</h2>
         <p>${t.connected ? `<span class="pill ok">Connected</span> ${esc(t.account || '')}${t.needs_reauth_soon ? ' <span class="pill warn">Expires soon — reconnect</span>' : ''}` : t.configured ? '<span class="pill warn">Not connected</span>' : '<span class="pill warn">Not set up</span> Add <code>TAOBAO_APP_KEY</code> and <code>TAOBAO_APP_SECRET</code>.'}</p>
@@ -548,16 +594,80 @@ const VIEWS = {
       }).catch(() => {});
       const f = $('#nssf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/nss/settings', 'PUT', { auto_create: Boolean(x.auto_create), auto_ship: Boolean(x.auto_ship), shipping: x.shipping, max_days: Number(x.max_days) }); $('#nssm').textContent = 'Saved.'; } catch (err) { $('#nssm').textContent = err.message; } };
     }).catch(() => {});
-    const aeS = await api('/api/admin/aliexpress');
-    const aeEl = $('#aecard'); if (!aeEl) return; // the admin moved to another tab while this was loading
-    aeEl.innerHTML = `<h2>AliExpress</h2>
-      <p>${aeS.mode === 'api' ? `<span class="pill ok">Connected</span> ${esc(aeS.account || '')} — products import from a link; orders are placed automatically.${aeS.needs_reauth_soon ? ' <span class="pill warn">Reconnect soon</span>' : ''}`
-        : aeS.api_configured ? '<span class="pill warn">Not connected</span> Connect Kinan’s AliExpress account to place orders automatically.'
-        : '<span class="pill warn">Manual mode</span> Sellers add AliExpress products by hand and you order them on AliExpress yourself. Add <code>ALIEXPRESS_APP_KEY</code> and <code>ALIEXPRESS_APP_SECRET</code> to switch on automatic import and ordering.'}</p>
-      <p class="muted">AliExpress items ship straight to the customer (about ${esc(aeS.delivery_days)} days). Callback URL for the AliExpress app: <code>${esc(aeS.redirect_uri)}</code></p>
-      <div class="row">${aeS.api_configured && isAdmin() ? `<button class="btn" id="aeconn">${aeS.connected ? 'Reconnect' : 'Connect AliExpress account'}</button>` : ''}${aeS.connected && isAdmin() ? '<button class="btn ghost" id="aedis">Disconnect</button>' : ''}</div>`;
-    const aeC = $('#aeconn'); if (aeC) aeC.onclick = async () => { try { location.href = (await api('/api/admin/aliexpress/connect', 'POST')).url; } catch (e) { alert(e.message); } };
-    const x = $('#aedis'); if (x) x.onclick = async () => { if (confirm('Disconnect AliExpress? New AliExpress orders will need to be placed by hand.')) { await api('/api/admin/aliexpress/disconnect', 'POST'); render(); } };
+    const instagramCheck = v.querySelector('#instagram-check');
+    if (instagramCheck) instagramCheck.onclick = async () => {
+      const status = v.querySelector('#instagram-status');
+      instagramCheck.disabled = true;
+      status.textContent = 'Checking Instagram…';
+      try {
+        const result = await api('/api/admin/instagram/status');
+        const messages = {
+          connected: `Connected to @${result.username}`,
+          wrong_account: `Expected @kinanshop4u, received @${result.username}`,
+          not_configured: 'Set INSTAGRAM_ACCESS_TOKEN on the server.',
+          invalid_account_id: 'INSTAGRAM_ACCOUNT_ID must be numeric.',
+          meta_error: `Meta rejected the request (HTTP ${result.httpStatus}${result.code ? `, code ${result.code}` : ''}). Check token and permissions.`,
+          unexpected_response: 'Meta did not return an Instagram username.',
+          unavailable: 'Could not complete the request to Meta. Try again.',
+        };
+        status.textContent = messages[result.status] || 'Unknown connection status.';
+      } catch {
+        status.textContent = 'Could not run the connection check.';
+      } finally {
+        instagramCheck.disabled = false;
+      }
+    };
+    api('/api/admin/aliexpress').then((aeS) => {
+      if (renderSeq !== startedView) return;
+      const aeEl = $('#aecard'); if (!aeEl) return; // the admin moved to another tab while this was loading
+      aeEl.innerHTML = `<h2>AliExpress</h2>
+        <p>${aeS.mode === 'api' ? `<span class="pill ok">Connected</span> ${esc(aeS.account || '')} — products import from a link; orders are placed automatically.${aeS.needs_reauth_soon ? ' <span class="pill warn">Reconnect soon</span>' : ''}`
+          : aeS.api_configured ? '<span class="pill warn">Not connected</span> Connect Kinan’s AliExpress account to place orders automatically.'
+          : '<span class="pill warn">Manual mode</span> Sellers add AliExpress products by hand and you order them on AliExpress yourself. Add <code>ALIEXPRESS_APP_KEY</code> and <code>ALIEXPRESS_APP_SECRET</code> to switch on automatic import and ordering.'}</p>
+        <p class="muted">AliExpress items ship straight to the customer (about ${esc(aeS.delivery_days)} days). Callback URL for the AliExpress app: <code>${esc(aeS.redirect_uri)}</code></p>
+        <div class="row">${aeS.api_configured && isAdmin() ? `<button class="btn" id="aeconn">${aeS.connected ? 'Reconnect' : 'Connect AliExpress account'}</button>` : ''}${aeS.connected && isAdmin() ? '<button class="btn ghost" id="aedis">Disconnect</button>' : ''}</div>`;
+      const aeC = $('#aeconn'); if (aeC) aeC.onclick = async () => { try { location.href = (await api('/api/admin/aliexpress/connect', 'POST')).url; } catch (e) { alert(e.message); } };
+      const x = $('#aedis'); if (x) x.onclick = async () => { if (confirm('Disconnect AliExpress? New AliExpress orders will need to be placed by hand.')) { await api('/api/admin/aliexpress/disconnect', 'POST'); render(); } };
+    }).catch((error) => {
+      if (renderSeq === startedView) $('#aecard').innerHTML = `<h2>AliExpress</h2><p class="err">${esc(error.message)}</p>`;
+    });
+  },
+
+  async tools(v) {
+    v.innerHTML = `
+      <div class="card" id="testorder"><h2>🧪 Test order</h2><p class="muted">Cheap, fast and varied products to buy for yourself and test everything: checkout, payment, supplier orders, tracking and delivery.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:end"><label>Deliver to<br><select id="toCc">${['MT', 'GB', 'DE', 'FR', 'IT', 'ES', 'NL', 'IE'].map((x) => `<option>${x}</option>`).join('')}</select></label>
+        <label>Max price each<br><input id="toMax" type="number" step="0.5" value="5" style="width:80px"></label><label>Max days<br><input id="toDays" type="number" value="12" style="width:70px"></label>
+        <label>Products<br><input id="toN" type="number" value="8" style="width:60px"></label><label>Type<br><select id="toDep"><option value="">Everything (mixed)</option><option value="electronics,phone">Electronics &amp; phone</option><option value="electronics">Electronics only</option><option value="phone">Phone accessories</option><option value="home-kitchen">Home &amp; kitchen</option><option value="beauty">Beauty</option></select></label><button class="btn" id="toGo">Find products</button></div><div id="toOut"></div></div>
+      <div class="card" id="gpsrcard"><h2>Product safety (EU GPSR)</h2><p class="muted">Loading…</p></div>
+      <div class="card" id="tgcard"><h2>Telegram</h2><p class="muted">Loading…</p></div>
+      <div class="card" id="xmascard"><h2>🎄 Christmas Shop</h2><p class="muted">Loading…</p></div>`;
+    gpsrCard();
+    tgCard();
+    $('#toGo').onclick = async () => {
+      const o = $('#toOut'); o.innerHTML = '<p class="muted">Looking…</p>';
+      try {
+        const b = await api(`/api/admin/test-basket?country=${$('#toCc').value}&max_price=${$('#toMax').value}&max_days=${$('#toDays').value}&n=${$('#toN').value}&departments=${encodeURIComponent($('#toDep').value)}`);
+        if (!b.items.length) { o.innerHTML = `<p class="warn">No live product matches (${b.found} found). Try a higher price or more days.</p>`; return; }
+        o.innerHTML = `<div style="overflow-x:auto"><table style="margin-top:10px"><tr><th></th><th>Product</th><th>Department</th><th>Supplier</th><th>Days</th><th>Price</th></tr>${b.items.map((x) => `<tr><td>${x.image ? `<img src="${esc(x.image)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px" referrerpolicy="no-referrer">` : ''}</td><td>${esc(x.title.slice(0, 70))}${x.props ? `<br><small class="muted">${esc(x.props)}</small>` : ''}</td><td>${esc(x.department)}${x.section ? ` · ${esc(x.section)}` : ''}</td><td>${esc(x.supplier)}</td><td>${x.days}</td><td>${fmt(x.price, b.currency)}</td></tr>`).join('')}</table></div>
+          <p><b>Products: ${fmt(b.subtotal, b.currency)}</b>${b.shipping != null ? ` · delivery to ${esc(b.country)} ≈ ${fmt(b.shipping, b.currency)} · <b>total ≈ ${fmt(b.total, b.currency)}</b>` : ''} · slowest ${b.slowest_days} days</p>
+          <p><a class="btn" href="${esc(b.link)}">Open in the shop cart →</a> <small class="muted">Sign in to the shop as a buyer with your own address, then pay as a normal customer.</small></p>`;
+      } catch (e) { o.innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
+    };
+    const xmas = () => api('/api/admin/collections/christmas').then(({ state: st, rows }) => {
+      const el = $('#xmascard'); if (!el) return;
+      const live = rows.filter((r) => r.status === 'active');
+      const avg = live.length ? Math.round(live.reduce((a, r) => a + (r.margin_pct || 0), 0) / live.length) : 0;
+      el.innerHTML = `<h2>🎄 Christmas Shop</h2>
+        <p>${st.running ? `<span class="pill warn">Importing…</span> ${st.added || 0} added, ${st.checked || 0} checked` : `<span class="pill ok">${live.length} products live</span>`} · average margin ${avg}% · shop page <a href="/christmas" target="_blank" rel="noopener">kinan.shop/christmas</a></p>
+        ${st.done_at ? `<p class="muted">Last import ${new Date(st.done_at).toLocaleString()}: added ${st.added}, skipped ${st.skipped}${st.reasons && Object.keys(st.reasons).length ? ` (${Object.entries(st.reasons).map(([k, v]) => `${esc(k)}: ${v}`).join(', ')})` : ''}${st.error ? ` — <span class="bad">${esc(st.error)}</span>` : ''}</p>` : ''}
+        <p class="muted">CJ products kept in European warehouses (Germany, France, Spain, Italy, Poland, Czechia, Netherlands, then UK), checked for stock and shipping. Coupon <b>XMAS10</b> (10%) is in Coupons.</p>
+        ${isAdmin() ? `<form class="row" id="xf"><label>Products <input type="number" name="count" min="1" max="400" value="${esc(st.prefs?.count || 200)}" style="width:70px"></label><label>Markup % <input type="number" name="markup_pct" min="10" max="400" value="${esc(st.prefs?.markup_pct || 100)}" style="width:70px"></label><label>Max CJ cost $ <input type="number" name="max_cost" min="2" max="200" value="${esc(st.prefs?.max_cost || 35)}" style="width:70px"></label><button class="btn" ${st.running ? 'disabled' : ''}>Add products</button><a href="/api/admin/collections/christmas/export.csv" download><button type="button" class="btn ghost">Download CSV</button></a><span class="muted" id="xm"></span></form>` : ''}
+        ${rows.length ? `<details style="margin-top:8px"><summary>Products (${rows.length})</summary><div style="overflow-x:auto"><table><thead><tr><th></th><th>Product</th><th>Group</th><th>CJ cost</th><th>Price</th><th>Margin</th><th>Ship</th><th>From</th><th></th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.image ? `<img src="${esc(r.image)}" alt="" width="40" height="40" style="object-fit:cover;border-radius:6px" referrerpolicy="no-referrer" loading="lazy">` : ''}</td><td><a href="/p/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.status !== 'active' ? ` <span class="pill warn">${esc(r.status)}</span>` : ''}</td><td>${esc(r.group)}</td><td>$${r.cost_usd.toFixed(2)}</td><td>$${r.price_usd.toFixed(2)}</td><td>${r.margin_pct ?? ''}%</td><td>${r.ship_usd != null ? `$${Number(r.ship_usd).toFixed(2)}` : ''} ${esc(r.ship_days)}</td><td>${esc(r.warehouse)}</td><td><a href="${esc(r.cj_link)}" target="_blank" rel="noopener noreferrer">CJ</a></td></tr>`).join('')}</tbody></table></div></details>` : ''}`;
+      const f = $('#xf'); if (f) f.onsubmit = async (e) => { e.preventDefault(); const x = Object.fromEntries(new FormData(f)); try { await api('/api/admin/collections/christmas/import', 'POST', { count: Number(x.count), markup_pct: Number(x.markup_pct), max_cost: Number(x.max_cost) }); $('#xm').textContent = 'Started — this takes about 10 minutes'; setTimeout(xmas, 15000); } catch (err) { $('#xm').textContent = err.message; } };
+      if (st.running) setTimeout(xmas, 15000);
+    }).catch(() => {});
+    xmas();
   },
 
   async ebay(v) {
@@ -850,10 +960,60 @@ const VIEWS = {
   }
 };
 
+const importPanel = '<div class="card" id="import-live" aria-live="polite"><h2>Live product imports</h2><p class="muted">Connecting to AliExpress and CJ import status…</p></div>';
+
+VIEWS.imports = (v) => {
+  v.innerHTML = importPanel + `<div class="row">
+    <button type="button" class="btn ghost" onclick="openSection('kinan', 'products')">View KINAN products</button>
+    <button type="button" class="btn ghost" onclick="openSection('cj')">Manage CJ imports</button>
+    <button type="button" class="btn ghost" onclick="openSection('connections')">Manage connections</button>
+  </div>`;
+  monitorImports();
+};
+
+function monitorImports() {
+  const startedView = renderSeq;
+  const refreshImports = async () => {
+    const panel = document.getElementById('import-live');
+    if (!panel || renderSeq !== startedView) return;
+    const sources = [
+      ['AliExpress', '/api/admin/ae-sourcing', (s) => s.last || {}, (s) => Boolean(s.running)],
+      ['CJ catalog builder', '/api/admin/sourcing', (s) => s.run || {}, (s) => Boolean(s.running)],
+      ['CJ best sellers', '/api/admin/cj/bestsellers', (s) => s.state || {}, (s) => Boolean(s.state?.running)]
+    ];
+    const results = await Promise.all(sources.map(async ([name, url, runOf, activeOf]) => {
+      try {
+        const s = await api(url); const r = runOf(s) || {};
+        const running = activeOf(s);
+        const start = Number(r.started_at || 0), elapsed = start ? Math.max(0, (Date.now() - start) / 60000) : 0;
+        const added = Number(r.added || 0), checked = Number(r.checked || 0), skipped = Number(r.skipped || 0);
+        const rate = elapsed > 0 && running ? (added / elapsed).toFixed(2) : '—';
+        const progress = Number(r.target) > 0 ? Math.min(100, Math.round(added / r.target * 100)) : null;
+        const daily = name === 'AliExpress' && s.prefs
+          ? `<p class="small">Today <b>${Number(s.today) || 0} / ${Number(s.prefs.per_day) || 0}</b> added · minimum ${Number(s.prefs.min_orders) || 0} supplier orders</p>`
+          : '';
+        return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><b>${esc(name)}</b><span class="pill ${running ? 'warn' : 'ok'}">${running ? '● Running' : 'Idle / last run'}</span></div>
+          <p class="small">Added <b>${added}</b> · Checked ${checked} · Skipped ${skipped} · Speed <b>${rate} products/min</b></p>
+          ${daily}
+          ${progress === null ? '' : `<progress max="100" value="${progress}" style="width:100%"></progress><small class="muted">${progress}% of target</small>`}
+          ${r.error ? `<p class="err small">${esc(String(r.error).slice(0,250))}</p>` : ''}
+          ${start ? `<p class="muted small">Started ${new Date(start).toLocaleString()}</p>` : ''}</div>`;
+      } catch (e) { return `<p class="err small">${esc(name)}: ${esc(e.message)}</p>`; }
+    }));
+    if (document.getElementById('import-live') === panel && renderSeq === startedView)
+      panel.innerHTML = '<h2>Live product imports</h2><p class="muted small">Refreshes every 10 seconds · speed is based on the current run</p>' + results.join('');
+  };
+  void refreshImports();
+  window.__importMonitor = setInterval(refreshImports, 10000);
+}
+
 // ---------- ⭐ Kinan business: Kinan's own products, sales, profit, eBay and the other shops ----------
 let KB = { sub: 'overview', days: 30, sort: 'revenue', dir: -1, q: '', f: 'all' };
 VIEWS.kinan = async (v) => {
-  const d = await api(`/api/admin/kinan?days=${KB.days}`); const c = d.currency; const k = d.kpi; const pv = d.prev;
+  const startedView = renderSeq;
+  const d = await api(`/api/admin/kinan?days=${KB.days}`);
+  if (renderSeq !== startedView) return;
+  const c = d.currency; const k = d.kpi; const pv = d.prev;
   const m = (n) => fmt(n, c);
   const delta = (a, b) => { if (!b) return a ? '<small class="up">new</small>' : '<small class="muted">—</small>'; const x = Math.round(((a - b) / Math.abs(b)) * 100); return `<small class="${x >= 0 ? 'up' : 'down'}">${x >= 0 ? '▲' : '▼'} ${Math.abs(x)}% vs previous ${d.days} days</small>`; };
   const subs = [['overview', '📊 Overview'], ['products', `🧺 Products (${d.catalog.active})`], ['ebay', `🏷 eBay (${d.ebay?.live || 0} live)`], ['shops', `🏪 Shops (${d.stores.length})`], ['orders', '📦 Orders']];
@@ -867,10 +1027,7 @@ VIEWS.kinan = async (v) => {
     const max = Math.max(1, ...d.daily.map((x) => x.revenue));
     const ch = [['Website', k.site_orders, k.site_revenue], ['eBay', k.ebay_orders, k.ebay_revenue]]; const chMax = Math.max(1, ...ch.map((x) => x[2]));
     const depMax = Math.max(1, ...d.catalog.by_dept.map((x) => x.count));
-    body = `<div class="card"><h2>Instagram</h2>
-      <div class="row"><button type="button" class="btn ghost" id="instagram-check">Check connection</button>
-        <span class="muted" id="instagram-status" role="status">@kinanshop4u</span></div></div>
-      <div class="kpis">
+    body = `<div class="kpis">
         <div class="kpi"><span>Sales</span><b>${m(k.revenue)}</b>${delta(k.revenue, pv.revenue)}</div>
         <div class="kpi"><span>Profit (est.)</span><b class="${k.profit < 0 ? 'bad' : ''}">${m(k.profit)}</b><small class="muted">margin ${k.margin_pct ?? '—'}%</small></div>
         <div class="kpi"><span>Orders</span><b>${fmt(k.orders)}</b>${delta(k.orders, pv.orders)}</div>
@@ -942,71 +1099,12 @@ VIEWS.kinan = async (v) => {
       ${d.recent.map((o) => `<tr><td class="muted">${new Date(o.at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</td><td><code>${esc(o.id.slice(-8))}</code>${o.country ? ` <span class="muted">${esc(o.country)}</span>` : ''}</td><td>${o.channel === 'ebay' ? '<span class="pill">eBay</span>' : 'Website'}</td><td>${esc(o.items)}</td><td class="num">${m(o.revenue)}</td><td class="num">${m(o.profit)}</td><td><span class="pill ${statusClass(o.status)}">${esc(STATUS_LABEL[o.status] || o.status)}</span></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No orders yet.</td></tr>'}</tbody></table></div>
       <p><button class="btn ghost" onclick="tab='orders';render()">All orders</button></p></div>`;
   }
-  // Lightweight live import monitor, scoped to Kinan business > Products only.
-  // Reads existing admin-only status endpoints; never triggers an import.
   if (KB.sub === 'products') {
-    body = `<div class="card" id="import-live" aria-live="polite"><h2>🔴 Live product imports</h2><p class="muted">Connecting to AliExpress and CJ import status…</p></div>` + body;
+    body = importPanel + body;
   }
   v.innerHTML = head + body + `<p class="muted small">Profit is an estimate: sale price and delivery charged, minus the supplier's price and delivery (and eBay's fees for eBay orders). Card fees and taxes are not deducted.</p>`;
-  if (KB.sub === 'products') {
-    const startedView = renderSeq;
-    const refreshImports = async () => {
-      const panel = document.getElementById('import-live');
-      if (!panel || tab !== 'kinan' || KB.sub !== 'products' || renderSeq !== startedView) return;
-      const sources = [
-        ['AliExpress', '/api/admin/ae-sourcing', (s) => s.last || {}, (s) => Boolean(s.running)],
-        ['CJ catalog builder', '/api/admin/sourcing', (s) => s.run || {}, (s) => Boolean(s.running)],
-        ['CJ best sellers', '/api/admin/cj/bestsellers', (s) => s.state || {}, (s) => Boolean(s.state?.running)]
-      ];
-      const results = await Promise.all(sources.map(async ([name, url, runOf, activeOf]) => {
-        try {
-          const s = await api(url); const r = runOf(s) || {};
-          const running = activeOf(s);
-          const start = Number(r.started_at || 0), elapsed = start ? Math.max(0, (Date.now() - start) / 60000) : 0;
-          const added = Number(r.added || 0), checked = Number(r.checked || 0), skipped = Number(r.skipped || 0);
-          const rate = elapsed > 0 && running ? (added / elapsed).toFixed(2) : '—';
-          const progress = Number(r.target) > 0 ? Math.min(100, Math.round(added / r.target * 100)) : null;
-          const daily = name === 'AliExpress' && s.prefs
-            ? `<p class="small">Today <b>${Number(s.today) || 0} / ${Number(s.prefs.per_day) || 0}</b> added · minimum ${Number(s.prefs.min_orders) || 0} supplier orders</p>`
-            : '';
-          return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><b>${esc(name)}</b><span class="pill ${running ? 'warn' : 'ok'}">${running ? '● Running' : 'Idle / last run'}</span></div>
-            <p class="small">Added <b>${added}</b> · Checked ${checked} · Skipped ${skipped} · Speed <b>${rate} products/min</b></p>
-            ${daily}
-            ${progress === null ? '' : `<progress max="100" value="${progress}" style="width:100%"></progress><small class="muted">${progress}% of target</small>`}
-            ${r.error ? `<p class="err small">${esc(String(r.error).slice(0,250))}</p>` : ''}
-            ${start ? `<p class="muted small">Started ${new Date(start).toLocaleString()}</p>` : ''}</div>`;
-        } catch (e) { return `<p class="err small">${esc(name)}: ${esc(e.message)}</p>`; }
-      }));
-      if (document.getElementById('import-live') === panel && renderSeq === startedView)
-        panel.innerHTML = '<h2>🔴 Live product imports</h2><p class="muted small">Refreshes every 10 seconds · speed is based on the current run</p>' + results.join('');
-    };
-    void refreshImports();
-    window.__importMonitor = setInterval(refreshImports, 10000);
-  }
+  if (KB.sub === 'products') monitorImports();
   v.querySelectorAll('[data-kb]').forEach((b) => b.onclick = () => { KB.sub = b.dataset.kb; render(); });
-  const instagramCheck = v.querySelector('#instagram-check');
-  if (instagramCheck) instagramCheck.onclick = async () => {
-    const status = v.querySelector('#instagram-status');
-    instagramCheck.disabled = true;
-    status.textContent = 'Checking Instagram…';
-    try {
-      const result = await api('/api/admin/instagram/status');
-      const messages = {
-        connected: `Connected to @${result.username}`,
-        wrong_account: `Expected @kinanshop4u, received @${result.username}`,
-        not_configured: 'Set INSTAGRAM_ACCESS_TOKEN on the server.',
-        invalid_account_id: 'INSTAGRAM_ACCOUNT_ID must be numeric.',
-        meta_error: `Meta rejected the request (HTTP ${result.httpStatus}${result.code ? `, code ${result.code}` : ''}). Check token and permissions.`,
-        unexpected_response: 'Meta did not return an Instagram username.',
-        unavailable: 'Could not complete the request to Meta. Try again.',
-      };
-      status.textContent = messages[result.status] || 'Unknown connection status.';
-    } catch {
-      status.textContent = 'Could not run the connection check.';
-    } finally {
-      instagramCheck.disabled = false;
-    }
-  };
   const dd = $('#kbdays'); if (dd) dd.onchange = () => { KB.days = Number(dd.value); render(); };
   const kq = $('#kbq'); if (kq) { kq.oninput = () => { KB.q = kq.value; clearTimeout(KB.t); KB.t = setTimeout(() => { render().then(() => { const n = $('#kbq'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 350); }; }
   const kf = $('#kbf'); if (kf) kf.onchange = () => { KB.f = kf.value; render(); };
@@ -1376,6 +1474,9 @@ async function openOrder(id) {
 
 (async () => {
   const q = new URLSearchParams(location.search); const loginError = q.get('login_error') || '';
+  if (q.get('ebay') === 'connected') tab = 'ebay';
+  if (q.get('gads') === 'connected') tab = 'ai-tools';
+  if (q.get('aliexpress') === 'connected' || q.get('taobao') === 'connected') tab = 'connections';
   if (loginError || q.get('aliexpress')) history.replaceState(null, '', '/admin');
   if (q.get('aliexpress') === 'connected') setTimeout(() => alert('AliExpress account connected'), 300);
   if (q.get('taobao') === 'connected') setTimeout(() => alert('Kinan’s Taobao account connected — sellers can now import from Taobao without signing in'), 300);
