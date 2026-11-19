@@ -198,6 +198,7 @@ async function candidatesFor(cjc, item, p, have, tried, screened) {
   return out.sort((a, b) => b.listed - a.listed);
 }
 
+const exhausted = (e) => ['POINTS', 'BUDGET'].includes(e.code);
 const busyError = (e) => e.status === 429 || e.status >= 500 || /busy|limit|too many|points|reach|timeout|fetch failed/i.test(e.message || '');
 
 /** The fastest CJ delivery to a country within the day limit (null when there is none). */
@@ -291,13 +292,21 @@ async function run(opts = {}, by = 'admin') {
   const persist = () => save((x) => ({ ...x, run: { ...st }, cursor, tried: [...tried].slice(-30000), day: today(), day_added: (x.day === today() ? x.day_added || 0 : 0) }));
   save({ run: st });
   console.log(`[sourcing] started — up to ${target} products, ${p.departments.length} departments, warehouses ${p.warehouses.join(',')}`);
-  let busy = 0; let passes = 0;
+  let busy = 0; let passes = 0; let drySearches = 0;
+  const pause = (e) => {
+    st.error = `CJ stopped answering (${e.message}) — continues automatically later`;
+    st.retry_at = e.code === 'BUDGET' ? cjc.usage().resets_at : cjc.retryAt();
+    st.wait_for_daily_budget = e.code === 'BUDGET';
+    stopAsked = true;
+    cursor = (cursor - 1 + q.length) % q.length;
+  };
   try {
     while (st.added < target && !stopAsked && passes < q.length) {
+      const before = st.added;
       const item = q[cursor % q.length]; cursor = (cursor + 1) % q.length; passes++;
       let cands;
       try { cands = await candidatesFor(cjc, item, p, have, tried, screened); busy = 0; }
-      catch (e) { if (busyError(e)) { st.error = `CJ stopped answering (${e.message}) — continues automatically later`; st.retry_at = require('../cj/client').retryAt(); cursor = (cursor - 1 + q.length) % q.length; break; } continue; }
+      catch (e) { if (busyError(e)) { pause(e); break; } continue; }
       let took = 0;
       for (const c of cands) {
         if (st.added >= target || took >= p.per_keyword || stopAsked) break;
@@ -307,7 +316,7 @@ async function run(opts = {}, by = 'admin') {
           l = await cj.publish(kinan, { ref: { pid: c.pid }, from: c.from, markup_pct: p.markup_pct, category: DEPARTMENTS[item.dept].category, extra: { collections: [item.dept], collection_group: item.group } });
           busy = 0;
         } catch (e) {
-          if (busyError(e)) { have.delete(c.pid); st.checked--; if ((busy += 1) >= 5) { st.error = `CJ stopped answering (${e.message}) — continues automatically later`; st.retry_at = require('../cj/client').retryAt(); stopAsked = true; } continue; }
+          if (busyError(e)) { have.delete(c.pid); st.checked--; if (exhausted(e) || ++busy >= 5) pause(e); continue; }
           skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', c); continue;
         }
         const drop = (why) => { db.listings.remove(l.id); skip(why, c, l.title); };
@@ -318,10 +327,12 @@ async function run(opts = {}, by = 'admin') {
         // fast delivery: the EU from an EU warehouse, the UK for eBay UK
         let eu = null; let gb = null;
         try {
-          if (c.from !== 'GB') eu = await delivery(cj, l, c.from === 'DE' ? 'FR' : 'DE', p.max_days_eu);
+          if (c.from !== 'GB') {
+            eu = await delivery(cj, l, c.from === 'DE' ? 'FR' : 'DE', p.max_days_eu);
+            if (!eu) { drop(`no delivery in ${p.max_days_eu} days`); continue; }
+          }
           gb = await delivery(cj, l, 'GB', c.from === 'GB' ? p.max_days_eu : p.max_days_gb);
-        } catch (e) { if (busyError(e)) { db.listings.remove(l.id); have.delete(c.pid); st.checked--; continue; } }
-        if (c.from !== 'GB' && !eu) { drop(`no delivery in ${p.max_days_eu} days`); continue; }
+        } catch (e) { if (busyError(e)) { db.listings.remove(l.id); have.delete(c.pid); st.checked--; if (exhausted(e)) pause(e); continue; } }
         if (c.from === 'GB' && !gb) { drop(`no UK delivery in ${p.max_days_eu} days`); continue; }
         // the AI decides (photos + text)
         const d = await curate(l, item);
@@ -354,6 +365,11 @@ async function run(opts = {}, by = 'admin') {
         persist();
       }
       persist();
+      drySearches = st.added === before ? drySearches + 1 : 0;
+      if (!stopAsked && drySearches >= 5 && passes < q.length) {
+        st.error = 'Paused after five consecutive searches without adding products — continues later';
+        break;
+      }
     }
   } catch (e) { st.error = e.message; }
   finally {
@@ -380,7 +396,7 @@ function stop() { stopAsked = true; return { stopping: running }; }
 function tick() {
   const p = prefs(); const s = state();
   if (running || !require('../cj/client').enabled()) return false;
-  if (s.run?.retry_at && now() < Math.min(s.run.retry_at, (s.run.done_at || 0) + 3600e3)) return false; // waits at most an hour (older runs saved 2 hours)
+  if (s.run?.retry_at && now() < (s.run.wait_for_daily_budget ? s.run.retry_at : Math.min(s.run.retry_at, (s.run.done_at || 0) + 3600e3))) return false; // waits at most an hour (older runs saved 2 hours)
   const left = p.per_day - addedToday();
   const interrupted = s.run?.running; // the process that ran it is gone
   if (!(p.daily && left > 0) && !interrupted) return false;

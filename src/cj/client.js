@@ -125,7 +125,7 @@ async function raw(method, path, { query, body, token } = {}) {
   });
   let j; try { j = await r.json(); } catch { throw new CjError(`CJ answered ${r.status}`, r.status); }
   notePoints(j && (j.pointsInfo || j.data?.pointsInfo));
-  if (r.status === 429 || j.code === 1600200) throw new CjError('CJ is busy (too many requests) — try again in a moment', j.code, 429);
+  if ((r.status === 429 || j.code === 1600200) && !/Insufficient API points/i.test(j.message || '')) throw new CjError('CJ is busy (too many requests) — try again in a moment', j.code, 429);
   if (!(j.result === true || j.code === 200) || (j.success === false)) {
     if (/Insufficient API points/i.test(j.message || '')) {
       // Points refill every minute: wait until a few calls' worth are back (and the customers' reserve), not a whole day
@@ -134,7 +134,7 @@ async function raw(method, path, { query, body, token } = {}) {
       const first = Date.now() >= pointsOutUntil;
       pointsOutUntil = Date.now() + refillMs(RESERVE() + 100); bgUse.out = pointsOutUntil; saveUse(true);
       if (first) console.warn(`[cj] API points used up (${m.match(/Used today: \d+/)?.[0] || 'daily limit'}) — background work pauses until ${new Date(pointsOutUntil).toISOString().slice(11, 16)} UTC while they refill`);
-      throw new CjError(`CJ: ${j.message}`, j.code, 429);
+      throw new CjError(`CJ: ${j.message}`, 'POINTS', 429);
     }
     throw new CjError(`CJ: ${j.message || 'request failed'}`, j.code);
   }
@@ -174,13 +174,16 @@ async function token({ force = false } = {}) {
 
 /** Authenticated call; signs in again once if CJ says the token is no longer valid. */
 async function call(method, path, opts = {}) {
-  if (ctx.getStore()?.bg) bgBudget();
+  const isBackground = Boolean(ctx.getStore()?.bg);
+  if (isBackground) bgBudget();
   let t = await token();
   // "Too many requests": wait and try again (twice for a person waiting, once for background work)
-  const tries = ctx.getStore()?.bg ? 1 : 2;
+  const tries = isBackground ? 1 : 2;
   for (let i = 0; ; i++) {
+    if (i && isBackground) bgBudget();
     try { return await queued(() => raw(method, path, { ...opts, token: t })); }
     catch (e) {
+      if (e.code === 'POINTS') throw e;
       if ([1600001, 1600002, 1600003].includes(Number(e.code))) { t = await token({ force: true }); continue; }
       if (e.status === 429 && i < tries) { coolDown(COOL_MS * (i + 1)); continue; }
       if (e.status === 429) coolDown();
