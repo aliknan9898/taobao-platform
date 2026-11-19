@@ -16,6 +16,7 @@ const now = () => Date.now();
 const list = (v) => (Array.isArray(v) ? v : []);
 const money = (v) => Math.round(Number(v) * 100) / 100;
 const SID = 'ae_sourcing';
+const DELIVERY_MARKETS = ['GB', 'US', 'DE', 'FR', 'ES', 'IT', 'PL', 'MT'];
 const DAILY_TARGET = 1000;
 const MIN_SUPPLIER_ORDERS = 1001;
 
@@ -138,7 +139,7 @@ async function run({ count } = {}, by = 'auto') {
   const kinan = require('./buyforme').systemSeller();
   const have = new Set(db.listings.all((l) => l.ae_product_id).map((l) => String(l.ae_product_id)));
   // products refused under different rules (delivery days, price range) get a second look when the rules change
-  const rules = `v2|${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`; // v2: delivery check fixed — look again at everything refused before
+  const rules = `v3|${DELIVERY_MARKETS.join(",")}|${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`;
   const tried = new Set(s0.rules === rules ? list(s0.tried) : []);
   if (s0.rules !== rules) save({ rules, tried: [] });
   const st = { started_at: now(), by, target, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, running: true };
@@ -186,23 +187,46 @@ async function run({ count } = {}, by = 'auto') {
         const cost = Math.min(...inStock.map((s) => s.cost_sale)); cur.cost = cost;
         if (cost < p.min_cost || cost > p.max_cost) { skip('price outside range', c.id); continue; }
         if (prod.images.length < 3) { skip('too few photos', c.id); continue; }
-        // fastest delivery among up to 4 options (the "ships from" choice is an option on AliExpress)
-        let gb = null; let eu = null;
+        let verified = null;
+        let failedMarket = 'GB';
+        let gb = null;
         try {
-          for (const s of inStock.slice(0, 4)) {
-            const f = await freight(c.id, s.ae_sku_id, 'GB'); if (f && (!gb || f.days < gb.days)) gb = { ...f, sku: s.mp_sku_id };
-            if (gb && gb.days <= p.max_days) break;
+          // Keep a single stocked option verified in every market. Stop each
+          // check at its first failed destination to limit supplier API usage.
+          for (const sku of inStock.slice(0, 4)) {
+            if (!sku.ae_sku_id) continue;
+            const quotes = {};
+            for (const country of DELIVERY_MARKETS) {
+              const quote = await freight(c.id, sku.ae_sku_id, country);
+              if (country === 'GB' && quote && (!gb || quote.days < gb.days)) gb = quote;
+              if (!quote || quote.days > p.max_days) { failedMarket = country; break; }
+              quotes[country] = quote;
+            }
+            if (Object.keys(quotes).length === DELIVERY_MARKETS.length) {
+              verified = { skuId: sku.ae_sku_id, quotes };
+              gb = quotes.GB;
+              break;
+            }
           }
-          const eus = inStock.find((s) => s.mp_sku_id === gb?.sku) || inStock[0];
-          eu = await freight(c.id, eus.ae_sku_id, 'DE');
-        } catch (e) { skip('delivery check failed', c.id); console.warn('[ae-sourcing] freight', c.id, e.message); continue; }
+        } catch (e) {
+          skip('delivery check failed', null);
+          console.warn('[ae-sourcing] freight', c.id, e.message);
+          continue;
+        }
         cur.days = gb?.days || null;
         if (gb) { const b = gb.days <= 10 ? '≤10' : gb.days <= 14 ? '11-14' : gb.days <= 20 ? '15-20' : gb.days <= 30 ? '21-30' : '30+'; st.days = st.days || {}; st.days[b] = (st.days[b] || 0) + 1; } else { st.days = st.days || {}; st.days.none = (st.days.none || 0) + 1; }
-        if (!gb || gb.days > p.max_days) { skip(`no UK delivery in ${p.max_days} days`, c.id); continue; }
+        if (!verified) { skip(`no ${failedMarket === 'GB' ? 'UK' : failedMarket} delivery in ${p.max_days} days`, c.id); continue; }
+        const eu = verified.quotes.DE;
         // add (not visible until the AI keeps it)
         let l;
         try { l = await aes.publish(kinan, { link: c.id }); } catch (e) { skip(`import failed: ${e.message.slice(0, 60)}`, c.id); continue; }
-        db.listings.update(l.id, (x) => ({ ...x, status: 'pending_review', ae_from: gb.from || null, skus: x.skus.map((s) => ({ ...s, price: money(Math.max(0.5, s.cost_sale * (1 + p.markup_pct / 100))) })) }));
+        const sku = l.skus.find((s) => s.ae_sku_id === verified.skuId && s.stock >= 5);
+        if (!sku || sku.cost_sale < p.min_cost || sku.cost_sale > p.max_cost) {
+          db.listings.remove(l.id);
+          skip('verified option changed during import', null);
+          continue;
+        }
+        db.listings.update(l.id, { status: 'pending_review', ae_from: gb.from || null, skus: [{ ...sku, price: money(Math.max(0.5, sku.cost_sale * (1 + p.markup_pct / 100))) }] });
         const d = await src.curate(db.listings.get(l.id), item);
         if (!d || d.error) {
           db.listings.remove(l.id);
@@ -225,7 +249,7 @@ async function run({ count } = {}, by = 'auto') {
         db.listings.update(l.id, (x) => ({
           ...x, status: 'active', review: { state: 'approved', decided_at: now(), decided_by: 'ai' }, collections: [dept], collection_group: sec, category: D[dept].category, ae_auto: true, auto_added_at: now(),
           ...(list(d.keywords).length ? { keywords: list(d.keywords).slice(0, 12) } : {}),
-          sourcing: { source: 'aliexpress', dept, group: sec, keyword: item.kw, orders: c.orders, rating: c.rating, from: gb.from, cost, at: now(), gb_days: gb.days, gb_min: gb.min || null, gb_fee: gb.fee, eu_days: eu?.days || null, eu_min: eu?.min || null, eu_fee: eu?.fee ?? null,
+          sourcing: { source: 'aliexpress', dept, group: sec, keyword: item.kw, orders: c.orders, rating: c.rating, from: gb.from, cost, at: now(), gb_days: gb.days, gb_min: gb.min || null, gb_fee: gb.fee, eu_days: eu?.days || null, eu_min: eu?.min || null, eu_fee: eu.fee, delivery_by_country: Object.fromEntries(Object.entries(verified.quotes).map(([country, quote]) => [country, { min: quote.min, days: quote.days, fee: quote.fee }])),
             ai: 'ok', quality: Number(d.quality) || null, reason: String(d.reason || '').slice(0, 200), ebay_ok: false, ebay_title: String(d.ebay_title || '').slice(0, 80) }
         }));
         require('./translate').translateListing(l.id).catch(() => {});

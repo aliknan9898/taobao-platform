@@ -11,7 +11,7 @@ const EU = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 
 const money = (v) => Math.round(Number(v) * 100) / 100;
 
 /** Delivery days to the country (UK or EU) as found when the product was checked. */
-const daysTo = (l, cc) => { const so = l.sourcing || {}; return Number(cc === 'GB' ? so.gb_days : EU.has(cc) ? so.eu_days : null) || null; };
+const daysTo = (l, cc) => { const so = l.sourcing || {}; return Number(so.delivery_by_country ? so.delivery_by_country[cc]?.days : cc === 'GB' ? so.gb_days : EU.has(cc) ? so.eu_days : null) || null; };
 
 function basket({ country = 'MT', n = 8, max_price = 5, max_days = 12, departments = '' } = {}) {
   const only = new Set(String(departments || '').split(',').map((x) => x.trim()).filter(Boolean));
