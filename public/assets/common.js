@@ -16,8 +16,8 @@ const K = (() => {
   const plain = (html) => String(html || '').replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
   let onUnauthorized = null;
-  async function api(path, method = 'GET', body) {
-    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(window.KinanLang ? { 'X-Kinan-Lang': window.KinanLang.lang } : {}), ...(/^\/seller/.test(location.pathname) ? { 'X-Kinan-App': 'seller' } : {}) }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+  async function api(path, method = 'GET', body, { signal } = {}) {
+    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(window.KinanLang ? { 'X-Kinan-Lang': window.KinanLang.lang } : {}), ...(/^\/seller/.test(location.pathname) ? { 'X-Kinan-App': 'seller' } : {}) }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin', signal });
     const j = await r.json().catch(() => ({}));
     if (r.status === 401 && onUnauthorized) onUnauthorized();
     if (!r.ok) throw Object.assign(new Error(j.error || r.statusText || 'Request failed'), { status: r.status });
