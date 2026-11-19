@@ -182,9 +182,10 @@ async function publish(seller, { ref, prices = {}, title, description, category,
     if (!(price > 0)) throw httpError(400, `Invalid price for ${s.props || 'an option'}`);
     return { ...s, price };
   });
-  if (validate) await validate({ ...p, cj_from: p.from, skus });
   const existing = db.listings.find((l) => l.seller_id === seller.id && l.source === 'cj' && l.cj_pid === p.cj_pid);
   if (validate && existing) throw httpError(409, 'already imported');
+  const photos = validate ? await validate({ ...p, cj_from: p.from, skus }) : null;
+  if (validate && db.listings.find((l) => l.seller_id === seller.id && l.source === 'cj' && l.cj_pid === p.cj_pid)) throw httpError(409, 'already imported');
   const newTitle = str(title || p.title, 200);
   const newDesc = String(description ?? p.description).replace(/<[^>]*>/g, '').slice(0, 5000);
   const own = Boolean(seller.system);
@@ -197,6 +198,15 @@ async function publish(seller, { ref, prices = {}, title, description, category,
     last_synced_at: now(), sync_error: null, cj_from: p.from || null, ...extra,
     ...(own ? (existing && existing.status === 'active' ? { status: 'active' } : require('./autoreview').holdOwn() || { status: 'active', review: { state: 'approved', decided_at: now(), note: 'Kinan shop (CJ)' } }) : keep ? { status: existing.status } : { status: 'pending_review', review: { state: 'pending', submitted_at: now() } })
   };
+  if (own && photos) {
+    doc.images = photos.images;
+    doc.images_hidden = p.images.filter((image) => !photos.images.includes(image));
+    doc.skus = skus.map((sku) => ({ ...sku, image: photos.images.includes(sku.image) ? sku.image : null }));
+    doc.photos_curated_at = now();
+    doc.status = 'active';
+    doc.review = { state: 'approved', decided_at: now(), decided_by: 'ai', note: 'CJ photos checked' };
+    doc.ai_review = { at: now(), decision: 'ok', changed: ['photos'], mode: 'photos', fp: require('./autoreview').fingerprint(doc) };
+  }
   return existing ? db.listings.update(existing.id, doc) : db.listings.insert(doc);
 }
 
@@ -206,7 +216,7 @@ async function resync(l) {
   try {
     const p = await fetchProduct({ pid: l.cj_pid }, { from: l.cj_from });
     const by = new Map(p.skus.map((s) => [s.cj_vid, s]));
-    const skus = l.skus.map((s) => { const f = by.get(s.cj_vid); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock, opts: f.opts, image: f.image || s.image || null } : { ...s, stock: 0 }; });
+    const skus = l.skus.map((s) => { const f = by.get(s.cj_vid); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock, opts: f.opts, image: l.ai_review?.mode === 'photos' ? s.image : f.image || s.image || null } : { ...s, stock: 0 }; });
     return db.listings.update(l.id, { skus, last_synced_at: now(), sync_error: null, ...(l.status === 'unavailable' && skus.some((s) => s.stock > 0) ? { status: 'active' } : {}) });
   } catch (e) {
     if (e.status === 429) throw e; // CJ's points / our background limit: try again another day, nothing is wrong with the product

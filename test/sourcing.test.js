@@ -25,12 +25,21 @@ const P = {
   D8: { name: 'Dog Water Bowl', wh: 'GB', listed: 450, days: '2-4', euDays: '12-20' }
 };
 let aiCalls = 0;
+let photoRequests = 0;
+let photoUnavailable = false;
 const freightCalls = [];
 global.fetch = async (url, opts = {}) => {
   const u = new URL(String(url));
   if (u.hostname.includes('generativelanguage')) {
     aiCalls++;
     const body = JSON.parse(opts.body); const text = body.contents[0].parts.map((x) => x.text || '').join(' ');
+    if (body.generationConfig.responseJsonSchema.required.includes('clean_photos') && !body.generationConfig.responseJsonSchema.required.includes('keep')) {
+      photoRequests++;
+      assert.equal(text.trim(), 'Number the attached photos starting from 1 in the order received.');
+      assert.equal(body.contents[0].parts.filter((part) => part.inline_data).length, 2);
+      if (photoUnavailable) throw new Error('simulated provider outage');
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ clean_photos: [2, 1], quality: 9, reason: '' }) }] } }] }) };
+    }
     const bad = /Squeaky/.test(text);
     const out = { keep: !bad, reason: bad ? 'Photos are a collage with text' : 'Clean photos, strong demand', quality: bad ? 3 : 8, photos_ok: !bad, photo_issues: bad ? 'collage' : '', department: 'pets', section: /Brush/.test(text) ? 'pets:care' : 'pets:dogs', ebay_ok: true, ebay_title: 'No Pull Dog Harness Reflective Adjustable Vest for Small Medium Large Dogs Walking Extra', keywords: ['dog harness', 'no pull harness'] };
     return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(out) }] } }], usageMetadata: {} }) };
@@ -109,4 +118,29 @@ test('catalog builder: picks best sellers in EU/UK warehouses, fast delivery, AI
   // a second run does not add the same products again
   const again = await sourcing.run({ count: 10 });
   assert.strictEqual(again.added, 0);
+});
+
+test('CJ photo-only import requires a successful image review before making a listing visible', async () => {
+  const pid = 'D9';
+  P[pid] = { name: 'Dog Walking Pouch', wh: 'DE', listed: 1200, days: '2-5' };
+  sourcing.savePrefs({ min_listed: 1000 });
+
+  const freightBefore = freightCalls.length;
+  photoUnavailable = true;
+  const paused = await sourcing.run({ count: 1, photosOnly: true });
+  assert.match(paused.error, /AI photo review paused/);
+  assert.equal(paused.added, 0);
+  assert.equal(freightCalls.length, freightBefore);
+  assert.ok(!db.listings.find((l) => l.cj_pid === pid));
+
+  photoUnavailable = false;
+  const run = await sourcing.run({ count: 1, photosOnly: true });
+  assert.equal(run.added, 1);
+  assert.equal(photoRequests, 2);
+  const listing = db.listings.find((l) => l.cj_pid === pid);
+  assert.equal(listing.status, 'active');
+  assert.equal(listing.title, P[pid].name);
+  assert.deepStrictEqual(listing.images.map((image) => new URL(image).pathname), ['/D9-2.jpg', '/D9.jpg']);
+  assert.equal(listing.sourcing.ebay_ok, false);
+  assert.equal(require('../src/services/autoreview').needsReview(listing), false);
 });
