@@ -615,6 +615,7 @@ r('POST', '/api/presence', null, async ({ req }) => ({ ok: require('./services/p
 r('GET', '/api/admin/live', STAFF, async () => require('./services/presence').counts());
 r('POST', '/api/admin/test-cart-mail', ADMIN, async ({ user }) => { const m = await require('./services/growth').testCartMail(user.email); return { status: m?.status, to: user.email }; });
 // The owner's Kinan business dashboard: Kinan's own products, sales, profit, eBay and the other shops
+r('GET', '/api/admin/instagram/status', ADMIN, async () => require('./services/instagram').checkConnection());
 r('GET', '/api/admin/kinan', ADMIN, async ({ url }) => require('./services/kinanDash').dashboard({ days: url.searchParams.get('days') }));
 r('GET', '/api/admin/kinan/products.csv', ADMIN, async ({ url, res }) => {
   const csv = require('./services/kinanDash').productsCsv(url.searchParams.get('days'));
