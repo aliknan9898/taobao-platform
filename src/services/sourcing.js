@@ -172,7 +172,7 @@ function queue(p) {
 
 // ---------------- finding & checking ----------------
 
-async function candidatesFor(cjc, item, p, have, tried) {
+async function candidatesFor(cjc, item, p, have, tried, screened) {
   const out = [];
   for (const verified of [1, 0]) {
     for (const cc of p.warehouses) {
@@ -184,8 +184,12 @@ async function candidatesFor(cjc, item, p, have, tried) {
         const pid = String(x.id || x.pid || ''); const title = x.nameEn || x.productNameEn || '';
         const cost = Number(String(x.sellPrice ?? '').split(/[-–]/)[0]); const listed = Number(x.listedNum) || 0;
         if (!pid || have.has(pid) || tried.has(pid) || out.some((o) => o.pid === pid)) continue;
-        if (require('./cj').BLOCK.test(title) || NOT_FOR_US.test(title) || !(x.bigImage || x.productImage)) continue;
-        if (!(cost >= p.min_cost && cost <= p.max_cost) || listed < p.min_listed) continue;
+        const reason = require('./cj').BLOCK.test(title) || NOT_FOR_US.test(title) ? 'not suitable'
+          : !(x.bigImage || x.productImage) ? 'no product image'
+          : !(cost >= p.min_cost && cost <= p.max_cost) ? 'price outside range'
+          : listed < p.min_listed ? 'listed by too few shops' : null;
+        if (reason) { screened.set(pid, { pid, title, reason }); continue; }
+        screened.delete(pid);
         out.push({ pid, from: cc, title, listed, cost });
       }
     }
@@ -274,9 +278,16 @@ async function run(opts = {}, by = 'admin') {
   const tried = new Set(list(s0.tried));
   const q = queue(p);
   let cursor = Number(s0.cursor) || 0;
-  const added = []; // details of each product added, for the Telegram report
+  const added = [];
+  const rejected = [];
+  const screened = new Map();
   const st = { running: true, started_at: now(), by, target, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, error: null, last: [] };
-  const skip = (why, pid) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (pid) tried.add(pid); };
+  const skip = (why, c, title = c.title) => {
+    st.skipped++;
+    st.reasons[why] = (st.reasons[why] || 0) + 1;
+    tried.add(c.pid);
+    rejected.push({ pid: c.pid, title, reason: why });
+  };
   const persist = () => save((x) => ({ ...x, run: { ...st }, cursor, tried: [...tried].slice(-30000), day: today(), day_added: (x.day === today() ? x.day_added || 0 : 0) }));
   save({ run: st });
   console.log(`[sourcing] started — up to ${target} products, ${p.departments.length} departments, warehouses ${p.warehouses.join(',')}`);
@@ -285,7 +296,7 @@ async function run(opts = {}, by = 'admin') {
     while (st.added < target && !stopAsked && passes < q.length) {
       const item = q[cursor % q.length]; cursor = (cursor + 1) % q.length; passes++;
       let cands;
-      try { cands = await candidatesFor(cjc, item, p, have, tried); busy = 0; }
+      try { cands = await candidatesFor(cjc, item, p, have, tried, screened); busy = 0; }
       catch (e) { if (busyError(e)) { st.error = `CJ stopped answering (${e.message}) — continues automatically later`; st.retry_at = require('../cj/client').retryAt(); cursor = (cursor - 1 + q.length) % q.length; break; } continue; }
       let took = 0;
       for (const c of cands) {
@@ -297,9 +308,9 @@ async function run(opts = {}, by = 'admin') {
           busy = 0;
         } catch (e) {
           if (busyError(e)) { have.delete(c.pid); st.checked--; if ((busy += 1) >= 5) { st.error = `CJ stopped answering (${e.message}) — continues automatically later`; st.retry_at = require('../cj/client').retryAt(); stopAsked = true; } continue; }
-          skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', c.pid); continue;
+          skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', c); continue;
         }
-        const drop = (why) => { db.listings.remove(l.id); skip(why, c.pid); };
+        const drop = (why) => { db.listings.remove(l.id); skip(why, c, l.title); };
         if (l.cj_from !== c.from) { drop('not in a European/UK warehouse'); continue; }
         if (!l.skus.some((k) => k.stock >= p.min_stock)) { drop('low stock'); continue; }
         if (cj.BLOCK.test(`${l.title} ${l.description}`) || NOT_FOR_US.test(l.title)) { drop('not suitable'); continue; }
@@ -333,7 +344,8 @@ async function run(opts = {}, by = 'admin') {
         }));
         st.added++; took++; st.by_dept[dept] = (st.by_dept[dept] || 0) + 1;
         st.last = [{ id: l.id, title: l.title.slice(0, 70), dept, quality: d && !d.error ? d.quality : null }, ...st.last].slice(0, 12);
-        added.push({ id: l.id, title: (d && !d.error && d.ebay_title) || l.title, dept, from: c.from, quality: d && !d.error ? Number(d.quality) || null : null, eu: eu?.days || null, gb: gb?.days || null, cost: c.cost, price: Math.min(...list(db.listings.get(l.id)?.skus).map((k) => Number(k.price) || Infinity)), kw: d && !d.error ? list(d.keywords).slice(0, 4) : [], listed: c.listed });
+        const saved = db.listings.get(l.id);
+        added.push({ id: l.id, pid: c.pid, title: saved.title, status: saved.status });
         save((x) => ({ ...x, day: today(), day_added: (x.day === today() ? x.day_added || 0 : 0) + 1 }));
         persist();
       }
@@ -345,7 +357,10 @@ async function run(opts = {}, by = 'admin') {
     persist();
   }
   console.log(`[sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}`);
-  if (st.added) try { telegramReport(st, added); } catch (e) { console.warn('[sourcing] telegram', e.message); }
+  const allRejected = [...screened.values(), ...rejected];
+  if (added.length || allRejected.length || st.error) {
+    void require('./cjReport').send(st, added, allRejected, 'تقرير استيراد الكتالوج').catch((e) => console.warn('[sourcing] telegram', e.message));
+  }
   return st;
 }
 
@@ -468,11 +483,9 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
   const why = Object.entries(st.reasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   if (why.length) head.push('', 'Skipped because:', ...why.map(([r, n]) => `• ${r}: ${n}`));
   // Keep CJ account usage out of AliExpress reports: each supplier gets its own Telegram message.
-  let cjPointsMessage = null;
   try { const u = require('../cj/client').usage(); if (u.points) {
     const points = `🔑 CJ points: ${u.points.remaining}/${u.points.total || '?'} (+${u.points.refill_per_minute || '?'}/min)`;
-    if (/aliexpress/i.test(title)) cjPointsMessage = `📦 Kinan × CJdropshipping — account usage\n${points}`;
-    else head.push('', points);
+    if (!/aliexpress/i.test(title)) head.push('', points);
   } } catch { /* optional */ }
   if (st.error) head.push('', `⏸ ${st.error}`);
   const msgs = [head.join('\n')]; let cur2 = '';
@@ -485,7 +498,6 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
   });
   if (cur2) msgs.push(cur2);
   for (const t of msgs.slice(0, 12)) push.telegram(t);
-  if (cjPointsMessage) push.telegram(cjPointsMessage);
 }
 
 module.exports = { delivery, applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };

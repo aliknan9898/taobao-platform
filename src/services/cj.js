@@ -607,6 +607,8 @@ async function importBestSellers(opts = {}, by = 'auto') {
   const kinan = require('./buyforme').systemSeller();
   const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
   const st = { running: true, started_at: now(), by, target: p.count, added: 0, skipped: 0, checked: 0, error: null, added_titles: [] };
+  const added = []; const rejected = [];
+  const reject = (pid, title, reason) => { st.skipped++; rejected.push({ pid, title, reason }); };
   setState(st);
   try {
     for (let page = 1; page <= 15 && st.added < p.count; page++) {
@@ -618,14 +620,17 @@ async function importBestSellers(opts = {}, by = 'auto') {
         const pid = String(x.id || x.pid || ''); st.checked++;
         const title = x.nameEn || x.productNameEn || '';
         const cost = Number(String(x.sellPrice ?? '').split(/[-–]/)[0]);
-        if (!pid || have.has(pid) || BLOCK.test(title) || !(cost > 0) || cost > p.max_cost || !(x.bigImage || x.productImage)) { st.skipped++; continue; }
+        if (!pid || have.has(pid)) { st.skipped++; continue; }
+        const reason = BLOCK.test(title) ? 'not suitable' : !(cost > 0) || cost > p.max_cost ? 'price outside range' : !(x.bigImage || x.productImage) ? 'no product image' : null;
+        if (reason) { reject(pid, title, reason); continue; }
         have.add(pid);
         try {
           const l = await publish(kinan, { ref: { pid }, category: guessCategory(`${x.threeCategoryName || x.categoryName || ''} ${title}`) });
-          if (!l.skus.some((k) => k.stock >= Math.min(p.min_stock, 1)) || BLOCK.test(`${l.title} ${l.description}`)) { db.listings.update(l.id, { status: 'paused', sync_error: 'Added automatically but out of stock or not suitable' }); st.skipped++; continue; }
+          if (!l.skus.some((k) => k.stock >= Math.min(p.min_stock, 1)) || BLOCK.test(`${l.title} ${l.description}`)) { db.listings.update(l.id, { status: 'paused', sync_error: 'Added automatically but out of stock or not suitable' }); reject(pid, l.title, 'out of stock or not suitable'); continue; }
           db.listings.update(l.id, { cj_auto: true, cj_listed: Number(x.listedNum) || null, auto_added_at: now() });
+          added.push({ id: l.id, pid, title: l.title, status: l.status });
           st.added++; st.added_titles = [...st.added_titles, l.title].slice(-50);
-        } catch (e) { st.skipped++; st.last_item_error = e.message; }
+        } catch (e) { reject(pid, title, e.message); st.last_item_error = e.message; }
         setState({ ...st });
       }
     }
@@ -633,25 +638,7 @@ async function importBestSellers(opts = {}, by = 'auto') {
   st.running = false; st.done_at = now();
   setState({ ...st });
   console.log(`[cj] best sellers: added ${st.added}, skipped ${st.skipped}${st.error ? ` — ${st.error}` : ''}`);
-  if (st.added || st.error) try {
-    const lines = [
-      `📦 Kinan × CJdropshipping — best sellers report`,
-      `Added: ${st.added} · Checked: ${st.checked} · Skipped: ${st.skipped}`,
-      ...(st.error ? [`⚠️ Error: ${st.error}`] : []),
-      ...(st.last_item_error ? [`Last item error: ${st.last_item_error}`] : []),
-      ...(st.added_titles.length ? ['', 'Products added:', ...st.added_titles.map((title, i) => `${i + 1}. ${String(title).slice(0, 110)}`)] : [])
-    ];
-    // Telegram messages are limited to 4096 characters. Keep CJ reports independent of AliExpress.
-    let message = '';
-    for (const line of lines) {
-      if (message && (message.length + line.length + 1) > 3400) {
-        require('../push').telegram(message);
-        message = '';
-      }
-      message += (message ? '\n' : '') + line.slice(0, 3300);
-    }
-    if (message) require('../push').telegram(message);
-  } catch (e) { console.warn('[cj] telegram report', e.message); }
+  if (added.length || rejected.length || st.error) void require('./cjReport').send(st, added, rejected, 'تقرير المنتجات الرائجة').catch((e) => console.warn('[cj] telegram report', e.message));
   return st;
 }
 
