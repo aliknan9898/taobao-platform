@@ -27,6 +27,7 @@ const P = {
 let aiCalls = 0;
 let photoRequests = 0;
 let photoUnavailable = false;
+let rejectPhotos = false;
 const freightCalls = [];
 global.fetch = async (url, opts = {}) => {
   const u = new URL(String(url));
@@ -38,7 +39,7 @@ global.fetch = async (url, opts = {}) => {
       assert.equal(text.trim(), 'Number the attached photos starting from 1 in the order received.');
       assert.equal(body.contents[0].parts.filter((part) => part.inline_data).length, 2);
       if (photoUnavailable) throw new Error('simulated provider outage');
-      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ clean_photos: [2, 1], quality: 9, reason: '' }) }] } }] }) };
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ clean_photos: rejectPhotos ? [1] : [2, 1], quality: 9, reason: '' }) }] } }] }) };
     }
     const bad = /Squeaky/.test(text);
     const out = { keep: !bad, reason: bad ? 'Photos are a collage with text' : 'Clean photos, strong demand', quality: bad ? 3 : 8, photos_ok: !bad, photo_issues: bad ? 'collage' : '', department: 'pets', section: /Brush/.test(text) ? 'pets:care' : 'pets:dogs', ebay_ok: true, ebay_title: 'No Pull Dog Harness Reflective Adjustable Vest for Small Medium Large Dogs Walking Extra', keywords: ['dog harness', 'no pull harness'] };
@@ -143,4 +144,24 @@ test('CJ photo-only import requires a successful image review before making a li
   assert.deepStrictEqual(listing.images.map((image) => new URL(image).pathname), ['/D9-2.jpg', '/D9.jpg']);
   assert.equal(listing.sourcing.ebay_ok, false);
   assert.equal(require('../src/services/autoreview').needsReview(listing), false);
+});
+
+test('CJ products rejected by photo review make no freight requests and are not fetched again', async () => {
+  const pid = 'D10';
+  P[pid] = { name: 'Dog Walking Clip', wh: 'DE', listed: 1300, days: '2-5' };
+  rejectPhotos = true;
+  try {
+    const before = freightCalls.length;
+    const rejected = await sourcing.run({ count: 1, photosOnly: true });
+    assert.equal(rejected.added, 0);
+    assert.equal(rejected.reasons['AI: fewer than 2 clean photos'], 1);
+    assert.equal(freightCalls.length, before);
+    assert.ok(!db.listings.find((l) => l.cj_pid === pid));
+    const requests = photoRequests;
+    await sourcing.run({ count: 1, photosOnly: true });
+    assert.equal(photoRequests, requests);
+    assert.equal(freightCalls.length, before);
+  } finally {
+    rejectPhotos = false;
+  }
 });
