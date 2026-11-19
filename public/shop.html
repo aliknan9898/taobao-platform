@@ -333,6 +333,7 @@ function money(n, cur) {
   return K.money(n, from);
 }
 K.offerInstall({ name: 'Kinan Shop', icon: '/assets/icon-192.png' });
+let sessionReady;
 let me = null, cfg = { currency: 'usd', shipping_flat: 0, payments: 'demo' };
 
 // ---------- cart (kept on this device) ----------
@@ -596,6 +597,12 @@ const routes = [
 async function route() {
   renderTabbar();
   const h = location.hash || '#/';
+  // The catalog can render without a session, but account and checkout routes
+  // must wait so a signed-in buyer is not sent to sign in again.
+  if (sessionReady && !/^#\/(?:$|search\/|c\/)/.test(h) && h !== '#') {
+    await sessionReady;
+    if (h !== (location.hash || '#/')) return;
+  }
   const v = $('#view');
   for (const [re, fn] of routes) {
     const m = h.match(re);
@@ -1667,6 +1674,7 @@ function campaignBand() {
 document.addEventListener('click', async (e) => {
   if (e.target.closest('#campnotify')) {
     e.preventDefault();
+    if (sessionReady) await sessionReady;
     if (!me) { location.hash = `#/signin/${encodeURIComponent('/')}`; return; }
     try { await K.enablePush('shop'); toast(KinanLang.t('We will let you know when the sale starts')); e.target.closest('#campnotify')?.remove(); } catch (err) { toast(err.message); }
   }
@@ -1898,13 +1906,20 @@ function wireInstall() {
     if (params.get('redirect_status') === 'succeeded') await api(`/api/buyer/orders/${encodeURIComponent(backFromPay)}/confirm-card`, 'POST').catch(() => {});
     else if (params.get('redirect_status') === 'failed') setTimeout(() => toast('The payment did not go through. You can try again from the order.'), 600);
   }
-  [cfg, me] = await Promise.all([api('/api/config/public').catch(() => cfg), api('/api/me').then(asMe).catch(() => null)]);
+  const configReady = api('/api/config/public').catch(() => cfg);
+  sessionReady = api('/api/me').then(asMe).catch(() => null).then((user) => {
+    me = user;
+    Cart.sync(); Book.sync();
+  }).finally(() => { sessionReady = null; });
+  cfg = await configReady;
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
-  Cart.sync(); Book.sync();
   K.analyticsConsent(cfg.analytics);
   if (cfg.whatsapp) { const a = document.createElement('a'); a.className = 'wafab'; a.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent('Hello Kinan')}`; a.target = '_blank'; a.rel = 'noopener'; a.setAttribute('aria-label', 'WhatsApp'); a.innerHTML = WA; document.body.append(a); }
   assistantButton();
-  if (loginError) { signin(encodeURIComponent('/'), 'in', loginError); } else route();
+  if (loginError) {
+    if (sessionReady) await sessionReady;
+    signin(encodeURIComponent('/'), 'in', loginError);
+  } else route();
   K.registerSW();
   try { K.presence('shop'); } catch { /* optional */ }
 })();
