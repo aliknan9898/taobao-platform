@@ -345,7 +345,11 @@ async function run(opts = {}, by = 'admin') {
         st.added++; took++; st.by_dept[dept] = (st.by_dept[dept] || 0) + 1;
         st.last = [{ id: l.id, title: l.title.slice(0, 70), dept, quality: d && !d.error ? d.quality : null }, ...st.last].slice(0, 12);
         const saved = db.listings.get(l.id);
-        added.push({ id: l.id, pid: c.pid, title: saved.title, status: saved.status });
+        added.push({
+          id: l.id, pid: c.pid, title: saved.title, status: saved.status, dept, from: c.from,
+          quality: d && !d.error ? Number(d.quality) || null : null, eu: eu?.days, gb: gb?.days,
+          cost: c.cost, price: Math.min(...list(saved.skus).map((sku) => Number(sku.price) || Infinity)),
+        });
         save((x) => ({ ...x, day: today(), day_added: (x.day === today() ? x.day_added || 0 : 0) + 1 }));
         persist();
       }

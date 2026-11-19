@@ -12,13 +12,15 @@ test('CJ Telegram report keeps published, pending and rejected products distinct
   t.mock.method(cj, 'usage', () => ({ points: { remaining: 856, total: 50278, refill_per_minute: 35 } }));
   const rejected = Array.from({ length: 90 }, (_, i) => ({ pid: `cj-${i}`, title: `Rejected product ${i}`, reason: 'low stock' }));
   assert.equal(await report.send({ checked: 92, skipped: 90 }, [
-    { id: 'live-id', pid: 'cj-live', title: 'Live product', status: 'active' },
+    { id: 'live-id', pid: 'cj-live', title: 'Live product', status: 'active', from: 'DE', quality: 8, eu: 5, cost: 4, price: 8 },
     { id: 'pending-id', pid: 'cj-pending', title: 'Pending product', status: 'pending_review' },
   ], rejected, 'تقرير اختبار'), true);
 
   const text = messages.join('\n');
   assert.match(text, /تم النشر: 1 · بانتظار النشر: 1 · مرفوض: 90/);
   assert.match(text, /CJ points: 856\/50278/);
+  assert.match(text, /low stock: 90/);
+  assert.match(text, /المخزن: DE.*AI: 8\/10.*EU: 5.*التكلفة: 4\.00.*السعر: 8\.00/);
   assert.match(text, /#\/p\/live-id/);
   assert.doesNotMatch(text, /#\/p\/pending-id/);
   assert.ok(messages.length > 1 && messages.every((message) => message.length <= 3400));
