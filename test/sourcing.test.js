@@ -20,7 +20,9 @@ const P = {
   D3: { name: 'Dog Bed Calming Round', wh: 'DE', listed: 500, days: '12-20' },
   D4: { name: 'Dog Toy Squeaky Ball', wh: 'DE', listed: 400, days: '3-6' },
   D5: { name: 'Dog Grooming Brush Self Cleaning', wh: 'GB', listed: 300, days: '1-3' },
-  D6: { name: 'Disney Dog Bowl', wh: 'DE', listed: 999, days: '2-4' }
+  D6: { name: 'Disney Dog Bowl', wh: 'DE', listed: 999, days: '2-4' },
+  D7: { name: 'Dog Travel Mat', wh: 'DE', listed: 550, days: '2-4', gbDays: '12-20' },
+  D8: { name: 'Dog Water Bowl', wh: 'GB', listed: 450, days: '2-4', euDays: '12-20' }
 };
 let aiCalls = 0;
 const freightCalls = [];
@@ -49,8 +51,9 @@ global.fetch = async (url, opts = {}) => {
   if (p === '/logistic/freightCalculate') {
     const id = body.products[0].vid.split('-')[0];
     freightCalls.push(id);
-    const m = /(\d+)-(\d+)/.exec(P[id].days);
-    return ok([{ logisticName: 'DHL', logisticPrice: 4, logisticAging: P[id].days, min: Number(m[1]), max: Number(m[2]) }]);
+    const days = (body.endCountryCode === 'GB' ? P[id].gbDays : P[id].euDays) || P[id].days;
+    const m = /(\d+)-(\d+)/.exec(days);
+    return ok([{ logisticName: 'DHL', logisticPrice: 4, logisticAging: days, min: Number(m[1]), max: Number(m[2]) }]);
   }
   throw new Error(`unexpected ${u.href}`);
 };
@@ -66,6 +69,9 @@ test('catalog builder: picks best sellers in EU/UK warehouses, fast delivery, AI
   const added = db.listings.all((l) => l.sourcing);
   const titles = added.map((l) => l.sourcing.supplier_title).sort();
   assert.deepStrictEqual(titles, ['Dog Grooming Brush Self Cleaning', 'Dog Harness No Pull Reflective'], JSON.stringify(st.reasons));
+  assert.equal(st.reasons['no UK delivery in 10 days'], 1);
+  assert.equal(st.reasons['no delivery in 7 days to DE'], 1);
+  assert.ok(!db.listings.all((l) => ['D7', 'D8'].includes(l.cj_pid)).length);
   assert.ok(st.reasons['AI: photos not good enough'] >= 1, JSON.stringify(st.reasons));
   assert.ok(Object.keys(st.reasons).some((k) => /no delivery in 7 days/.test(k)), JSON.stringify(st.reasons));
   assert.ok(!db.listings.all((l) => /Leash|Disney/.test(l.title)).length, 'low demand and brand copies are left out');
