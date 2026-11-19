@@ -45,7 +45,7 @@ const api = async (method, p, body, token) => {
 const login = async (e, p) => (await api('POST', '/api/auth/login', { email: e, password: p })).body.token;
 const sku = (price) => ({ mp_sku_id: '1', props: 'Blue / M', price, stock: 5 });
 
-test('every product is reviewed by the AI: text, photos, blocked items, own products go live, undo', async () => {
+test('every product is reviewed by the AI: text, photos, blocked items, own products go live, undo', async (t) => {
   const boss = await login('boss@x.com', 'adminpass1');
   const reg = (await api('POST', '/api/auth/register', { role: 'seller', accept_terms: true, email: 'sel@x.com', password: 'sellerpass', shop_name: 'Atlas' })).body;
   await api('PATCH', `/api/admin/sellers/${reg.seller_id}`, { status: 'active', verified_manually: true }, boss);
@@ -122,6 +122,8 @@ test('every product is reviewed by the AI: text, photos, blocked items, own prod
   assert.strictEqual(db.listings.get(fake.id).status, 'pending_review', 'undoing a stop sends it back to the admin');
 
   // Free quota used up: pause, no failure recorded
+  let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
   mode = 'quota';
   const next = db.listings.insert({ seller_id: reg.seller_id, source: 'cj', status: 'active', title: 'Thermal gloves touch screen', description: '', images: [imgs[0]], currency: 'USD', skus: [sku(9)] });
   assert.strictEqual(await ar.tick(), 0);
@@ -129,8 +131,13 @@ test('every product is reviewed by the AI: text, photos, blocked items, own prod
   assert.ok((await api('GET', '/api/admin/ai-review', null, boss)).body.paused_until > Date.now());
 
   // Kinan products are never kept hidden for ever: after 3 failed checks, after 24 hours, or when the AI is switched off
-  mode = 'broken';
+  const callsAtQuota = calls.length;
   const held1 = db.listings.insert({ seller_id: kinan.id, source: 'cj', title: 'Held product one', images: [imgs[0]], currency: 'USD', skus: [sku(5)], ...ar.holdOwn() });
+  mode = 'broken';
+  await assert.rejects(ar.reviewListing(held1.id), { status: 429 });
+  assert.strictEqual(calls.length, callsAtQuota, 'does not request blocked Gemini models again');
+  assert.strictEqual(db.listings.get(held1.id).ai_review, undefined, 'cooldown does not count as a failed review');
+  clock += 61_000;
   for (let i = 0; i < 3; i++) await ar.reviewListing(held1.id).catch(() => {});
   assert.strictEqual(db.listings.get(held1.id).status, 'active', 'goes live after 3 failed checks');
   assert.match(db.listings.get(held1.id).review.note, /without AI check/);

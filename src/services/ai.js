@@ -209,16 +209,34 @@ async function askClaude({ system, name, description = '', schema, text, images 
   }
 }
 
+// Gemini exposes independent quotas for each model. Keep rejected models
+// out of the request path until the provider's retry window has passed.
+const geminiRetryAt = new Map();
+
+function geminiRetryDelay(response, error, now) {
+  const header = response.headers?.get('retry-after')?.trim();
+  const headerDelay = header ? (/^\d+$/.test(header) ? Number(header) * 1000 : Date.parse(header) - now) : 0;
+  const delay = error?.details?.find?.((detail) => detail['@type'] === 'type.googleapis.com/google.rpc.RetryInfo')?.retryDelay;
+  const retryInfoDelay = typeof delay === 'string' && /^\d+(?:\.\d+)?s$/.test(delay) ? Number(delay.slice(0, -1)) * 1000 : 0;
+  const requested = Math.max(Number.isFinite(headerDelay) ? headerDelay : 0, retryInfoDelay);
+  return requested > 0 ? requested : 60_000;
+}
+
 async function askGemini({ system, schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
-  // Gemini takes up to ~20 MB per request: keep the photos under 14 MB together
-  let total = 0;
-  const parts = (await Promise.all(images.map(inlineImage))).filter((x) => x && (total += x.inline_data.data.length) <= 14 * 1024 * 1024);
-  // Busy (503) or this model's free quota used (429): try the next model in GEMINI_FALLBACK_MODELS (each has its own free quota)
   const first = modelFor('gemini');
-  const models = [first, ...String(process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash').split(',').map((x) => x.trim()).filter((x) => x && x !== first)];
-  let res; let j; let used = models[0]; let busy = false; let quota = false;
-  for (let m = 0; m < models.length; m++) {
-    used = models[m];
+  const models = [...new Set([first, ...String(process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash').split(',').map((x) => x.trim()).filter(Boolean)])];
+  let res; let j; let used; let busy = false; let quota = false; let parts;
+  for (const candidate of models) {
+    if ((geminiRetryAt.get(candidate) || 0) > Date.now()) { quota = true; continue; }
+    geminiRetryAt.delete(candidate);
+    if (!parts) {
+      // Gemini takes up to ~20 MB per request: keep the photos under 14 MB together.
+      let total = 0;
+      parts = (await Promise.all(images.map(inlineImage))).filter((x) => x && (total += x.inline_data.data.length) <= 14 * 1024 * 1024);
+      // Another concurrent check may have learned the model's limit meanwhile.
+      if ((geminiRetryAt.get(candidate) || 0) > Date.now()) { quota = true; continue; }
+    }
+    used = candidate;
     res = await fetch(`${GEMINI_API}/${encodeURIComponent(used)}:generateContent`, {
       method: 'POST',
       headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
@@ -232,10 +250,16 @@ async function askGemini({ system, schema, text, images = [], maxTokens = 2500, 
     j = await res.json().catch(() => ({}));
     if (res.ok) break;
     console.error('[ai] gemini', used, res.status, j.error?.status, j.error?.message);
-    if (res.status === 503) busy = true; if (res.status === 429) quota = true;
-    if (![429, 503, 404].includes(res.status) || m === models.length - 1) break;
+    if (res.status === 429) {
+      quota = true;
+      const now = Date.now();
+      const retryAt = now + geminiRetryDelay(res, j.error, now);
+      geminiRetryAt.set(used, Math.max(retryAt, geminiRetryAt.get(used) || 0));
+    }
+    if (res.status === 503) busy = true;
+    if (![429, 503, 404].includes(res.status)) break;
   }
-  if (!res.ok) {
+  if (!res?.ok) {
     throw httpError(busy || quota ? 429 : 502, quota ? 'The free AI quota is used up for now — try again later' : 'The AI assistant could not answer — try again');
   }
   const um = j.usageMetadata || {};
