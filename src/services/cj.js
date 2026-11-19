@@ -173,16 +173,18 @@ async function categories() {
 }
 
 /** Import (or re-import) a CJ product for a shop. Kinan's own shop goes live at once; sellers' products are reviewed. */
-async function publish(seller, { ref, prices = {}, title, description, category, markup_pct, from, keywords, extra = {} } = {}) {
+async function publish(seller, { ref, prices = {}, title, description, category, markup_pct, from, keywords, extra = {} } = {}, { validate } = {}) {
   if (seller.status !== 'active') throw httpError(403, 'Seller account is awaiting admin approval');
   const p = await fetchProduct(ref, { from });
-  const existing = db.listings.find((l) => l.seller_id === seller.id && l.source === 'cj' && l.cj_pid === p.cj_pid);
   const pct = markup_pct ?? seller.default_markup_pct ?? prefs().markup_pct;
   const skus = p.skus.map((s) => {
     const price = prices[s.mp_sku_id] !== undefined && prices[s.mp_sku_id] !== '' ? money(prices[s.mp_sku_id]) : suggested(s.cost_sale, pct);
     if (!(price > 0)) throw httpError(400, `Invalid price for ${s.props || 'an option'}`);
     return { ...s, price };
   });
+  if (validate) await validate({ ...p, cj_from: p.from, skus });
+  const existing = db.listings.find((l) => l.seller_id === seller.id && l.source === 'cj' && l.cj_pid === p.cj_pid);
+  if (validate && existing) throw httpError(409, 'already imported');
   const newTitle = str(title || p.title, 200);
   const newDesc = String(description ?? p.description).replace(/<[^>]*>/g, '').slice(0, 5000);
   const own = Boolean(seller.system);

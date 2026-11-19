@@ -132,14 +132,14 @@ function prefs() {
   const deps = list(p.departments).filter((d) => DEPARTMENTS[d]);
   return {
     batch: Math.min(1000, Math.max(1, Math.floor(Number(p.batch) || 100))),
-    daily: p.daily !== false, per_day: Math.min(1000, Math.max(0, Math.floor(Number(p.per_day ?? 150)))),
+    daily: p.daily !== false, per_day: Math.min(1000, Math.max(0, Math.floor(Number(p.per_day ?? 1000)))),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || 70)),
     min_cost: Math.max(0, Number(p.min_cost ?? 2)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40)),
-    min_listed: Math.max(0, Math.floor(Number(p.min_listed ?? 20))), min_stock: Math.max(1, Math.floor(Number(p.min_stock) || 20)),
+    min_listed: Math.max(0, Math.floor(Number(p.min_listed ?? 100))), min_stock: Math.max(1, Math.floor(Number(p.min_stock) || 20)),
     // the owner's rule: nothing that takes more than 15 days to arrive (CJ and AliExpress)
     max_days_eu: Math.min(15, Math.max(2, Math.floor(Number(p.max_days_eu) || 15))), max_days_gb: Math.min(15, Math.max(2, Math.floor(Number(p.max_days_gb) || 15))),
     min_quality: Math.min(10, Math.max(1, Math.floor(Number(p.min_quality) || 7))), per_keyword: Math.min(20, Math.max(1, Math.floor(Number(p.per_keyword) || 4))),
-    warehouses: (list(p.warehouses).length ? p.warehouses : EUROPE).map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x) && x !== 'CN'),
+    warehouses: (list(p.warehouses).length ? p.warehouses : EUROPE).map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x) && (EU.has(x) || x === 'GB')),
     // departments added later are switched on even when the owner picked a list before they existed
     departments: deps.length ? [...new Set([...deps, ...Object.keys(DEPARTMENTS).filter((d) => !list(p.known_departments).includes(d) && !OLD_DEPTS.includes(d))])] : Object.keys(DEPARTMENTS)
   };
@@ -159,15 +159,33 @@ function savePrefs(b = {}) {
 const today = () => new Date().toISOString().slice(0, 10);
 const addedToday = () => (state().day === today() ? state().day_added || 0 : 0);
 
+// Specific, unbranded queries for the CJ EU/UK catalogue. Warehouse and
+// delivery are checked separately, so geography does not have to be in the query.
+const CJ_KEYWORDS = {
+  'home-kitchen': { storage: ['adjustable drawer dividers', 'under sink sliding organiser', 'stackable kitchen storage bins'], cleaning: ['reusable lint roller', 'microfibre cleaning cloth set'] },
+  pets: { care: ['reusable pet hair remover', 'self cleaning pet grooming brush'] },
+  phone: { holders: ['foldable phone stand', 'adjustable desk phone stand'] },
+  car: { interior: ['foldable car boot organiser', 'car seat back organiser'] },
+  travel: { organise: ['compression packing cubes', 'hanging toiletry bag', 'travel cable organiser'] },
+};
+
 /** Every (department, section, keyword), departments taken in turns so each one fills evenly. */
-function queue(p) {
+function queue(p, { cj = false } = {}) {
   // first what is selling now: rising Google searches and shop searches that found nothing (free trends engine)
   let hot = []; try { hot = require('./trends').hotKeywords({ departments: p.departments, n: 20 }).filter((x) => DEPARTMENTS[x.dept]?.groups[x.group]); } catch { /* no trends yet */ }
-  const per = p.departments.map((d) => Object.entries(DEPARTMENTS[d].groups).flatMap(([g, x]) => x.keywords.map((kw) => ({ dept: d, group: g, kw }))));
+  const per = p.departments.map((d) => Object.entries(DEPARTMENTS[d].groups).flatMap(([g, x]) => [...(cj ? CJ_KEYWORDS[d]?.[g] || [] : []), ...x.keywords].map((kw) => ({ dept: d, group: g, kw }))));
   const out = []; const n = Math.max(...per.map((x) => x.length));
   for (let i = 0; i < n; i++) for (const arr of per) if (arr[i]) out.push(arr[i]);
   const known = new Set(out.map((x) => x.kw));
-  return [...hot.filter((x) => !known.has(x.kw)).map(({ dept, group, kw }) => ({ dept, group, kw })), ...out];
+  const combined = [...hot.filter((x) => !known.has(x.kw)).map(({ dept, group, kw }) => ({ dept, group, kw })), ...out];
+  if (!cj) return combined;
+  const seen = new Set();
+  return combined.filter(({ kw }) => {
+    const key = kw.toLowerCase().replace(/organis(er|ation)/g, 'organiz$1').replace(/microfibre/g, 'microfiber').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // ---------------- finding & checking ----------------
@@ -178,7 +196,7 @@ async function candidatesFor(cjc, item, p, have, tried, screened) {
     for (const cc of p.warehouses) {
       if (out.length >= p.per_keyword * 3) break;
       let d;
-      try { d = await cjc.call('GET', '/product/listV2', { query: { keyWord: item.kw, countryCode: cc, page: 1, size: 40, orderBy: 1, sort: 'desc', verifiedWarehouse: verified ? 1 : undefined, startSellPrice: p.min_cost || undefined, endSellPrice: p.max_cost } }); }
+      try { d = await cjc.call('GET', '/product/listV2', { query: { keyWord: item.kw, countryCode: cc, page: 1, size: 40, orderBy: 1, sort: 'desc', verifiedWarehouse: verified ? 1 : undefined, startSellPrice: p.min_cost || undefined, endSellPrice: p.max_cost, startWarehouseInventory: p.min_stock } }); }
       catch (e) { if (busyError(e)) throw e; continue; }
       for (const x of list(d?.content).flatMap((c) => list(c.productList))) {
         const pid = String(x.id || x.pid || ''); const title = x.nameEn || x.productNameEn || '';
@@ -277,7 +295,7 @@ async function run(opts = {}, by = 'admin') {
   const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
   const s0 = state();
   const tried = new Set(list(s0.tried));
-  const q = queue(p);
+  const q = queue(p, { cj: true });
   let cursor = Number(s0.cursor) || 0;
   const added = [];
   const rejected = [];
@@ -311,29 +329,29 @@ async function run(opts = {}, by = 'admin') {
       for (const c of cands) {
         if (st.added >= target || took >= p.per_keyword || stopAsked) break;
         have.add(c.pid); st.checked++;
-        let l;
+        const euCountry = c.from === 'DE' ? 'FR' : 'DE';
+        let l; let eu; let gb;
         try {
-          l = await cj.publish(kinan, { ref: { pid: c.pid }, from: c.from, markup_pct: p.markup_pct, category: DEPARTMENTS[item.dept].category, extra: { collections: [item.dept], collection_group: item.group } });
+          l = await cj.publish(kinan, {
+            ref: { pid: c.pid }, from: c.from, markup_pct: p.markup_pct, category: DEPARTMENTS[item.dept].category,
+            extra: { collections: [item.dept], collection_group: item.group }
+          }, { validate: async (product) => {
+            if (product.cj_from !== c.from) throw httpError(422, 'not in a European/UK warehouse');
+            if (!product.skus.some((k) => k.stock >= p.min_stock)) throw httpError(422, 'low stock');
+            if (cj.BLOCK.test(`${product.title} ${product.description}`) || NOT_FOR_US.test(product.title)) throw httpError(422, 'not suitable');
+            if (list(product.images).filter((u) => /^https?:/.test(u)).length < 2) throw httpError(422, 'too few photos');
+            eu = await delivery(cj, product, euCountry, p.max_days_eu);
+            if (!eu) throw httpError(422, `no delivery in ${p.max_days_eu} days to ${euCountry}`);
+            gb = await delivery(cj, product, 'GB', p.max_days_gb);
+            if (!gb) throw httpError(422, `no UK delivery in ${p.max_days_gb} days`);
+          } });
           busy = 0;
         } catch (e) {
           if (busyError(e)) { have.delete(c.pid); st.checked--; if (exhausted(e) || ++busy >= 5) pause(e); continue; }
-          skip(/stock|price/i.test(e.message) ? 'no price' : 'not available', c); continue;
+          skip(e.status === 422 || e.status === 409 ? e.message : /stock|price/i.test(e.message) ? 'no price' : 'not available', c);
+          continue;
         }
         const drop = (why) => { db.listings.remove(l.id); skip(why, c, l.title); };
-        if (l.cj_from !== c.from) { drop('not in a European/UK warehouse'); continue; }
-        if (!l.skus.some((k) => k.stock >= p.min_stock)) { drop('low stock'); continue; }
-        if (cj.BLOCK.test(`${l.title} ${l.description}`) || NOT_FOR_US.test(l.title)) { drop('not suitable'); continue; }
-        if (list(l.images).filter((u) => /^https?:/.test(u)).length < 2) { drop('too few photos'); continue; }
-        // fast delivery: the EU from an EU warehouse, the UK for eBay UK
-        let eu = null; let gb = null;
-        try {
-          if (c.from !== 'GB') {
-            eu = await delivery(cj, l, c.from === 'DE' ? 'FR' : 'DE', p.max_days_eu);
-            if (!eu) { drop(`no delivery in ${p.max_days_eu} days`); continue; }
-          }
-          gb = await delivery(cj, l, 'GB', c.from === 'GB' ? p.max_days_eu : p.max_days_gb);
-        } catch (e) { if (busyError(e)) { db.listings.remove(l.id); have.delete(c.pid); st.checked--; if (exhausted(e)) pause(e); continue; } }
-        if (c.from === 'GB' && !gb) { drop(`no UK delivery in ${p.max_days_eu} days`); continue; }
         // the AI decides (photos + text)
         const d = await curate(l, item);
         if (d && !d.error) {
@@ -342,10 +360,11 @@ async function run(opts = {}, by = 'admin') {
         }
         const [dept, group] = d && !d.error && /:/.test(d.section || '') && DEPARTMENTS[d.section.split(':')[0]]?.groups[d.section.split(':')[1]] ? d.section.split(':') : [d?.department && DEPARTMENTS[d.department] ? d.department : item.dept, item.group];
         const sec = DEPARTMENTS[dept].groups[group] ? group : Object.keys(DEPARTMENTS[dept].groups)[0];
+        const keywords = d && !d.error ? require('./ai').cleanKeywords(list(d.keywords)).slice(0, 12) : [];
         db.listings.update(l.id, (x) => ({
           ...x, collections: [dept], collection_group: sec, category: DEPARTMENTS[dept].category, cj_auto: true, auto_added_at: now(),
-          ...(d && !d.error && list(d.keywords).length ? { keywords: list(d.keywords).slice(0, 12) } : {}),
-          cj_ship: { ...(x.cj_ship || {}), ...(eu ? { [c.from === 'DE' ? 'FR' : 'DE']: { fee: eu.fee, vid: eu.vid, at: now() } } : {}), ...(gb ? { GB: { fee: gb.fee, vid: gb.vid, at: now() } } : {}) },
+          ...(keywords.length ? { keywords } : {}),
+          cj_ship: { ...(x.cj_ship || {}), ...(eu ? { [euCountry]: { fee: eu.fee, vid: eu.vid, at: now() } } : {}), ...(gb ? { GB: { fee: gb.fee, vid: gb.vid, at: now() } } : {}) },
           sourcing: {
             dept, group: sec, keyword: item.kw, listed: c.listed, from: c.from, cost: c.cost, supplier_title: c.title, at: now(),
             eu_days: eu?.days || null, eu_fee: eu?.fee ?? null, gb_days: gb?.days || null, gb_fee: gb?.fee ?? null,
@@ -400,7 +419,7 @@ function tick() {
   const left = p.per_day - addedToday();
   const interrupted = s.run?.running; // the process that ran it is gone
   if (!(p.daily && left > 0) && !interrupted) return false;
-  const n = interrupted ? Math.min(100, Math.max(1, (s.run.target || 0) - (s.run.added || 0))) : Math.min(100, left);
+  const n = Math.min(100, left, interrupted ? Math.max(1, (s.run.target || 0) - (s.run.added || 0)) : left);
   if (n <= 0) return false;
   start({ count: n }, interrupted ? 'resume' : 'daily');
   return true;
