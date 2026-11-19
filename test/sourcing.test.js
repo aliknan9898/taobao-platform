@@ -23,6 +23,7 @@ const P = {
   D6: { name: 'Disney Dog Bowl', wh: 'DE', listed: 999, days: '2-4' }
 };
 let aiCalls = 0;
+const freightCalls = [];
 global.fetch = async (url, opts = {}) => {
   const u = new URL(String(url));
   if (u.hostname.includes('generativelanguage')) {
@@ -47,6 +48,7 @@ global.fetch = async (url, opts = {}) => {
   }
   if (p === '/logistic/freightCalculate') {
     const id = body.products[0].vid.split('-')[0];
+    freightCalls.push(id);
     const m = /(\d+)-(\d+)/.exec(P[id].days);
     return ok([{ logisticName: 'DHL', logisticPrice: 4, logisticAging: P[id].days, min: Number(m[1]), max: Number(m[2]) }]);
   }
@@ -78,6 +80,7 @@ test('catalog builder: picks best sellers in EU/UK warehouses, fast delivery, AI
   const brush = added.find((l) => /Brush/.test(l.sourcing.supplier_title));
   assert.strictEqual(brush.collection_group, 'care');
   assert.ok(aiCalls >= 3);
+  assert.strictEqual(freightCalls.filter((id) => id === 'D3').length, 1, 'does not quote UK shipping for a rejected EU product');
 
   // the shop shows departments with live products only
   for (const l of added) db.listings.update(l.id, { status: 'pending_review' });
