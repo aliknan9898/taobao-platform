@@ -10,15 +10,20 @@ const fs = require('fs');
 const path = require('path');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'autoreview-'));
-Object.assign(process.env, { ADMIN_EMAIL: 'boss@x.com', ADMIN_PASSWORD: 'adminpass1', PUBLIC_BASE_URL: 'https://kinan.example', GEMINI_API_KEY: 'gem-test', AI_REVIEW_GAP_MS: '0' });
+Object.assign(process.env, { ADMIN_EMAIL: 'boss@x.com', ADMIN_PASSWORD: 'adminpass1', PUBLIC_BASE_URL: 'https://kinan.example', GEMINI_API_KEY: 'gem-test', AI_REVIEW_GAP_MS: '0', AI_REVIEW_CONCURRENCY: '2' });
 delete process.env.ANTHROPIC_API_KEY;
 
 const calls = []; let mode = 'ok';
+let requestsInFlight = 0; let peakRequests = 0;
 const realFetch = global.fetch;
 global.fetch = async (url, opts = {}) => {
   const u = String(url);
   if (u.startsWith('https://img.example.com/')) return new Response(Buffer.from('fakejpeg'), { status: 200, headers: { 'content-type': 'image/jpeg' } });
   if (!u.startsWith('https://generativelanguage.googleapis.com/')) return realFetch(url, opts);
+  requestsInFlight++;
+  peakRequests = Math.max(peakRequests, requestsInFlight);
+  await new Promise((resolve) => setImmediate(resolve));
+  requestsInFlight--;
   const body = JSON.parse(opts.body); calls.push({ url: u, headers: opts.headers, body });
   if (mode === 'broken') return new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'API key not valid' } }), { status: 400 });
   if (mode === 'quota') return new Response(JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED', message: 'quota' } }), { status: 429 });
@@ -61,6 +66,7 @@ test('every product is reviewed by the AI: text, photos, blocked items, own prod
 
   assert.deepStrictEqual(ar.queue().map((l) => l.id).sort(), [jacket.id, fake.id, own.id].sort(), 'Christmas products wait for their own copy first');
   assert.strictEqual(await ar.tick(), 3);
+  assert.strictEqual(peakRequests, 2, 'uses two simultaneous requests without exceeding the configured limit');
 
   // Request sent to Gemini
   const c = calls[0];
