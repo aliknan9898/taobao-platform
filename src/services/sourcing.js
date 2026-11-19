@@ -253,7 +253,7 @@ async function curate(l, item) {
       name: 'product_decision', schema: SCHEMA(deptIds, groupIds), images: list(l.images).slice(0, 8), kind: 'sourcing', maxTokens: 1000,
       text: `Photos attached: ${Math.min(8, list(l.images).length)} (numbered 1, 2, 3… in order)\nSupplier title: ${l.title}\nSearched as: "${item.kw}" (department ${item.dept}, section ${item.group})\nOptions: ${opts.join(', ') || 'one'}\nShips from: ${l.cj_from || l.ae_from || '?'} warehouse\nDescription:\n${String(l.description || '').slice(0, 1800)}`
     });
-  } catch (e) { return { error: e.message }; }
+  } catch (e) { return { error: e.message, status: e.status }; }
 }
 
 // ---------------- the run ----------------
