@@ -45,7 +45,7 @@ function needsReview(l) {
   if (!l || !STATUSES.includes(l.status) || waitingForXmasCopy(l)) return false;
   const r = l.ai_review;
   if (!r) return true;
-  if (r.off) return false;
+  if (r.off || r.mode === 'photos') return false;
   const fp = fingerprint(l);
   if (r.fp === fp) return false;
   return !(r.failed_fp === fp && (r.tries || 0) >= MAX_TRIES);

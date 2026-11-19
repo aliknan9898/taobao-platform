@@ -774,7 +774,7 @@ r('GET', '/api/admin/ebay/review', ADMIN, async () => require('./services/ebayLa
 r('POST', '/api/admin/ebay/launch', ADMIN, async ({ req }) => { const L = require('./services/ebayLaunch'); if (L._running()) throw httpError(409, 'The eBay launch is already running'); const n = Math.min(50, Math.max(1, Number((await readJson(req)).n) || 10)); require('./cj/client').background(() => L.launch({ n })).catch((e) => console.warn('[ebay] launch', e.message)); return { started: true, n }; });
 r('GET', '/api/admin/sourcing', ADMIN, async () => require('./services/sourcing').status());
 r('PUT', '/api/admin/sourcing', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); sr.savePrefs(await readJson(req)); return sr.status(); });
-r('POST', '/api/admin/sourcing/start', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); const b = await readJson(req); sr.start({ count: b.count }, 'admin'); return sr.status(); });
+r('POST', '/api/admin/sourcing/start', ADMIN, async ({ req }) => { const sr = require('./services/sourcing'); const b = await readJson(req); sr.start({ count: b.count, photosOnly: b.photos_only === true }, 'admin'); return sr.status(); });
 r('POST', '/api/admin/sourcing/stop', ADMIN, async () => { const sr = require('./services/sourcing'); sr.stop(); return sr.status(); });
 r('GET', '/api/admin/ebay/products', ADMIN, async ({ url }) => require('./services/ebay').products({ filter: url.searchParams.get('filter') || 'all' }));
 r('GET', '/api/admin/ebay/products.csv', ADMIN, async ({ res }) => { res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="kinan-ebay-products.csv"' }); res.end('\ufeff' + require('./services/ebay').csv()); return undefined; });
