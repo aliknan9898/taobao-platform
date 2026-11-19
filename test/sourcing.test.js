@@ -130,6 +130,7 @@ test('CJ photo-only import requires a successful image review before making a li
   photoUnavailable = true;
   const paused = await sourcing.run({ count: 1, photosOnly: true });
   assert.match(paused.error, /AI photo review paused/);
+  assert.equal(db.product_review_feedback.get(`cj:photos:${pid}`), undefined);
   assert.equal(paused.added, 0);
   assert.equal(freightCalls.length, freightBefore);
   assert.ok(!db.listings.find((l) => l.cj_pid === pid));
@@ -138,6 +139,7 @@ test('CJ photo-only import requires a successful image review before making a li
   const run = await sourcing.run({ count: 1, photosOnly: true });
   assert.equal(run.added, 1);
   assert.equal(photoRequests, 2);
+  assert.equal(db.product_review_feedback.get(`cj:photos:${pid}`).decision, 'ok');
   const listing = db.listings.find((l) => l.cj_pid === pid);
   assert.equal(listing.status, 'active');
   assert.equal(listing.title, P[pid].name);
@@ -155,6 +157,7 @@ test('CJ products rejected by photo review make no freight requests and are not 
     const rejected = await sourcing.run({ count: 1, photosOnly: true });
     assert.equal(rejected.added, 0);
     assert.equal(rejected.reasons['AI: fewer than 2 clean photos'], 1);
+    assert.equal(db.product_review_feedback.get(`cj:photos:${pid}`).decision, 'stopped');
     assert.equal(freightCalls.length, before);
     assert.ok(!db.listings.find((l) => l.cj_pid === pid));
     const requests = photoRequests;

@@ -27,6 +27,42 @@ function example(listing) {
   };
 }
 
+// Each supplier product contributes one current verdict per review mode.
+function record(source, mode, supplierId, product, decision) {
+  if (!supplierId) return;
+  try {
+    const store = db.product_review_feedback;
+    const id = `${source}:${mode}:${supplierId}`;
+    const row = {
+      id, source, mode, listing_id: product.id,
+      title: String(product.title || '').slice(0, 300), category: product.category,
+      decision, at: Date.now(),
+    };
+    if (!store.update(id, row)) store.insert(row);
+    const rows = store.all();
+    if (rows.length > 1500) {
+      rows.sort((a, b) => a.at - b.at).slice(0, rows.length - 1500).forEach((old) => store.remove(old.id));
+    }
+  } catch (error) {
+    console.warn('[local product review] feedback write failed', error.code || error.name);
+  }
+}
+
+function recordFull(source, supplierId, product, review, reason) {
+  // Transport errors and incomplete responses are not supplier verdicts.
+  if (review?.error || typeof review?.keep !== 'boolean' || typeof review.photos_ok !== 'boolean'
+    || !Number.isInteger(review.quality) || review.quality < 1 || review.quality > 10
+    || !Array.isArray(review.clean_photos)) return;
+  record(source, 'full', supplierId, product, reason ? 'stopped' : 'ok');
+}
+
+function feedbackExample(row) {
+  if (row.mode !== 'full' || !['ok', 'stopped'].includes(row.decision)) return null;
+  const tokens = words(row.title);
+  if (tokens.size < 2) return null;
+  return { id: row.listing_id, tokens, key: [...tokens].sort().join(' '), category: row.category, decision: row.decision, at: row.at };
+}
+
 function predict(tokens, category, examples) {
   const similar = [];
   for (const row of examples) {
@@ -43,8 +79,8 @@ function predict(tokens, category, examples) {
   return { decision: closest[0].decision, examples: closest.length };
 }
 
-function compare(listings) {
-  const labels = listings.map(example).filter(Boolean).sort((a, b) => b.at - a.at);
+function compare(listings, feedback = []) {
+  const labels = [...listings.map(example), ...feedback.map(feedbackExample)].filter(Boolean).sort((a, b) => b.at - a.at);
   const seen = new Set();
   const unique = labels.filter((row) => {
     if (seen.has(row.key)) return false;
@@ -69,11 +105,16 @@ function compare(listings) {
 
   return {
     examples: unique.length,
+    feedback: {
+      cj_full: feedback.filter((row) => row.source === 'cj' && row.mode === 'full').length,
+      cj_photos: feedback.filter((row) => row.source === 'cj' && row.mode === 'photos').length,
+      aliexpress_full: feedback.filter((row) => row.source === 'aliexpress' && row.mode === 'full').length,
+    },
     holdout: { size: holdout.length, decided: decided.length, agreed: decided.filter((row) => row.predicted === row.actual).length },
     pending,
   };
 }
 
-const dashboard = () => compare(db.listings.all());
+const dashboard = () => compare(db.listings.all(), db.product_review_feedback.all());
 
-module.exports = { compare, dashboard };
+module.exports = { compare, dashboard, record, recordFull };

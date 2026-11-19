@@ -340,7 +340,7 @@ const VIEWS = {
         <div class="row" style="gap:8px;flex-wrap:wrap;align-items:end"><label>Deliver to<br><select id="toCc">${['MT', 'GB', 'DE', 'FR', 'IT', 'ES', 'NL', 'IE'].map((x) => `<option>${x}</option>`).join('')}</select></label>
         <label>Max price each<br><input id="toMax" type="number" step="0.5" value="5" style="width:80px"></label><label>Max days<br><input id="toDays" type="number" value="12" style="width:70px"></label>
         <label>Products<br><input id="toN" type="number" value="8" style="width:60px"></label><label>Type<br><select id="toDep"><option value="">Everything (mixed)</option><option value="electronics,phone">Electronics &amp; phone</option><option value="electronics">Electronics only</option><option value="phone">Phone accessories</option><option value="home-kitchen">Home &amp; kitchen</option><option value="beauty">Beauty</option></select></label><button class="btn" id="toGo">Find products</button></div><div id="toOut"></div></div>
-      ${isAdmin() ? '<div class="card"><h2>Local product review</h2><p class="muted">Compare local suggestions with past AI reviews. This check does not publish products or inspect image content.</p><button class="btn ghost" id="localreviewrun">Run comparison</button><div id="localreviewresult" aria-live="polite"></div></div>' : ''}
+      ${isAdmin() ? '<div class="card"><h2>Local product review</h2><p class="muted">Compare local suggestions with AI reviews from the catalog and active importers. CJ photo-only reviews are counted separately. This check does not publish products or inspect image content.</p><button class="btn ghost" id="localreviewrun">Run comparison</button><div id="localreviewresult" aria-live="polite"></div></div>' : ''}
       <div class="card" id="aireview"><h2>🤖 AI product review</h2><p class="muted">Loading…</p></div>
       <div class="card"><h2>Orders by status</h2><div class="row">${Object.entries(d.by_status).map(([s, n]) => `<span class="pill ${statusClass(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join('') || '<span class="muted">No orders</span>'}</div></div>
       <div class="card" id="tbcard"><h2>Taobao — Kinan’s account</h2><p class="muted">Loading…</p></div>
@@ -481,7 +481,7 @@ const VIEWS = {
         const data = await api('/api/admin/local-product-review');
         const { size, decided, agreed } = data.holdout;
         const labels = { ok: 'Similar products passed', stopped: 'Similar products were rejected', uncertain: 'Needs review' };
-        output.innerHTML = `<p>${data.examples} historical examples · comparison sample: ${size} · suggestions: ${decided} · agreed with past review: ${agreed}</p>
+        output.innerHTML = `<p>${data.examples} usable review examples · comparison sample: ${size} · suggestions: ${decided} · agreed with past review: ${agreed}</p><p>CJ full reviews: ${data.feedback.cj_full} · CJ photo-only reviews: ${data.feedback.cj_photos} · AliExpress full reviews: ${data.feedback.aliexpress_full}</p>
           ${data.pending.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Pending product</th><th>Photo links</th><th>Local suggestion</th><th>Similar examples</th></tr></thead><tbody>${data.pending.map((p) => `<tr><td>${esc(p.title)}</td><td>${p.photo_links}</td><td>${labels[p.decision]}</td><td>${p.examples}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No pending products.</p>'}`;
       } catch (e) {
         output.textContent = e.message;

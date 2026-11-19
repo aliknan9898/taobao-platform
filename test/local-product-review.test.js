@@ -36,3 +36,19 @@ test('local reviewer abstains when similar paid reviews disagree', () => {
   ];
   assert.equal(compare(reviews).pending[0].decision, 'uncertain');
 });
+
+
+test('supplier full reviews inform suggestions and photo-only reviews are tracked separately', () => {
+  const listings = [
+    { id: 'target', title: 'foldable phone stand gray', status: 'pending_review', category: 'home', images: ['https://a.test/a', 'https://a.test/b'] },
+  ];
+  const feedback = ['white', 'black', 'silver'].map((color, i) => ({
+    source: i ? 'aliexpress' : 'cj', mode: 'full', category: 'home',
+    title: `foldable phone stand ${color}`, decision: 'ok', at: i + 1,
+  }));
+  feedback.push({ source: 'cj', mode: 'photos', category: 'home', title: 'foldable phone stand blue', decision: 'stopped', at: 4 });
+  const result = compare(listings, feedback);
+  assert.equal(result.examples, 3);
+  assert.equal(result.pending[0].decision, 'ok');
+  assert.deepEqual(result.feedback, { cj_full: 1, cj_photos: 1, aliexpress_full: 2 });
+});
