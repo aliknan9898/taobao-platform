@@ -1,0 +1,1609 @@
+// The platform owner has full access to every app: act as this app's role
+const asMe = (u) => (u && u.owner ? { ...u, role: 'buyer' } : u);
+const { $, $$, esc, date, plain, api, toast, ICONS, ORDER_STATUS, pill } = K;
+/** Prices are shown in the customer's currency (USD, EUR or GBP by country), at the same rate they are charged. */
+/** The real delivery time of a product to this country (checked when it was added), e.g. "5–7"; null if unknown. */
+function realDays(p, country) {
+  const d = p && p.ship_days; if (!d) return null;
+  const r = String(country || '').toUpperCase() === 'GB' ? (d.GB || d.EU) : (d.EU || d.GB);
+  if (!r || !r[1]) return null;
+  return r[0] && r[0] < r[1] ? `${r[0]}–${r[1]}` : String(r[1]);
+}
+function money(n, cur) {
+  const base = String((cfg.fx && cfg.fx.base) || cfg.currency || 'USD').toUpperCase();
+  const from = String(cur || base).toUpperCase();
+  const to = Locale.get().currency; const r = cfg.fx && cfg.fx.rates && cfg.fx.rates[to];
+  if (from === base && to !== base && r) return K.money(Math.round(Number(n || 0) * r * 100) / 100, to);
+  return K.money(n, from);
+}
+K.offerInstall({ name: 'Kinan Shop', icon: '/assets/icon-192.png' });
+let sessionReady;
+let me = null, cfg = { currency: 'usd', shipping_flat: 0, payments: 'demo' };
+
+// ---------- cart (kept on this device) ----------
+const Cart = {
+  get() { try { return JSON.parse(localStorage.getItem('kinan_cart') || '[]'); } catch { return []; } },
+  set(items) { try { localStorage.setItem('kinan_cart', JSON.stringify(items)); } catch {} updateBadge(); Cart.sync(); },
+  sync() { clearTimeout(Cart.t); Cart.t = setTimeout(() => { if (me && me.role === 'buyer') api('/api/buyer/cart', 'PUT', { items: Cart.get() }).catch(() => {}); }, 1500); },
+  add(item) {
+    const c = Cart.get(); const ex = c.find((x) => x.listing_id === item.listing_id && x.mp_sku_id === item.mp_sku_id);
+    if (ex) ex.qty = Math.min(999, ex.qty + item.qty); else c.push(item);
+    Cart.set(c);
+  },
+  count() { return Cart.get().reduce((a, x) => a + x.qty, 0); },
+  // Carts saved before variant ids became public (v_…): ask the shop for the new id of each line (exact matches only)
+  async migrate() {
+    const c = Cart.get(); const old = c.filter((x) => x.mp_sku_id && !String(x.mp_sku_id).startsWith('v_'));
+    if (!old.length) return;
+    const map = new Map();
+    for (let i = 0; i < old.length; i += 30) {
+      const spec = old.slice(i, i + 30).map((x) => `${encodeURIComponent(x.listing_id)}~${encodeURIComponent(x.mp_sku_id)}`).join(',');
+      try { const d = await api(`/api/catalog/lines?items=${encodeURIComponent(spec)}`); for (const y of d.items || []) if (y.exact) map.set(`${y.listing_id}|${y.requested}`, y.mp_sku_id); } catch { return; }
+    }
+    const out = [];
+    for (const x of c) {
+      const id = map.get(`${x.listing_id}|${x.mp_sku_id}`) || x.mp_sku_id;
+      const ex = out.find((y) => y.listing_id === x.listing_id && y.mp_sku_id === id);
+      if (ex) ex.qty = Math.min(999, ex.qty + x.qty); else out.push({ ...x, mp_sku_id: id });
+    }
+    Cart.set(out);
+  }
+};
+const countryName = (c) => ((cfg.countries || []).find(([k]) => k === c) || [c, c])[1];
+const savedAddress = () => { try { return JSON.parse(localStorage.getItem('kinan_addr') || '{}'); } catch { return {}; } };
+
+// ---------- where the customer is and which currency they read prices in ----------
+const PIN_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+/** USD, EUR or GBP by country (decided by Kinan, the customer pays in it). */
+const currencyFor = (country) => ((cfg.currency_by_country || {})[country] || 'USD');
+// Where the phone is, from its time zone (more reliable than the language: an English phone in Malta says "en-US")
+const TZ_COUNTRY = { Malta: 'MT', London: 'GB', Dublin: 'IE', Paris: 'FR', Berlin: 'DE', Busingen: 'DE', Madrid: 'ES', Ceuta: 'ES', Canary: 'ES', Rome: 'IT', Vatican: 'VA', San_Marino: 'SM',
+  Amsterdam: 'NL', Brussels: 'BE', Luxembourg: 'LU', Vienna: 'AT', Zurich: 'CH', Lisbon: 'PT', Madeira: 'PT', Azores: 'PT', Athens: 'GR', Nicosia: 'CY', Famagusta: 'CY',
+  Warsaw: 'PL', Prague: 'CZ', Bratislava: 'SK', Budapest: 'HU', Ljubljana: 'SI', Zagreb: 'HR', Bucharest: 'RO', Sofia: 'BG', Tallinn: 'EE', Riga: 'LV', Vilnius: 'LT',
+  Helsinki: 'FI', Stockholm: 'SE', Copenhagen: 'DK', Oslo: 'NO', Reykjavik: 'IS', Monaco: 'MC', Andorra: 'AD', Gibraltar: 'GI', Belgrade: 'RS', Sarajevo: 'BA',
+  Skopje: 'MK', Podgorica: 'ME', Tirane: 'AL', Chisinau: 'MD', Kyiv: 'UA', Kiev: 'UA', Istanbul: 'TR', Guernsey: 'GG', Jersey: 'JE', Isle_of_Man: 'IM',
+  Riyadh: 'SA', Dubai: 'AE', Kuwait: 'KW', Qatar: 'QA', Bahrain: 'BH', Muscat: 'OM', Amman: 'JO', Beirut: 'LB', Baghdad: 'IQ', Cairo: 'EG', Casablanca: 'MA', Tunis: 'TN', Algiers: 'DZ',
+  Toronto: 'CA', Vancouver: 'CA', Sydney: 'AU', Melbourne: 'AU', Auckland: 'NZ' };
+function tzCountry() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const city = tz.split('/').pop();
+    if (TZ_COUNTRY[city]) return TZ_COUNTRY[city];
+    if (/^America\/(New_York|Chicago|Denver|Los_Angeles|Phoenix|Anchorage|Detroit|Indiana)/.test(tz) || tz === 'Pacific/Honolulu') return 'US';
+  } catch { /* old browser */ }
+  return '';
+}
+const Locale = {
+  get() {
+    let s = {}; try { s = JSON.parse(localStorage.getItem('kinan_locale') || '{}'); } catch {}
+    if (s.v !== 2) s = {}; // older versions saved a guess from the phone language (often "US"): guess again
+    const guess = savedAddress().country_code || tzCountry() || (navigator.language.split('-')[1] || '').toUpperCase() || 'US';
+    const country = savedAddress().country_code || s.country || guess;
+    // the currency chosen in Account (USD / EUR / GBP) wins over the country's
+    const own = ['USD', 'EUR', 'GBP'].includes(s.cur) && (s.cur === String(cfg.currency || 'usd').toUpperCase() || (cfg.fx && cfg.fx.rates && cfg.fx.rates[s.cur])) ? s.cur : null;
+    return { country, currency: own || currencyFor(country), cur: own, chosen: Boolean(s.country || savedAddress().country_code) };
+  },
+  set(v) { try { localStorage.setItem('kinan_locale', JSON.stringify({ ...Locale.get(), ...v, v: 2 })); } catch {} }
+};
+/** Prices are already shown in the customer's own currency: no second, approximate price any more. */
+function localPrice() { return ''; }
+/** Dialog: where the order goes. The country decides the shipping price and the currency (USD / EUR / GBP). */
+function pickLocale(after, first = false) {
+  const cur = Locale.get(); const d = document.createElement('dialog');
+  d.innerHTML = `<form method="dialog" class="stack" style="padding:20px;max-width:420px"><h2>${first ? 'Where should we deliver?' : 'Deliver to'}</h2>
+    <p class="muted" style="margin:0">Choose your country to see the full price with shipping, in your currency.</p>
+    <label>Country<select name="country">${KinanLang.sortCountries(cfg.countries).map(([c, n]) => `<option value="${esc(c)}" ${c === cur.country ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+    <div class="muted small" id="curnote"></div>
+    <div class="row"><button class="btn" value="ok">Save</button>${first ? '' : '<button class="btn ghost" value="cancel">Cancel</button>'}</div></form>`;
+  document.body.append(d);
+  const note = () => { const c = currencyFor(d.querySelector('[name=country]').value); d.querySelector('#curnote').textContent = `Prices and payment in ${({ USD: 'US dollars (USD)', EUR: 'euros (EUR)', GBP: 'pounds sterling (GBP)' })[c] || c}.`; };
+  d.querySelector('[name=country]').onchange = note; note();
+  d.onclose = () => { if (d.returnValue === 'ok' || first) { const f = d.querySelector('form'); Locale.set({ country: f.country.value }); renderLocaleChip(); if (after) after(); } d.remove(); };
+  d.showModal();
+}
+/** The customer's full delivery address (kept on this phone, used at checkout). */
+const hasAddress = () => { const a = savedAddress(); return Boolean(a.country_code && a.city && a.line1 && a.name && a.phone); };
+/** Several delivery addresses; the chosen one is used for prices and checkout. Kept on the phone and in the account. */
+const ADDR_KEYS = ['name', 'phone', 'country_code', 'city', 'line1', 'line2', 'postal_code', 'state', 'label'];
+const Book = {
+  list() {
+    try { const l = JSON.parse(localStorage.getItem('kinan_addrs') || '[]'); if (Array.isArray(l) && l.length) return l; } catch {}
+    if (!hasAddress()) return [];
+    // An address saved before the address book existed becomes its first entry
+    const a = { ...savedAddress() }; if (!a.id) a.id = Book.newId();
+    try { localStorage.setItem('kinan_addrs', JSON.stringify([a])); localStorage.setItem('kinan_addr', JSON.stringify(a)); } catch {}
+    return [a];
+  },
+  newId: () => `adr_${Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, '0')).join('')}`,
+  selectedId() { return savedAddress().id || null; },
+  store(list, selected, { push = true } = {}) {
+    const sel = list.find((a) => a.id === selected) || list[0] || null;
+    try { localStorage.setItem('kinan_addrs', JSON.stringify(list)); localStorage.setItem('kinan_addr', JSON.stringify(sel ? { ...sel, country: countryName(sel.country_code) } : {})); } catch {}
+    if (sel) Locale.set({ country: sel.country_code });
+    if (push && me && me.role === 'buyer') api('/api/buyer/addresses', 'PUT', { addresses: list.map((a) => Object.fromEntries([['id', a.id], ...ADDR_KEYS.map((k) => [k, a[k] || ''])])), selected: sel ? sel.id : null }).catch(() => {});
+    if (sel) api('/api/shipping/prepare', 'POST', { country_code: sel.country_code }).catch(() => {});
+  },
+  upsert(a) { const list = Book.list(); const id = a.id || Book.newId(); const i = list.findIndex((x) => x.id === id); const v = { ...(i >= 0 ? list[i] : {}), ...a, id }; if (i >= 0) list[i] = v; else list.push(v); Book.store(list.slice(-10), id); return id; },
+  select(id) { Book.store(Book.list(), id); },
+  remove(id) { const list = Book.list().filter((x) => x.id !== id); Book.store(list, Book.selectedId() === id ? list[0]?.id : Book.selectedId()); },
+  /** Signed-in customers: addresses saved on another phone appear here too (and this phone's ones are kept). */
+  async sync() {
+    if (!me || me.role !== 'buyer') return;
+    const r = await api('/api/buyer/addresses').catch(() => null); if (!r) return;
+    const local = Book.list(); const same = (a, b) => a.id === b.id || (a.line1 === b.line1 && a.city === b.city && a.country_code === b.country_code);
+    const merged = [...r.addresses, ...local.filter((l) => !r.addresses.some((x) => same(x, l)))].slice(0, 10);
+    const cur = Book.selectedId(); const pick = merged.find((x) => x.id === cur)?.id || (local.length ? merged.find((x) => same(x, local.find((l) => l.id === cur) || {}))?.id : null) || r.selected;
+    Book.store(merged, pick, { push: merged.length !== r.addresses.length || pick !== r.selected });
+  }
+};
+const addrLine = (a) => [a.line1, a.line2, a.city, a.postal_code, countryName(a.country_code)].filter(Boolean).join(', ');
+function addressDialog(after, { first = false, edit = null } = {}) {
+  const a = edit ? { ...edit } : first || !Book.list().length ? { name: (me && me.name) || '', ...savedAddress() } : { name: (me && me.name) || '' }; if (!a.country_code) a.country_code = Locale.get().country;
+  const d = document.createElement('dialog'); d.className = 'addrdlg';
+  d.innerHTML = `<form class="stack" style="padding:20px;max-width:460px" novalidate><h2 style="margin:0">${edit ? 'Edit address' : first ? 'Where should we deliver?' : 'Delivery address'}</h2>
+    <p class="muted" style="margin:0">Add your full address to see the exact price with shipping, in your currency. We keep it for checkout.</p>
+    <label class="field">Country<select name="country_code" required autocomplete="country"><option value="">Choose…</option>${KinanLang.sortCountries(cfg.countries).map(([c, n]) => `<option value="${esc(c)}" ${c === a.country_code ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+    <div class="muted small" id="curnote"></div>
+    <div class="grid-2"><label class="field">Full name<input name="name" required autocomplete="name" value="${esc(a.name || '')}"></label>
+      <label class="field">Phone<input name="phone" type="tel" required autocomplete="tel" inputmode="tel" value="${esc(a.phone || '')}"></label></div>
+    <label class="field">Address<input name="line1" required autocomplete="address-line1" placeholder="Street and number" value="${esc(a.line1 || '')}"></label>
+    <label class="field">Apartment, building (optional)<input name="line2" autocomplete="address-line2" value="${esc(a.line2 || '')}"></label>
+    <div class="grid-2"><label class="field">City<input name="city" required autocomplete="address-level2" value="${esc(a.city || '')}"></label>
+      <label class="field">Postal code<input name="postal_code" autocomplete="postal-code" value="${esc(a.postal_code || '')}"></label></div>
+    <label class="field">State / province (optional)<input name="state" autocomplete="address-level1" value="${esc(a.state || '')}"></label>
+    <label class="field">Name for this address (optional)<input name="label" maxlength="40" placeholder="Home, Work…" value="${esc(a.label || '')}"></label>
+    <div class="error" id="aerr"></div>
+    <div class="row"><button class="btn" type="submit" style="flex:1">${edit || !first ? 'Save address' : 'Show price with shipping'}</button><button class="btn ghost" type="button" data-close>${first ? 'Later' : 'Cancel'}</button></div></form>`;
+  document.body.append(d);
+  const f = d.querySelector('form');
+  const note = () => { const c = currencyFor(f.country_code.value); d.querySelector('#curnote').textContent = f.country_code.value ? `Prices and payment in ${({ USD: 'US dollars (USD)', EUR: 'euros (EUR)', GBP: 'pounds sterling (GBP)' })[c] || c}.` : ''; };
+  f.country_code.onchange = note; note();
+  d.querySelector('[data-close]').onclick = () => { d.close(); d.remove(); };
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const v = Object.fromEntries(['country_code', 'name', 'phone', 'line1', 'line2', 'city', 'postal_code', 'state', 'label'].map((k) => [k, f[k].value.trim()]));
+    const miss = [['country_code', 'country'], ['name', 'full name'], ['phone', 'phone'], ['line1', 'address'], ['city', 'city']].filter(([k]) => !v[k]).map(([, t]) => t);
+    if (miss.length) { d.querySelector('#aerr').textContent = `Please fill in: ${miss.join(', ')}`; return; }
+    if (!/^\+?[0-9 ()-]{6,30}$/.test(v.phone)) { d.querySelector('#aerr').textContent = 'Check the phone number'; return; }
+    Book.upsert(edit ? { ...v, id: edit.id } : v);
+    d.close(); d.remove(); renderLocaleChip(); if (after) after();
+  };
+  d.showModal();
+}
+function localeLabel() { const l = Locale.get(); const a = savedAddress(); return `<span>${esc(hasAddress() ? `${a.city}, ${countryName(l.country)}` : countryName(l.country))}</span> · ${esc({ USD: '$ USD', EUR: '€ EUR', GBP: '£ GBP' }[l.currency] || l.currency)}`; }
+function renderLocaleChip() { $$('.locchip').forEach((b) => { b.innerHTML = `${PIN_IC}<span>Deliver to</span> <b>${localeLabel()}</b>`; b.onclick = () => addressDialog(route); }); }
+
+const OPT_AR = { color: 'اللون', colour: 'اللون', size: 'المقاس', style: 'النمط', type: 'النوع', model: 'الموديل', material: 'الخامة', capacity: 'السعة', length: 'الطول', option: 'الخيار', pattern: 'النقشة', specification: 'المواصفات', specs: 'المواصفات', quantity: 'الكمية', 'shoe size': 'مقاس الحذاء', 'plug type': 'نوع القابس' };
+function optName(n) { const k = String(n || '').trim(); return KinanLang.lang === 'ar' ? OPT_AR[k.toLowerCase()] || k : k; }
+function variantLabel(props, fallback = 'Standard') {
+  if (!props) return fallback;
+  try {
+    const j = JSON.parse(props);
+    if (Array.isArray(j)) return j.map((x) => (typeof x === 'object' ? (x.value_name || x.value || Object.values(x).join(' ')) : x)).join(' / ') || fallback;
+    if (j && typeof j === 'object') return Object.values(j).join(' / ') || fallback;
+  } catch {}
+  return String(props).split(/[;,]/).map((p) => p.split(':').pop()).filter(Boolean).join(' / ') || fallback;
+}
+const noImg = `<div class="noimg">${ICONS.box}</div>`;
+const STAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
+const stars = (r, n) => r ? `<span class="stars" title="${r} / 5">${STAR}<b>${r}</b>${n !== undefined ? `<span class="muted">(${n})</span>` : ''}</span>` : '';
+const WA = '<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg>';
+const HEART = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.4-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.8-7.5 10.2-7.5 10.2z"/></svg>';
+/** Product title / description in the reader's language (Arabic when available). */
+const T = (p) => (KinanLang.lang === 'ar' && p.title_ar) || p.title;
+const TD = (p) => (KinanLang.lang === 'ar' && p.description_ar) || p.description;
+
+// ---------- shell ----------
+$('#brand').innerHTML = K.brand('Shop');
+$('#sicon').innerHTML = ICONS.search;
+$('#scam').onclick = () => $('#scamfile').click();
+$('#scamfile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; searchByPhoto(f); };
+$('#sgoicon').innerHTML = ICONS.search;
+$('#nav-sell').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.5 5 4.5h14l1.5 5"/><path d="M3.5 9.5a2.8 2.8 0 0 0 5.6 0 2.9 2.9 0 0 0 5.8 0 2.8 2.8 0 0 0 5.6 0"/><path d="M5 12v7.5h14V12"/><path d="M10 19.5v-4.5h4v4.5"/></svg>';
+$('#nav-orders').innerHTML = ICONS.box;
+$('#nav-account').innerHTML = ICONS.user;
+function updateBadge() {
+  const n = Cart.count();
+  $('#nav-cart').innerHTML = ICONS.cart + (n ? `<span class="badge">${n}</span>` : '');
+  renderTabbar();
+}
+function renderTabbar() {
+  const h = location.hash || '#/'; const n = Cart.count();
+  const tabs = [['#/', 'Shop', ICONS.shop], ['#/cart', 'Cart', ICONS.cart], ['#/orders', 'Orders', ICONS.box], ['#/account', 'Account', ICONS.user]];
+  $('#tabbar').innerHTML = tabs.map(([href, t, ic]) => {
+    const on = href === '#/' ? (h === '#/' || h.startsWith('#/p/') || h.startsWith('#/s/') || h.startsWith('#/search') || h.startsWith('#/shops') || h.startsWith('#/c/') || h.startsWith('#/x/')) : href === '#/account' ? (h.startsWith(href) || h.startsWith('#/wallet') || h.startsWith('#/request')) : h.startsWith(href);
+    return `<a href="${href}" class="${on ? 'on' : ''}">${ic}${t}${href === '#/cart' && n ? `<span class="badge">${n}</span>` : ''}</a>`;
+  }).join('');
+}
+// ---------- search bar with suggestions ----------
+const Search = (() => {
+  const f = $('#sf'), input = f.q, box = $('#ssug');
+  const KEY = 'kinan_recent_q';
+  const recent = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; } };
+  const remember = (q) => { try { localStorage.setItem(KEY, JSON.stringify([q, ...recent().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 6))); } catch {} };
+  let timer = null, seq = 0, idx = -1;
+  const close = () => { box.classList.remove('open'); idx = -1; };
+  const sync = () => f.classList.toggle('has-text', input.value.length > 0);
+  const go = (q) => { q = q.trim(); close(); input.blur(); if (q) remember(q); location.hash = q ? `#/search/${encodeURIComponent(q)}` : '#/'; };
+  const open = (html) => { box.innerHTML = html; box.classList.toggle('open', Boolean(html)); idx = -1; };
+  function showRecent() {
+    const r = recent();
+    open(r.length ? `<div class="sh"><span>Recent searches</span><button type="button" data-clear>Clear</button></div>${r.map((q) => `<a href="#/search/${encodeURIComponent(q)}" data-q="${esc(q)}"><span class="si">${ICONS.search}</span><span>${esc(q)}</span></a>`).join('')}` : '');
+  }
+  async function suggest(q) {
+    const my = ++seq;
+    try {
+      const d = await api(`/api/catalog?${new URLSearchParams({ q, limit: 6 })}`);
+      if (my !== seq || input.value.trim() !== q) return;
+      open(`<a href="#/search/${encodeURIComponent(q)}" data-q="${esc(q)}"><span class="si">${ICONS.search}</span><span>Search for “${esc(q)}”</span></a>` +
+        d.items.map((p) => `<a href="#/p/${esc(p.id)}">${p.images[0] ? `<img class="si" src="${esc(p.images[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="si">${ICONS.box}</span>`}<span dir="auto">${esc(T(p))}</span><small>${money(p.min_price, p.currency)}</small></a>`).join(''));
+    } catch {}
+  }
+  input.addEventListener('input', () => {
+    sync(); clearTimeout(timer); const q = input.value.trim();
+    if (!q) return showRecent();
+    timer = setTimeout(() => suggest(q), 220);
+  });
+  input.addEventListener('focus', () => { if (!input.value.trim()) showRecent(); else suggest(input.value.trim()); });
+  input.addEventListener('keydown', (e) => {
+    const items = [...box.querySelectorAll('a')];
+    if (e.key === 'Escape') return close();
+    if (!items.length || !['ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault(); idx = (idx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items.forEach((a, i) => a.classList.toggle('on', i === idx));
+  });
+  box.addEventListener('mousedown', (e) => e.preventDefault());
+  box.addEventListener('click', (e) => {
+    if (e.target.closest('[data-clear]')) { try { localStorage.removeItem(KEY); } catch {} return close(); }
+    const a = e.target.closest('a'); if (!a) return;
+    if (a.dataset.q) { e.preventDefault(); input.value = a.dataset.q; sync(); go(a.dataset.q); } else close();
+  });
+  input.addEventListener('blur', () => setTimeout(close, 120));
+  f.querySelector('.sclear').onclick = () => { input.value = ''; sync(); input.focus(); showRecent(); };
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const sel = idx >= 0 ? box.querySelectorAll('a')[idx] : null;
+    if (sel) { if (sel.dataset.q) return go(sel.dataset.q); close(); location.hash = sel.getAttribute('href'); return; }
+    go(input.value);
+  };
+  return { set(q) { input.value = q || ''; sync(); } };
+})();
+
+K.onUnauthorized = () => { me = null; };
+
+// ---------- router ----------
+const routes = [
+  [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
+  [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/add\/(.+)$/, addLink], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
+  [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/points$/, pointsPage], [/^#\/deals$/, dealsPage], [/^#\/giftcards(?:\/([\w-]+))?$/, (c) => giftcardsPage(c || '')], [/^#\/photo$/, photoPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
+  [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
+];
+async function route() {
+  renderTabbar();
+  const h = location.hash || '#/';
+  // The catalog can render without a session, but account and checkout routes
+  // must wait so a signed-in buyer is not sent to sign in again.
+  if (sessionReady && !/^#\/(?:$|search\/|c\/)/.test(h) && h !== '#') {
+    await sessionReady;
+    if (h !== (location.hash || '#/')) return;
+  }
+  const v = $('#view');
+  for (const [re, fn] of routes) {
+    const m = h.match(re);
+    if (m) {
+      try { await fn(...m.slice(1)); } catch (e) { v.innerHTML = `<div class="empty"><h3>Something went wrong</h3><p>${esc(e.message)}</p><a class="btn ghost" href="#/">Back to shop</a></div>`; }
+      window.scrollTo(0, 0); return;
+    }
+  }
+  location.hash = '#/';
+}
+window.addEventListener('hashchange', route);
+
+function requireBuyer(next) {
+  if (me && me.role === 'buyer') return true;
+  location.hash = `#/signin/${encodeURIComponent(next || location.hash.slice(1))}`;
+  return false;
+}
+
+// ---------- views ----------
+/** While shipping for some products is still being worked out, check again and update their prices in place. */
+let priceTimer = null;
+function followPrices(query, items, tries = 0) {
+  clearTimeout(priceTimer);
+  if (!items.some((x) => x.ship_pending) || tries > 25) return;
+  priceTimer = setTimeout(async () => {
+    const d = await api(`/api/catalog?${query}`).catch(() => null); if (!d) return;
+    for (const p of d.items) {
+      const card = document.querySelector(`[data-pid="${CSS.escape(p.id)}"]`); if (!card) continue;
+      if (p.delivered_price != null) { card.querySelector('[data-price]').textContent = money(p.delivered_price, p.currency); card.querySelector('[data-shipnote]').textContent = KinanLang.t('Incl. shipping'); }
+    }
+    if (document.querySelector('[data-pid]')) followPrices(query, d.items, tries + 1);
+  }, tries < 5 ? 3000 : 6000);
+}
+function productCard(p) {
+  const img = p.images[0];
+  return `<a class="card" href="#/p/${esc(p.id)}" data-pid="${esc(p.id)}">
+    <div class="ph">${img ? `${K.img(img, 350, 'alt="" loading="lazy"')}` : noImg}${p.deal ? `<span class="dealbadge">−${p.deal.pct}%</span>` : ''}<span class="tag" data-price>${money(p.delivered_price ?? p.min_price, p.currency)}</span></div>
+    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.deal && p.was_min_price ? `<div class="small"><s class="muted">${money(p.was_min_price, p.currency)}</s> <b class="dealtxt">${KinanLang.t('Deal')}</b></div>` : ''}${p.rating ? stars(p.rating, p.reviews) : ''}<div class="muted small" data-shipnote>${p.delivered_price != null ? 'Incl. shipping' : p.ship_pending ? 'Calculating shipping…' : '+ shipping'}</div>${p.ships_from && EU_WH.has(p.ships_from) ? '<div class="small euship">Ships from Europe</div>' : p.ships_from === 'GB' ? '<div class="small euship">Ships from the UK</div>' : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
+}
+const EU_WH = new Set(['DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'BE', 'AT', 'HU', 'PT', 'IE', 'SE', 'DK']);
+const depts = () => (cfg.collections || []).filter((c) => c.kind === 'department');
+const xmasLive = () => (cfg.collections || []).find((c) => c.id === 'christmas' && Date.now() < c.ends);
+const daysToXmas = () => Math.max(0, Math.ceil((Date.UTC(2026, 11, 25) - Date.now()) / 86400e3));
+const skeletonGrid = () => `<div class="grid">${Array.from({ length: 8 }, () => '<div><div class="skeleton" style="aspect-ratio:1"></div><div class="skeleton" style="height:14px;margin-top:10px;width:80%"></div></div>').join('')}</div>`;
+
+const initial = (n) => esc(String(n || '?').trim().charAt(0).toUpperCase());
+const shopLogo = (shop, size = '') => shop?.logo ? `<img class="slogo ${size}" src="${esc(shop.logo)}" alt="">` : `<span class="slogo ${size}" aria-hidden="true">${initial(shop?.name)}</span>`;
+let filters = { sort: 'new', min_price: '', max_price: '' };
+const toolbar = () => `<form class="toolbar" id="tb">
+    <select name="sort" aria-label="Sort"><option value="new">Newest</option><option value="price_asc">Price: low to high</option><option value="price_desc">Price: high to low</option></select>
+    <input name="min_price" type="number" min="0" step="1" placeholder="Min ${({ USD: "$", EUR: "€", GBP: "£" })[Locale.get().currency] || "$"}" aria-label="Minimum price" value="${esc(filters.min_price)}">
+    <input name="max_price" type="number" min="0" step="1" placeholder="Max ${({ USD: "$", EUR: "€", GBP: "£" })[Locale.get().currency] || "$"}" aria-label="Maximum price" value="${esc(filters.max_price)}">
+    <button class="btn sm ghost">Apply</button></form>`;
+function wireToolbar(reload) {
+  const f = $('#tb'); if (!f) return;
+  f.sort.value = filters.sort;
+  f.sort.onchange = () => f.requestSubmit();
+  f.onsubmit = (e) => { e.preventDefault(); filters = { sort: f.sort.value, min_price: f.min_price.value, max_price: f.max_price.value }; reload(); };
+}
+const toBase = (v) => { const r = (cfg.fx && cfg.fx.rates && cfg.fx.rates[Locale.get().currency]) || 1; return String(Math.round((Number(v) / r) * 100) / 100); };
+const catalogQuery = (extra) => new URLSearchParams({ limit: 100, sort: filters.sort, ...(hasAddress() ? { country: Locale.get().country } : {}), ...(filters.min_price ? { min_price: toBase(filters.min_price) } : {}), ...(filters.max_price ? { max_price: toBase(filters.max_price) } : {}), ...extra }).toString();
+const emptyFiltered = () => filters.min_price || filters.max_price;
+
+async function home(q = '', category = '') {
+  const v = $('#view');
+  v.innerHTML = `${q || category ? `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a>${q ? `<h2 style="margin-top:6px">Results for “${esc(q)}”</h2>` : ''}</div></div>` : `
+    `}
+    ${!q && !category ? campaignBand() : ''}
+    ${!q && !category && [10, 11].includes(new Date().getMonth()) ? `<a class="gc-band" href="#/giftcards">🎁 <b>${KinanLang.t('Kinan gift cards')}</b> <span class="muted">— ${KinanLang.t('the easy present, sent by email in minutes')}</span> <span aria-hidden="true">→</span></a>` : ''}
+    ${!q && !category && xmasLive() ? `<a class="xmas-band" href="#/x/christmas"><div class="xb-text"><span class="xb-kicker">🎄 <span>Christmas Shop</span></span><b>Decorations, lights &amp; gifts</b><span class="xb-sub">Ships from Europe · arrives before Christmas</span></div><span class="xb-cta">Shop now</span></a><div class="xstrip" id="xstrip"></div>` : ''}
+    ${!q && !category && cfg.deals ? `<section class="aisle" id="dealsrow"><div class="sechead deals-head"><h2>🔥 ${KinanLang.t('Today’s deals')}</h2><span class="row" style="gap:10px"><span class="countdown" data-countdown="${cfg.deals.ends}" data-no-tr></span><a href="#/deals">${KinanLang.t('See all')} →</a></span></div><div class="xstrip" id="dealstrip">${Array.from({ length: 4 }, () => '<div class="skeleton" style="aspect-ratio:1"></div>').join('')}</div></section>` : ''}
+    ${!q && !category ? '<div id="seenrow"></div>' : ''}
+    ${!q && !category && depts().length ? `<div class="sechead"><h2>${KinanLang.t('Shop by department')}</h2></div><div class="depts">${depts().map((d) => `<a class="dept" href="#/x/${esc(d.id)}"><span class="di">${d.image ? `${K.img(d.image, 350, 'alt="" loading="lazy"')}` : d.emoji}</span><b>${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</b><span class="n">${d.count}</span></a>`).join('')}</div>${depts().slice(0, 4).map((d) => `<section class="aisle"><div class="sechead"><h2>${d.emoji} ${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</h2><a href="#/x/${esc(d.id)}">${KinanLang.t('See all')} →</a></div><div class="xstrip" data-aisle="${esc(d.id)}"></div></section>`).join('')}` : ''}
+    <div class="cats" id="cats"></div>
+    <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2></div>
+    ${toolbar()}
+    <div id="results">${skeletonGrid()}</div>`;
+  Search.set(q);
+  // The catalog API is paginated; keep fetching subsequent pages on demand.
+  // Reset the cursor when search, category or toolbar filters change.
+  let requestVersion = 0;
+  const pageSize = 24;
+  const load = async (append = false) => {
+    append = append === true;
+    const version = ++requestVersion;
+    const results = $('#results');
+    if (!results) return;
+    const existing = append ? (results.querySelector('.grid')?.children.length || 0) : 0;
+    if (!append) results.innerHTML = skeletonGrid();
+    else {
+      const more = results.querySelector('#catalog-more');
+      if (more) { more.disabled = true; more.textContent = 'Loading…'; }
+    }
+    const query = catalogQuery({ q, limit: pageSize, offset: existing, ...(category ? { category } : {}) });
+    let timeout;
+    try {
+      const d = await Promise.race([
+        api(`/api/catalog?${query}`),
+        new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Catalog request timed out')), 12000); })
+      ]);
+      if (version !== requestVersion || !v.isConnected || $('#view') !== v) return;
+      const items = d.items || [];
+      followPrices(query, items);
+      const total = Number(d.total) || 0;
+      if (append) {
+        const grid = results.querySelector('.grid');
+        if (grid) grid.insertAdjacentHTML('beforeend', items.map(productCard).join(''));
+      } else {
+        results.innerHTML = items.length ? `<div class="grid">${items.map(productCard).join('')}</div>`
+          : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
+      }
+      results.querySelector('#catalog-more-wrap')?.remove();
+      const shown = existing + items.length;
+      if (items.length && shown < total) {
+        results.insertAdjacentHTML('beforeend', `<div id="catalog-more-wrap" style="text-align:center;padding:24px 0"><p class="muted">${shown} of ${total} products</p><button type="button" class="btn" id="catalog-more">Load more products</button></div>`);
+        results.querySelector('#catalog-more')?.addEventListener('click', () => { void load(true); });
+      }
+    } catch (e) {
+      if (version !== requestVersion || !v.isConnected || $('#view') !== v) return;
+      if (append) {
+        const more = results.querySelector('#catalog-more');
+        if (more) { more.disabled = false; more.textContent = 'Try loading more'; }
+      } else {
+        results.innerHTML = '<div class="empty" role="alert"><h3>Products could not load</h3><p>Please check your connection and try again.</p><button type="button" class="btn" id="retry-catalog">Try again</button></div>';
+        results.querySelector('#retry-catalog')?.addEventListener('click', () => { void load(); });
+      }
+      console.warn('[catalog] failed to load', e.message);
+    } finally { clearTimeout(timeout); }
+  };
+  wireToolbar(load); renderLocaleChip();
+  if ($('#seenrow')) fillSeen($('#seenrow'));
+  // Prioritize the visible product grid. Secondary shelves should not compete for
+  // network connections or CPU while the main catalogue is loading.
+  await load();
+  if (!v.isConnected || $('#view') !== v) return;
+  const secondary = [];
+  if ($('#dealstrip')) secondary.push(async () => {
+    const el = $('#dealstrip');
+    const d = await api(`/api/catalog/many?ids=${encodeURIComponent(cfg.deals.ids.join(','))}`);
+    if (!el?.isConnected) return;
+    if (d.items.length) el.innerHTML = d.items.map(productCard).join('');
+    else el.closest('#dealsrow')?.remove();
+  });
+  $$('[data-aisle]').forEach((el) => secondary.push(async () => {
+    const d = await api(`/api/catalog?${catalogQuery({ collection: el.dataset.aisle, limit: 12 })}`);
+    if (!el.isConnected) return;
+    if (d.items.length) el.innerHTML = d.items.map(productCard).join('');
+    else el.closest('.aisle')?.remove();
+  }));
+  if ($('#xstrip')) secondary.push(async () => {
+    const el = $('#xstrip');
+    const d = await api(`/api/catalog?${catalogQuery({ collection: 'christmas', limit: 12 })}`);
+    if (!el?.isConnected) return;
+    if (d.items.length) el.innerHTML = d.items.map(productCard).join('');
+    else el.remove();
+  });
+  secondary.push(async () => {
+    const cs = await api('/api/categories');
+    const el = $('#cats'); if (!el) return;
+    const shown = cs.filter((item) => item.count > 0);
+    if (shown.length) el.innerHTML = `<a class="chip ${category ? '' : 'on'}" href="#/">All</a>${shown.map((item) => `<a class="chip ${item.id === category ? 'on' : ''}" href="#/c/${item.id}">${esc(item.en)}</a>`).join('')}`;
+  });
+  // At most two optional requests at once, instead of a burst of 6-8.
+  const workers = Array.from({ length: Math.min(2, secondary.length) }, async () => {
+    while (secondary.length && v.isConnected && $('#view') === v) {
+      const task = secondary.shift();
+      try { await task(); } catch { /* optional shelves are best effort */ }
+    }
+  });
+  void Promise.all(workers);
+}
+
+async function collectionPage(id, group = '') {
+  const c = (cfg.collections || []).find((x) => x.id === id);
+  const v = $('#view');
+  if (!c) { v.innerHTML = `<div class="empty"><h3>This collection has ended</h3><p>Browse everything else in the shop.</p><a class="btn ghost" href="#/">Back to shop</a></div>`; return; }
+  if (c.kind === 'department') return departmentPage(c, group);
+  const d2x = daysToXmas();
+  v.innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
+    <section class="xmas-hero"><span class="xh-tree" aria-hidden="true">🎄</span>
+      <span class="kicker">Kinan · Christmas 2026</span>
+      <h1>The Christmas Shop</h1>
+      <p>Decorations, twinkling lights, cosy jumpers and gifts — packed in European warehouses so they reach you before Christmas.</p>
+      <div class="xh-row">${d2x ? `<span class="pill">⏳ <span data-days>${d2x}</span> <span>days to Christmas</span></span>` : ''}<span class="pill">📦 <span>Order by ${esc(c.order_by)}</span></span><button class="pill" id="xcode" type="button">XMAS10 · 10% off</button><button class="pill" id="xshare" type="button" style="background:rgba(255,255,255,.14);color:#fff8ec;border-color:rgba(255,255,255,.28)">${ICONS.share} Share</button></div>
+    </section>
+    <div class="cats"><a class="chip ${group ? '' : 'on'}" href="#/x/${esc(id)}">All</a>${c.groups.map((g) => `<a class="chip ${g.id === group ? 'on' : ''}" href="#/x/${esc(id)}/${esc(g.id)}">${esc(g.en)}</a>`).join('')}</div>
+    <div class="sechead"><h2>${group ? esc(c.groups.find((g) => g.id === group)?.en || 'Products') : 'All Christmas products'}</h2><span class="muted small">${c.count} products</span></div>
+    ${toolbar()}<div id="results">${skeletonGrid()}</div>`;
+  $('#xcode').onclick = async () => { try { await navigator.clipboard.writeText('XMAS10'); } catch { /* shown below */ } toast(KinanLang.t('Code XMAS10 copied — use it at checkout')); };
+  $('#xshare').onclick = () => shareLink(`${location.origin}/christmas`, 'Kinan Christmas Shop');
+  const load = async () => {
+    $('#results').innerHTML = skeletonGrid();
+    const query = catalogQuery({ collection: id, ...(group ? { group } : {}) });
+    const d = await api(`/api/catalog?${query}`); followPrices(query, d.items);
+    $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>No products match</h3><p>Try a different price range.</p></div>';
+  };
+  wireToolbar(load); await load();
+}
+
+async function departmentPage(c, group = '') {
+  const v = $('#view'); const ar = KinanLang.lang === 'ar';
+  const name = ar && c.name_ar ? c.name_ar : c.name;
+  v.innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
+    <section class="dept-hero"><span class="dh-emoji" aria-hidden="true">${c.emoji || ''}</span>
+      <h1>${esc(name)}</h1>
+      <p>${KinanLang.t('Popular products shipped fast from European and UK warehouses.')}</p>
+      <div class="xh-row"><span class="pill">🚚 ${KinanLang.t('Fast delivery in Europe & UK')}</span><span class="pill">📦 ${c.count} ${KinanLang.t('products')}</span><button class="pill" id="dshare" type="button">${ICONS.share} ${KinanLang.t('Share')}</button></div>
+    </section>
+    <div class="cats"><a class="chip ${group ? '' : 'on'}" href="#/x/${esc(c.id)}">${KinanLang.t('All')}</a>${c.groups.map((g) => `<a class="chip ${g.id === group ? 'on' : ''}" href="#/x/${esc(c.id)}/${esc(g.id)}">${esc(ar && g.ar ? g.ar : g.en)}</a>`).join('')}</div>
+    <div class="sechead"><h2>${group ? esc((ar && c.groups.find((g) => g.id === group)?.ar) || c.groups.find((g) => g.id === group)?.en || name) : esc(name)}</h2></div>
+    ${toolbar()}<div id="results">${skeletonGrid()}</div>`;
+  $('#dshare').onclick = () => shareLink(`${location.origin}/shop/${c.id}`, `Kinan ${c.name}`);
+  const load = async () => {
+    $('#results').innerHTML = skeletonGrid();
+    const query = catalogQuery({ collection: c.id, ...(group ? { group } : {}) });
+    const d = await api(`/api/catalog?${query}`); followPrices(query, d.items);
+    $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>No products match</h3><p>Try a different price range.</p></div>';
+  };
+  wireToolbar(load); await load();
+}
+
+async function shopsList() {
+  const v = $('#view'); v.innerHTML = '<div class="pagehead"><h1>Shops</h1></div><div class="skeleton" style="height:160px"></div>';
+  const shops = await api('/api/shops');
+  v.innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} All products</a><h1 style="margin-top:6px">Shops</h1><p class="muted">Independent Kinan sellers. Mix products from any of them in one cart.</p></div></div>
+    ${shops.length ? `<div class="shopgrid">${shops.map((sh) => `<a class="panel shopcard" href="#/s/${esc(sh.id)}">${shopLogo(sh, 'lg')}<div class="stack" style="gap:2px"><b>${esc(sh.name)}</b><span class="muted small">${sh.products} product${sh.products === 1 ? '' : 's'}</span>${sh.description ? `<span class="small" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(sh.description)}</span>` : ''}</div></a>`).join('')}</div>`
+      : '<div class="empty"><h3>No shops yet</h3><p>Sellers are setting up. Check back soon.</p></div>'}`;
+}
+
+async function shareLink(url, title) {
+  if (navigator.share) { try { await navigator.share({ title, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); toast('Link copied — paste it anywhere'); } catch { prompt('Copy this link', url); }
+}
+
+async function shopPage(sellerId) {
+  const v = $('#view'); v.innerHTML = skeletonGrid();
+  const sh = await api(`/api/shops/${encodeURIComponent(sellerId)}`);
+  v.innerHTML = `<a class="back" href="#/shops">${ICONS.back} Shops</a>
+    <div class="shophead">${shopLogo(sh, 'lg')}<div class="stack" style="gap:4px"><div class="row between"><h1 style="font-size:clamp(24px,4vw,34px)">${esc(sh.name)}</h1><button class="btn sm quiet" id="sshare">${ICONS.share} Share</button></div><span class="muted">${sh.products} product${sh.products === 1 ? '' : 's'} · On Kinan since ${date(sh.since, false)}</span></div></div>
+    ${sh.description ? `<p style="max-width:70ch;color:var(--ink-2)">${esc(sh.description)}</p>` : ''}
+    <details class="panel flat small" style="margin:10px 0 4px"><summary><b>Return policy</b></summary><p class="desc" style="margin-top:8px">${esc(sh.return_policy)}</p></details>
+    <div class="sechead"><h2>Products</h2></div>${toolbar()}<div id="results">${skeletonGrid()}</div>`;
+  const load = async () => {
+    const sq = catalogQuery({ seller_id: sellerId }).toString();
+    const d = await api(`/api/catalog?${sq}`); followPrices(sq, d.items);
+    $('#results').innerHTML = d.items.length ? `<div class="grid">${d.items.map(productCard).join('')}</div>` : '<div class="empty"><h3>No products match</h3></div>';
+  };
+  $('#sshare').onclick = () => shareLink(`${location.origin}/s/${sh.id}`, sh.name);
+  wireToolbar(load); await load();
+}
+
+async function product(id) {
+  const v = $('#view'); v.innerHTML = `<div class="pdp"><div class="skeleton" style="aspect-ratio:1"></div><div class="stack"><div class="skeleton" style="height:32px"></div><div class="skeleton" style="height:120px"></div></div></div>`;
+  const p = await api(`/api/catalog/${encodeURIComponent(id)}`);
+  let sku = p.skus.find((s) => s.in_stock) || p.skus[0]; let qty = 1; let imgIdx = 0;
+  const desc = plain(TD(p));
+  v.innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
+    <div class="pdp">
+      <div class="gallery">
+        <div class="main" id="mainimg"></div>
+        ${p.images.length > 1 ? `<div class="thumbs">${p.images.map((u, i) => `<button data-i="${i}" aria-label="Photo ${i + 1}">${K.img(u, 120, 'alt=""  loading="lazy"')}</button>`).join('')}</div>` : ''}
+      </div>
+      <div class="stack-lg" style="align-content:start">
+        <div class="stack">
+          ${p.shop ? `<a href="#/s/${esc(p.shop.id)}" class="muted row" style="text-decoration:none;gap:8px">${shopLogo(p.shop, 'sm')}<span>Sold by <b>${esc(p.shop.name)}</b></span></a>` : ''}
+          <h1 style="font-size:clamp(22px,3.4vw,30px)" dir="auto">${esc(T(p))}</h1>
+          <div id="price"></div>
+          ${p.deal ? `<div class="dealline"><span class="dealbadge" style="position:static">−${p.deal.pct}%</span><span>${KinanLang.t('Today’s deal · ends in')}</span><span class="countdown" data-countdown="${p.deal.ends}" data-no-tr></span></div>` : ''}
+          <div id="ptsline" class="ptsline"></div>
+          ${p.ships_from && Number(cfg.free_shipping_over) > 0 ? `<div class="small muted">🚚 ${KinanLang.t('Free delivery from European warehouses over')} ${money(cfg.free_shipping_over, p.currency)}</div>` : ''}
+          <div id="klarna" class="klarna-msg"></div>
+        </div>
+        ${p.option_groups ? `<div class="stack" id="optgroups">${p.option_groups.map((g, gi) => `<div class="optgroup"><div class="oghead"><b>${esc(optName(g.name))}:</b><span data-ogsel="${gi}"></span></div>
+          <div class="variants">${g.values.map((v) => `<button type="button" data-og="${gi}" data-ov="${esc(v.value)}" class="${v.image ? 'pic' : ''}">${v.image ? `${K.img(v.image, 120, 'alt="" loading="lazy"')}` : ''}<span>${esc(v.value)}</span></button>`).join('')}</div></div>`).join('')}</div>`
+        : p.skus.length > 1 ? `<div class="stack"><h3>Option</h3><div class="variants" id="variants">${p.skus.map((s) => `<button data-sku="${esc(s.mp_sku_id)}" ${s.in_stock ? '' : 'disabled'}>${esc(variantLabel(s.props))}</button>`).join('')}</div></div>` : ''}
+        <div class="row"><div class="qty"><button type="button" id="qm" aria-label="Less">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="More">+</button></div><span class="muted" id="stock"></span></div>
+        <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
+        <div class="row"><button class="btn quiet" id="share">${ICONS.share} Share</button><button class="btn quiet heart" id="save" type="button">${HEART} <span>Save</span></button>${p.rating ? `<a href="#reviews" class="small" style="text-decoration:none">${stars(p.rating, p.reviews)}</a>` : ''}</div>
+        <div class="landed small" id="landed"></div><div class="eta small" id="eta"></div>
+        <div class="panel flat stack small">
+          <div><b>Shipping:</b> priced for your address · tracking included</div>
+          ${p.fulfillment === 'direct' ? `<div class="eta"><div><span class="muted">Delivery</span><b>${esc(realDays(p, Locale.get().country) || cfg.aliexpress?.delivery_days || '10–15')} days</b></div><div><span class="muted">Tracking</span><b>Included</b></div></div>
+          <div class="muted">This item is sent in its own parcel, so it may arrive separately from your other items.</div>`
+          : `<div class="eta"><div><span class="muted">Preparing your order</span><b>3–7 days</b></div><div><span class="muted">Delivery</span><b>7–15 days</b></div></div>
+          <div class="muted">Every item is checked before it ships to you. You get a tracking number as soon as your parcel leaves.</div>`}
+        </div>
+        ${p.safety ? `<details class="panel flat small"><summary><b>${KinanLang.t('Product safety')}</b></summary><div class="desc" style="margin-top:8px"><ul style="margin:0 0 8px;padding-inline-start:18px">${p.safety.warnings.map((w) => `<li dir="auto">${esc(w)}</li>`).join('')}</ul><p><b>${KinanLang.t('EU responsible person')}:</b> ${esc(p.safety.responsible.name)}, ${esc(p.safety.responsible.address)} · <a href="mailto:${esc(p.safety.responsible.email)}">${esc(p.safety.responsible.email)}</a></p>${p.safety.manufacturer ? `<p><b>${KinanLang.t('Manufacturer')}:</b> ${esc(p.safety.manufacturer.name)}${p.safety.manufacturer.address ? `, ${esc(p.safety.manufacturer.address)}` : ''}</p>` : ''}</div></details>` : ''}
+        ${p.return_policy !== undefined ? `<details class="panel flat small"><summary><b>Returns</b></summary><p class="desc" style="margin-top:8px">${esc(p.return_policy || 'Returns are accepted only for items that arrive damaged or different from the listing. Contact Kinan support within 7 days of delivery with photos.')}</p></details>` : ''}
+        ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc" dir="auto">${esc(desc)}</p></div>` : ''}
+        <div class="stack" id="reviews"></div>
+        <div class="stack" id="qa"></div>
+      </div>
+    </div>
+    <div id="together"></div><div id="similar"></div><div id="seenrow"></div>`;
+  Seen.add(p.id);
+  loadQA(p);
+  showEta(p.id);
+  api(`/api/catalog/${encodeURIComponent(p.id)}/together`).then((d) => boughtTogether(p, d)).catch(() => {});
+  api(`/api/catalog/${encodeURIComponent(p.id)}/similar`).then((d) => { const el = $('#similar'); if (el && d.items.length) el.innerHTML = stripSection(KinanLang.t('Similar products'), d.items); }).catch(() => {});
+  fillSeen($('#seenrow'), p.id);
+  api(`/api/catalog/${encodeURIComponent(p.id)}/reviews`).then((r) => {
+    if (!r.count) return;
+    const shots = r.reviews.flatMap((x) => x.photos).slice(0, 12);
+    const sm = r.summary ? `<div class="panel flat small revsum"><b>✨ ${KinanLang.t('Customers say')}</b><p dir="auto" style="margin:6px 0">${esc(KinanLang.lang === 'ar' && r.summary.text_ar ? r.summary.text_ar : r.summary.text)}</p>${(r.summary.tags || []).length ? `<div class="row" style="gap:6px;flex-wrap:wrap">${r.summary.tags.map((t) => `<span class="pill ${t.good ? 'ok' : 'warn'}">${t.good ? '✓' : '!'} ${esc(KinanLang.lang === 'ar' && t.label_ar ? t.label_ar : t.label)}</span>`).join('')}</div>` : ''}<div class="muted" style="margin-top:6px">${KinanLang.t('AI summary of')} ${r.summary.based_on} ${KinanLang.t('reviews')}</div></div>` : '';
+    $('#reviews').innerHTML = `<h3>Reviews ${stars(r.average, r.count)}</h3>${sm}${shots.length ? `<div class="muted small">${KinanLang.t('Customer photos')}</div><div class="row" style="gap:6px;overflow-x:auto">${shots.map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" alt="" loading="lazy" style="width:72px;height:72px;object-fit:cover;border-radius:10px"></a>`).join('')}</div>` : ''}<div>${r.reviews.map((x) => `<div class="rev"><div class="row between"><b>${esc(x.name)}</b><span>${'★'.repeat(x.rating)}<span class="muted">${'★'.repeat(5 - x.rating)}</span></span></div>
+      ${x.text ? `<div dir="auto">${esc(x.text)}</div>` : ''}${x.photos.length ? `<div class="ph">${x.photos.map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" alt="" loading="lazy"></a>`).join('')}</div>` : ''}
+      <span class="small"><b style="color:var(--brand,#0f7a5c)">✓</b> <span style="color:var(--brand,#0f7a5c)">Verified purchase</span> <span class="muted">· ${date(x.at, false)}</span></span></div>`).join('')}</div>`;
+  }).catch(() => {});
+  const sv = $('#save');
+  const paintSave = (on) => { sv.classList.toggle('on', on); sv.querySelector('span').textContent = on ? 'Saved' : 'Save'; };
+  if (me && me.role === 'buyer') api(`/api/buyer/wishlist/${p.id}`).then((r) => paintSave(r.saved)).catch(() => {});
+  sv.onclick = async () => {
+    if (!me || me.role !== 'buyer') { signin(encodeURIComponent(`/p/${p.id}`)); return; }
+    const on = !sv.classList.contains('on');
+    try { await api(`/api/buyer/wishlist/${p.id}`, on ? 'POST' : 'DELETE'); paintSave(on); toast(on ? 'Saved — we’ll tell you if the price drops' : 'Removed from saved items'); } catch (e) { toast(e.message); }
+  };
+  const paint = () => {
+    const img = p.images[imgIdx];
+    $('#mainimg').innerHTML = img ? `${K.img(img, 640, `alt="${esc(p.title)}"`)}` : noImg;
+    $$('.thumbs button').forEach((b) => b.classList.toggle('on', Number(b.dataset.i) === imgIdx));
+    landed();
+    $$('#variants button').forEach((b) => b.classList.toggle('on', b.dataset.sku === sku.mp_sku_id));
+    const noShip = hasAddress() && (p.no_delivery || []).includes(Locale.get().country);
+    $('#stock').textContent = noShip ? `${KinanLang.t('Does not deliver to')} ${countryName(Locale.get().country)}` : sku.in_stock ? (sku.stock < 20 ? `Only ${sku.stock} left` : 'In stock') : 'Out of stock';
+    $('#add').disabled = $('#buy').disabled = !sku.in_stock || noShip;
+    $('#qv').value = qty;
+    const pts = cfg.points?.per_unit ? Math.floor(sku.price * qty * cfg.points.per_unit) : 0;
+    $('#ptsline').textContent = pts ? `★ Earn ${pts} Kinan points` : '';
+    klarnaMsg(sku.price * qty, p.currency);
+  };
+  // The price shown is the full price to the customer's address: item + shipping for this quantity
+  let lq = 0;
+  async function landed() {
+    const el = $('#landed'); const pr = $('#price'); if (!el || !pr) return; const my = ++lq;
+    if (!hasAddress()) {
+      pr.innerHTML = `<button type="button" class="btn" id="addaddr">Add your address to see the price with shipping</button>`;
+      el.innerHTML = `<div class="muted">The price shown includes shipping to your address. Product only: <b>${money(sku.price * qty, p.currency)}</b></div>`;
+      $('#addaddr').onclick = () => addressDialog(() => paint());
+      return;
+    }
+    const loc = Locale.get();
+    pr.innerHTML = `<span class="tag lg" style="opacity:.55">…</span>`;
+    const q = await api('/api/shipping/quote', 'POST', { items: [{ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty }], country_code: loc.country }).catch(() => null);
+    if (my !== lq) return;
+    if (!q) { pr.innerHTML = `<span class="tag lg">${money(sku.price * qty, p.currency)}</span> <span class="muted small">+ shipping</span>`; return; }
+    const total = sku.price * qty + (q.fee || 0);
+    const days = q.cj?.days ? String(q.cj.days).replace('-', '–') : realDays(p, loc.country) || (p.fulfillment === 'direct' ? (cfg.aliexpress?.delivery_days || '10–15') : (() => { const m = String(q.days || '7–15').match(/(\d+)\D+(\d+)/); return m ? `${Number(m[1]) + 3}–${Math.min(15, Number(m[2]) + 7)}` : '10–15'; })());
+    pr.innerHTML = `<span class="tag lg">${money(total, p.currency)}</span> <span class="muted small">${q.fee ? 'including shipping' : 'shipping included'}${qty > 1 ? ` · ${qty} pcs` : ''}</span>`;
+    el.innerHTML = `<button class="locchip" type="button"></button>
+      <div><span>${q.fee ? `Item ${money(sku.price * qty, p.currency)} + shipping ${money(q.fee, p.currency)}` : 'Shipping included'}</span> · <span>arrives in about</span> <b>${esc(days)} days</b></div>
+      ${q.weight_kg ? '<div class="muted">Shipping is checked by the real weight — if it weighs less, we refund the difference to your wallet.</div>' : ''}
+      <div class="muted">${q.import_fee ? `Delivery includes the EU import duty (${money(q.import_fee, p.currency)}) — nothing more to pay on delivery.` : 'Import duties or VAT may be charged by your country’s customs on delivery.'}</div>`;
+    renderLocaleChip();
+  }
+  // Opening a product without an address: ask for it (the customer can still look around)
+  if (!hasAddress()) setTimeout(() => { if (!document.querySelector('dialog[open]') && location.hash.startsWith('#/p/')) addressDialog(() => paint(), { first: true }); }, 500);
+  $$('.thumbs button').forEach((b) => b.onclick = () => { imgIdx = Number(b.dataset.i); paint(); });
+  // Choosing an option shows its own photo (colour, model…) when it has one
+  const showSku = (s) => { const gi = (p.option_groups || []).findIndex((g) => g.values.some((v) => v.image)); const u = s?.image || (gi >= 0 && s?.pick ? p.option_groups[gi].values.find((v) => v.value === s.pick[gi])?.image : null); const i = u ? p.images.indexOf(u) : -1; if (i >= 0) imgIdx = i; };
+  $$('#variants button').forEach((b) => b.onclick = () => { sku = p.skus.find((s) => s.mp_sku_id === b.dataset.sku); qty = Math.min(qty, Math.max(1, sku.stock)); showSku(sku); paint(); });
+  // Grouped options (Color, Size…): one value per group; values with no stock for the current choice are faded
+  if (p.option_groups) {
+    let pick = [...(sku.pick || [])];
+    const match = (pk) => p.skus.find((s) => s.pick && s.pick.every((v, i) => v === pk[i]));
+    const paintOpts = () => {
+      $$('[data-og]').forEach((b) => {
+        const gi = Number(b.dataset.og); const v = b.dataset.ov;
+        const t = match(pick.map((x, i) => (i === gi ? v : x)));
+        b.classList.toggle('on', pick[gi] === v);
+        b.classList.toggle('na', !t || !t.in_stock);
+        b.disabled = !p.skus.some((s) => s.pick && s.pick[gi] === v && s.in_stock);
+      });
+      $$('[data-ogsel]').forEach((el) => { el.textContent = pick[Number(el.dataset.ogsel)] || ''; });
+    };
+    $$('[data-og]').forEach((b) => b.onclick = () => {
+      const gi = Number(b.dataset.og); pick[gi] = b.dataset.ov;
+      let s = match(pick);
+      // That combination is missing or sold out: keep this choice and move the others to the nearest one in stock
+      if (!s || !s.in_stock) {
+        const ok = p.skus.filter((x) => x.pick && x.pick[gi] === pick[gi] && x.in_stock);
+        s = ok.sort((a, b) => b.pick.filter((v, i) => v === pick[i]).length - a.pick.filter((v, i) => v === pick[i]).length)[0] || s;
+        if (s) pick = [...s.pick];
+      }
+      if (s) { sku = s; qty = Math.min(qty, Math.max(1, sku.stock)); }
+      if (s) showSku(s);
+      paintOpts(); paint();
+    });
+    paintOpts();
+  }
+  const setQty = (n) => { qty = Math.max(1, Math.min(Number(n) || 1, sku.stock || 1, 999)); paint(); };
+  $('#qm').onclick = () => setQty(qty - 1); $('#qp').onclick = () => setQty(qty + 1); $('#qv').onchange = (e) => setQty(e.target.value);
+  const add = () => Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title: p.title, shop_id: p.shop?.id, direct: p.fulfillment === 'direct', props: p.skus.length > 1 ? variantLabel(sku.props) : '', price: sku.price, currency: p.currency, image: sku.image || p.images[0] || null });
+  K.track('view_item', { currency: p.currency, value: sku.price, items: [{ item_id: p.id, item_name: p.title, price: sku.price }] });
+  $('#add').onclick = () => { add(); K.track('add_to_cart', { currency: p.currency, value: sku.price * qty }); toast('Added to cart'); };
+  $('#share').onclick = () => shareLink(`${location.origin}/p/${p.id}`, p.title);
+  $('#buy').onclick = () => { add(); location.hash = '#/cart'; };
+  paint();
+}
+
+/** "Add €8 more for free delivery" — items from European/UK warehouses (Kinan pays that delivery above the threshold). */
+function freeBar(items, byId) {
+  const over = Number(cfg.free_shipping_over) || 0;
+  const eu = items.filter((x) => byId.get(x.listing_id)?.ships_from);
+  if (!over || !eu.length) return '';
+  const sub = eu.reduce((a, x) => a + x.price * x.qty, 0);
+  const pct = Math.min(100, Math.round(sub / over * 100));
+  const cur = eu[0].currency || cfg.currency;
+  return `<div class="freebar ${pct >= 100 ? 'done' : ''}"><div class="fbtext">${pct >= 100 ? `🎉 ${KinanLang.t('Free delivery on items from European warehouses')}` : `🚚 ${KinanLang.t('Add')} <b>${money(over - sub, cur)}</b> ${KinanLang.t('more for free delivery on items from European warehouses')}`}</div><div class="fbtrack"><span style="width:${pct}%"></span></div></div>`;
+}
+
+/** A link that fills the cart (e.g. Kinan's test order): adds the products, then opens the cart. */
+async function addLink(spec) {
+  $('#view').innerHTML = skeletonGrid();
+  const d = await api(`/api/catalog/lines?items=${encodeURIComponent(decodeURIComponent(spec))}`);
+  for (const it of d.items) { const c = Cart.get(); if (!c.some((x) => x.listing_id === it.listing_id && x.mp_sku_id === it.mp_sku_id)) Cart.add(it); }
+  toast(d.items.length ? `${d.items.length} products added to your cart` : 'These products are not available any more');
+  location.replace('#/cart');
+}
+
+async function cart() {
+  const v = $('#view'); await Cart.migrate(); let items = Cart.get();
+  if (!items.length) { v.innerHTML = `<div class="empty"><h3>Your cart is empty</h3><p>Find something you like and add it here.</p><a class="btn" href="#/">Browse products</a></div>`; return; }
+  v.innerHTML = '<div class="pagehead"><h1>Cart</h1></div><div class="skeleton" style="height:200px"></div>';
+  // Refresh prices and availability
+  const fresh = await Promise.all([...new Set(items.map((x) => x.listing_id))].map((id) => api(`/api/catalog/${id}`).catch(() => null)));
+  const byId = new Map(fresh.filter(Boolean).map((p) => [p.id, p]));
+  const notes = [];
+  items = items.map((x) => {
+    const p = byId.get(x.listing_id); const s = p?.skus.find((k) => k.mp_sku_id === x.mp_sku_id);
+    if (!p || !s || !s.in_stock) { notes.push(`${x.title} is no longer available and was removed.`); return null; }
+    if (s.price !== x.price) notes.push(`The price of ${x.title} changed to ${money(s.price, p.currency)}.`);
+    return { ...x, price: s.price, qty: Math.min(x.qty, s.stock), max: s.stock };
+  }).filter(Boolean);
+  Cart.set(items.map(({ max, ...x }) => x));
+  const cur = items[0]?.currency || cfg.currency;
+  const sub = items.reduce((a, x) => a + x.price * x.qty, 0);
+  v.innerHTML = `<div class="pagehead"><h1>Cart</h1><span class="muted">${Cart.count()} item${Cart.count() === 1 ? '' : 's'}</span></div>
+    ${notes.length ? `<div class="panel flat warn small" style="margin-bottom:12px">${notes.map(esc).join('<br>')}</div>` : ''}
+    <div class="two">
+      <div class="panel">${items.length ? items.map((x, i) => `<div class="line">
+          ${x.image ? `${K.img(x.image, 350, 'alt=""')}` : `<div class="thumb"></div>`}
+          <div class="stack" style="gap:4px"><a href="#/p/${esc(x.listing_id)}" style="text-decoration:none;font-weight:600">${esc(x.title)}</a>${x.props ? `<span class="muted">${esc(x.props)}</span>` : ''}${x.direct ? '<span class="pill" style="justify-self:start">Ships separately</span>' : ''}
+            <div class="row"><div class="qty"><button data-dec="${i}" aria-label="Less">−</button><input value="${x.qty}" data-q="${i}" inputmode="numeric" aria-label="Quantity"><button data-inc="${i}" aria-label="More">+</button></div><button class="btn sm ghost" data-rm="${i}">Remove</button></div></div>
+          <b>${money(x.price * x.qty, x.currency)}</b></div>`).join('') : '<div class="empty"><h3>Nothing left in your cart</h3></div>'}</div>
+      <aside class="panel sum">
+        ${freeBar(items, byId)}
+        <div><span>Subtotal</span><span>${money(sub, cur)}</span></div>
+        <div><span>Shipping${savedAddress().country_code ? ` to ${esc(countryName(savedAddress().country_code))}` : ''}</span><span id="cship">${savedAddress().country_code ? '…' : 'At checkout'}</span></div>
+        <div class="total"><span>Total</span><span id="ctot">${money(sub, cur)}${savedAddress().country_code ? '' : ' + shipping'}</span></div>
+        ${items.some((x) => x.direct) && items.some((x) => !x.direct) ? '<p class="muted small">Items marked “Ships separately” arrive in their own parcel. Everything else is packed together.</p>' : new Set(items.map((x) => x.shop_id).filter(Boolean)).size > 1 && !items.some((x) => x.direct) ? '<p class="muted small">Items from different shops are packed together and arrive in one parcel.</p>' : ''}
+        <a class="btn block" href="#/checkout" ${items.length ? '' : 'style="pointer-events:none;opacity:.5"'}>Check out</a>
+        <a class="btn block ghost" href="#/">Keep shopping</a>
+      </aside>
+    </div>`;
+  if (savedAddress().country_code && items.length) api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: savedAddress().country_code }).then((q) => {
+    if (!$('#cship')) return; $('#cship').textContent = q.fee ? money(q.fee, cur) : 'Included';
+    const bd = Number(q.bundle_discount) || 0;
+    if (bd) $('#cship').parentElement.insertAdjacentHTML('afterend', `<div><span>${KinanLang.t('Bought together')}</span><span class="dealtxt">−${money(bd, cur)}</span></div>`);
+    $('#ctot').innerHTML = `${money(sub + q.fee - bd, cur)}${localPrice(sub + q.fee - bd) ? `<div class="lp" style="font-weight:400">${localPrice(sub + q.fee - bd)}</div>` : ''}`;
+  }).catch(() => {});
+  const upd = (i, q) => { const c = Cart.get(); if (q <= 0) c.splice(i, 1); else c[i].qty = Math.min(q, items[i].max || 999); Cart.set(c); cart(); };
+  $$('[data-dec]').forEach((b) => b.onclick = () => upd(+b.dataset.dec, items[+b.dataset.dec].qty - 1));
+  $$('[data-inc]').forEach((b) => b.onclick = () => upd(+b.dataset.inc, items[+b.dataset.inc].qty + 1));
+  $$('[data-q]').forEach((inp) => inp.onchange = () => upd(+inp.dataset.q, Math.floor(Number(inp.value)) || 0));
+  $$('[data-rm]').forEach((b) => b.onclick = () => upd(+b.dataset.rm, 0));
+}
+
+async function checkout() {
+  if (!requireBuyer('/checkout')) return;
+  const items = Cart.get(); if (!items.length) { location.hash = '#/cart'; return; }
+  if (cfg.payments_paused) { $('#view').innerHTML = `<div class="panel" style="text-align:center;padding:28px"><h2>${KinanLang.t('Checkout is paused for a short while')}</h2><p class="muted">${KinanLang.t('Your cart is saved. Please come back soon to complete your order.')}</p><a class="btn" href="#/">${KinanLang.t('Keep shopping')}</a></div>`; return; }
+  const a = { name: me.name || '', ...savedAddress() };
+  const cur = items[0].currency || cfg.currency;
+  const sub = items.reduce((s, x) => s + x.price * x.qty, 0);
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/cart">${ICONS.back} Cart</a><h1 style="margin-top:6px">Delivery address</h1></div></div>
+    <div class="two"><form class="panel stack" id="af">
+      ${Book.list().length > 1 ? `<label class="field">Saved addresses<select id="abook">${Book.list().map((x) => `<option value="${esc(x.id)}" ${x.id === Book.selectedId() ? 'selected' : ''}>${esc(x.label || x.name)} — ${esc(addrLine(x))}</option>`).join('')}<option value="">+ New address</option></select></label>` : ''}
+      <div class="grid-2"><label class="field">Full name<input name="name" required autocomplete="name" value="${esc(a.name)}"></label>
+      <label class="field">Phone<input name="phone" type="tel" required autocomplete="tel" value="${esc(a.phone)}"></label></div>
+      <label class="field">Address<input name="line1" required autocomplete="address-line1" placeholder="Street and number" value="${esc(a.line1)}"></label>
+      <label class="field">Apartment, building (optional)<input name="line2" autocomplete="address-line2" value="${esc(a.line2)}"></label>
+      <div class="grid-2"><label class="field">City<input name="city" required autocomplete="address-level2" value="${esc(a.city)}"></label>
+      <label class="field">Postal code<input name="postal_code" autocomplete="postal-code" value="${esc(a.postal_code)}"></label></div>
+      <div class="grid-2"><label class="field">Country<select name="country_code" required autocomplete="country">${(cfg.countries || []).length ? `<option value="">Choose…</option>${KinanLang.sortCountries(cfg.countries).map(([c, n]) => `<option value="${c}" ${a.country_code === c || (!a.country_code && String(a.country || '').toLowerCase() === n.toLowerCase()) ? 'selected' : ''}>${esc(n)}</option>`).join('')}` : ''}</select></label>
+      <label class="field">State / province (optional)<input name="state" autocomplete="address-level1" value="${esc(a.state)}"></label></div>
+      ${items.some((x) => !x.direct) ? `<fieldset class="opts"><legend>Packing</legend>
+        <label class="opt"><input type="radio" name="packaging" value="standard" checked><span><b>Standard</b><small>We pack your items safely.</small></span><span>Free</span></label>
+        <label class="opt"><input type="radio" name="packaging" value="no_boxes"><span><b>Remove product boxes</b><small>Lighter parcel — cheaper shipping, often refunded to your wallet.</small></span><span>Free</span></label>
+        <label class="opt"><input type="radio" name="packaging" value="protect"><span><b>Extra protection</b><small>Bubble wrap and a stronger box for fragile items.</small></span><span>${money((cfg.packaging || {}).protect || 2, cur)}</span></label>
+      </fieldset>
+      <label class="opt"><input type="checkbox" name="hold"><span><b>Store in the warehouse</b><small>Keep this order up to ${cfg.storage_days || 30} days and ship it in one box with your next orders. Tap “Ship now” any time.</small></span><span>Free</span></label>` : ''}
+      <div class="error" id="ce"></div>
+      <button class="btn" id="go">Continue to payment</button>
+      <p class="muted">Your address is only used to deliver your order. By placing your order you agree to the <a href="/terms" target="_blank">Terms of Service</a>; import taxes may apply in your country.</p>
+    </form>
+    <aside class="panel sum">${items.map((x) => `<div class="small"><span>${x.qty} × ${esc(x.title.slice(0, 40))}${x.title.length > 40 ? '…' : ''}</span><span>${money(x.price * x.qty, cur)}</span></div>`).join('')}
+      <div><span>Shipping</span><span id="kship">Choose a country</span></div><div class="muted small" id="kshipnote"></div>
+      <div id="kpack" hidden><span>Extra protection</span><span id="kpackv"></span></div>
+      <div id="kdisc" hidden><span>Discount <code id="kcode"></code></span><span id="kdiscv" class="amt pos"></span></div>
+      <div id="kbundle" hidden><span>${KinanLang.t('Bought together')}</span><span class="dealtxt"></span></div>
+      <form class="row" id="cpf" style="gap:6px;flex-wrap:nowrap"><input name="code" placeholder="Discount code" autocomplete="off" style="flex:1;min-width:0;text-transform:uppercase"><button class="btn sm ghost">Apply</button></form><div class="small" id="cpm"></div>
+      <div class="total"><span>Total</span><span id="ktot">${money(sub, cur)}</span></div></aside></div>`;
+  let lastFee = 0;
+  const extras = () => { const f = $('#af'); return f.packaging && f.packaging.value === 'protect' ? Number((cfg.packaging || {}).protect || 2) : 0; };
+  let coupon = null;
+  let bundleOff = 0;
+  const paintTotal = () => { const t = Math.max(0, sub + lastFee + extras() - (coupon ? coupon.discount : 0) - bundleOff); { const kb = $('#kbundle'); if (kb) { kb.hidden = !bundleOff; kb.querySelector('span:last-child').textContent = '−' + money(bundleOff, cur); } } $('#kdisc').hidden = !coupon; if (coupon) { $('#kcode').textContent = coupon.code; $('#kdiscv').textContent = '−' + money(coupon.discount, cur); } $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
+  const requote = async () => {
+    const code = $('#af').country_code.value; if (!code) return;
+    try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: code });
+      lastFee = q.fee || 0; bundleOff = Number(q.bundle_discount) || 0;
+      $('#kship').textContent = q.fee ? money(q.fee, cur) : 'Included';
+      if (q.import_fee) $('#kship').title = `Includes EU import duty ${money(q.import_fee, cur)}`;
+      $('#kshipnote').textContent = [q.weight_kg ? `${q.weight_kg} kg estimated · arrives in about ${q.days} days. If your parcel weighs less, we refund the difference to your wallet.` : '', q.cj?.fee ? `Includes ${money(q.cj.fee, cur)} for items that ship separately${q.cj.days ? ` (about ${String(q.cj.days).replace('-', '–')} days)` : ''}.` : '', q.import_fee ? `Includes the EU import duty (${money(q.import_fee, cur)}) — nothing more to pay on delivery.` : ''].filter(Boolean).join(' ');
+      paintTotal();
+    } catch {}
+  };
+  if ($('#abook')) $('#abook').onchange = (e) => {
+    if (e.target.value) { Book.select(e.target.value); checkout(); return; }
+    const f = $('#af'); for (const k of ['name', 'phone', 'line1', 'line2', 'city', 'postal_code', 'state']) if (f[k]) f[k].value = k === 'name' ? (me.name || '') : '';
+  };
+  $('#af').country_code.onchange = () => {
+    const f = $('#af'); const code = f.country_code.value;
+    if (code && currencyFor(code) !== Locale.get().currency) {
+      // New currency: keep what was typed and show every amount again in the new currency
+      const keep = Object.fromEntries(['name', 'phone', 'line1', 'line2', 'city', 'postal_code', 'state', 'country_code'].map((k) => [k, f[k] ? f[k].value : '']));
+      try { localStorage.setItem('kinan_addr', JSON.stringify({ ...savedAddress(), ...keep })); } catch {}
+      Locale.set({ country: code }); checkout(); return;
+    }
+    if (code) Locale.set({ country: code });
+    requote();
+  };
+  requote();
+  $$('#af [name=packaging]').forEach((r) => r.onchange = paintTotal);
+  $('#cpf').onsubmit = async (e) => {
+    e.preventDefault(); const code = e.target.code.value.trim(); $('#cpm').textContent = '';
+    if (!code) { coupon = null; paintTotal(); return; }
+    try { coupon = await api('/api/buyer/coupon', 'POST', { code, subtotal: sub }); $('#cpm').innerHTML = `<span class="ok">${esc(coupon.label)} applied</span>`; }
+    catch (err) { coupon = null; $('#cpm').innerHTML = `<span class="error">${esc(err.message)}</span>`; }
+    paintTotal();
+  };
+  $('#af').onsubmit = async (e) => {
+    e.preventDefault(); const { packaging = 'standard', hold, ...addr } = Object.fromEntries(new FormData(e.target));
+    // Keep it in the address book: update the chosen address, or add it when it is a new one
+    const sid = $('#abook') ? $('#abook').value : Book.selectedId();
+    Book.upsert({ ...Object.fromEntries(ADDR_KEYS.map((k) => [k, addr[k] ?? (Book.list().find((x) => x.id === sid) || {})[k] ?? ''])), ...(sid ? { id: sid } : {}) });
+    $('#go').disabled = true; $('#go').textContent = 'Placing order…';
+    try {
+      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '', currency: Locale.get().currency });
+      Cart.set([]);
+      K.track('begin_checkout', { currency: o.currency, value: o.total });
+      location.hash = `#/pay/${o.id}`;
+    } catch (err) { $('#ce').textContent = err.message; $('#go').disabled = false; $('#go').textContent = 'Continue to payment'; }
+  };
+}
+
+/** "Pay in 3 with Klarna" under the price (Stripe's message; shows only where Klarna is switched on in Stripe and the currency fits). */
+let klarnaEl = null; let klarnaT = null;
+function klarnaMsg(amount, cur) {
+  clearTimeout(klarnaT);
+  klarnaT = setTimeout(async () => {
+    const box = $('#klarna'); const to = Locale.get().currency; const country = savedAddress().country_code || '';
+    if (!box || cfg.payments !== 'stripe' || !cfg.stripe_publishable_key || !['EUR', 'GBP'].includes(to)) return;
+    const r = cfg.fx?.rates?.[to]; if (!r) return;
+    const minor = Math.round(Number(amount) * r * 100); if (minor < 100) return;
+    try {
+      const Stripe = await loadStripe();
+      const stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
+      if (klarnaEl) { try { klarnaEl.destroy(); } catch { /* gone */ } }
+      klarnaEl = stripe.elements().create('paymentMethodMessaging', { amount: minor, currency: to, paymentMethodTypes: ['klarna'], countryCode: /^[A-Z]{2}$/.test(country) ? country : (to === 'GBP' ? 'GB' : 'DE') });
+      if ($('#klarna')) klarnaEl.mount('#klarna');
+    } catch { /* Klarna not available here */ }
+  }, 400);
+}
+const stripeLocale = () => (['ar', 'fr', 'de', 'it', 'es'].includes(KinanLang.lang) ? KinanLang.lang : 'en');
+
+function loadStripe() {
+  return new Promise((res, rej) => {
+    if (window.Stripe) return res(window.Stripe);
+    const s = document.createElement('script'); s.src = 'https://js.stripe.com/v3/'; s.onload = () => res(window.Stripe); s.onerror = () => rej(new Error('Could not load the payment form. Check your connection.'));
+    document.head.append(s);
+  });
+}
+
+async function pay(id) {
+  if (!requireBuyer(`/pay/${id}`)) return;
+  const o = await api(`/api/buyer/orders/${id}`);
+  if (o.status !== 'pending_payment') { location.hash = `#/orders/${id}`; return; }
+  const demo = cfg.payments === 'demo';
+  const wallet = await api('/api/buyer/wallet').catch(() => ({ balance: 0 }));
+  const canWallet = wallet.balance >= o.total;
+  $('#view').innerHTML = `<div class="pagehead"><h1>Payment</h1></div>
+    <div class="two"><div class="panel stack">
+      ${demo ? `<div class="pill warn" style="justify-self:start">Test mode</div><p>Card payments are not switched on yet. Use the test payment to try the full order flow — no money is charged.</p><button class="btn" id="demo">Pay ${money(o.total, o.currency)} (test)</button>`
+        : `<div id="savedcards" class="stack" hidden></div><div id="pay-element"></div><button class="btn" id="paybtn" disabled>Pay ${money(o.total, o.currency)}</button>`}
+      ${o.wallet_applied ? `<div class="panel flat row between small"><span>${KinanLang.t('From your wallet')}: <b>−${money(o.wallet_applied, o.currency)}</b> · ${KinanLang.t('rest by card')}</span><button class="btn sm quiet" id="wundo">${KinanLang.t('Undo')}</button></div>`
+        : wallet.balance > 0 ? `<div class="panel flat row between small"><span>Wallet balance: <b>${money(wallet.balance, o.currency)}</b></span>${canWallet ? `<button class="btn sm ghost" id="wpay">Pay with wallet</button>` : `<button class="btn sm ghost" id="wpart">${KinanLang.t('Use it, pay the rest by card')}</button>`}</div>` : ''}
+      <div class="error" id="pe"></div>
+      <a class="muted" href="#/orders/${esc(id)}">Pay later — the order stays in your orders</a>
+    </div>
+    <aside class="panel sum">${o.lines.map((l) => `<div class="small"><span>${l.qty} × ${esc(l.title.slice(0, 40))}</span><span>${money(l.price * l.qty, o.currency)}</span></div>`).join('')}
+      <div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div><div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div></aside></div>`;
+  const wpart = $('#wpart'); if (wpart) wpart.onclick = async () => { wpart.disabled = true; try { await api(`/api/buyer/orders/${id}/apply-wallet`, 'POST'); pay(id); } catch (e) { $('#pe').textContent = e.message; wpart.disabled = false; } };
+  const wundo = $('#wundo'); if (wundo) wundo.onclick = async () => { try { await api(`/api/buyer/orders/${id}/remove-wallet`, 'POST'); pay(id); } catch (e) { $('#pe').textContent = e.message; } };
+  const wp = $('#wpay');
+  if (wp) wp.onclick = async () => { wp.disabled = true; try { await api(`/api/buyer/orders/${id}/pay-wallet`, 'POST'); toast('Paid from your wallet'); location.hash = `#/orders/${id}`; } catch (e) { $('#pe').textContent = e.message; wp.disabled = false; } };
+  if (demo) {
+    $('#demo').onclick = async () => { $('#demo').disabled = true; try { await api(`/api/buyer/orders/${id}/demo-pay`, 'POST'); toast('Payment received'); location.hash = `#/orders/${id}`; } catch (e) { $('#pe').textContent = e.message; $('#demo').disabled = false; } };
+    return;
+  }
+  try {
+    if (!cfg.stripe_publishable_key) throw new Error('Card payments are not configured yet. Please try again later.');
+    const [saved, Stripe] = await Promise.all([api('/api/buyer/cards').catch(() => []), loadStripe()]);
+    const cp = await api(`/api/buyer/orders/${id}/card-payment`, 'POST');
+    if (cp.paid) { toast('Payment received'); location.hash = `#/orders/${id}`; return; }
+    const stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
+    const elements = stripe.elements({ clientSecret: cp.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+    elements.create('payment').mount('#pay-element');
+    // Saved cards: pick one, or "new card" to use the form
+    let pick = saved.length ? saved[0].id : 'new';
+    if (saved.length) {
+      const box = $('#savedcards'); box.hidden = false;
+      const paint = () => {
+        box.innerHTML = `<b>Pay with</b>${saved.map((c) => `<button type="button" class="cardrow pickable ${pick === c.id ? 'on' : ''}" data-cpick="${esc(c.id)}" aria-pressed="${pick === c.id}"><span class="dot"></span><span class="acticon">${CARD_ICON}</span><span><b><bdi dir="ltr">${esc(cardName(c))} •••• ${esc(c.last4)}</bdi></b><span class="muted small" style="display:block">Expires <span dir="ltr">${esc(cardExp(c))}</span></span></span></button>`).join('')}
+          <button type="button" class="cardrow pickable ${pick === 'new' ? 'on' : ''}" data-cpick="new" aria-pressed="${pick === 'new'}"><span class="dot"></span><span class="acticon">${ICONS.plus}</span><span><b>A new card or another way to pay</b></span></button>`;
+        $('#pay-element').hidden = pick !== 'new';
+        $$('[data-cpick]').forEach((b) => b.onclick = () => { pick = b.dataset.cpick; paint(); });
+      };
+      paint();
+    }
+    $('#paybtn').disabled = false;
+    $('#paybtn').onclick = async () => {
+      $('#paybtn').disabled = true; $('#pe').textContent = '';
+      const { error } = pick !== 'new'
+        ? await stripe.confirmCardPayment(cp.client_secret, { payment_method: pick, return_url: `${location.origin}/?order=${encodeURIComponent(id)}` })
+        : await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/?order=${encodeURIComponent(id)}` } });
+      if (error) { $('#pe').textContent = error.message; $('#paybtn').disabled = false; return; }
+      await api(`/api/buyer/orders/${id}/confirm-card`, 'POST').catch(() => {});
+      K.track('purchase', { id, currency: o.currency, value: o.total });
+      toast('Payment received'); location.hash = `#/orders/${id}`;
+    };
+  } catch (e) { $('#pe').textContent = e.message; }
+}
+
+async function ordersList() {
+  if (!requireBuyer('/orders')) return;
+  const v = $('#view'); v.innerHTML = '<div class="pagehead"><h1>Your orders</h1></div><div class="skeleton" style="height:160px"></div>';
+  const list = await api('/api/buyer/orders');
+  v.innerHTML = `<div class="pagehead"><h1>Your orders</h1></div>${list.length ? `<div class="panel">${list.map((o) => {
+    const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
+    return `<a class="orderrow" href="#/orders/${esc(o.id)}"><div><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><div class="muted">${date(o.created_at, false)} · ${o.lines.reduce((a, l) => a + l.qty, 0)} item(s)</div></div>
+      <div style="text-align:end"><b>${money(o.total, o.currency)}</b><div>${pill(label, cls)}</div>${o.hold ? `<div>${pill('Stored', 'warn')}</div>` : ''}</div></a>`; }).join('')}</div>`
+    : `<div class="empty"><h3>No orders yet</h3><p>When you place an order, you can follow it here.</p><a class="btn" href="#/">Start shopping</a></div>`}`;
+}
+
+const STEPS = [['paid', 'Order confirmed'], ['procuring', 'Preparing your order'], ['awaiting_parcels', 'Quality check'], ['ready_to_ship', 'Checked and packed'], ['shipped', 'Dispatched — in transit to you'], ['delivered', 'Delivered']];
+const DIRECT_STEPS = [['paid', 'Order confirmed'], ['procuring', 'Preparing your order'], ['shipped', 'On its way to you'], ['delivered', 'Delivered']];
+const RETURN_REASONS = [['damaged', 'Arrived damaged'], ['wrong_item', 'Wrong item'], ['not_as_described', 'Not as described'], ['missing_parts', 'Missing parts'], ['changed_mind', 'Changed my mind'], ['other', 'Other']];
+const RETURN_STATUS = { requested: ['Return requested', 'warn'], approved: ['Return approved', 'ok'], refunded: ['Refunded', 'ok'], rejected: ['Return declined', 'bad'] };
+function returnsBox(o) {
+  const rs = o.returns || [];
+  const open = rs.some((r) => ['requested', 'approved'].includes(r.status));
+  const delivered = (o.timeline || []).filter((t) => /delivered/.test(t.event)).map((t) => t.at).pop();
+  const canAsk = o.status === 'delivered' && !open && (!delivered || Date.now() - delivered < (o.return_days || 14) * 86400e3);
+  return `${rs.map((r) => `<div class="panel stack small"><div class="row between"><b>${esc(r.reason_label)}</b>${pill(...(RETURN_STATUS[r.status] || [r.status, '']))}</div>
+      ${r.admin_note ? `<div><b>Kinan:</b> ${esc(r.admin_note)}</div>` : ''}${r.refund_amount ? `<div>Refunded ${money(r.refund_amount, o.currency)} ${r.refund_to === 'card' ? 'to your card' : 'to your Kinan wallet'}</div>` : ''}</div>`).join('')}
+    ${canAsk ? `<button class="btn ghost" id="retbtn">Request a return</button><p class="muted small">Within ${o.return_days || 14} days of delivery. See each shop’s return policy.</p>` : ''}
+    <div id="retform"></div>`;
+}
+function shrink(file) {
+  return new Promise((ok, bad) => { const img = new Image(); const u = URL.createObjectURL(file);
+    img.onload = () => { const k = Math.min(1, 900 / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(u); ok(c.toDataURL('image/jpeg', 0.75)); };
+    img.onerror = () => bad(new Error('Could not read that image')); img.src = u; });
+}
+function wireReturn(o) {
+  const b = $('#retbtn'); if (!b) return;
+  b.onclick = () => {
+    b.hidden = true; const photos = [];
+    $('#retform').innerHTML = `<form class="panel stack" id="rtf"><h3>Request a return</h3>
+      <div class="stack" style="gap:6px">${o.lines.map((l) => `<label class="check"><input type="checkbox" name="ln" value="${esc(l.line_no)}" ${o.lines.length === 1 ? 'checked' : ''}><span>${l.qty} × ${esc(l.title)}</span></label>`).join('')}</div>
+      <label class="field">Reason<select name="reason" required><option value="">Choose…</option>${RETURN_REASONS.map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></label>
+      <label class="field">Tell us what happened<textarea name="note" rows="3" maxlength="1000"></textarea></label>
+      <div class="stack" style="gap:6px"><span class="small">Photos (optional, up to 3)</span><div class="row" id="rph"></div><label class="btn sm quiet" style="cursor:pointer;justify-self:start">Add photos<input type="file" accept="image/*" multiple hidden id="rpf"></label></div>
+      <div class="error" id="rte"></div><button class="btn">Send request</button></form>`;
+    const paint = () => { $('#rph').innerHTML = photos.map((p) => `<img src="${p}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px">`).join(''); };
+    $('#rpf').onchange = async (e) => { for (const f of [...e.target.files].slice(0, 3 - photos.length)) { try { photos.push(await shrink(f)); } catch (err) { toast(err.message); } } paint(); };
+    $('#rtf').onsubmit = async (e) => {
+      e.preventDefault(); const f = e.target;
+      try { await api(`/api/buyer/orders/${o.id}/returns`, 'POST', { lines: $$('[name=ln]:checked').map((x) => x.value), reason: f.reason.value, note: f.note.value, photos }); toast('Return request sent'); orderDetail(o.id); }
+      catch (err) { $('#rte').textContent = err.message; }
+    };
+  };
+}
+
+// Where the parcel is: the latest step in bold, the earlier ones under "All updates"
+const TRACK_STAGE = { 1: 'Left the warehouse', 2: 'With the shipping partner', 3: 'Being returned to the warehouse', 4: 'Left with the shipping partner', 5: 'On the way to your country', 6: 'Arrived in your country', 7: 'At customs', 8: 'Cleared customs', 9: 'With your local post', 10: 'Out for delivery', 11: 'Ready to pick up', 12: 'Delivered', 13: 'Delivery problem', 14: 'Being returned' };
+function trackSteps(t) { return K.journey(t); }
+async function orderDetail(id) {
+  if (!requireBuyer(`/orders/${id}`)) return;
+  const o = await api(`/api/buyer/orders/${id}`);
+  const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
+  const steps = o.all_direct ? DIRECT_STEPS : STEPS;
+  const idx = steps.findIndex(([k]) => k === o.status);
+  const ended = ['cancelled', 'refunded'].includes(o.status);
+  const a = o.shipping_address;
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/orders">${ICONS.back} Orders</a><h1 style="margin-top:6px">Order ${esc(o.id.slice(-8).toUpperCase())}</h1><p class="muted">Placed ${date(o.created_at)}</p></div>${pill(label, cls)}</div>
+    <div class="two"><div class="stack-lg">
+      ${o.status === 'pending_payment' ? `<div class="panel row between"><span>This order is waiting for payment.</span><a class="btn" href="#/pay/${esc(o.id)}">Pay now</a></div>` : ''}
+      <div id="ordpush"></div>
+      ${(() => { const per = cfg?.points?.per_unit || 0; const pts = Math.floor(Math.max(0, (o.subtotal || 0) - (o.discount || 0)) * per); if (!per || !pts || ['pending_payment', 'cancelled', 'refunded'].includes(o.status)) return ''; return o.status === 'delivered' ? `<div class="panel row"><span>★ ${KinanLang.t('This order earned you')} <b>${pts.toLocaleString()}</b> ${KinanLang.t('Kinan points')}</span><a class="btn ghost sm" href="#/points">${KinanLang.t('Your points')}</a></div>` : `<div class="panel row"><span>⏳ ${KinanLang.t('You will earn')} <b>${pts.toLocaleString()}</b> ${KinanLang.t('Kinan points when this order is delivered')}</span></div>`; })()}
+      ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Separate parcel'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
+        <div class="muted small">${d.items.map(esc).join(' · ')}</div>
+        ${d.tracking.length ? d.tracking.map((t) => `<div class="row between"><span><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></span>${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}${trackSteps(d.track)}</div>`).join('')}
+      ${o.hold && !ended ? `<div class="panel stack"><div class="row between"><h3>Stored in our warehouse</h3>${pill('Stored', 'warn')}</div><p class="muted small">We keep it${o.hold_until ? ` free until ${date(o.hold_until, false)}` : ''} and ship it in one box with your other stored orders.</p><button class="btn" id="shipnow">Ship my stored orders now</button></div>` : ''}
+      ${o.qc.photos ? `<div class="panel stack"><div class="row between"><h3>Photos from our warehouse</h3>${o.qc.review === 'approved' ? pill('You approved', 'ok') : o.qc.review === 'problem' ? pill('Problem reported', 'bad') : o.qc.review === 'resolved' ? pill('Resolved', 'ok') : pill('Please check', 'warn')}</div>
+        <div class="qcg">${Array.from({ length: o.qc.photos }, (_, i) => `<a href="/api/buyer/orders/${esc(o.id)}/qc/${i}" target="_blank"><img src="/api/buyer/orders/${esc(o.id)}/qc/${i}" alt="Photo ${i + 1}" loading="lazy"></a>`).join('')}</div>
+        ${o.qc.review === 'pending' && !['shipped', 'delivered'].includes(o.status) ? `<p class="muted small">Your items arrived and we checked them. Is everything right?</p><div class="row"><button class="btn" id="qcok">Looks good — ship it</button><button class="btn ghost" id="qcbad">Something is wrong</button></div><div id="qcf"></div>` : ''}
+        ${o.qc.review === 'problem' ? `<p class="small">Thanks — Kinan support will contact you before we ship.${o.qc.note ? ` <span class="muted">“${esc(o.qc.note)}”</span>` : ''}</p>` : ''}</div>` : ''}
+      ${o.shipping_due ? `<div class="panel row between warn"><span>Your parcel weighed more than estimated. Extra shipping: <b>${money(o.shipping_due, o.currency)}</b></span><button class="btn sm" id="paydue">Pay from wallet</button></div>` : ''}
+      ${o.shipping_settled?.result === 'credited' ? `<div class="panel flat small">Your parcel weighed ${o.shipping_settled.actual_weight_kg} kg, less than estimated — we added ${money(-o.shipping_settled.diff, o.currency)} to your <a href="#/wallet">wallet</a>.</div>` : ''}
+      ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div class="row between"><span><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></span>${o.tracking.url ? `<a class="btn sm" href="${esc(o.tracking.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div></div>` : ''}
+      ${!ended && o.status !== 'pending_payment' ? `<div class="panel"><h3 style="margin-bottom:14px">Progress</h3><div class="track"><ul>${steps.map(([k, t], i) => `<li class="${idx > i || o.status === 'delivered' ? 'done' : idx === i ? 'now done' : ''}"><span>${t}</span></li>`).join('')}</ul></div></div>` : ''}
+      <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `${K.img(l.image, 120, 'alt=""')}` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
+    </div>
+    <aside class="stack">
+      <div class="panel sum"><div><span>Subtotal</span><span>${money(o.subtotal, o.currency)}</span></div><div><span>Shipping</span><span>${money(o.shipping_fee, o.currency)}</span></div>${o.discount ? `<div><span>Discount${o.coupon_code ? ` <code>${esc(o.coupon_code)}</code>` : ''}</span><span class="amt pos">−${money(o.discount, o.currency)}</span></div>` : ''}${o.packaging_fee ? `<div><span>Extra protection</span><span>${money(o.packaging_fee, o.currency)}</span></div>` : ''}${o.packaging === 'no_boxes' ? '<div class="muted small">Product boxes removed to save weight</div>' : ''}<div class="total"><span>Total</span><span>${money(o.total, o.currency)}</span></div>${o.payment?.provider === 'wallet' ? '<div class="muted small">Paid from your Kinan wallet</div>' : ''}</div>
+      <div class="panel stack small"><h3>Delivery address</h3><div>${esc(a.name)}<br>${esc(a.line1)}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city)} ${esc(a.postal_code)}<br>${esc(a.country)}<br>${esc(a.phone)}</div></div>
+      ${o.status !== 'pending_payment' ? `<a class="btn ghost" href="/invoice/${esc(o.id)}.pdf" target="_blank" rel="noopener">Invoice (PDF)</a>` : ''}
+      ${['pending_payment', 'paid'].includes(o.status) ? '<button class="btn danger" id="cancel">Cancel order</button>' : ''}
+      ${o.status !== 'pending_payment' ? '<div class="panel stack" id="msgbox"></div>' : ''}
+      ${cfg.whatsapp ? `<a class="btn ghost" href="https://wa.me/${esc(cfg.whatsapp)}?text=${encodeURIComponent(`Hello Kinan, about my order ${o.id.slice(-8).toUpperCase()}: `)}" target="_blank" rel="noopener">${WA} Help on WhatsApp</a>` : ''}
+      ${o.status === 'delivered' ? '<div class="panel stack" id="revbox"></div>' : ''}
+      ${returnsBox(o)}
+      <div class="error" id="oe"></div>
+    </aside></div>`;
+  wireReturn(o);
+  const paintMsgs = async () => {
+    const box = $('#msgbox'); if (!box) return;
+    const d = await api(`/api/buyer/orders/${o.id}/messages`).catch(() => null); if (!d) return;
+    const who = [['kinan', 'Kinan support'], ...d.shops.map((s) => [s.id, s.name])];
+    box.innerHTML = `<h3>Messages</h3>
+      <div class="msgs">${d.messages.length ? d.messages.map((m) => `<div class="msg ${m.from === 'buyer' ? 'me' : ''}"><b>${esc(m.from === 'buyer' ? 'You' : m.name)}</b>${m.from === 'buyer' && who.length > 1 ? ` <span class="muted">→ ${esc((who.find(([k]) => k === m.thread) || [, ''])[1])}</span>` : ''}<div dir="auto">${esc(m.text)}</div><span class="muted">${date(m.at)}</span></div>`).join('') : '<p class="muted small">Questions about this order? Write to Kinan support or the shop.</p>'}</div>
+      <form class="stack" id="msgf">${who.length > 1 ? `<select name="thread">${who.map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join('')}</select>` : ''}
+        <div class="row" style="gap:6px;flex-wrap:nowrap"><textarea name="text" rows="2" maxlength="2000" placeholder="Write a message" style="flex:1" required></textarea><button class="btn">Send</button></div></form>`;
+    $('#msgf').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { await api(`/api/buyer/orders/${o.id}/messages`, 'POST', { thread: f.thread ? f.thread.value : 'kinan', text: f.text.value }); paintMsgs(); } catch (err) { toast(err.message); } };
+  };
+  paintMsgs();
+  if ($('#revbox')) api('/api/buyer/reviews').then((mine) => {
+    const todo = o.lines.filter((l, i, arr) => arr.findIndex((x) => x.listing_id === l.listing_id) === i && !mine.some((r) => r.order_id === o.id && r.listing_id === l.listing_id));
+    if (!todo.length) { $('#revbox').innerHTML = '<span class="muted small">Thanks for your reviews!</span>'; return; }
+    $('#revbox').innerHTML = `<h3>Rate your items</h3>${todo.map((l) => `<form class="stack" data-rev="${esc(l.listing_id)}" style="padding-top:8px;border-top:1px solid var(--line)"><b class="small" dir="auto">${esc(l.title)}</b>
+      <div class="rate">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-n="${n}" aria-label="${n} stars">${STAR}</button>`).join('')}</div>
+      <textarea name="text" rows="2" maxlength="1500" placeholder="What did you think? (optional)"></textarea>
+      <div class="row" style="gap:6px"><label class="btn sm quiet" style="cursor:pointer">Add photos<input type="file" accept="image/*" multiple hidden></label><span class="muted small" data-pc></span></div>
+      <button class="btn sm" style="justify-self:start">Post review</button></form>`).join('')}`;
+    $$('[data-rev]').forEach((f) => {
+      let rating = 0; const photos = [];
+      f.querySelectorAll('[data-n]').forEach((b) => b.onclick = () => { rating = Number(b.dataset.n); f.querySelectorAll('[data-n]').forEach((x) => x.classList.toggle('on', Number(x.dataset.n) <= rating)); });
+      f.querySelector('input[type=file]').onchange = async (e) => { for (const file of [...e.target.files].slice(0, 3 - photos.length)) { try { photos.push(await shrink(file)); } catch {} } f.querySelector('[data-pc]').textContent = photos.length ? `${photos.length} photo(s)` : ''; };
+      f.onsubmit = async (e) => { e.preventDefault(); if (!rating) { toast('Choose 1 to 5 stars'); return; }
+        try { const rv = await api(`/api/buyer/orders/${o.id}/reviews`, 'POST', { listing_id: f.dataset.rev, rating, text: f.text.value, photos }); toast(rv.points ? `Thanks for your review! +${rv.points} Kinan points` : 'Thanks for your review!'); orderDetail(o.id); } catch (err) { toast(err.message); } };
+    });
+  }).catch(() => {});
+  const sn = $('#shipnow'); if (sn) sn.onclick = async () => { sn.disabled = true; try { const r = await api('/api/buyer/ship-stored', 'POST'); toast(`${r.released} order(s) will ship together`); orderDetail(o.id); } catch (e) { toast(e.message); sn.disabled = false; } };
+  // Not yet asked for notifications: offer them right here, when the shopper wants to know about this parcel
+  if (!ended && !['delivered'].includes(o.status) && o.status !== 'pending_payment') K.pushState().then((st) => {
+    const box = $('#ordpush'); if (!box || st !== 'off') return;
+    box.innerHTML = `<div class="panel row between"><span>🔔 ${KinanLang.t('Get a notification when your order ships and arrives')}</span><button class="btn sm" id="ordpushbtn" type="button">${KinanLang.t('Turn on')}</button></div>`;
+    $('#ordpushbtn').onclick = async (e) => { e.target.disabled = true; try { await K.enablePush('shop'); toast(KinanLang.t('Notifications are on')); box.innerHTML = ''; } catch (err) { toast(err.message); e.target.disabled = false; } };
+  }).catch(() => {});
+  const qok = $('#qcok'); if (qok) qok.onclick = async () => { qok.disabled = true; try { await api(`/api/buyer/orders/${o.id}/qc`, 'POST', { ok: true }); toast('Thank you — we’ll ship it soon'); orderDetail(o.id); } catch (e) { toast(e.message); qok.disabled = false; } };
+  const qbad = $('#qcbad'); if (qbad) qbad.onclick = () => {
+    $('#qcf').innerHTML = `<form class="stack" id="qcff"><label class="field">What is wrong?<textarea name="note" rows="3" maxlength="500" required></textarea></label><button class="btn">Send to Kinan support</button></form>`;
+    $('#qcff').onsubmit = async (e) => { e.preventDefault(); try { await api(`/api/buyer/orders/${o.id}/qc`, 'POST', { ok: false, note: e.target.note.value }); toast('Sent — we will contact you'); orderDetail(o.id); } catch (err) { toast(err.message); } };
+  };
+  const pd = $('#paydue'); if (pd) pd.onclick = async () => { pd.disabled = true; try { await api(`/api/buyer/orders/${o.id}/pay-shipping-due`, 'POST'); toast('Paid'); orderDetail(o.id); } catch (e) { toast(e.message); pd.disabled = false; } };
+  const c = $('#cancel');
+  if (c) c.onclick = async () => { if (!confirm('Cancel this order? If you already paid, you will be refunded.')) return; c.disabled = true; try { await api(`/api/buyer/orders/${id}/cancel`, 'POST'); toast('Order cancelled'); orderDetail(id); } catch (e) { $('#oe').textContent = e.message; c.disabled = false; } };
+}
+
+function paintBook() {
+  const el = $('#addrbook'); if (!el) return; const list = Book.list(); const sel = Book.selectedId();
+  el.innerHTML = `<div class="row between"><div><b>Delivery addresses</b><div class="muted small">Choose where your orders go. Prices with shipping follow the chosen address.</div></div></div>
+    ${list.map((a) => `<div class="addr ${a.id === sel ? 'on' : ''}"><button type="button" class="addrpick" data-asel="${esc(a.id)}" aria-pressed="${a.id === sel}"><span class="dot"></span><span><b>${esc(a.label || a.name)}</b>${a.id === sel ? ' <span class="pill ok">Shipping here</span>' : ''}<span class="muted small" style="display:block">${esc(a.label ? `${a.name} · ` : '')}${esc(addrLine(a))}</span><span class="muted small" style="display:block" dir="ltr">${esc(a.phone)}</span></span></button>
+      <div class="row" style="gap:6px"><button type="button" class="btn sm ghost" data-aedit="${esc(a.id)}">Edit</button><button type="button" class="btn sm quiet" data-adel="${esc(a.id)}">Remove</button></div></div>`).join('') || '<p class="muted small" style="margin:0">No address yet.</p>'}
+    ${list.length < 10 ? '<button type="button" class="btn ghost" id="addaddr2">+ Add an address</button>' : ''}`;
+  $$('[data-asel]').forEach((b) => b.onclick = () => { Book.select(b.dataset.asel); paintBook(); toast('Orders will ship to this address'); });
+  $$('[data-aedit]').forEach((b) => b.onclick = () => addressDialog(paintBook, { edit: Book.list().find((x) => x.id === b.dataset.aedit) }));
+  $$('[data-adel]').forEach((b) => b.onclick = () => { if (confirm(KinanLang.t('Remove this address?'))) { Book.remove(b.dataset.adel); paintBook(); } });
+  const add = $('#addaddr2'); if (add) add.onclick = () => addressDialog(paintBook);
+}
+// ---------- Saved payment cards (kept by Stripe; Kinan only sees brand, last 4 digits and expiry) ----------
+const CARD_BRAND = { visa: 'Visa', mastercard: 'Mastercard', amex: 'American Express', discover: 'Discover', diners: 'Diners Club', jcb: 'JCB', unionpay: 'UnionPay', cartes_bancaires: 'Cartes Bancaires' };
+const cardName = (c) => CARD_BRAND[c.brand] || 'Card';
+const cardExp = (c) => c.exp_month ? `${String(c.exp_month).padStart(2, '0')}/${String(c.exp_year).slice(-2)}` : '';
+const CARD_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h4"/></svg>';
+async function paintCards() {
+  const el = $('#cardbox'); if (!el) return;
+  const head = '<div><b>Payment cards</b><div class="muted small">Save a Visa or other card to pay faster. Your card is kept safely by Stripe — Kinan never sees the full number.</div></div>';
+  if (cfg.payments === 'demo' || !cfg.stripe_publishable_key) { el.innerHTML = `${head}<p class="muted small" style="margin:0">Card payments are not switched on yet.</p>`; return; }
+  el.innerHTML = `${head}<div class="skeleton" style="height:48px"></div>`;
+  let list = [];
+  try { list = await api('/api/buyer/cards'); } catch (e) { el.innerHTML = `${head}<div class="error">${esc(e.message)}</div>`; return; }
+  el.innerHTML = `${head}
+    ${list.map((c) => `<div class="cardrow"><span class="acticon">${CARD_ICON}</span><span><b><bdi dir="ltr">${esc(cardName(c))} •••• ${esc(c.last4)}</bdi></b><span class="muted small" style="display:block">Expires <span dir="ltr">${esc(cardExp(c))}</span></span></span><button type="button" class="btn sm quiet" data-cdel="${esc(c.id)}">Remove</button></div>`).join('') || '<p class="muted small" style="margin:0">No card saved yet.</p>'}
+    ${list.length < 10 ? '<button type="button" class="btn ghost" id="addcard">+ Add a card</button>' : ''}`;
+  $$('[data-cdel]').forEach((b) => b.onclick = async () => {
+    if (!confirm(KinanLang.t('Remove this card?'))) return;
+    b.disabled = true;
+    try { await api(`/api/buyer/cards/${encodeURIComponent(b.dataset.cdel)}`, 'DELETE'); toast('Card removed'); paintCards(); } catch (e) { toast(e.message); b.disabled = false; }
+  });
+  const add = $('#addcard'); if (add) add.onclick = () => addCardDialog(paintCards);
+}
+async function addCardDialog(after) {
+  const d = document.createElement('dialog'); d.className = 'addrdlg';
+  d.innerHTML = `<form class="stack" style="padding:20px;max-width:460px;box-sizing:border-box;min-width:0" novalidate><h2 style="margin:0">Add a card</h2>
+    <p class="muted small" style="margin:0">Visa, Mastercard and other cards. Your bank may ask you to confirm. The card details go straight to Stripe, our payment partner.</p>
+    <div id="card-element" class="cardfield"><div class="skeleton" style="height:44px"></div></div>
+    <div class="error" id="cerr" style="overflow-wrap:anywhere"></div>
+    <div class="row"><button class="btn" type="submit" id="csave" style="flex:1" disabled>Save card</button><button class="btn ghost" type="button" data-close>Cancel</button></div></form>`;
+  document.body.append(d); d.showModal();
+  const close = () => { d.close(); d.remove(); };
+  d.querySelector('[data-close]').onclick = close;
+  const f = d.querySelector('form'); const err = d.querySelector('#cerr'); const btn = d.querySelector('#csave');
+  try {
+    const [si, Stripe] = await Promise.all([api('/api/buyer/cards/setup', 'POST'), loadStripe()]);
+    const stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
+    // Card only: Stripe's single secure card field (number, expiry, CVC)
+    const dark = KinanTheme.isDark();
+    const card = stripe.elements().create('card', { hidePostalCode: true, style: { base: { fontSize: '16px', color: dark ? '#eef0f7' : '#141b3a', '::placeholder': { color: '#9097b3' } }, invalid: { color: '#d93025' } } });
+    d.querySelector('#card-element').innerHTML = '';
+    card.mount('#card-element');
+    card.on('change', (ev) => { err.textContent = ev.error ? ev.error.message : ''; });
+    btn.disabled = false;
+    f.onsubmit = async (e) => {
+      e.preventDefault(); btn.disabled = true; err.textContent = '';
+      const { error } = await stripe.confirmCardSetup(si.client_secret, { payment_method: { card, billing_details: { name: (me && me.name) || undefined, email: (me && me.email) || undefined } } });
+      if (error) { err.textContent = error.message; btn.disabled = false; return; }
+      toast('Card saved'); close(); if (after) after();
+    };
+  } catch (e) { err.textContent = e.message; }
+}
+
+async function account() {
+  if (!me || me.role !== 'buyer') { signin('/account'); return; }
+  await Book.sync();
+  const wallet = await api('/api/buyer/wallet').catch(() => ({ balance: 0, currency: cfg.currency }));
+  api('/api/buyer/points').then((d) => { const el = $('#acpts'); if (el) el.textContent = `★ ${d.balance.toLocaleString()}${d.pending ? ` (+${d.pending.toLocaleString()} ⏳)` : ''}`; }).catch(() => {});
+  $('#view').innerHTML = `<div class="pagehead"><h1>Account</h1></div>
+    <div class="stack" style="max-width:520px">
+      <div class="panel stack"><div><b>${esc(me.name || 'Kinan customer')}</b><div class="muted">${esc(me.email || me.phone || '')}</div></div>
+        <a class="btn ghost" href="#/orders">Your orders</a>${KinanTheme.button('btn ghost', true)}</div>
+      <div class="panel stack" id="addrbook"></div>
+      <div class="panel stack" id="cardbox"></div>
+      ${KinanLang.folded('Language', 'The app and our emails use this language.', 'panel')}
+      <div class="panel stack" id="curbox"><div><b>${KinanLang.t('Currency')}</b><div class="muted small">${KinanLang.t('Prices are shown and charged in this currency.')}</div></div>
+        <div class="seg" role="group" aria-label="Currency" style="grid-template-columns:repeat(4,1fr)">${[['', `${KinanLang.t('Auto')} (${currencyFor(Locale.get().country)})`], ['USD', '$ USD'], ['EUR', '€ EUR'], ['GBP', '£ GBP']].map(([c, t]) => `<button type="button" data-cur="${c}" class="${(Locale.get().cur || '') === c ? 'on' : ''}" aria-pressed="${(Locale.get().cur || '') === c}">${esc(t)}</button>`).join('')}</div></div>
+      <a class="panel acrow" href="#/wallet"><span class="acticon">${ICONS.wallet}</span><span><b>Wallet</b><div class="muted small">Refunds and shipping differences</div></span><b>${money(wallet.balance, wallet.currency)}</b></a>
+      <a class="panel acrow" href="#/giftcards"><span class="acticon">🎁</span><span><b>${KinanLang.t('Kinan gift cards')}</b><div class="muted small">${KinanLang.t('Send one, or add a code to your wallet')}</div></span></a>
+      <a class="panel acrow" href="#/points"><span class="acticon">★</span><span><b>Kinan points</b><div class="muted small">Earn points on every order, turn them into discounts</div></span><b id="acpts"></b></a>
+      <a class="panel acrow" href="#/shops"><span class="acticon">${ICONS.shop || ICONS.box}</span><span><b>Shops</b><div class="muted small">All Kinan shops</div></span><span class="muted flip-rtl">›</span></a>
+      <a class="panel acrow" href="#/saved"><span class="acticon">${HEART}</span><span><b>Saved items</b><div class="muted small">We email you when a price drops or an item is back</div></span><span class="muted flip-rtl">›</span></a>
+      <div class="panel stack" id="pushbox"></div>
+      <div class="panel stack" id="invite"></div>
+      <div class="panel stack small" id="installbox"><h3>Get the Kinan Shop app</h3>
+        <p class="muted">Install Kinan Shop on your phone’s home screen. On iPhone: tap Share, then “Add to Home Screen”. On Android: tap the menu, then “Install app”.</p>
+        <button class="btn quiet install" id="installbtn">Install Kinan Shop</button><a class="muted" href="/download">Step-by-step guide for Android and iPhone</a></div>
+      <button class="btn danger" id="out">Sign out</button>
+      <p class="muted">Want to sell on Kinan? <a href="/seller">Open the Seller Center</a></p>
+    </div>`;
+  $$('#curbox [data-cur]').forEach((b) => b.onclick = () => { Locale.set({ cur: b.dataset.cur || null }); Book.sync?.(); toast(`${KinanLang.t('Currency')}: ${Locale.get().currency}`); account(); });
+  $('#out').onclick = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); me = null; toast('Signed out'); location.hash = '#/'; };
+  wireInstall();
+  paintBook(); paintCards();
+  K.pushPanel($('#pushbox'), 'shop');
+  api('/api/buyer/referral').then((r) => {
+    $('#invite').innerHTML = `<h3>Invite friends, earn ${money(r.reward, r.currency)}</h3>
+      <p class="muted small">Share your link. When a friend’s first order is delivered, we add ${money(r.reward, r.currency)} to your wallet. New customers get 10% off their first order with the code WELCOME10.</p>
+      <div class="row" style="gap:6px;flex-wrap:nowrap"><input readonly dir="ltr" value="${esc(r.link)}" style="flex:1;min-width:0" id="reflink"><button class="btn sm" id="refshare" type="button">Share</button></div>
+      <div class="muted small">${r.invited} friend(s) joined · ${money(r.earned, r.currency)} earned</div>`;
+    $('#refshare').onclick = () => shareLink(r.link, 'Shop with Kinan — get 10% off your first order');
+  }).catch(() => { $('#invite').hidden = true; });
+}
+
+async function savedPage() {
+  if (!requireBuyer('/saved')) return;
+  const list = await api('/api/buyer/wishlist');
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/account">${ICONS.back} Account</a><h1 style="margin-top:6px">Saved items</h1><p class="muted">We email you when one of these gets cheaper or comes back in stock.</p></div></div>
+    ${list.length ? `<div class="panel">${list.map((x) => `<div class="line">${x.image ? `${K.img(x.image, 120, 'alt=""')}` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(x.listing_id)}" style="text-decoration:none;font-weight:600" dir="auto">${esc(T(x))}</a>
+      <div class="muted small">${x.in_stock ? '' : 'Out of stock · '}${x.price < x.price_when_saved ? `<span class="amt pos">Price dropped from ${money(x.price_when_saved, x.currency)}</span>` : ''}</div></div>
+      <div style="text-align:end"><b>${money(x.price, x.currency)}</b><div><button class="btn sm quiet" data-unsave="${esc(x.listing_id)}">Remove</button></div></div></div>`).join('')}</div>`
+    : `<div class="empty"><h3>Nothing saved yet</h3><p>Tap Save on any product to keep it here.</p><a class="btn" href="#/">Browse products</a></div>`}`;
+  $$('[data-unsave]').forEach((b) => b.onclick = async () => { await api(`/api/buyer/wishlist/${b.dataset.unsave}`, 'DELETE').catch(() => {}); savedPage(); });
+}
+
+// Countdown clocks (today's deals)
+setInterval(() => {
+  for (const el of document.querySelectorAll('[data-countdown]')) {
+    const left = Math.max(0, Number(el.dataset.countdown) - Date.now());
+    const d = Math.floor(left / 86400e3), h = Math.floor(left % 86400e3 / 3600e3), m = Math.floor(left % 3600e3 / 60e3), sec = Math.floor(left % 60e3 / 1000);
+    el.textContent = `${d ? `${d}${KinanLang.lang === 'ar' ? 'ي' : 'd'} ` : ''}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+}, 1000);
+
+// ---------- recently viewed & similar ----------
+const Seen = {
+  get() { try { return JSON.parse(localStorage.getItem('kinan_seen') || '[]').filter((x) => typeof x === 'string'); } catch { return []; } },
+  add(id) { try { localStorage.setItem('kinan_seen', JSON.stringify([id, ...Seen.get().filter((x) => x !== id)].slice(0, 24))); } catch { /* private mode */ } }
+};
+function stripSection(title, items, id) {
+  return items.length ? `<section class="aisle" ${id ? `id="${id}"` : ''}><div class="sechead"><h2>${title}</h2></div><div class="xstrip">${items.map(productCard).join('')}</div></section>` : '';
+}
+async function fillSeen(el, skip) {
+  const ids = Seen.get().filter((x) => x !== skip).slice(0, 12);
+  if (!el || ids.length < 2) return;
+  const d = await api(`/api/catalog/many?ids=${encodeURIComponent(ids.join(','))}`).catch(() => ({ items: [] }));
+  if (d.items.length >= 2) el.innerHTML = stripSection(KinanLang.t('Recently viewed'), d.items);
+}
+
+// ---------- questions & answers ----------
+async function loadQA(p) {
+  const el = $('#qa'); if (!el) return;
+  const d = await api(`/api/catalog/${encodeURIComponent(p.id)}/questions`).catch(() => ({ questions: [] }));
+  el.innerHTML = `<h3>${KinanLang.t('Questions & answers')}</h3>
+    <form class="row" id="qaf" style="gap:8px"><input name="q" maxlength="400" placeholder="${KinanLang.t('Ask about size, material, delivery…')}" style="flex:1;min-width:0" required><button class="btn">${KinanLang.t('Ask')}</button></form>
+    <p class="muted small">${KinanLang.t('Kinan’s assistant answers right away from the product details; if it cannot, Kinan answers soon.')}</p>
+    <div class="stack">${d.questions.map((q) => `<div class="rev"><div><b>Q:</b> <span dir="auto">${esc(q.question)}</span></div>${q.answer ? `<div><b>A:</b> <span dir="auto">${esc(q.answer)}</span> <span class="muted small">· ${q.by === 'ai' ? KinanLang.t('Answered by Kinan’s assistant') : KinanLang.t('Answered by Kinan')}</span></div>` : `<div class="muted small">${KinanLang.t('Waiting for an answer')}</div>`}</div>`).join('')}</div>`;
+  $('#qaf').onsubmit = async (e) => {
+    e.preventDefault();
+    if (!me || me.role !== 'buyer') { signin(encodeURIComponent(`/p/${p.id}`)); return; }
+    const b = e.target.querySelector('button'); b.disabled = true; b.textContent = KinanLang.t('Thinking…');
+    try { await api(`/api/catalog/${encodeURIComponent(p.id)}/questions`, 'POST', { question: e.target.q.value }); loadQA(p); }
+    catch (err) { toast(err.message); b.disabled = false; b.textContent = KinanLang.t('Ask'); }
+  };
+}
+
+// ---------- shopping assistant ----------
+const Assist = { msgs: [], open: false, busy: false };
+function assistantButton() {
+  if (!cfg.ai || document.getElementById('asbtn')) return;
+  document.body.insertAdjacentHTML('beforeend', `<button id="asbtn" class="asbtn" type="button" aria-label="${KinanLang.t('Shopping assistant')}">✨</button>
+    <div id="aspanel" class="aspanel" hidden role="dialog" aria-label="${KinanLang.t('Shopping assistant')}">
+      <div class="ashead"><b>✨ ${KinanLang.t('Shopping assistant')}</b><button type="button" id="asclose" aria-label="Close">×</button></div>
+      <div class="asbody" id="asbody"></div>
+      <form class="asform" id="asform"><input name="m" maxlength="600" autocomplete="off" placeholder="${KinanLang.t('e.g. a gift for my mum under €30')}" required><button class="btn" aria-label="Send">➤</button></form>
+    </div>`);
+  $('#asbtn').onclick = () => { Assist.open = !Assist.open; $('#aspanel').hidden = !Assist.open; if (Assist.open) { renderAssist(); $('#asform').m.focus(); } };
+  $('#asclose').onclick = () => { Assist.open = false; $('#aspanel').hidden = true; };
+  $('#asform').onsubmit = async (e) => {
+    e.preventDefault(); if (Assist.busy) return;
+    const text = e.target.m.value.trim(); if (!text) return;
+    e.target.m.value = ''; Assist.msgs.push({ role: 'user', text }); Assist.busy = true; renderAssist();
+    try {
+      const r = await api('/api/assistant', 'POST', { messages: Assist.msgs.map(({ role, text: t }) => ({ role, text: t })), currency: Locale.get().currency, lang: KinanLang.lang });
+      Assist.msgs.push({ role: 'assistant', text: r.reply, items: r.items || [] });
+    } catch (err) { Assist.msgs.push({ role: 'assistant', text: err.message, items: [] }); }
+    Assist.busy = false; renderAssist();
+  };
+}
+function renderAssist() {
+  const b = $('#asbody'); if (!b) return;
+  const hello = `<div class="asmsg bot">${KinanLang.t('Hi! Tell me what you are looking for — a gift, a budget, a room to decorate — and I will find it on Kinan.')}</div>`;
+  b.innerHTML = hello + Assist.msgs.map((m) => m.role === 'user' ? `<div class="asmsg me" dir="auto">${esc(m.text)}</div>`
+    : `<div class="asmsg bot" dir="auto">${esc(m.text)}</div>${(m.items || []).length ? `<div class="asitems">${m.items.map((p) => `<a href="#/p/${esc(p.id)}" class="asitem">${p.images?.[0] ? `${K.img(p.images[0], 120, 'alt="" loading="lazy"')}` : ''}<span><b dir="auto">${esc(T(p)).slice(0, 70)}</b><span class="small">${money(p.min_price, p.currency)}</span>${p.why ? `<span class="muted small" dir="auto">${esc(p.why)}</span>` : ''}</span></a>`).join('')}</div>` : ''}`).join('')
+    + (Assist.busy ? `<div class="asmsg bot muted">${KinanLang.t('Thinking…')}</div>` : '');
+  b.scrollTop = b.scrollHeight;
+}
+
+// ---------- Kinan points ----------
+// ---------- gift cards ----------
+async function giftcardsPage(code = '') {
+  const v = $('#view');
+  const loc = Locale.get(); const cur = (loc.currency || cfg.currency || 'EUR').toUpperCase();
+  const amounts = [10, 25, 50, 100];
+  v.innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} ${KinanLang.t('Back to shop')}</a><h1 style="margin-top:6px">🎁 ${KinanLang.t('Kinan gift cards')}</h1><p class="muted">${KinanLang.t('Sent by email in minutes. Spend it on anything at Kinan — it never expires.')}</p></div></div>
+    <div class="two"><form class="panel stack" id="gcf">
+      <b>${KinanLang.t('Amount')}</b><div class="row" style="gap:8px;flex-wrap:wrap" id="gcamts">${amounts.map((a, i) => `<button type="button" class="btn ${i === 1 ? '' : 'ghost'}" data-amt="${a}">${money(a, cur)}</button>`).join('')}<input name="custom" inputmode="decimal" placeholder="${KinanLang.t('Other amount')}" style="width:130px"></div>
+      <label class="field">${KinanLang.t('Their email')}<input name="to_email" type="email" required autocomplete="off"></label>
+      <label class="field">${KinanLang.t('Their name')}<input name="to_name" maxlength="60"></label>
+      <label class="field">${KinanLang.t('From')}<input name="from_name" maxlength="60" value="${esc(me?.name || '')}"></label>
+      <label class="field">${KinanLang.t('Message (optional)')}<textarea name="message" maxlength="300" rows="3" placeholder="${KinanLang.t('Happy Christmas!')}"></textarea></label>
+      <div id="gcpay" hidden><div id="gc-element"></div></div>
+      <button class="btn" id="gcgo">${KinanLang.t('Continue to payment')}</button><div class="error" id="gce"></div>
+    </form>
+    <aside class="stack">
+      <div class="gcard"><span>Kinan</span><b id="gcval">${money(25, cur)}</b><small>${KinanLang.t('Gift card')}</small></div>
+      <form class="panel stack" id="gcr"><b>${KinanLang.t('Have a gift card?')}</b><input name="code" placeholder="KINAN-XXXX-XXXX" value="${esc(code)}" autocomplete="off" style="text-transform:uppercase"><button class="btn ghost">${KinanLang.t('Add to my wallet')}</button><div class="small" id="gcrm"></div></form>
+      <div id="gcmine"></div>
+    </aside></div>`;
+  let amount = 25;
+  const setAmt = (a) => { amount = a; $('#gcval').textContent = money(a || 0, cur); $$('[data-amt]').forEach((b) => b.classList.toggle('ghost', Number(b.dataset.amt) !== a)); };
+  $$('[data-amt]').forEach((b) => b.onclick = () => { $('#gcf').custom.value = ''; setAmt(Number(b.dataset.amt)); });
+  $('#gcf').custom.oninput = (e) => setAmt(Number(String(e.target.value).replace(',', '.')) || 0);
+  $('#gcr').onsubmit = async (e) => {
+    e.preventDefault(); if (!requireBuyer(`/giftcards/${encodeURIComponent(e.target.code.value.trim())}`)) return;
+    try { const r = await api('/api/buyer/giftcards/redeem', 'POST', { code: e.target.code.value }); $('#gcrm').innerHTML = `<span class="xmas-ok">✓ ${KinanLang.t('Added to your wallet')}: ${money(r.face, r.face_currency)}</span>`; e.target.code.value = ''; } catch (err) { $('#gcrm').textContent = err.message; }
+  };
+  if (me && me.role === 'buyer') api('/api/buyer/giftcards').then((l) => { if (l.length && $('#gcmine')) $('#gcmine').innerHTML = `<div class="panel stack small"><b>${KinanLang.t('Gift cards you sent')}</b>${l.map((g) => `<div class="row between"><span>${money(g.amount, g.currency)} → ${esc(g.to_name || g.to_email)}</span><span class="pill ${g.redeemed ? 'ok' : ''}">${g.redeemed ? KinanLang.t('Used') : KinanLang.t('Sent')}</span></div>`).join('')}</div>`; }).catch(() => {});
+  let gc = null; let stripe = null; let elements = null;
+  $('#gcf').onsubmit = async (e) => {
+    e.preventDefault(); $('#gce').textContent = '';
+    if (!requireBuyer('/giftcards')) return;
+    const f = e.target; $('#gcgo').disabled = true;
+    try {
+      if (!gc) {
+        gc = await api('/api/buyer/giftcards', 'POST', { amount, currency: cur, to_email: f.to_email.value, to_name: f.to_name.value, from_name: f.from_name.value, message: f.message.value });
+        if (gc.demo) { await api(`/api/buyer/giftcards/${gc.id}/confirm`, 'POST'); return done(f.to_email.value); }
+        const Stripe = await loadStripe(); stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
+        elements = stripe.elements({ clientSecret: gc.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+        elements.create('payment').mount('#gc-element'); $('#gcpay').hidden = false;
+        $$('#gcf input, #gcf textarea, [data-amt]').forEach((x) => { x.disabled = true; });
+        $('#gcgo').textContent = `${KinanLang.t('Pay')} ${money(gc.amount, gc.currency)}`; $('#gcgo').disabled = false; return;
+      }
+      const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/#/giftcards` } });
+      if (error) throw error;
+      const r = await api(`/api/buyer/giftcards/${gc.id}/confirm`, 'POST');
+      done(r.to_email);
+    } catch (err) { $('#gce').textContent = err.message; $('#gcgo').disabled = false; }
+  };
+  const done = (to) => { v.innerHTML = `<div class="empty"><h3>🎁 ${KinanLang.t('Gift card sent')}</h3><p>${KinanLang.t('We emailed it to')} <b>${esc(to)}</b>.</p><a class="btn" href="#/">${KinanLang.t('Back to shop')}</a></div>`; };
+}
+
+// ---------- delivery dates ("Arrives Thu 20 – Mon 24 Nov") ----------
+function showEta(id) {
+  const cc = savedAddress().country_code || Locale.get().country; if (!cc) return;
+  api(`/api/catalog/${encodeURIComponent(id)}/delivery?country=${encodeURIComponent(cc)}`).then((d) => {
+    const el = $('#eta'); if (!el || !d.from) return;
+    const loc = KinanLang.lang === 'ar' ? 'ar' : KinanLang.lang || 'en-GB';
+    const f = (t, withMonth) => new Date(t).toLocaleDateString(loc, { weekday: 'short', day: 'numeric', ...(withMonth ? { month: 'short' } : {}), timeZone: 'Europe/Malta' });
+    const sameMonth = new Date(d.from).getUTCMonth() === new Date(d.to).getUTCMonth();
+    const range = `${f(d.from, !sameMonth)} – ${f(d.to, true)}`;
+    const x = d.christmas;
+    el.innerHTML = `🚚 <b>${KinanLang.t('Arrives')} ${range}</b> <span class="muted">· ${esc(countryName(d.country))}</span>${x ? `<div class="${x.before ? 'xmas-ok' : 'muted'}">${x.before ? `🎄 ${KinanLang.t('Arrives before Christmas')}${x.order_by > Date.now() ? ` — ${KinanLang.t('order by')} ${f(x.order_by, true)}` : ''}` : KinanLang.t('May arrive after Christmas')}</div>` : ''}`;
+  }).catch(() => {});
+}
+
+// ---------- frequently bought together ----------
+function boughtTogether(p, d) {
+  const el = $('#together'); if (!el || !d.items.length) return;
+  const cheapest = (x) => [...x.skus].filter((k) => k.in_stock).sort((a, b) => a.price - b.price)[0];
+  const all = [p, ...d.items].map((x) => ({ x, s: cheapest(x) })).filter((y) => y.s);
+  if (all.length < 2) return;
+  const on = new Set(all.map((y) => y.x.id));
+  const paint = () => {
+    const picked = all.filter((y) => on.has(y.x.id));
+    const sum = picked.reduce((a, y) => a + y.s.price, 0);
+    const save = picked.length > 1 ? picked.slice(1).reduce((a, y) => a + y.s.price * d.pct / 100, 0) : 0;
+    el.innerHTML = `<section class="aisle panel" style="margin-top:14px"><div class="sechead"><h2>${KinanLang.t('Frequently bought together')}</h2></div>
+      <div class="fbt">${all.map((y, i) => `${i ? '<span class="fbt-plus">+</span>' : ''}<label class="fbt-item"><input type="checkbox" data-fbt="${esc(y.x.id)}" ${on.has(y.x.id) ? 'checked' : ''} ${i === 0 ? 'disabled' : ''}>${K.img(y.x.images[0] || '', 120, 'alt="" loading="lazy"')}<span class="small" dir="auto">${i === 0 ? `<b>${KinanLang.t('This item')}:</b> ` : ''}${esc(T(y.x).slice(0, 60))}</span><b class="small">${money(y.s.price, y.x.currency)}</b></label>`).join('')}</div>
+      <div class="row between" style="margin-top:10px"><div><b>${KinanLang.t('Total')}: ${money(sum - save, p.currency)}</b>${save > 0.009 ? ` <s class="muted small">${money(sum, p.currency)}</s> <span class="dealtxt small">${KinanLang.t('Save')} ${d.pct}% ${KinanLang.t('when bought together')}</span>` : ''}</div>
+      <button class="btn" id="fbtadd" ${picked.length < 2 ? 'disabled' : ''}>${KinanLang.t('Add selected to cart')}</button></div></section>`;
+    $$('[data-fbt]').forEach((c) => c.onchange = () => { if (c.checked) on.add(c.dataset.fbt); else on.delete(c.dataset.fbt); paint(); });
+    $('#fbtadd').onclick = () => {
+      for (const y of all.filter((z) => on.has(z.x.id))) Cart.add({ listing_id: y.x.id, mp_sku_id: y.s.mp_sku_id, qty: 1, title: y.x.title, shop_id: y.x.shop?.id, direct: y.x.fulfillment === 'direct', props: y.x.skus.length > 1 ? variantLabel(y.s.props) : '', price: y.s.price, currency: y.x.currency, image: y.x.images[0] || null });
+      toast(KinanLang.t('Added to cart'));
+    };
+  };
+  paint();
+}
+
+// ---------- sale campaigns (Black Friday…) ----------
+function campaignBand() {
+  const c = cfg.campaign; if (!c) return '';
+  const name = esc(KinanLang.lang === 'ar' ? c.name_ar : c.name);
+  return c.live
+    ? `<a class="camp-band live" href="#/deals"><div><span class="cb-kicker">🖤 ${name}</span><b>${KinanLang.t('Up to')} ${c.max_pct}% ${KinanLang.t('off')} · ${KinanLang.t('new deals every day')}</b><span class="cb-sub">${KinanLang.t('Ends in')} <span class="countdown" data-countdown="${c.ends}" data-no-tr></span></span></div><span class="cb-cta">${KinanLang.t('Shop the sale')}</span></a>`
+    : `<div class="camp-band soon"><div><span class="cb-kicker">🖤 ${name}</span><b>${KinanLang.t('Starts in')} <span class="countdown" data-countdown="${c.starts}" data-no-tr></span></b><span class="cb-sub">${KinanLang.t('Up to')} ${c.max_pct}% ${KinanLang.t('off')} — ${KinanLang.t('turn on notifications to hear first')}</span></div>${'Notification' in window && Notification.permission !== 'granted' ? `<button class="cb-cta" id="campnotify">${KinanLang.t('Notify me')}</button>` : ''}</div>`;
+}
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('#campnotify')) {
+    e.preventDefault();
+    if (sessionReady) await sessionReady;
+    if (!me) { location.hash = `#/signin/${encodeURIComponent('/')}`; return; }
+    try { await K.enablePush('shop'); toast(KinanLang.t('We will let you know when the sale starts')); e.target.closest('#campnotify')?.remove(); } catch (err) { toast(err.message); }
+  }
+});
+async function dealsPage() {
+  const v = $('#view');
+  const c = cfg.campaign && cfg.campaign.live ? cfg.campaign : null;
+  const title = c ? `🖤 ${esc(KinanLang.lang === 'ar' ? c.name_ar : c.name)}` : `🔥 ${KinanLang.t('Today’s deals')}`;
+  v.innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} ${KinanLang.t('Back to shop')}</a><h2 style="margin-top:6px">${title}</h2>${cfg.deals ? `<p class="muted">${KinanLang.t('New deals every day at midnight')} · ${KinanLang.t('Ends in')} <span class="countdown" data-countdown="${cfg.deals.ends}" data-no-tr></span></p>` : ''}</div></div><div class="grid" id="dealgrid">${Array.from({ length: 8 }, () => '<div class="skeleton" style="aspect-ratio:1"></div>').join('')}</div>`;
+  if (!cfg.deals || !cfg.deals.ids.length) { $('#dealgrid').outerHTML = `<div class="empty"><h3>${KinanLang.t('No deals right now')}</h3><p>${KinanLang.t('New deals every day at midnight')}</p><a class="btn" href="#/">${KinanLang.t('Back to shop')}</a></div>`; return; }
+  const d = await api(`/api/catalog/many?ids=${encodeURIComponent(cfg.deals.ids.join(','))}`).catch(() => ({ items: [] }));
+  const items = d.items.sort((a, b) => (b.deal?.pct || 0) - (a.deal?.pct || 0));
+  $('#dealgrid').innerHTML = items.length ? items.map(productCard).join('') : `<div class="empty"><h3>${KinanLang.t('No deals right now')}</h3></div>`;
+}
+
+async function pointsPage() {
+  if (!requireBuyer('/points')) return;
+  const d = await api('/api/buyer/points');
+  const can = d.balance >= d.min;
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/account">${ICONS.back} Account</a><h1 style="margin-top:6px">Kinan points</h1></div></div>
+    <div class="stack" style="max-width:620px">
+      <div class="panel stack"><span class="muted">Your points</span><span class="ptsbig">★ ${d.balance.toLocaleString()}</span>
+        <span>Worth <b>${money(d.value, d.currency)}</b></span>
+        ${d.pending ? `<div class="panel row" style="gap:10px;background:var(--soft,#f0fdfa)"><span style="font-size:22px">⏳</span><span><b>${d.pending.toLocaleString()} ${KinanLang.t('points on the way')}</b><div class="muted small">${KinanLang.t('Added to your balance when your order is delivered.')}</div></span></div>` : ''}
+        <p class="muted small">You earn ${d.per_unit} points for every ${money(1, d.currency)} you spend on products, added when your order is delivered. ${d.example.points.toLocaleString()} points = ${money(d.example.worth, d.currency)} off. Turn ${d.min.toLocaleString()} points or more into a discount code for your next order.</p>
+        <form class="row" id="redeemf" style="gap:8px;align-items:end"><label class="field" style="flex:1">Points to use<input name="points" type="number" min="${d.min}" max="${d.balance}" step="100" value="${Math.max(d.min, Math.floor(d.balance / 100) * 100)}" ${can ? '' : 'disabled'}></label><button class="btn" ${can ? '' : 'disabled'}>Get discount code</button></form>
+        ${can ? '' : `<p class="muted small">You need ${d.min.toLocaleString()} points to get a code — ${(d.min - d.balance).toLocaleString()} to go.</p>`}
+      </div>
+      ${d.codes.length ? `<div class="panel stack"><h3>Your discount codes</h3>${d.codes.map((c) => `<div class="orderrow"><div><b data-no-tr>${esc(c.code)}</b><div class="muted small">Use at checkout · until ${date(c.expires_at)}</div></div><button class="btn ghost" data-copy="${esc(c.code)}">${money(c.value, d.currency)} · Copy</button></div>`).join('')}</div>` : ''}
+      <div class="panel"><h3 style="margin-bottom:6px">History</h3>${d.log.length ? d.log.map((e) => `<div class="orderrow"><div><b>${esc(e.reason)}</b><div class="muted">${date(e.at)}</div></div><b class="amt ${e.pts > 0 ? 'pos' : 'neg'}">${e.pts > 0 ? '+' : ''}${e.pts.toLocaleString()}</b></div>`).join('') : '<p class="muted">Your points appear here when your first order is delivered.</p>'}</div>
+    </div>`;
+  const f = $('#redeemf');
+  f.onsubmit = async (e) => { e.preventDefault(); try { const r = await api('/api/buyer/points/redeem', 'POST', { points: Number(f.points.value) }); toast(`Your code ${r.code} — ${money(r.value, d.currency)} off`); try { await navigator.clipboard.writeText(r.code); } catch { /* ignore */ } pointsPage(); } catch (err) { toast(err.message); } };
+  $$('[data-copy]').forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Code copied — use it at checkout'); } catch { toast(b.dataset.copy); } });
+}
+
+// ---------- search by photo ----------
+let photoResult = null;
+function shrinkPhoto(file, max = 900) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('This photo could not be opened')); };
+    img.src = url;
+  });
+}
+async function searchByPhoto(file) {
+  if (!file) return;
+  let data;
+  try { data = await shrinkPhoto(file); } catch (e) { toast(e.message); return; }
+  photoResult = { image: data, loading: true };
+  if (location.hash === '#/photo') photoPage(); else location.hash = '#/photo';
+  try { photoResult = { image: data, ...(await api('/api/search/image', 'POST', { image: data })) }; }
+  catch (e) { photoResult = { image: data, error: e.message }; }
+  if (location.hash === '#/photo') photoPage();
+}
+function photoPage() {
+  const v = $('#view'); const r = photoResult;
+  if (!r) { location.hash = '#/'; return; }
+  const head = `<div class="photohead"><img src="${r.image}" alt=""><div><h1 style="font-size:22px">${r.loading ? 'Looking at your photo…' : r.error ? 'Search by photo' : r.query ? 'Looks like' : 'Search by photo'}</h1>${r.query ? `<p><b>${esc(r.query)}</b></p>` : ''}<button class="btn quiet" type="button" id="again">Another photo</button></div></div>`;
+  if (r.loading) { v.innerHTML = `<a class="back" href="#/">${ICONS.back} Shop</a>${head}${skeletonGrid()}`; }
+  else if (r.error) { v.innerHTML = `<a class="back" href="#/">${ICONS.back} Shop</a>${head}<div class="empty"><h3>${esc(r.error)}</h3></div>`; }
+  else {
+    const chips = (r.alternatives || []).map((a) => `<a class="chip" href="#/search/${encodeURIComponent(a)}">${esc(a)}</a>`).join('');
+    v.innerHTML = `<a class="back" href="#/">${ICONS.back} Shop</a>${head}${chips ? `<div class="cats">${chips}</div>` : ''}
+      ${r.items.length ? `<div class="sechead"><h2>Similar products</h2></div><div class="grid">${r.items.map(productCard).join('')}</div>` : `<div class="empty"><h3>${esc(r.message || 'No similar products yet')}</h3><p>Try another photo, or search with words.</p></div>`}`;
+  }
+  const a = $('#again'); if (a) a.onclick = () => $('#scamfile').click();
+}
+
+async function walletPage() {
+  if (!requireBuyer('/wallet')) return;
+  const w = await api('/api/buyer/wallet');
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/account">${ICONS.back} Account</a><h1 style="margin-top:6px">Wallet</h1></div></div>
+    <div class="stack" style="max-width:620px">
+      <div class="panel stack"><span class="muted">Available balance</span><span class="balance">${money(w.balance, w.currency)}</span>
+        <p class="muted small">Refunds from cancelled orders and shipping differences after your parcel is weighed are added here. You can use the balance to pay for your next order.</p></div>
+      <div class="panel"><h3 style="margin-bottom:6px">History</h3>${w.entries.length ? w.entries.map((e) => `<div class="orderrow"><div><b>${esc(e.reason)}</b><div class="muted">${date(e.created_at)}</div></div><b class="amt ${e.amount > 0 ? 'pos' : 'neg'}">${e.amount > 0 ? '+' : ''}${money(e.amount, e.currency)}</b></div>`).join('') : '<p class="muted">No transactions yet.</p>'}</div>
+    </div>`;
+}
+
+const REQ = { new: ['Waiting for Kinan’s price', 'warn'], quoted: ['Price ready', 'ok'], listed: ['Now in the shop', 'ok'], declined: ['Not available', 'bad'], accepted: ['Added to your cart', 'ok'] };
+async function requestPage() {
+  if (!requireBuyer('/request')) return;
+  const list = await api('/api/buyer/requests');
+  const loc = Locale.get();
+  $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/">${ICONS.back} Shop</a><h1 style="margin-top:6px">Buy for me</h1><p class="muted">Paste any product link from Taobao, Tmall, 1688, AliExpress or JD. We buy it, check it at our China warehouse and ship it to you.</p></div></div>
+    <div class="two"><form class="panel stack" id="rf" autocomplete="off">
+      <label class="field">Product link<textarea name="link" rows="3" placeholder="Paste the link, or the whole text the Taobao app copies when you tap Share" required></textarea></label>
+      <div id="plat" class="small"></div>
+      <label class="field">Product name <span class="muted">(optional)</span><input name="title" maxlength="200"></label>
+      <div class="row" style="gap:10px;align-items:end">
+        <label class="field" style="flex:1">Price on the page (¥)<input name="price_cny" type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 129"></label>
+        <label class="field" style="width:110px">Quantity<input name="qty" type="number" min="1" max="999" value="1"></label>
+      </div>
+      <label class="field">Size, colour or option<input name="variant" maxlength="200" placeholder="e.g. Black, XL"></label>
+      <label class="field">Notes for Kinan <span class="muted">(optional)</span><textarea name="note" rows="2" maxlength="1000"></textarea></label>
+      <div id="est"></div>
+      <div class="error" id="re"></div>
+      <button class="btn" id="rgo">Send to Kinan</button>
+      <p class="muted small">Kinan checks the item and confirms the final price, usually within a day. You pay only after you accept it.</p>
+    </form>
+    <aside class="panel"><h3 style="margin-bottom:6px">Your requests</h3>${list.length ? list.map((r) => { const [t, c] = REQ[r.status] || [r.status, '']; return `<div class="stack" style="gap:4px;padding:12px 0;border-bottom:1px solid var(--line)">
+        <div class="row between"><span class="muted small">${date(r.created_at, false)}${r.platform_name ? ` · ${esc(r.platform_name)}` : ''} · Qty ${r.qty}</span>${pill(t, c)}</div>
+        ${r.title ? `<b class="small">${esc(r.title)}</b>` : ''}
+        ${r.link ? `<a class="small" href="${esc(/^https?:/i.test(r.link) ? r.link : 'https://item.taobao.com/item.htm?id=' + r.link)}" target="_blank" rel="noopener noreferrer" style="word-break:break-all">${esc(r.link.length > 70 ? r.link.slice(0, 70) + '…' : r.link)}</a>` : ''}
+        ${r.variant ? `<span class="small">${esc(r.variant)}</span>` : ''}${r.note ? `<span class="small muted">${esc(r.note)}</span>` : ''}
+        ${r.estimate && r.status === 'new' ? `<span class="small muted">Estimate: ${money(r.estimate.total, r.currency)} delivered</span>` : ''}
+        ${r.quote ? `<span><b>${money(r.quote, r.currency)}</b> <span class="muted small">per item · shipping added at checkout</span>${localPrice(r.quote) ? ` <span class="lp">${localPrice(r.quote)}</span>` : ''}</span>` : ''}
+        ${r.reply ? `<span class="small" style="background:var(--chip);padding:8px 10px;border-radius:var(--r-md)"><b>Kinan:</b> ${esc(r.reply)}</span>` : ''}
+        ${r.status === 'quoted' ? `<button class="btn sm" data-accept="${esc(r.id)}" style="justify-self:start">Buy now</button>` : ''}
+        ${r.listing_id && r.status === 'listed' ? `<a class="btn sm" href="#/p/${esc(r.listing_id)}" style="justify-self:start">View product</a>` : ''}</div>`; }).join('') : '<p class="muted">No requests yet.</p>'}</aside></div>`;
+  const f = $('#rf'); let pt = null; let et = null;
+  const showEstimate = async () => {
+    const box = $('#est'); const cny = Number(f.price_cny.value);
+    if (!(cny > 0)) { box.innerHTML = ''; return; }
+    const e = await api('/api/buyforme/estimate', 'POST', { price_cny: cny, qty: Number(f.qty.value) || 1, country_code: loc.country }).catch(() => null);
+    if (!e) return;
+    box.innerHTML = `<div class="landed small"><button class="locchip" type="button"></button>
+      <div class="sum"><div><span>Item${e.qty > 1 ? `s × ${e.qty}` : ''}</span><span>${money(e.items, e.currency)}</span></div>
+      <div><span>Delivery to our China warehouse</span><span>${money(e.china_shipping, e.currency)}</span></div>
+      <div><span>Kinan service (${e.fee_pct}%)</span><span>${money(e.service_fee, e.currency)}</span></div>
+      <div><span>International shipping (estimate)</span><span>${money(e.international_shipping, e.currency)}</span></div>
+      <div class="total"><span>Estimated total</span><span>${money(e.total, e.currency)}${localPrice(e.total) ? `<div class="lp" style="font-weight:400">${localPrice(e.total)}</div>` : ''}</span></div></div>
+      <div class="muted">Arrives in about ${esc(e.days || '10–15')} days after we buy it. Shipping is confirmed by the real weight.</div></div>`;
+    renderLocaleChip(); box.querySelector('.locchip').onclick = () => addressDialog(requestPage);
+  };
+  f.link.oninput = () => { clearTimeout(pt); pt = setTimeout(async () => {
+    const v = f.link.value.trim(); const el = $('#plat'); if (!v) { el.innerHTML = ''; return; }
+    try { const r = await api('/api/buyforme/parse', 'POST', { text: v }); el.innerHTML = `${pill(r.platform_name, 'ok')}${r.item_id ? ` <span class="muted">Item ${esc(r.item_id)}</span>` : ''}`; if (r.title && !f.title.value) f.title.value = r.title; }
+    catch (err) { el.innerHTML = `<span class="error">${esc(err.message)}</span>`; }
+  }, 350); };
+  f.price_cny.oninput = f.qty.oninput = () => { clearTimeout(et); et = setTimeout(showEstimate, 300); };
+  f.onsubmit = async (e) => {
+    e.preventDefault(); const d = Object.fromEntries(new FormData(f));
+    $('#rgo').disabled = true; $('#re').textContent = '';
+    try { await api('/api/buyer/requests', 'POST', { ...d, qty: Number(d.qty) || 1, country_code: loc.country }); toast('Sent — Kinan will confirm the price soon'); requestPage(); }
+    catch (err) { $('#re').textContent = err.message; $('#rgo').disabled = false; }
+  };
+  $$('[data-accept]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { const it = await api(`/api/buyer/requests/${b.dataset.accept}/accept`, 'POST'); Cart.add({ listing_id: it.listing_id, mp_sku_id: it.mp_sku_id, qty: it.qty, title: it.title, props: '', price: it.price, currency: cfg.currency, image: it.image }); location.hash = '#/cart'; }
+    catch (err) { toast(err.message); b.disabled = false; }
+  });
+}
+
+// Sign in with a phone number: number → SMS code → signed in (a new number creates the account)
+function phoneSignin(next, step = 'num', st = {}) {
+  const t = (x) => KinanLang.t(x);
+  $('#view').innerHTML = `<div class="auth" style="min-height:70vh"><form class="panel stack" id="pf">
+      <h2>${t('Sign in with your phone')}</h2>
+      ${step === 'num' ? `<label class="field">${t('Mobile number')}<input name="phone" type="tel" inputmode="tel" required autocomplete="tel" placeholder="+356 7912 3456" value="${esc(st.phone || '')}"></label>
+        <span class="muted small">${t('With the country code. We send you a 6-digit code by SMS.')}</span>`
+      : `<p>${t('We sent a code to')} <b dir="ltr">${esc(st.masked || st.phone)}</b></p>
+        <label class="field">${t('6-digit code')}<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="\\d{6}" maxlength="6" required></label>
+        <label class="field">${t('Your name (new customers)')}<input name="name" autocomplete="name"></label>
+        <a href="#" class="muted small" id="pagain">${t('Send a new code')}</a>`}
+      <div class="error" id="perr">${esc(st.err || '')}</div>
+      <button class="btn">${step === 'num' ? t('Send code') : t('Sign in')}</button>
+      <a href="#" class="muted small" id="pback">${t('Use email instead')}</a>
+    </form></div>`;
+  $('#pback').onclick = (e) => { e.preventDefault(); signin(encodeURIComponent(next)); };
+  const again = $('#pagain'); if (again) again.onclick = (e) => { e.preventDefault(); phoneSignin(next, 'num', { phone: st.phone }); };
+  $('#pf').onsubmit = async (e) => {
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button.btn'); btn.disabled = true;
+    try {
+      if (step === 'num') { const r = await api('/api/auth/phone/start', 'POST', { phone: f.phone, lang: KinanLang.lang }); return phoneSignin(next, 'code', { phone: f.phone, masked: r.phone }); }
+      const r = await api('/api/auth/phone/verify', 'POST', { phone: st.phone, code: f.code, name: f.name, lang: KinanLang.lang });
+      me = asMe(r.user); toast(r.created ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
+      location.hash = '#' + next; if (location.hash === '#' + next) route();
+    } catch (err) { $('#perr').textContent = err.message; btn.disabled = false; }
+  };
+}
+
+function signin(next, mode = 'in', msg = '') {
+  next = next ? decodeURIComponent(next) : '/';
+  const other = me && me.role !== 'buyer';
+  $('#view').innerHTML = `<div class="auth" style="min-height:70vh"><form class="panel stack" id="lf">
+      <h2>${mode === 'in' ? 'Sign in to Kinan' : 'Create your Kinan account'}</h2>
+      <div class="seg"><button type="button" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button type="button" data-m="up" class="${mode === 'up' ? 'on' : ''}">Create account</button></div>
+      ${other ? `<p class="muted">You’re signed in as a ${esc(me.role)}. Sign in with a customer account to shop.</p>` : ''}
+      ${K.googleButton(cfg, 'shop', '#' + next)}
+      ${cfg.phone_signin ? `<button type="button" class="btn gbtn block" id="phonego">📱 <span>${KinanLang.t('Continue with phone number')}</span></button>` : ''}
+      ${mode === 'up' ? '<label class="field">Name<input name="name" required autocomplete="name"></label>' : ''}
+      <label class="field">Email<input name="email" type="email" required autocomplete="username"></label>
+      <label class="field">Password<input name="password" type="password" required minlength="${mode === 'up' ? 8 : 1}" autocomplete="${mode === 'up' ? 'new-password' : 'current-password'}"></label>
+      ${mode === 'up' ? '<span class="muted">At least 8 characters. By creating an account you agree to the <a href="/terms" target="_blank">Terms of Service</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</span>' : ''}
+      <div class="error">${esc(msg)}</div>
+      <button class="btn">${mode === 'in' ? 'Sign in' : 'Create account'}</button>
+      ${mode === 'in' ? '<a class="muted small" href="/reset?app=shop">Forgot your password?</a>' : ''}
+    </form></div>`;
+  $$('.seg button').forEach((b) => b.onclick = () => signin(encodeURIComponent(next), b.dataset.m));
+  const pg = $('#phonego'); if (pg) pg.onclick = () => phoneSignin(next);
+  $('#lf').onsubmit = async (e) => {
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+    try {
+      if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'buyer' });
+      const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password, app: 'shop' });
+      if (asMe(r.user).role !== 'buyer') { await api('/api/auth/logout', 'POST'); return signin(encodeURIComponent(next), mode, 'This is not a customer account. Sellers sign in at the Seller Center.'); }
+      me = asMe(r.user); toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
+      location.hash = '#' + next; if (location.hash === '#' + next) route();
+    } catch (err) { signin(encodeURIComponent(next), mode, err.message); }
+  };
+}
+
+// ---------- install prompt ----------
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; wireInstall(); });
+function wireInstall() {
+  const b = $('#installbtn'); if (!b) return;
+  b.style.display = deferredInstall ? 'inline-flex' : 'none';
+  b.onclick = async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; b.style.display = 'none'; };
+}
+
+// ---------- boot ----------
+(async () => {
+  updateBadge();
+  const params = new URLSearchParams(location.search);
+  const loginError = K.takeLoginError();
+  // Back from a bank check (3-D Secure) or a wallet app: confirm the payment with Stripe before showing the order
+  const backFromPay = params.get('order');
+  if (backFromPay) {
+    history.replaceState(null, '', `/#/orders/${encodeURIComponent(backFromPay)}`);
+    if (params.get('redirect_status') === 'succeeded') await api(`/api/buyer/orders/${encodeURIComponent(backFromPay)}/confirm-card`, 'POST').catch(() => {});
+    else if (params.get('redirect_status') === 'failed') setTimeout(() => toast('The payment did not go through. You can try again from the order.'), 600);
+  }
+  const configReady = api('/api/config/public').catch(() => cfg);
+  sessionReady = api('/api/me').then(asMe).catch(() => null).then((user) => {
+    me = user;
+    Cart.sync(); Book.sync();
+  }).finally(() => { sessionReady = null; });
+  cfg = await configReady;
+  $('#foot').innerHTML = K.footer(cfg.operator?.name);
+  K.analyticsConsent(cfg.analytics);
+  if (cfg.whatsapp) { const a = document.createElement('a'); a.className = 'wafab'; a.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent('Hello Kinan')}`; a.target = '_blank'; a.rel = 'noopener'; a.setAttribute('aria-label', 'WhatsApp'); a.innerHTML = WA; document.body.append(a); }
+  assistantButton();
+  if (loginError) {
+    if (sessionReady) await sessionReady;
+    signin(encodeURIComponent('/'), 'in', loginError);
+  } else route();
+  K.registerSW();
+  try { K.presence('shop'); } catch { /* optional */ }
+})();
