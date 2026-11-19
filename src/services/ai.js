@@ -183,9 +183,10 @@ async function structured(req) {
   throw err;
 }
 
-async function askClaude({ system, name, description = '', schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
+async function askClaude({ system, name, description = '', schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other', requireAllImages = false }) {
   {
     const blocks = images.map(imageBlock).filter(Boolean);
+    if (requireAllImages && blocks.length !== images.length) throw httpError(422, 'AI: could not read all photos');
     const tool = { name, description: description || 'Return the answer.', input_schema: schema };
     const res = await fetch(API, {
       method: 'POST',
@@ -222,7 +223,7 @@ function geminiRetryDelay(response, error, now) {
   return requested > 0 ? requested : 60_000;
 }
 
-async function askGemini({ system, schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other' }) {
+async function askGemini({ system, schema, text, images = [], maxTokens = 2500, timeoutMs = 60000, kind = 'other', requireAllImages = false }) {
   const first = modelFor('gemini');
   const models = [...new Set([first, ...String(process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash').split(',').map((x) => x.trim()).filter(Boolean)])];
   let res; let j; let used; let busy = false; let quota = false; let parts;
@@ -233,6 +234,7 @@ async function askGemini({ system, schema, text, images = [], maxTokens = 2500, 
       // Gemini takes up to ~20 MB per request: keep the photos under 14 MB together.
       let total = 0;
       parts = (await Promise.all(images.map(inlineImage))).filter((x) => x && (total += x.inline_data.data.length) <= 14 * 1024 * 1024);
+      if (requireAllImages && parts.length !== images.length) throw httpError(422, 'AI: could not read all photos');
       // Another concurrent check may have learned the model's limit meanwhile.
       if ((geminiRetryAt.get(candidate) || 0) > Date.now()) { quota = true; continue; }
     }
