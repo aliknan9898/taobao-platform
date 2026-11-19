@@ -847,7 +847,10 @@ VIEWS.kinan = async (v) => {
     const max = Math.max(1, ...d.daily.map((x) => x.revenue));
     const ch = [['Website', k.site_orders, k.site_revenue], ['eBay', k.ebay_orders, k.ebay_revenue]]; const chMax = Math.max(1, ...ch.map((x) => x[2]));
     const depMax = Math.max(1, ...d.catalog.by_dept.map((x) => x.count));
-    body = `<div class="kpis">
+    body = `<div class="card"><h2>Instagram</h2>
+      <div class="row"><button type="button" class="btn ghost" id="instagram-check">Check connection</button>
+        <span class="muted" id="instagram-status" role="status">@kinanshop4u</span></div></div>
+      <div class="kpis">
         <div class="kpi"><span>Sales</span><b>${m(k.revenue)}</b>${delta(k.revenue, pv.revenue)}</div>
         <div class="kpi"><span>Profit (est.)</span><b class="${k.profit < 0 ? 'bad' : ''}">${m(k.profit)}</b><small class="muted">margin ${k.margin_pct ?? '—'}%</small></div>
         <div class="kpi"><span>Orders</span><b>${fmt(k.orders)}</b>${delta(k.orders, pv.orders)}</div>
@@ -957,6 +960,29 @@ VIEWS.kinan = async (v) => {
     window.__importMonitor = setInterval(refreshImports, 10000);
   }
   v.querySelectorAll('[data-kb]').forEach((b) => b.onclick = () => { KB.sub = b.dataset.kb; render(); });
+  const instagramCheck = v.querySelector('#instagram-check');
+  if (instagramCheck) instagramCheck.onclick = async () => {
+    const status = v.querySelector('#instagram-status');
+    instagramCheck.disabled = true;
+    status.textContent = 'Checking Instagram…';
+    try {
+      const result = await api('/api/admin/instagram/status');
+      const messages = {
+        connected: `Connected to @${result.username}`,
+        wrong_account: `Expected @kinanshop4u, received @${result.username}`,
+        not_configured: 'Set INSTAGRAM_ACCESS_TOKEN on the server.',
+        invalid_account_id: 'INSTAGRAM_ACCOUNT_ID must be numeric.',
+        meta_error: `Meta rejected the request (HTTP ${result.httpStatus}${result.code ? `, code ${result.code}` : ''}). Check token and permissions.`,
+        unexpected_response: 'Meta did not return an Instagram username.',
+        unavailable: 'Could not complete the request to Meta. Try again.',
+      };
+      status.textContent = messages[result.status] || 'Unknown connection status.';
+    } catch {
+      status.textContent = 'Could not run the connection check.';
+    } finally {
+      instagramCheck.disabled = false;
+    }
+  };
   const dd = $('#kbdays'); if (dd) dd.onchange = () => { KB.days = Number(dd.value); render(); };
   const kq = $('#kbq'); if (kq) { kq.oninput = () => { KB.q = kq.value; clearTimeout(KB.t); KB.t = setTimeout(() => { render().then(() => { const n = $('#kbq'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 350); }; }
   const kf = $('#kbf'); if (kf) kf.onchange = () => { KB.f = kf.value; render(); };
