@@ -16,6 +16,8 @@ const now = () => Date.now();
 const list = (v) => (Array.isArray(v) ? v : []);
 const money = (v) => Math.round(Number(v) * 100) / 100;
 const SID = 'ae_sourcing';
+const DAILY_TARGET = 1000;
+const MIN_SUPPLIER_ORDERS = 1001;
 
 function state() { return db.settings.get(SID) || {}; }
 function save(patch) { const s = db.settings.get(SID); return s ? db.settings.update(SID, typeof patch === 'function' ? patch : { ...patch }) : db.settings.insert({ id: SID, ...(typeof patch === 'function' ? patch({}) : patch) }); }
@@ -23,12 +25,10 @@ function prefs() {
   const p = state().prefs || {};
   return {
     enabled: p.enabled !== false,
-    // the owner's choice (17 Nov): as many as possible, as fast as possible — 150 per run (every 15 minutes), 3,000 a
-    // day; the Claude review budget and AliExpress's own call limits are what really set the pace
-    per_run: Math.min(150, Math.max(1, Math.floor(Number(p.per_run) === 50 ? 150 : Number(p.per_run) || 150))), // 50 was the old maximum
-    per_day: Math.min(3000, Math.max(0, Math.floor(Number(p.per_day) === 500 ? 3000 : Number(p.per_day ?? 3000)))), // 500 was the old maximum
-    max_days: Math.min(15, Math.max(3, Math.floor(Number(p.max_days) || 15))), // the owner's rule: at most 15 days
-    min_orders: Math.max(0, Math.floor(Number(p.min_orders ?? 200))),
+    per_run: Math.min(150, Math.max(1, Math.floor(Number(p.per_run) === 50 ? 150 : Number(p.per_run) || 150))),
+    per_day: Math.min(DAILY_TARGET, Math.max(0, Math.floor(Number(p.per_day ?? DAILY_TARGET) || 0))),
+    max_days: Math.min(15, Math.max(3, Math.floor(Number(p.max_days) || 15))),
+    min_orders: Math.max(MIN_SUPPLIER_ORDERS, Math.floor(Number(p.min_orders) || 0)),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || require('./sourcing').prefs().markup_pct)),
     min_cost: Math.max(0, Number(p.min_cost ?? 1)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40))
   };
@@ -48,6 +48,18 @@ function findAll(v, keys, out = []) {
 }
 const num = (...v) => { for (const x of v) { const n = Number(String(x ?? '').replace(/[^\d.]/g, '')); if (x !== undefined && x !== null && x !== '' && Number.isFinite(n)) return n; } return null; };
 
+// A supplier's displayed "1,000+" is only evidence of at least 1,000.
+// Treat missing, abbreviated and non-numeric counts as unverified.
+function supplierOrders(...values) {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)\+?$/.test(text)) continue;
+    const count = Number(text.replace(/[, +]/g, ''));
+    if (Number.isSafeInteger(count)) return count;
+  }
+  return 0;
+}
+
 const logged = {};
 function logShape(name, j) { if (logged[name]) return; logged[name] = true; console.log(`[ae-sourcing] ${name} response:`, JSON.stringify(j).slice(0, 1200)); }
 
@@ -66,7 +78,7 @@ async function search(kw, country) {
   return findAll(j, ['itemId', 'item_id', 'product_id', 'productId']).map((x) => ({
     id: String(x.itemId || x.item_id || x.product_id || x.productId),
     title: String(x.title || x.subject || x.product_title || ''),
-    orders: num(x.orders, x.lastest_volume, x.volume, x.sales) || 0,
+    orders: supplierOrders(x.orders, x.lastest_volume, x.volume, x.sales),
     price: num(x.targetSalePrice, x.salePrice, x.target_sale_price, x.sale_price, x.app_sale_price),
     rating: num(x.evaluateRate, x.evaluate_rate, x.score)
   })).filter((x) => /^\d{9,20}$/.test(x.id));
@@ -91,7 +103,7 @@ async function feedItems(name, page) {
   const ae = require('../aliexpress/client'); const tok = await require('./aliexpress').token();
   const j = await ae.call('aliexpress.ds.recommend.feed.get', { feed_name: name, country: 'GB', target_currency: String(config.currency).toUpperCase(), target_language: 'EN', page_size: 50, page_no: page, sort: 'volumeDesc' }, tok);
   logShape('feed', j);
-  return findAll(j, ['product_id']).map((x) => ({ id: String(x.product_id), title: String(x.product_title || ''), orders: num(x.lastest_volume, x.volume) || 0, price: num(x.target_sale_price, x.sale_price), rating: num(x.evaluate_rate) })).filter((x) => /^\d{9,20}$/.test(x.id));
+  return findAll(j, ['product_id']).map((x) => ({ id: String(x.product_id), title: String(x.product_title || ''), orders: supplierOrders(x.lastest_volume, x.volume), price: num(x.target_sale_price, x.sale_price), rating: num(x.evaluate_rate) })).filter((x) => /^\d{9,20}$/.test(x.id));
 }
 
 /** The fastest delivery of one option (sku) to a country: { days, fee, from, method } or null. */
@@ -120,7 +132,7 @@ async function run({ count } = {}, by = 'auto') {
   const p = prefs();
   const today = new Date().toISOString().slice(0, 10);
   const s0 = state(); const doneToday = s0.day === today ? s0.day_added || 0 : 0;
-  const target = Math.min(Number(count) || p.per_run, Math.max(0, p.per_day - doneToday));
+  const target = Math.min(150, Math.max(0, Math.floor(Number(count) || p.per_run)), Math.max(0, p.per_day - doneToday));
   if (!target) return { skipped: 'daily limit reached' };
   running = true; stopAsked = false;
   const kinan = require('./buyforme').systemSeller();
@@ -129,7 +141,7 @@ async function run({ count } = {}, by = 'auto') {
   const rules = `v2|${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`; // v2: delivery check fixed — look again at everything refused before
   const tried = new Set(s0.rules === rules ? list(s0.tried) : []);
   if (s0.rules !== rules) save({ rules, tried: [] });
-  const st = { started_at: now(), by, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, running: true };
+  const st = { started_at: now(), by, target, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, running: true };
   const added = [];
   let cur = {}; // what is known about the product being checked, for the log
   const skip = (why, id) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (id) tried.add(id); console.log(`[ae-sourcing] ✗ ${id || cur.id} ${why}${cur.cost != null ? ` · cost ${cur.cost}` : ''}${cur.days ? ` · ${cur.days} days` : ''}`); };
@@ -165,7 +177,7 @@ async function run({ count } = {}, by = 'auto') {
   }
   try {
     for await (const { c, item } of candidates()) {
-        if (st.added >= target || stopAsked) break;
+        if (st.added >= target || stopAsked || new Date().toISOString().slice(0, 10) !== today) break;
         st.checked++; cur = { id: c.id };
         let prod;
         try { prod = await aes.fetchProduct(c.id, 'GB'); } catch (e) { skip('product details not available', c.id); continue; }
@@ -221,7 +233,8 @@ async function run({ count } = {}, by = 'auto') {
         have.add(c.id); st.added++; st.by_dept[dept] = (st.by_dept[dept] || 0) + 1;
         const fresh = db.listings.get(l.id);
         added.push({ id: l.id, title: d.ebay_title || fresh.title, dept, from: gb.from || 'AE', quality: Number(d.quality) || null, eu: eu?.days || null, gb: gb.days, cost, price: Math.min(...fresh.skus.map((s) => s.price)), kw: list(d.keywords).slice(0, 4), listed: null });
-        save((x) => ({ ...x, day: today, day_added: (x.day === today ? x.day_added || 0 : 0) + 1 }));
+        const addedDay = new Date().toISOString().slice(0, 10);
+        save((x) => ({ ...x, day: addedDay, day_added: (x.day === addedDay ? x.day_added || 0 : 0) + 1 }));
     }
   } finally {
     running = false; st.running = false; st.finished_at = now();
