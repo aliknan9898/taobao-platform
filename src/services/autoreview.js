@@ -13,7 +13,7 @@
  *    "Needs changes" with the reason, and Kinan gets a Telegram message.
  * The listing's status is not otherwise changed: products waiting for approval still wait for the admin.
  * What was there before is kept in `ai_review.before`, so the admin can undo a review.
- * Settings: AI_AUTO_REVIEW=off to stop it, AI_REVIEW_DAILY (default 300 products a day), AI_REVIEW_GAP_MS (default 8000 between products).
+ * Settings: AI_AUTO_REVIEW=off to stop it, AI_REVIEW_DAILY (default 300 products a day), AI_REVIEW_CONCURRENCY (default 2), AI_REVIEW_GAP_MS (default 8000 between batches).
  */
 const crypto = require('crypto');
 const db = require('../db');
@@ -23,6 +23,7 @@ const { httpError } = require('../auth');
 const s = (v, n) => String(v ?? '').trim().slice(0, n);
 const on = () => ai.enabled() && String(process.env.AI_AUTO_REVIEW || '').toLowerCase() !== 'off';
 const dailyCap = () => Math.max(1, Number(process.env.AI_REVIEW_DAILY) || 300);
+const batchSize = () => Math.min(4, Math.max(1, Math.trunc(Number(process.env.AI_REVIEW_CONCURRENCY) || 2)));
 const gapMs = () => Math.max(0, Number(process.env.AI_REVIEW_GAP_MS ?? 8000));
 const STATUSES = ['pending_review', 'active', 'paused', 'private'];
 const MAX_TRIES = 3;
@@ -100,7 +101,15 @@ function photosOf(l) {
 }
 
 /** Review one product now and save the result. Returns the updated product. */
-async function reviewListing(id, { force = false } = {}) {
+const reviewing = new Set();
+async function reviewListing(id, options) {
+  if (reviewing.has(id)) throw httpError(409, 'This product is already being reviewed');
+  reviewing.add(id);
+  try { return await reviewProduct(id, options); }
+  finally { reviewing.delete(id); }
+}
+
+async function reviewProduct(id, { force = false } = {}) {
   if (!ai.enabled()) throw httpError(503, 'The AI is not switched on — add GEMINI_API_KEY (free) or ANTHROPIC_API_KEY');
   const l = db.listings.get(id);
   if (!l) throw httpError(404, 'Product not found');
@@ -236,20 +245,36 @@ function queue() {
 let running = false; let pauseUntil = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Review the next few products. Called every minute; stops for a while when the AI quota runs out. */
-async function tick({ max = 6 } = {}) {
+async function tick({ max = 12 } = {}) {
   if (!on()) { releaseAll('the automatic AI review is off'); return 0; }
   // nothing stays hidden for more than a day waiting for the AI (quota used up, daily limit reached…)
   for (const l of db.listings.all((x) => isHeld(x) && Date.now() - (x.review.submitted_at || 0) > 24 * 3600e3)) release(l.id, 'not checked within 24 hours');
   if (running || Date.now() < pauseUntil) return 0;
   running = true; let n = 0;
   try {
-    for (const l of queue().slice(0, max)) {
-      if (usage() >= dailyCap()) break;
-      try { count(); await reviewListing(l.id); n++; } catch (e) {
-        if (e.status === 429) { pauseUntil = Date.now() + 10 * 60e3; console.warn('[ai-review] AI quota reached — pausing 10 minutes'); break; }
-        console.warn('[ai-review]', l.id, e.message);
+    const pending = queue().filter((l) => !reviewing.has(l.id)).slice(0, max);
+    const size = batchSize();
+    for (let offset = 0; offset < pending.length;) {
+      const seats = Math.min(size, Math.floor(dailyCap() - usage()));
+      if (seats <= 0) break;
+      const batch = pending.slice(offset, offset + seats).filter((l) => !reviewing.has(l.id));
+      offset += seats;
+      const results = await Promise.allSettled(batch.map((l) => {
+        count();
+        return reviewListing(l.id);
+      }));
+      let quota = false;
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') n++;
+        else if (result.reason.status === 429) quota = true;
+        else console.warn('[ai-review]', batch[i].id, result.reason.message);
+      });
+      if (quota) {
+        pauseUntil = Date.now() + 10 * 60e3;
+        console.warn('[ai-review] AI quota reached — pausing 10 minutes');
+        break;
       }
-      if (gapMs()) await sleep(gapMs());
+      if (offset < pending.length && usage() < dailyCap() && gapMs()) await sleep(gapMs());
     }
   } finally { running = false; }
   if (n) console.log(`[ai-review] ${n} product(s) reviewed`);
@@ -263,7 +288,7 @@ function status() {
   return {
     enabled: ai.enabled(), running: on(), provider: ai.provider(), model: ai.enabled() ? ai.model() : null,
     waiting: queue().length, reviewed: reviewed.length, stopped: reviewed.filter((l) => l.ai_review.decision === 'stopped' && l.status === 'rejected').length,
-    today: usage(), daily_cap: dailyCap(), paused_until: pauseUntil > Date.now() ? pauseUntil : null,
+    today: usage(), daily_cap: dailyCap(), concurrency: batchSize(), paused_until: pauseUntil > Date.now() ? pauseUntil : null,
     recent: reviewed.sort((a, b) => b.ai_review.at - a.ai_review.at).slice(0, 30).map((l) => ({
       id: l.id, title: l.title, before_title: l.ai_review.before?.title || null, status: l.status, decision: l.ai_review.decision, reason: l.ai_review.reason,
       changed: l.ai_review.changed || [], removed_photos: l.ai_review.removed_photos || 0, notes: l.ai_review.notes || [], at: l.ai_review.at, can_undo: Boolean(l.ai_review.before)

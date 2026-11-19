@@ -192,7 +192,17 @@ async function run({ count } = {}, by = 'auto') {
         try { l = await aes.publish(kinan, { link: c.id }); } catch (e) { skip(`import failed: ${e.message.slice(0, 60)}`, c.id); continue; }
         db.listings.update(l.id, (x) => ({ ...x, status: 'pending_review', ae_from: gb.from || null, skus: x.skus.map((s) => ({ ...s, price: money(Math.max(0.5, s.cost_sale * (1 + p.markup_pct / 100))) })) }));
         const d = await src.curate(db.listings.get(l.id), item);
-        if (!d || d.error) { db.listings.remove(l.id); skip(d?.error ? 'AI not reachable' : 'AI is off', null); aiFails++; if (!d || aiFails >= 3) { st.error = 'No AI available right now (daily budget used or quota) — AliExpress products wait for the AI review'; stopAsked = true; } continue; }
+        if (!d || d.error) {
+          db.listings.remove(l.id);
+          const limited = d?.status === 429;
+          skip(limited ? 'AI rate or quota limit' : d?.error ? 'AI not reachable' : 'AI is off', null);
+          aiFails++;
+          if (!d || limited || aiFails >= 3) {
+            st.error = limited ? 'AI rate or quota limit reached — retrying on a later run' : 'AI unavailable — AliExpress products wait for review';
+            stopAsked = true;
+          }
+          continue;
+        }
         aiFails = 0;
         const minQ = src.prefs().min_quality;
         if (!d.keep || !d.photos_ok || (Number(d.quality) || 0) < minQ) { db.listings.remove(l.id); skip(!d.photos_ok ? 'AI: photos not good enough' : !d.keep ? 'AI: not a good product' : 'AI: quality too low', c.id); continue; }
