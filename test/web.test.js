@@ -31,6 +31,11 @@ test('every interface is served with its brand and manifest', async () => {
   assert.doesNotMatch(sellerCsp, /stripe/);
 });
 
+test('local product review is private to administrators', async () => {
+  const response = await fetch(base + '/api/admin/local-product-review');
+  assert.strictEqual(response.status, 401);
+});
+
 test('download page lists the customer and seller apps', async () => {
   const r = await fetch(base + '/download');
   assert.strictEqual(r.status, 200);

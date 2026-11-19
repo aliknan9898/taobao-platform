@@ -692,6 +692,7 @@ r('POST', '/api/admin/banggood/preview', ADMIN, async ({ req }) => bgs.preview(r
 r('POST', '/api/admin/banggood/import', ADMIN, async ({ req }) => bgs.publish(require('./services/buyforme').systemSeller(), await readJson(req)));
 r('GET', '/api/admin/banggood/orders', STAFF, async () => db.orders.all((o) => (o.sub_orders || []).some((s) => s.source === 'banggood')).sort((a, b) => b.created_at - a.created_at).slice(0, 200)
   .map((o) => ({ id: o.id, status: o.status, created_at: o.created_at, country: o.shipping_address?.country_code, parts: o.sub_orders.filter((s) => s.source === 'banggood').map((s) => ({ outer_purchase_id: s.outer_purchase_id, sale_record_id: s.sale_record_id || null, purchase_ids: s.purchase_ids, status: s.status, label: bgs.LABEL[s.status] || s.status, bg_status: s.bg_status || null, amount: s.bg_amount || null, error: s.error || null, logistics: s.logistics || [] })) })));
+r('GET', '/api/admin/local-product-review', ADMIN, async () => require('./services/localProductReview').dashboard());
 r('GET', '/api/admin/ai-review', STAFF, async () => require('./services/autoreview').status());
 r('POST', '/api/admin/ai-review/run', ADMIN, async () => ({ reviewed: await require('./services/autoreview').tick({ max: 10 }) }));
 r('POST', '/api/admin/listings/:id/ai-review', ADMIN, async ({ params }) => require('./services/autoreview').reviewListing(params.id, { force: true }).then((l) => ({ id: l.id, ai_review: { ...l.ai_review, before: undefined } })));
