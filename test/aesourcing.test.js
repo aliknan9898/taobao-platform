@@ -68,4 +68,9 @@ test('AliExpress builder: only fast, AI-approved products with clean photos are 
   assert.ok(l.skus[0].price > l.skus[0].cost_sale);
   assert.strictEqual(db.listings.all((x) => ['1005000000000002', '1005000000000003', '1005000000000004'].includes(x.ae_product_id)).length, 0, 'rejected ones are removed');
   assert.ok(l.collections.length && l.collection_group);
+  assert.deepEqual(db.product_review_feedback.all().map((row) => [row.id, row.decision]), [
+    ['aliexpress:full:1005000000000001', 'ok'],
+    ['aliexpress:full:1005000000000003', 'stopped'],
+    ['aliexpress:full:1005000000000004', 'stopped'],
+  ]);
 });

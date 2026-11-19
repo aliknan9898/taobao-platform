@@ -264,6 +264,14 @@ function applyPhotos(id, d) {
   return pick.length;
 }
 
+function reviewRejection(id, decision, minQuality) {
+  if (!decision.photos_ok) return 'AI: photos not good enough';
+  if (!decision.keep) return 'AI: not a good product';
+  if ((Number(decision.quality) || 0) < minQuality) return 'AI: quality too low';
+  if (applyPhotos(id, decision) < 2) return 'AI: fewer than 2 clean photos';
+  return null;
+}
+
 async function curate(l, item) {
   const ai = require('./ai');
   if (!ai.enabled()) return null;
@@ -288,7 +296,7 @@ const PHOTO_SCHEMA = {
   required: ['clean_photos', 'quality']
 };
 
-async function reviewPhotos(product, minQuality) {
+async function reviewPhotos(product, minQuality, supplierId) {
   const images = [...new Set(product.images)].slice(0, 8);
   if (images.length < 2) throw httpError(422, 'too few photos');
   const decision = await require('./ai').structured({
@@ -302,6 +310,8 @@ async function reviewPhotos(product, minQuality) {
     throw httpError(502, 'AI: invalid photo review');
   }
   const clean = [...new Set(numbers)].map((n) => images[n - 1]);
+  require('./localProductReview').record('cj', 'photos', supplierId, product,
+    clean.length < 2 || quality < minQuality ? 'stopped' : 'ok');
   if (clean.length < 2) throw httpError(422, 'AI: fewer than 2 clean photos');
   if (quality < minQuality) throw httpError(422, 'AI: photo quality too low');
   return { images: clean, quality };
@@ -374,7 +384,7 @@ async function run(opts = {}, by = 'admin') {
             if (cj.BLOCK.test(`${product.title} ${product.description}`) || NOT_FOR_US.test(product.title)) throw httpError(422, 'not suitable');
             if (list(product.images).filter((u) => /^https?:/.test(u)).length < 2) throw httpError(422, 'too few photos');
             if (photosOnly) {
-              try { photos = await reviewPhotos(product, p.min_quality); }
+              try { photos = await reviewPhotos(product, p.min_quality, c.pid); }
               catch (e) { photoReviewError = true; throw e; }
             }
             eu = await delivery(cj, product, euCountry, p.max_days_eu);
@@ -401,8 +411,9 @@ async function run(opts = {}, by = 'admin') {
         // the AI decides (photos + text)
         const d = photos ? { quality: photos.quality, ebay_ok: false } : await curate(l, item);
         if (!photos && d && !d.error) {
-          if (!d.keep || !d.photos_ok || (Number(d.quality) || 0) < p.min_quality) { drop(!d.photos_ok ? 'AI: photos not good enough' : !d.keep ? 'AI: not a good product' : 'AI: quality too low'); continue; }
-          if (applyPhotos(l.id, d) < 2) { drop('AI: fewer than 2 clean photos'); continue; }
+          const reason = reviewRejection(l.id, d, p.min_quality);
+          require('./localProductReview').recordFull('cj', c.pid, l, d, reason);
+          if (reason) { drop(reason); continue; }
         }
         const [dept, group] = d && !d.error && /:/.test(d.section || '') && DEPARTMENTS[d.section.split(':')[0]]?.groups[d.section.split(':')[1]] ? d.section.split(':') : [d?.department && DEPARTMENTS[d.department] ? d.department : item.dept, item.group];
         const sec = DEPARTMENTS[dept].groups[group] ? group : Object.keys(DEPARTMENTS[dept].groups)[0];
@@ -589,4 +600,4 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
   for (const t of msgs.slice(0, 12)) push.telegram(t);
 }
 
-module.exports = { delivery, applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
+module.exports = { reviewRejection, delivery, applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };

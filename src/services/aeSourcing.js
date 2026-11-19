@@ -241,8 +241,9 @@ async function run({ count } = {}, by = 'auto') {
         }
         aiFails = 0;
         const minQ = src.prefs().min_quality;
-        if (!d.keep || !d.photos_ok || (Number(d.quality) || 0) < minQ) { db.listings.remove(l.id); skip(!d.photos_ok ? 'AI: photos not good enough' : !d.keep ? 'AI: not a good product' : 'AI: quality too low', c.id); continue; }
-        if (src.applyPhotos(l.id, d) < 2) { db.listings.remove(l.id); skip('AI: fewer than 2 clean photos', c.id); continue; }
+        const reason = src.reviewRejection(l.id, d, minQ);
+        require('./localProductReview').recordFull('aliexpress', c.id, l, d, reason);
+        if (reason) { db.listings.remove(l.id); skip(reason, c.id); continue; }
         const D = src.DEPARTMENTS;
         const [dept, group] = /:/.test(d.section || '') && D[d.section.split(':')[0]]?.groups[d.section.split(':')[1]] ? d.section.split(':') : [D[d.department] ? d.department : item.dept, item.group];
         const sec = D[dept].groups[group] ? group : Object.keys(D[dept].groups)[0];
