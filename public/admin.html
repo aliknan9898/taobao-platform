@@ -946,8 +946,12 @@ VIEWS.kinan = async (v) => {
           const added = Number(r.added || 0), checked = Number(r.checked || 0), skipped = Number(r.skipped || 0);
           const rate = elapsed > 0 && running ? (added / elapsed).toFixed(2) : '—';
           const progress = Number(r.target) > 0 ? Math.min(100, Math.round(added / r.target * 100)) : null;
+          const daily = name === 'AliExpress' && s.prefs
+            ? `<p class="small">Today <b>${Number(s.today) || 0} / ${Number(s.prefs.per_day) || 0}</b> added · minimum ${Number(s.prefs.min_orders) || 0} supplier orders</p>`
+            : '';
           return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><b>${esc(name)}</b><span class="pill ${running ? 'warn' : 'ok'}">${running ? '● Running' : 'Idle / last run'}</span></div>
             <p class="small">Added <b>${added}</b> · Checked ${checked} · Skipped ${skipped} · Speed <b>${rate} products/min</b></p>
+            ${daily}
             ${progress === null ? '' : `<progress max="100" value="${progress}" style="width:100%"></progress><small class="muted">${progress}% of target</small>`}
             ${r.error ? `<p class="err small">${esc(String(r.error).slice(0,250))}</p>` : ''}
             ${start ? `<p class="muted small">Started ${new Date(start).toLocaleString()}</p>` : ''}</div>`;
