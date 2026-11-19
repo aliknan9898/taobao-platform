@@ -159,15 +159,33 @@ function savePrefs(b = {}) {
 const today = () => new Date().toISOString().slice(0, 10);
 const addedToday = () => (state().day === today() ? state().day_added || 0 : 0);
 
+// Specific, unbranded queries for the CJ EU/UK catalogue. Warehouse and
+// delivery are checked separately, so geography does not have to be in the query.
+const CJ_KEYWORDS = {
+  'home-kitchen': { storage: ['adjustable drawer dividers', 'under sink sliding organiser', 'stackable kitchen storage bins'], cleaning: ['reusable lint roller', 'microfibre cleaning cloth set'] },
+  pets: { care: ['reusable pet hair remover', 'self cleaning pet grooming brush'] },
+  phone: { holders: ['foldable phone stand', 'adjustable desk phone stand'] },
+  car: { interior: ['foldable car boot organiser', 'car seat back organiser'] },
+  travel: { organise: ['compression packing cubes', 'hanging toiletry bag', 'travel cable organiser'] },
+};
+
 /** Every (department, section, keyword), departments taken in turns so each one fills evenly. */
-function queue(p) {
+function queue(p, { cj = false } = {}) {
   // first what is selling now: rising Google searches and shop searches that found nothing (free trends engine)
   let hot = []; try { hot = require('./trends').hotKeywords({ departments: p.departments, n: 20 }).filter((x) => DEPARTMENTS[x.dept]?.groups[x.group]); } catch { /* no trends yet */ }
-  const per = p.departments.map((d) => Object.entries(DEPARTMENTS[d].groups).flatMap(([g, x]) => x.keywords.map((kw) => ({ dept: d, group: g, kw }))));
+  const per = p.departments.map((d) => Object.entries(DEPARTMENTS[d].groups).flatMap(([g, x]) => [...(cj ? CJ_KEYWORDS[d]?.[g] || [] : []), ...x.keywords].map((kw) => ({ dept: d, group: g, kw }))));
   const out = []; const n = Math.max(...per.map((x) => x.length));
   for (let i = 0; i < n; i++) for (const arr of per) if (arr[i]) out.push(arr[i]);
   const known = new Set(out.map((x) => x.kw));
-  return [...hot.filter((x) => !known.has(x.kw)).map(({ dept, group, kw }) => ({ dept, group, kw })), ...out];
+  const combined = [...hot.filter((x) => !known.has(x.kw)).map(({ dept, group, kw }) => ({ dept, group, kw })), ...out];
+  if (!cj) return combined;
+  const seen = new Set();
+  return combined.filter(({ kw }) => {
+    const key = kw.toLowerCase().replace(/organis(er|ation)/g, 'organiz$1').replace(/microfibre/g, 'microfiber').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // ---------------- finding & checking ----------------
@@ -277,7 +295,7 @@ async function run(opts = {}, by = 'admin') {
   const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
   const s0 = state();
   const tried = new Set(list(s0.tried));
-  const q = queue(p);
+  const q = queue(p, { cj: true });
   let cursor = Number(s0.cursor) || 0;
   const added = [];
   const rejected = [];
@@ -342,9 +360,10 @@ async function run(opts = {}, by = 'admin') {
         }
         const [dept, group] = d && !d.error && /:/.test(d.section || '') && DEPARTMENTS[d.section.split(':')[0]]?.groups[d.section.split(':')[1]] ? d.section.split(':') : [d?.department && DEPARTMENTS[d.department] ? d.department : item.dept, item.group];
         const sec = DEPARTMENTS[dept].groups[group] ? group : Object.keys(DEPARTMENTS[dept].groups)[0];
+        const keywords = d && !d.error ? require('./ai').cleanKeywords(list(d.keywords)).slice(0, 12) : [];
         db.listings.update(l.id, (x) => ({
           ...x, collections: [dept], collection_group: sec, category: DEPARTMENTS[dept].category, cj_auto: true, auto_added_at: now(),
-          ...(d && !d.error && list(d.keywords).length ? { keywords: list(d.keywords).slice(0, 12) } : {}),
+          ...(keywords.length ? { keywords } : {}),
           cj_ship: { ...(x.cj_ship || {}), ...(eu ? { [euCountry]: { fee: eu.fee, vid: eu.vid, at: now() } } : {}), ...(gb ? { GB: { fee: gb.fee, vid: gb.vid, at: now() } } : {}) },
           sourcing: {
             dept, group: sec, keyword: item.kw, listed: c.listed, from: c.from, cost: c.cost, supplier_title: c.title, at: now(),
