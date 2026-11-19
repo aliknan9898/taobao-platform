@@ -251,6 +251,7 @@ async function tick({ max = 12 } = {}) {
   for (const l of db.listings.all((x) => isHeld(x) && Date.now() - (x.review.submitted_at || 0) > 24 * 3600e3)) release(l.id, 'not checked within 24 hours');
   if (running || Date.now() < pauseUntil) return 0;
   running = true; let n = 0;
+  const publishedCJ = []; const rejectedCJ = [];
   try {
     const pending = queue().filter((l) => !reviewing.has(l.id)).slice(0, max);
     const size = batchSize();
@@ -268,6 +269,13 @@ async function tick({ max = 12 } = {}) {
         if (result.status === 'fulfilled') n++;
         else if (result.reason.status === 429) quota = true;
         else console.warn('[ai-review]', batch[i].id, result.reason.message);
+        const before = batch[i];
+        if (before.source !== 'cj') return;
+        const after = db.listings.get(before.id);
+        if (!after || after.status === before.status) return;
+        const product = { id: after.id, pid: after.cj_pid, title: after.title, status: after.status };
+        if (after.status === 'active') publishedCJ.push(product);
+        if (after.status === 'rejected') rejectedCJ.push({ ...product, reason: after.review?.reason || after.ai_review?.reason });
       });
       if (quota) {
         pauseUntil = Date.now() + 10 * 60e3;
@@ -277,6 +285,9 @@ async function tick({ max = 12 } = {}) {
       if (offset < pending.length && usage() < dailyCap() && gapMs()) await sleep(gapMs());
     }
   } finally { running = false; }
+  if (publishedCJ.length || rejectedCJ.length) {
+    void require('./cjReport').send({}, publishedCJ, rejectedCJ, 'نتائج مراجعة المنتجات', { points: false }).catch((e) => console.warn('[ai-review] CJ telegram', e.message));
+  }
   if (n) console.log(`[ai-review] ${n} product(s) reviewed`);
   return n;
 }
