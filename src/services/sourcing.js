@@ -466,12 +466,12 @@ function tick() {
   const left = p.per_day - addedToday();
   const interrupted = s.run?.running || (s.run?.photos_only && s.run.retry_at);
   if (!(p.daily && left > 0) && !interrupted) return false;
-  const photosOnly = Boolean(interrupted && s.run.photos_only);
   const remaining = interrupted ? (s.run.target || 0) - (s.run.added || 0) : left;
-  const n = photosOnly ? remaining : Math.min(100, left, remaining);
-  if (n <= 0) return false;
-  if (photosOnly && !require('./ai').enabled()) return false;
-  start({ count: n, photosOnly }, interrupted ? 'resume' : 'daily');
+  const resumePhotoRun = interrupted && s.run.photos_only && s.run.by === 'admin';
+  const n = resumePhotoRun ? remaining : Math.min(100, left, remaining);
+  if (n <= 0 || !require('./ai').enabled()) return false;
+  // Reject unusable images before spending CJ points on freight quotes.
+  start({ count: n, photosOnly: true }, resumePhotoRun ? 'admin' : interrupted ? 'resume' : 'daily');
   return true;
 }
 
