@@ -23,6 +23,15 @@ test('every interface is served with its brand and manifest', async () => {
     const html = await r.text();
     assert.ok(html.includes(needle), `${p} has brand`);
     assert.ok(html.includes(`/assets/${manifest}.webmanifest`), `${p} has manifest`);
+    for (const [ext, mime] of [['css', 'text/css'], ['js', 'text/javascript']]) {
+      const url = html.match(new RegExp(`/assets/${manifest}-app\\.${ext}\\?v=[a-f0-9]{10}`))?.[0];
+      assert.ok(url, `${p} has versioned ${ext}`);
+      const asset = await fetch(base + url);
+      assert.strictEqual(asset.status, 200);
+      assert.ok(asset.headers.get('content-type').startsWith(mime));
+      assert.match(asset.headers.get('cache-control'), /immutable/);
+      assert.ok((await asset.text()).length > 0);
+    }
     assert.match(r.headers.get('content-security-policy'), /default-src 'self'/);
   }
   const shopCsp = (await fetch(base + '/')).headers.get('content-security-policy');
