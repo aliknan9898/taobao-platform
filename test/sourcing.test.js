@@ -64,6 +64,10 @@ const sourcing = require('../src/services/sourcing');
 test('catalog builder: picks best sellers in EU/UK warehouses, fast delivery, AI-checked, into departments', async () => {
   require('../src/services/buyforme').systemSeller();
   sourcing.savePrefs({ departments: ['pets'], warehouses: 'DE,GB', min_listed: 20, per_keyword: 5, max_days_eu: 7, max_days_gb: 10, daily: false });
+  const cjQueue = sourcing.queue({ departments: ['car', 'travel'] }, { cj: true });
+  assert.ok(cjQueue.some((x) => x.group === 'interior' && x.kw === 'foldable car boot organiser'));
+  assert.ok(cjQueue.some((x) => x.group === 'organise' && x.kw === 'compression packing cubes'));
+  assert.ok(!sourcing.queue({ departments: ['car'] }).some((x) => x.kw === 'foldable car boot organiser'));
   assert.ok(sourcing.queue(sourcing.prefs()).every((x) => x.dept === 'pets'));
   const st = await sourcing.run({ count: 10 });
   const added = db.listings.all((l) => l.sourcing);
