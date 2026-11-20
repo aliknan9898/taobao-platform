@@ -43,7 +43,7 @@ ai.structured = async ({ text }) => {
 
 test('AliExpress builder: only fast, AI-approved products with clean photos are added, sorted and live', async () => {
   assert.strictEqual(A.prefs().per_day, 1000);
-  A.savePrefs({ min_orders: 0, per_day: 3000 });
+  A.savePrefs({ min_orders: 0, per_day: 3000, max_days: 15 });
   assert.strictEqual(A.prefs().min_orders, 1001);
   assert.strictEqual(A.prefs().per_day, 1000);
   const st = await A.run({ count: 5 }, 'test');
@@ -94,4 +94,15 @@ test('AliExpress revisits a feed page after its AI review hits quota', async (t)
   available = true;
   assert.equal((await A.run({ count: 1 }, 'test')).added, 1);
   assert.equal(db.listings.find((row) => row.ae_product_id === id).sourcing.keyword, 'DS_UK_FastDelivery');
+});
+
+test('AliExpress imports previously skipped products at the 20-day ceiling', async () => {
+  db.settings.update('ae_sourcing', (state) => ({
+    ...state, prefs: { max_days: 15 }, feed_pages: {}, cursor: 0
+  }));
+  assert.equal(A.prefs().max_days, 20);
+  const result = await A.run({ count: 5 }, 'test');
+  assert.equal(result.added, 3);
+  assert.equal(db.listings.find((row) => row.ae_product_id === '1005000000000002').status, 'active');
+  assert.equal(A.savePrefs({ max_days: 21 }).max_days, 20);
 });
