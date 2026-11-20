@@ -283,6 +283,24 @@ test('sale campaign (Black Friday): bigger deals, still above cost, banner info,
   } finally { push.toUser = orig; process.env.CAMPAIGNS_JSON = '[]'; }
 });
 
+test('catalog price filtering and sorting preserve pagination and product details', () => {
+  const catalog = require('../src/services/catalog');
+  const seller = require('../src/services/buyforme').systemSeller();
+  const add = (price) => db.listings.insert({
+    seller_id: seller.id, status: 'active', title: 'Browse Price Fixture',
+    images: ['https://x/browse.jpg'], skus: [{ mp_sku_id: 'sku', price, stock: 2 }]
+  });
+  add(5);
+  const selected = add(15);
+  add(25);
+  const page = catalog.browse({
+    q: 'Browse Price Fixture', sort: 'price_desc', min_price: 10, max_price: 25, limit: 1, offset: 1
+  });
+  assert.equal(page.total, 2);
+  const { return_policy, safety, ...card } = catalog.buyerListing(selected.id);
+  assert.deepEqual(page.items, [card]);
+});
+
 test('products CJ cannot deliver to a country are left out there, flagged on the product, and kept off eBay', () => {
   const catalog = require('../src/services/catalog');
   const seller = require('../src/services/buyforme').systemSeller();
