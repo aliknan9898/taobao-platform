@@ -471,9 +471,12 @@ function similar(id, limit = 12) {
   const words = (t) => new Set(String(t || '').toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').split(/\s+/).filter((w) => w.length > 2 && !['the', 'and', 'for', 'with', 'set', 'pcs', 'new'].includes(w)));
   const mine = words(`${l.title} ${(l.keywords || []).join(' ')}`);
   const out = [];
+  // Resolve listing IDs once: repeated db.listings.get() scanned the entire
+  // collection for every recommendation candidate (quadratic work).
+  const listingsById = new Map(db.listings.all().map((item) => [item.id, item]));
   for (const p of browse({ limit: 100000 }).items) {
     if (p.id === id) continue;
-    const o = db.listings.get(p.id); if (!o) continue;
+    const o = listingsById.get(p.id); if (!o) continue;
     let sc = 0;
     if (l.collection_group && o.collection_group === l.collection_group && (o.collections || []).some((c) => (l.collections || []).includes(c))) sc += 4;
     else if ((o.collections || []).some((c) => (l.collections || []).includes(c))) sc += 1;
