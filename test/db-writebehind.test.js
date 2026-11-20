@@ -20,10 +20,15 @@ test('write-behind coalesces updates, persists deletes and keeps writes made dur
   const queries = [];
   let db;
   let injectDuringWrite = false;
+  let failNextWrite = false;
   class FakePool {
     async query(sql, args = []) {
       queries.push({ sql, args });
       if (sql.startsWith('SELECT')) return { rows: [] };
+      if (sql.startsWith('INSERT') && failNextWrite) {
+        failNextWrite = false;
+        throw new Error('transient database error');
+      }
       if (sql.startsWith('INSERT')) {
         const [coll, id, json] = args;
         rows.set(coll + ':' + id, JSON.parse(json));
@@ -53,6 +58,12 @@ test('write-behind coalesces updates, persists deletes and keeps writes made dur
     assert.equal(rows.has('listings:first'), false);
     assert.equal(rows.get('listings:second').title, 'newest');
     assert.ok(queries.some(q => q.sql.startsWith('DELETE')));
+    // A transient SQL error must not silently lose the pending write.
+    failNextWrite = true;
+    db.listings.insert({ id: 'retry', title: 'survives failure' });
+    await db.flush();
+    assert.equal(rows.get('listings:retry').title, 'survives failure');
+    assert.equal(db.pendingWrites(), 0);
     await db.close();
   } finally {
     delete require.cache[dbPath];
