@@ -44,10 +44,27 @@ function endCompressed(res, status, headers, text) {
   const buf = Buffer.isBuffer(text) ? text : Buffer.from(String(text));
   const ae = String(res.req?.headers?.['accept-encoding'] || '');
   const h = { ...headers, Vary: 'Accept-Encoding' };
-  if (buf.length < 1024 || res.req?.method === 'HEAD') { res.writeHead(status, h); return res.end(buf); }
-  if (/\bbr\b/.test(ae)) { res.writeHead(status, { ...h, 'Content-Encoding': 'br' }); return res.end(zlib.brotliCompressSync(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } })); }
-  if (/\bgzip\b/.test(ae)) { res.writeHead(status, { ...h, 'Content-Encoding': 'gzip' }); return res.end(zlib.gzipSync(buf, { level: 6 })); }
-  res.writeHead(status, h); return res.end(buf);
+  if (buf.length < 1024 || res.req?.method === 'HEAD') {
+    res.writeHead(status, h);
+    return res.end(buf);
+  }
+  // Compression runs in libuv's worker pool rather than blocking the event loop.
+  const encoding = /\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : null;
+  if (!encoding) { res.writeHead(status, h); return res.end(buf); }
+  const done = (err, compressed) => {
+    if (res.destroyed || res.writableEnded) return;
+    if (err) {
+      console.error('[http] response compression failed:', err.message);
+      res.writeHead(status, h);
+      return res.end(buf);
+    }
+    res.writeHead(status, { ...h, 'Content-Encoding': encoding });
+    res.end(compressed);
+  };
+  if (encoding === 'br') {
+    return zlib.brotliCompress(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } }, done);
+  }
+  return zlib.gzip(buf, { level: 6 }, done);
 }
 function send(res, status, body, headers = {}) {
   const json = typeof body !== 'string';
