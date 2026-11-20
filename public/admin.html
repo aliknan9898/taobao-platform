@@ -984,15 +984,47 @@ VIEWS.mail = async (v) => {
         return `<tr><td><b>${esc(address)}</b></td><td>${esc(purpose)}</td>
           <td><span class="pill">Forwarding</span></td>
           <td><div class="row">
-            ${status.configured ? `<button type="button" class="btn" data-open-mail="${esc(address)}">Open inbox</button>` : ''}
+            ${status.configured ? `<button type="button" class="btn" data-open-mail="${esc(address)}">Open inbox</button> <button type="button" class="btn ghost" data-new-mail="${esc(address)}">New email</button>` : ''}
             <a class="btn ghost" href="https://mail.google.com/mail/#search/${query}" target="_blank" rel="noopener noreferrer">Open in Gmail</a>
             <button type="button" class="btn ghost" data-copy-email="${esc(address)}">Copy address</button>
           </div></td></tr>`;
       }).join('')}</tbody>
     </table></div>
     <p class="small muted" id="mail-feedback" role="status"></p>
-  </section><section id="mail-inbox"></section>`;
+  </section><section id="mail-compose"></section><section id="mail-inbox"></section>`;
   const inbox = v.querySelector('#mail-inbox');
+  const composer = v.querySelector('#mail-compose');
+  function openComposer(address, message) {
+    composer.innerHTML = `<form class="card stack">
+          <h3>Send from ${esc(address)}</h3>
+          <label>To <input type="email" name="to" required></label>
+          <label>Subject <input name="subject" maxlength="140" required></label>
+          <label>Message <textarea name="text" maxlength="30000" rows="6" required></textarea></label>
+          <button class="btn">Send email</button><p role="status" data-send-status></p>
+        </form>`;
+    const form = composer.querySelector('form');
+    if (message) {
+      form.elements.to.value = /<([^<>]+)>$/.exec(message.from)?.[1] || message.from;
+      form.elements.subject.value = ('Re: ' + message.subject).slice(0, 140);
+    }
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const button = form.querySelector('button');
+      const result = form.querySelector('[data-send-status]');
+      button.disabled = true;
+      result.textContent = 'Sending…';
+      try {
+        await api('/api/admin/mailbox/send', 'POST', { from: address, ...Object.fromEntries(new FormData(form)) });
+        form.reset();
+        result.textContent = 'Email sent.';
+      } catch (error) { result.textContent = error.message; }
+      finally { button.disabled = false; }
+    };
+    form.elements.to.focus();
+  }
+  for (const button of v.querySelectorAll('[data-new-mail]')) {
+    button.onclick = () => openComposer(button.dataset.newMail);
+  }
   let selection = 0;
   async function openMailbox(address, page) {
     const selected = ++selection;
@@ -1004,15 +1036,8 @@ VIEWS.mail = async (v) => {
         ${result.messages.map((m) => `<button type="button" class="btn ghost" data-message="${esc(m.id)}">${esc(m.subject || '(No subject)')} · ${esc(m.from)}</button>`).join(' ') || '<p>No matching messages.</p>'}
         ${result.next_page_token ? '<button type="button" class="btn ghost" data-next>Next page</button>' : ''}
         <pre data-body style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
-        <form data-compose class="stack">
-          <h3>Send from ${esc(address)}</h3>
-          <label>To <input type="email" name="to" required></label>
-          <label>Subject <input name="subject" maxlength="140" required></label>
-          <label>Message <textarea name="text" maxlength="30000" rows="6" required></textarea></label>
-          <button class="btn">Send email</button><p role="status" data-send-status></p>
-        </form></div>`;
+</div>`;
       inbox.querySelector('[data-next]')?.addEventListener('click', () => openMailbox(address, result.next_page_token));
-      const form = inbox.querySelector('[data-compose]');
       const body = inbox.querySelector('[data-body]');
       for (const button of inbox.querySelectorAll('[data-message]')) {
         button.onclick = async () => {
@@ -1020,25 +1045,11 @@ VIEWS.mail = async (v) => {
           try {
             const message = await api('/api/admin/mailbox/messages/' + encodeURIComponent(button.dataset.message) + '?' + new URLSearchParams({ address }));
             body.textContent = message.from + '\n' + message.subject + '\n\n' + message.text;
-            const sender = /<([^<>]+)>$/.exec(message.from)?.[1] || message.from;
-            form.elements.to.value = sender;
-            form.elements.subject.value = ('Re: ' + message.subject).slice(0, 140);
+            openComposer(address, message);
           } catch (error) { body.textContent = error.message; }
         };
       }
-      form.onsubmit = async (event) => {
-        event.preventDefault();
-        const button = form.querySelector('button');
-        const result = form.querySelector('[data-send-status]');
-        button.disabled = true;
-        result.textContent = 'Sending…';
-        try {
-          await api('/api/admin/mailbox/send', 'POST', { from: address, ...Object.fromEntries(new FormData(form)) });
-          form.reset();
-          result.textContent = 'Email sent.';
-        } catch (error) { result.textContent = error.message; }
-        finally { button.disabled = false; }
-      };
+
     } catch (error) {
       if (selected === selection && view === renderSeq) inbox.textContent = error.message;
     }
