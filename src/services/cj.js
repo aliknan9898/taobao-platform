@@ -588,7 +588,8 @@ function saveAutoPrefs(b = {}) {
   };
   return db.settings.get(AUTO) ? db.settings.update(AUTO, doc) : db.settings.insert({ id: AUTO, ...doc });
 }
-const autoState = () => db.settings.get(AUTO_STATE) || { running: false };
+let activeImport = null;
+const autoState = () => activeImport || db.settings.get(AUTO_STATE) || { running: false };
 const setState = (patch) => { const cur = db.settings.get(AUTO_STATE); return cur ? db.settings.update(AUTO_STATE, patch) : db.settings.insert({ id: AUTO_STATE, ...patch }); };
 
 /** Kinan's shop sells to Arab families: products that do not fit are never added automatically. */
@@ -621,6 +622,7 @@ async function importBestSellers(opts = {}, by = 'auto') {
   const st = { running: true, started_at: now(), by, target: p.count, added: 0, skipped: 0, checked: 0, error: null, added_titles: [] };
   const added = []; const rejected = [];
   const reject = (pid, title, reason) => { st.skipped++; rejected.push({ pid, title, reason }); };
+  activeImport = st;
   setState(st);
   try {
     for (let page = 1; page <= 15 && st.added < p.count; page++) {
@@ -631,6 +633,7 @@ async function importBestSellers(opts = {}, by = 'auto') {
         if (st.added >= p.count) break;
         const pid = String(x.id || x.pid || ''); st.checked++;
         const title = x.nameEn || x.productNameEn || '';
+        st.current = title || pid;
         const cost = Number(String(x.sellPrice ?? '').split(/[-–]/)[0]);
         if (!pid || have.has(pid)) { st.skipped++; continue; }
         const reason = BLOCK.test(title) ? 'not suitable' : !(cost > 0) || cost > p.max_cost ? 'price outside range' : !(x.bigImage || x.productImage) ? 'no product image' : null;
@@ -647,10 +650,10 @@ async function importBestSellers(opts = {}, by = 'auto') {
       }
     }
   } catch (e) { st.error = e.message; }
-  st.running = false; st.done_at = now();
+  st.running = false; activeImport = null; st.done_at = now();
   setState({ ...st });
   console.log(`[cj] best sellers: added ${st.added}, skipped ${st.skipped}${st.error ? ` — ${st.error}` : ''}`);
-  if (added.length || rejected.length || st.error) void require('./cjReport').send(st, added, rejected, 'تقرير المنتجات الرائجة').catch((e) => console.warn('[cj] telegram report', e.message));
+  require('./importDigest').record('CJ best sellers', st, added, rejected);
   return st;
 }
 

@@ -2,27 +2,28 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kinan-digest-'));
 const push = require('../src/push');
-const cj = require('../src/cj/client');
-const report = require('../src/services/cjReport');
+const report = require('../src/services/importDigest');
 
-test('CJ Telegram report keeps published, pending and rejected products distinct and delivers all pages', async (t) => {
+test('imports send one combined Telegram digest after midnight in Malta', async (t) => {
   const messages = [];
   t.mock.method(push, 'telegram', async (message) => { messages.push(message); return true; });
-  t.mock.method(cj, 'usage', () => ({ points: { remaining: 856, total: 50278, refill_per_minute: 35 } }));
-  const rejected = Array.from({ length: 90 }, (_, i) => ({ pid: `cj-${i}`, title: `Rejected product ${i}`, reason: 'low stock' }));
-  assert.equal(await report.send({ checked: 92, skipped: 90 }, [
-    { id: 'live-id', pid: 'cj-live', title: 'Live product', status: 'active', from: 'DE', quality: 8, eu: 5, cost: 4, price: 8 },
-    { id: 'pending-id', pid: 'cj-pending', title: 'Pending product', status: 'pending_review' },
-  ], rejected, 'تقرير اختبار'), true);
-
-  const text = messages.join('\n');
-  assert.match(text, /تم النشر: 1 · بانتظار النشر: 1 · مرفوض: 90/);
-  assert.match(text, /CJ points: 856\/50278/);
-  assert.match(text, /low stock: 90/);
-  assert.match(text, /المخزن: DE.*AI: 8\/10.*EU: 5.*التكلفة: 4\.00.*السعر: 8\.00/);
-  assert.match(text, /#\/p\/live-id/);
-  assert.doesNotMatch(text, /#\/p\/pending-id/);
-  assert.ok(messages.length > 1 && messages.every((message) => message.length <= 3400));
-  for (const p of rejected) assert.ok(text.includes(`[CJ: ${p.pid}] — low stock`), p.pid);
+  const before = Date.parse('2026-11-20T22:59:00Z');
+  const after = Date.parse('2026-11-20T23:05:00Z');
+  report.record('CJ catalog', { checked: 3, skipped: 1, reasons: { stock: 1 } },
+    [{ status: 'active' }, { status: 'pending_review' }], [{ reason: 'stock' }], before);
+  report.record('AliExpress', { checked: 4, skipped: 3 }, [{ status: 'active' }], [], before);
+  assert.equal(await report.tick(before), false);
+  assert.deepEqual(await Promise.all([report.tick(after), report.tick(after)]), [true, false]);
+  assert.equal(await report.tick(after), false);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /2026-11-20/);
+  assert.match(messages[0], /CJ catalog/);
+  assert.match(messages[0], /AliExpress/);
+  assert.match(messages[0], /stock: 1/);
+  assert.match(messages[0], /نُشر: 1 · بانتظار النشر: 1 · رُفض: 1/);
 });

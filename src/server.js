@@ -1233,6 +1233,9 @@ function startJobs() {
   every(10 * 60e3, () => require('./services/uilang').tick()); // French, German, Italian, Spanish
   setTimeout(() => require('./services/uilang').tick().catch(() => {}), 90e3); // start translating soon after a deploy
   every(20 * 60e3, () => require('./services/sourcing').tick());
+  if (!process.env.RENDER_SERVICE_NAME || process.env.RENDER_SERVICE_NAME === 'kinan') {
+    every(5 * 60e3, () => require('./services/importDigest').tick());
+  }
   every(5 * 60e3, () => require('./services/payouts').tick()); // PayPal payouts follow-up and payout-day sending // checked every 20 min (a deploy no longer pushes it back an hour); it only runs when there is room today
   setTimeout(() => Promise.resolve(require('./cj/client').background(() => require('./services/sourcing').tick())).catch(() => {}), 3 * 60e3); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });

@@ -124,7 +124,8 @@ async function freight(productId, skuId, country) {
   return opts[0] || null;
 }
 
-let running = false; let stopAsked = false;
+let running = false;
+let activeRun = null; let stopAsked = false;
 
 /** One run: add up to `count` AliExpress products to Kinan's shop. */
 async function run({ count } = {}, by = 'auto') {
@@ -143,7 +144,8 @@ async function run({ count } = {}, by = 'auto') {
   const rules = `v3|${DELIVERY_MARKETS.join(",")}|${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`;
   const tried = new Set(s0.rules === rules ? list(s0.tried) : []);
   if (s0.rules !== rules) save({ rules, tried: [] });
-  const st = { started_at: now(), by, target, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, running: true };
+  const st = { started_at: now(), by, target, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, last: [], running: true };
+  activeRun = st;
   const added = [];
   let cur = {}; // what is known about the product being checked, for the log
   const skip = (why, id) => { st.skipped++; st.reasons[why] = (st.reasons[why] || 0) + 1; if (id) tried.add(id); console.log(`[ae-sourcing] ✗ ${id || cur.id} ${why}${cur.cost != null ? ` · cost ${cur.cost}` : ''}${cur.days ? ` · ${cur.days} days` : ''}`); };
@@ -182,7 +184,7 @@ async function run({ count } = {}, by = 'auto') {
   try {
     for await (const { c, item } of candidates()) {
         if (st.added >= target || stopAsked || new Date().toISOString().slice(0, 10) !== today) break;
-        st.checked++; cur = { id: c.id };
+        st.checked++; cur = { id: c.id }; st.current = c.title || c.id;
         let prod;
         try { prod = await aes.fetchProduct(c.id, 'GB'); } catch (e) { skip('product details not available', c.id); continue; }
         const inStock = prod.skus.filter((s) => s.stock >= 5);
@@ -262,20 +264,21 @@ async function run({ count } = {}, by = 'auto') {
         have.add(c.id); st.added++; st.by_dept[dept] = (st.by_dept[dept] || 0) + 1;
         const fresh = db.listings.get(l.id);
         added.push({ id: l.id, title: d.ebay_title || fresh.title, dept, from: gb.from || 'AE', quality: Number(d.quality) || null, eu: eu?.days || null, gb: gb.days, cost, price: Math.min(...fresh.skus.map((s) => s.price)), kw: list(d.keywords).slice(0, 4), listed: null });
+        st.last = [{ id: l.id, title: fresh.title }, ...st.last].slice(0, 12);
         const addedDay = new Date().toISOString().slice(0, 10);
         save((x) => ({ ...x, day: addedDay, day_added: (x.day === addedDay ? x.day_added || 0 : 0) + 1 }));
     }
   } finally {
-    running = false; st.running = false; st.finished_at = now();
+    running = false; activeRun = null; st.running = false; st.finished_at = now();
     save((x) => ({ ...x, last: st, tried: [...tried].slice(-3000) }));
   }
   console.log(`[ae-sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)} fastest UK delivery (days): ${JSON.stringify(st.days || {})}${st.error ? ` — ${st.error}` : ''}`);
-  if (st.added || st.error) src.telegramReport(st, added, 'Kinan × AliExpress catalog builder');
+  require('./importDigest').record('AliExpress', st, added.map((item) => ({ ...item, status: 'active' })));
   return st;
 }
 
 async function tick() { if (!prefs().enabled) return null; return run({}, 'auto').catch((e) => console.warn('[ae-sourcing]', e.message)); }
-function status() { return { prefs: prefs(), running, last: state().last || null, today: state().day === new Date().toISOString().slice(0, 10) ? state().day_added || 0 : 0 }; }
+function status() { return { prefs: prefs(), running, current: activeRun, last: state().last || null, today: state().day === new Date().toISOString().slice(0, 10) ? state().day_added || 0 : 0 }; }
 function stop() { stopAsked = true; return status(); }
 
 module.exports = { prefs, savePrefs, run, tick, status, stop, search, freight, feeds, feedItems, findAll, _running: () => running };
