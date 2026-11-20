@@ -168,13 +168,13 @@ let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
   ['overview','Overview','*'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
-  ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
+  ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
-  ['Workspace',['overview','kinan','advertising']],
+  ['Workspace',['overview','kinan','advertising','mail']],
   ['Products',['imports','platforms','listings','ai-tools']],
   ['Operations',['orders','shipping','returns','requests']],
   ['Suppliers & Channels',['cj','ebay','connections']],
@@ -961,6 +961,100 @@ const VIEWS = {
     });
     if ($('#sf')) $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/admin/staff', 'POST', f); render(); } catch (err) { $('#se').textContent = err.message; } };
   }
+};
+
+VIEWS.mail = async (v) => {
+  const inboxes = [
+    ['hello', 'General enquiries'],
+    ['info', 'Company information and partnerships'],
+    ['sellers', 'Seller enquiries'],
+    ['support', 'Customer support']
+  ];
+  const view = renderSeq;
+  const status = await api('/api/admin/mailbox/status');
+  if (view !== renderSeq) return;
+  v.innerHTML = `<section class="card">
+    <h2>KINAN Email</h2>
+    <p class="muted">These addresses forward to your shared Gmail inbox. ${status.configured ? 'Choose an address to read or send mail.' : 'Connect Gmail to read and send here.'}</p>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Address</th><th>Purpose</th><th>Setup</th><th>Actions</th></tr></thead>
+      <tbody>${inboxes.map(([name, purpose]) => {
+        const address = name + '@kinan.shop';
+        const query = encodeURIComponent('to:' + address);
+        return `<tr><td><b>${esc(address)}</b></td><td>${esc(purpose)}</td>
+          <td><span class="pill">Forwarding</span></td>
+          <td><div class="row">
+            ${status.configured ? `<button type="button" class="btn" data-open-mail="${esc(address)}">Open inbox</button>` : ''}
+            <a class="btn ghost" href="https://mail.google.com/mail/#search/${query}" target="_blank" rel="noopener noreferrer">Open in Gmail</a>
+            <button type="button" class="btn ghost" data-copy-email="${esc(address)}">Copy address</button>
+          </div></td></tr>`;
+      }).join('')}</tbody>
+    </table></div>
+    <p class="small muted" id="mail-feedback" role="status"></p>
+  </section><section id="mail-inbox"></section>`;
+  const inbox = v.querySelector('#mail-inbox');
+  let selection = 0;
+  async function openMailbox(address, page) {
+    const selected = ++selection;
+    inbox.innerHTML = '<p class="muted">Loading inbox…</p>';
+    try {
+      const result = await api('/api/admin/mailbox/inbox?' + new URLSearchParams({ address, ...(page ? { page } : {}) }));
+      if (selected !== selection || view !== renderSeq) return;
+      inbox.innerHTML = `<div class="card"><h3>${esc(address)}</h3>
+        ${result.messages.map((m) => `<button type="button" class="btn ghost" data-message="${esc(m.id)}">${esc(m.subject || '(No subject)')} · ${esc(m.from)}</button>`).join(' ') || '<p>No matching messages.</p>'}
+        ${result.next_page_token ? '<button type="button" class="btn ghost" data-next>Next page</button>' : ''}
+        <pre data-body style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+        <form data-compose class="stack">
+          <h3>Send from ${esc(address)}</h3>
+          <label>To <input type="email" name="to" required></label>
+          <label>Subject <input name="subject" maxlength="140" required></label>
+          <label>Message <textarea name="text" maxlength="30000" rows="6" required></textarea></label>
+          <button class="btn">Send email</button><p role="status" data-send-status></p>
+        </form></div>`;
+      inbox.querySelector('[data-next]')?.addEventListener('click', () => openMailbox(address, result.next_page_token));
+      const form = inbox.querySelector('[data-compose]');
+      const body = inbox.querySelector('[data-body]');
+      for (const button of inbox.querySelectorAll('[data-message]')) {
+        button.onclick = async () => {
+          body.textContent = 'Loading message…';
+          try {
+            const message = await api('/api/admin/mailbox/messages/' + encodeURIComponent(button.dataset.message) + '?' + new URLSearchParams({ address }));
+            body.textContent = message.from + '\n' + message.subject + '\n\n' + message.text;
+            const sender = /<([^<>]+)>$/.exec(message.from)?.[1] || message.from;
+            form.elements.to.value = sender;
+            form.elements.subject.value = ('Re: ' + message.subject).slice(0, 140);
+          } catch (error) { body.textContent = error.message; }
+        };
+      }
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const button = form.querySelector('button');
+        const result = form.querySelector('[data-send-status]');
+        button.disabled = true;
+        result.textContent = 'Sending…';
+        try {
+          await api('/api/admin/mailbox/send', 'POST', { from: address, ...Object.fromEntries(new FormData(form)) });
+          form.reset();
+          result.textContent = 'Email sent.';
+        } catch (error) { result.textContent = error.message; }
+        finally { button.disabled = false; }
+      };
+    } catch (error) {
+      if (selected === selection && view === renderSeq) inbox.textContent = error.message;
+    }
+  }
+  for (const button of v.querySelectorAll('[data-open-mail]')) button.onclick = () => openMailbox(button.dataset.openMail);
+  const feedback = v.querySelector('#mail-feedback');
+  v.querySelectorAll('[data-copy-email]').forEach((button) => {
+    button.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copyEmail);
+        feedback.textContent = 'Copied ' + button.dataset.copyEmail;
+      } catch {
+        feedback.textContent = 'Select the address in the table to copy it.';
+      }
+    };
+  });
 };
 
 const importPanel = '<div class="card" id="import-live" aria-live="polite"><h2>Live product imports</h2><p class="muted">Connecting to AliExpress and CJ import status…</p></div>';
