@@ -692,6 +692,17 @@ r('POST', '/api/admin/orders/:id/nss', PROC, async ({ req, params, user }) => {
 // Banggood (direct supplier)
 const bgs = require('./services/banggood');
 // Ownership files for other platforms (e.g. Banggood's domain check): stored here, served at https://kinan.shop/<name>
+const adminMail = require('./services/adminMail');
+r('GET', '/api/admin/mailbox/status', ADMIN, async () => ({ configured: adminMail.enabled() }));
+r('GET', '/api/admin/mailbox/inbox', ADMIN, async ({ url }) =>
+  adminMail.inbox(url.searchParams.get('address'), url.searchParams.get('page')));
+r('GET', '/api/admin/mailbox/messages/:id', ADMIN, async ({ url, params }) =>
+  adminMail.read(url.searchParams.get('address'), params.id));
+r('POST', '/api/admin/mailbox/send', ADMIN, async ({ req }) => {
+  throttleLight(req);
+  return adminMail.send(await readJson(req));
+});
+
 r('GET', '/api/admin/verify-files', ADMIN, async () => ({ files: Object.keys(db.settings.get('verify_files')?.files || {}) }));
 r('POST', '/api/admin/verify-files', ADMIN, async ({ req }) => {
   const b = await readJson(req); const name = String(b.name || '').trim().replace(/^.*[\\/]/, '');
