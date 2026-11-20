@@ -239,16 +239,22 @@ async function askGemini({ system, schema, text, images = [], maxTokens = 2500, 
       if ((geminiRetryAt.get(candidate) || 0) > Date.now()) { quota = true; continue; }
     }
     used = candidate;
-    res = await fetch(`${GEMINI_API}/${encodeURIComponent(used)}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: 'user', parts: [...parts, { text }] }],
-        generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: Math.max(8192, maxTokens * 2) }
-      }),
-      signal: AbortSignal.timeout(timeoutMs)
-    }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
+    try {
+      res = await fetch(`${GEMINI_API}/${encodeURIComponent(used)}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: 'user', parts: [...parts, { text }] }],
+          generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: Math.max(8192, maxTokens * 2) }
+        }),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (error) {
+      res = null;
+      console.warn('[ai] gemini', candidate, 'request failed:', error.name);
+      continue;
+    }
     j = await res.json().catch(() => ({}));
     if (res.ok) break;
     console.error('[ai] gemini', used, res.status, j.error?.status, j.error?.message);
