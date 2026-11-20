@@ -56,8 +56,11 @@ async function flush() {
         // Index only collections touched by this batch: avoid a full scan per document.
         const batchIndexes = new Map();
         for (const { coll, id } of batch) {
-          if (!batchIndexes.has(coll)) batchIndexes.set(coll, new Map(load(coll).map((d) => [d.id, d])));
-          const doc = batchIndexes.get(coll).get(id);
+          const indexed = batchIndexes.get(coll);
+          if (!indexed || indexed.version !== version(coll)) {
+            batchIndexes.set(coll, { version: version(coll), docs: new Map(load(coll).map((d) => [d.id, d])) });
+          }
+          const doc = batchIndexes.get(coll).docs.get(id);
           if (doc) await pool.query('INSERT INTO kinan_docs (coll, id, doc, updated_at) VALUES ($1, $2, $3, now()) ON CONFLICT (coll, id) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()', [coll, id, JSON.stringify(doc)]);
           else await pool.query('DELETE FROM kinan_docs WHERE coll = $1 AND id = $2', [coll, id]);
         }
