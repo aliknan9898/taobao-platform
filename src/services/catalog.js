@@ -284,19 +284,29 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
   const newest = (l) => l.review?.decided_at || l.created_at;
   // Most storefront requests sort by recency without a price filter. Sort lightweight
   // listing records first, then construct expensive buyer views for the requested page only.
-  // Price sorts/filters retain the full conversion path for exact pricing semantics.
+  // Price sorts and filters compute prices first and build full views only for the page.
   let page; let total;
   if (!min_price && !max_price && !['price_asc', 'price_desc'].includes(sort)) {
     listings.sort((a, b) => newest(b) - newest(a));
     total = listings.length;
     page = listings.slice(start, start + count).map((l) => toBuyerView(l, activeSellers.get(l.seller_id)));
   } else {
-    let items = listings.map((l) => toBuyerView(l, activeSellers.get(l.seller_id)))
+    const { visibleSkus } = require('./shipsFrom');
+    const { priceOf } = require('./deals');
+    const items = listings.map((listing) => ({
+      listing,
+      listed_at: newest(listing),
+      min_price: Math.min(...visibleSkus(listing).map((sku) => priceOf(listing, sku)))
+    }))
       .filter((p) => p.min_price >= lo && p.min_price <= hi);
     const order = { price_asc: (a, b) => a.min_price - b.min_price, price_desc: (a, b) => b.min_price - a.min_price, new: (a, b) => b.listed_at - a.listed_at }[sort] || ((a, b) => b.listed_at - a.listed_at);
-    items = items.sort(order);
+    items.sort(order);
     total = items.length;
-    page = items.slice(start, start + (limit === 100000 ? items.length : count));
+    page = items.slice(start, start + (limit === 100000 ? items.length : count))
+      .map(({ listing, min_price }) => ({
+        ...toBuyerView(listing, activeSellers.get(listing.seller_id)),
+        min_price
+      }));
   }
   // With the customer's country: the price of one piece delivered to them (shipping included)
   const cc = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
