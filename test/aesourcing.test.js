@@ -74,3 +74,24 @@ test('AliExpress builder: only fast, AI-approved products with clean photos are 
     ['aliexpress:full:1005000000000004', 'stopped'],
   ]);
 });
+
+test('AliExpress revisits a feed page after its AI review hits quota', async (t) => {
+  const id = '1005000000000001';
+  db.listings.remove(db.listings.find((row) => row.ae_product_id === id).id);
+  db.settings.remove('ae_sourcing');
+  const original = ai.structured;
+  let available = false;
+  t.mock.method(ai, 'structured', async (request) => {
+    if (!available) throw Object.assign(new Error('quota exhausted'), { status: 429 });
+    return original(request);
+  });
+
+  const interrupted = await A.run({ count: 1 }, 'test');
+  assert.equal(interrupted.added, 0);
+  assert.equal(interrupted.reasons['AI rate or quota limit'], 1);
+  assert.equal(db.listings.find((row) => row.ae_product_id === id), undefined);
+
+  available = true;
+  assert.equal((await A.run({ count: 1 }, 'test')).added, 1);
+  assert.equal(db.listings.find((row) => row.ae_product_id === id).sourcing.keyword, 'DS_UK_FastDelivery');
+});

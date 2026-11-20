@@ -158,22 +158,24 @@ async function run({ count } = {}, by = 'auto') {
         const pg = (pages[f.name] || 0) + 1;
         let items = [];
         try { items = await feedItems(f.name, pg); } catch (e) { console.warn('[ae-sourcing] feed', f.name, e.message); break; }
-        pages[f.name] = items.length ? pg : 0; save({ feed_pages: pages });
         for (const c of items.filter((x) => !have.has(x.id) && !tried.has(x.id) && x.orders >= p.min_orders)) yield { c, item: { ...general, kw: f.name } };
+        pages[f.name] = items.length ? pg : 0;
+        save({ feed_pages: pages });
         if (!items.length) break;
       }
     }
     for (let qi = 0; qi < q.length; qi++) {
       const item = q[(start + qi) % q.length];
-      save({ cursor: (start + qi + 1) % q.length });
       let found;
       try { found = await search(item.kw, 'GB'); fails = 0; } catch (e) {
         // one keyword AliExpress cannot search: skip it; several in a row: stop until the next run
         fails++; console.warn('[ae-sourcing] search', item.kw, e.message);
         if (fails >= 5) { st.error = `AliExpress search: ${e.message}`; return; }
+        save({ cursor: (start + qi + 1) % q.length });
         continue;
       }
       for (const c of found.filter((x) => !have.has(x.id) && !tried.has(x.id) && x.orders >= p.min_orders).slice(0, 4)) yield { c, item };
+      save({ cursor: (start + qi + 1) % q.length });
     }
   }
   try {
@@ -236,6 +238,7 @@ async function run({ count } = {}, by = 'auto') {
           if (!d || limited || aiFails >= 3) {
             st.error = limited ? 'AI rate or quota limit reached — retrying on a later run' : 'AI unavailable — AliExpress products wait for review';
             stopAsked = true;
+            break;
           }
           continue;
         }

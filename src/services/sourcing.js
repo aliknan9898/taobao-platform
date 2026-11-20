@@ -307,7 +307,7 @@ async function reviewPhotos(product, minQuality, supplierId) {
   const numbers = decision?.clean_photos;
   const quality = decision?.quality;
   if (!Array.isArray(numbers) || numbers.some((n) => !Number.isInteger(n) || n < 1 || n > images.length) || !Number.isInteger(quality) || quality < 1 || quality > 10) {
-    throw httpError(502, 'AI: invalid photo review');
+    throw Object.assign(httpError(502, 'AI: invalid photo review'), { code: 'INVALID_PHOTO_REVIEW' });
   }
   const clean = [...new Set(numbers)].map((n) => images[n - 1]);
   require('./localProductReview').record('cj', 'photos', supplierId, product,
@@ -395,6 +395,14 @@ async function run(opts = {}, by = 'admin') {
           } });
           busy = 0;
         } catch (e) {
+          if (photoReviewError && e.code === 'INVALID_PHOTO_REVIEW') {
+            // A malformed response is not a product rejection. Keep it eligible for a later run.
+            const reason = 'AI: invalid photo review';
+            st.skipped++;
+            st.reasons[reason] = (st.reasons[reason] || 0) + 1;
+            rejected.push({ pid: c.pid, title: c.title, reason });
+            continue;
+          }
           if (photoReviewError && e.status !== 422) {
             st.checked--;
             st.error = `AI photo review paused (${e.message})`;
