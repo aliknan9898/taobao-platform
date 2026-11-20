@@ -980,7 +980,7 @@ function monitorImports() {
     const panel = document.getElementById('import-live');
     if (!panel || renderSeq !== startedView) return;
     const sources = [
-      ['AliExpress', '/api/admin/ae-sourcing', (s) => s.last || {}, (s) => Boolean(s.running)],
+      ['AliExpress', '/api/admin/ae-sourcing', (s) => s.current || s.last || {}, (s) => Boolean(s.running)],
       ['CJ catalog builder', '/api/admin/sourcing', (s) => s.run || {}, (s) => Boolean(s.running)],
       ['CJ best sellers', '/api/admin/cj/bestsellers', (s) => s.state || {}, (s) => Boolean(s.state?.running)]
     ];
@@ -988,23 +988,32 @@ function monitorImports() {
       try {
         const s = await api(url); const r = runOf(s) || {};
         const running = activeOf(s);
-        const start = Number(r.started_at || 0), elapsed = start ? Math.max(0, (Date.now() - start) / 60000) : 0;
+        const start = Number(r.started_at || 0), end = running ? Date.now() : Number(r.done_at || r.finished_at || 0);
+        const elapsed = start && end > start ? (end - start) / 60000 : 0;
         const added = Number(r.added || 0), checked = Number(r.checked || 0), skipped = Number(r.skipped || 0);
-        const rate = elapsed > 0 && running ? (added / elapsed).toFixed(2) : '—';
+        const rate = elapsed > 0 ? (added / elapsed).toFixed(2) : '—';
         const progress = Number(r.target) > 0 ? Math.min(100, Math.round(added / r.target * 100)) : null;
         const daily = name === 'AliExpress' && s.prefs
           ? `<p class="small">Today <b>${Number(s.today) || 0} / ${Number(s.prefs.per_day) || 0}</b> added · minimum ${Number(s.prefs.min_orders) || 0} supplier orders</p>`
           : '';
+        const recent = Array.isArray(r.last) ? r.last.slice(0, 5).map((p) =>
+          `<li><a href="/p/${encodeURIComponent(p.id)}" target="_blank" rel="noopener">${esc(p.title)}</a></li>`) :
+          (r.added_titles || []).slice(-5).reverse().map((title) => `<li>${esc(title)}</li>`);
+        const reasons = Object.entries(r.reasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 4)
+          .map(([reason, count]) => `<li>${esc(reason)} · ${Number(count) || 0}</li>`);
         return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><b>${esc(name)}</b><span class="pill ${running ? 'warn' : 'ok'}">${running ? '● Running' : 'Idle / last run'}</span></div>
           <p class="small">Added <b>${added}</b> · Checked ${checked} · Skipped ${skipped} · Speed <b>${rate} products/min</b></p>
           ${daily}
+          ${running && r.current ? `<p class="small">Checking <b>${esc(r.current)}</b></p>` : ''}
+          ${recent.length ? `<div class="small">Newest additions<ul>${recent.join('')}</ul></div>` : ''}
+          ${reasons.length ? `<div class="small">Top skip reasons<ul>${reasons.join('')}</ul></div>` : ''}
           ${progress === null ? '' : `<progress max="100" value="${progress}" style="width:100%"></progress><small class="muted">${progress}% of target</small>`}
           ${r.error ? `<p class="err small">${esc(String(r.error).slice(0,250))}</p>` : ''}
           ${start ? `<p class="muted small">Started ${new Date(start).toLocaleString()}</p>` : ''}</div>`;
       } catch (e) { return `<p class="err small">${esc(name)}: ${esc(e.message)}</p>`; }
     }));
     if (document.getElementById('import-live') === panel && renderSeq === startedView)
-      panel.innerHTML = '<h2>Live product imports</h2><p class="muted small">Refreshes every 10 seconds · speed is based on the current run</p>' + results.join('');
+      panel.innerHTML = '<h2>Live product imports</h2><p class="muted small">Refreshes every 10 seconds · daily Telegram report uses Malta time</p>' + results.join('');
   };
   void refreshImports();
   window.__importMonitor = setInterval(refreshImports, 10000);
