@@ -632,6 +632,16 @@ r('POST', '/api/presence', null, async ({ req }) => ({ ok: require('./services/p
 r('GET', '/api/admin/live', STAFF, async () => require('./services/presence').counts());
 r('POST', '/api/admin/test-cart-mail', ADMIN, async ({ user }) => { const m = await require('./services/growth').testCartMail(user.email); return { status: m?.status, to: user.email }; });
 // The owner's Kinan business dashboard: Kinan's own products, sales, profit, eBay and the other shops
+r('GET', '/api/admin/advertising', ADMIN, async ({ url }) => {
+  const advertising = require('./services/advertising');
+  const platform = url.searchParams.get('platform');
+  if (!platform) return advertising.connections();
+  const from = url.searchParams.get('from'), to = url.searchParams.get('to');
+  if (!['meta', 'tiktok', 'google'].includes(platform) || !advertising.validRange(from, to)) {
+    throw httpError(400, 'Choose an ad platform and a valid date range of up to 90 days');
+  }
+  return cached(`advertising|${platform}|${from}|${to}`, 60e3, () => advertising.report(platform, from, to));
+});
 r('GET', '/api/admin/instagram/status', ADMIN, async () => require('./services/instagram').checkConnection());
 r('GET', '/api/admin/kinan', ADMIN, async ({ url }) => require('./services/kinanDash').dashboard({ days: url.searchParams.get('days') }));
 r('GET', '/api/admin/kinan/products.csv', ADMIN, async ({ url, res }) => {

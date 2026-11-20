@@ -7,6 +7,8 @@
 <title>KINAN Admin — Commerce Control Center</title>
 <meta name="theme-color" content="#ffffff">
 <script src="/assets/theme.js"></script>
+<link rel="stylesheet" href="/assets/admin-advertising.css">
+<script src="/assets/admin-advertising.js" defer></script>
 <link rel="manifest" href="/assets/admin.webmanifest">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -166,13 +168,13 @@ let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
   ['overview','Overview','*'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
-  ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
+  ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
-  ['Workspace',['overview','kinan']],
+  ['Workspace',['overview','kinan','advertising']],
   ['Products',['imports','platforms','listings','ai-tools']],
   ['Operations',['orders','shipping','returns','requests']],
   ['Suppliers & Channels',['cj','ebay','connections']],
@@ -367,6 +369,7 @@ function sourcingCard() {
 }
 
 const VIEWS = {
+  advertising: (view) => window.KinanAdvertising.render(view, api, esc),
   async overview(v) {
     const startedView = renderSeq;
     const live = async () => {
