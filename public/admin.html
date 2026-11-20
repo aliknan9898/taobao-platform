@@ -350,8 +350,8 @@ function sourcingCard() {
         <label>Markup % <input type="number" name="markup_pct" min="10" max="400" value="${p.markup_pct}" style="width:64px"></label>
         <label>CJ cost $ <input type="number" name="min_cost" min="0" step="0.5" value="${p.min_cost}" style="width:60px"> – <input type="number" name="max_cost" min="2" value="${p.max_cost}" style="width:60px"></label>
         <label title="How many shops already sell it on CJ: a sign of demand">Min. demand <input type="number" name="min_listed" min="0" value="${p.min_listed}" style="width:64px"></label>
-        <label>Max delivery days EU <input type="number" name="max_days_eu" min="2" max="15" value="${p.max_days_eu}" style="width:56px"></label>
-        <label>UK <input type="number" name="max_days_gb" min="2" max="15" value="${p.max_days_gb}" style="width:56px"></label>
+        <label>Max delivery days EU <input type="number" name="max_days_eu" min="2" max="20" value="${p.max_days_eu}" style="width:56px"></label>
+        <label>UK <input type="number" name="max_days_gb" min="2" max="20" value="${p.max_days_gb}" style="width:56px"></label>
         <label title="The AI's score of the product and its photos">Min. AI quality <input type="number" name="min_quality" min="1" max="10" value="${p.min_quality}" style="width:52px">/10</label>
         <label>Min. stock <input type="number" name="min_stock" min="1" value="${p.min_stock}" style="width:64px"></label>
         <label>Warehouses <input name="warehouses" value="${esc(p.warehouses.join(','))}" style="width:190px"></label>
