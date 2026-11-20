@@ -182,3 +182,12 @@ test('a malformed CJ photo review does not block the next product', async () => 
   assert.ok(!freightCalls.slice(before).includes('D11'));
   assert.equal(db.listings.find((row) => row.cj_pid === 'D12')?.status, 'active');
 });
+
+test('CJ upgrades the previous 15-day ceiling and keeps explicitly saved shorter limits', () => {
+  db.settings.update('sourcing', (state) => ({ ...state, prefs: { max_days_eu: 15, max_days_gb: 15 } }));
+  assert.equal(sourcing.prefs().max_days_eu, 20);
+  assert.equal(sourcing.prefs().max_days_gb, 20);
+  const saved = sourcing.savePrefs({ max_days_eu: 15, max_days_gb: 21 });
+  assert.equal(saved.max_days_eu, 15);
+  assert.equal(saved.max_days_gb, 20);
+});

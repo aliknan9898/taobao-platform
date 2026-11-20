@@ -127,6 +127,11 @@ const NOT_FOR_US = /\b(medical|medicine|pill|supplement|drug|cbd|weight loss|sli
 
 // ---------------- settings & state ----------------
 
+function deliveryLimit(value, min, updated) {
+  const days = Math.floor(Number(value) || 20);
+  return !updated && days === 15 ? 20 : Math.min(20, Math.max(min, days));
+}
+
 function prefs() {
   const p = state().prefs || {};
   const deps = list(p.departments).filter((d) => DEPARTMENTS[d]);
@@ -136,8 +141,8 @@ function prefs() {
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || 70)),
     min_cost: Math.max(0, Number(p.min_cost ?? 2)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40)),
     min_listed: Math.max(0, Math.floor(Number(p.min_listed ?? 100))), min_stock: Math.max(1, Math.floor(Number(p.min_stock) || 20)),
-    // the owner's rule: nothing that takes more than 15 days to arrive (CJ and AliExpress)
-    max_days_eu: Math.min(15, Math.max(2, Math.floor(Number(p.max_days_eu) || 15))), max_days_gb: Math.min(15, Math.max(2, Math.floor(Number(p.max_days_gb) || 15))),
+    max_days_eu: deliveryLimit(p.max_days_eu, 2, p.delivery_limit_updated),
+    max_days_gb: deliveryLimit(p.max_days_gb, 2, p.delivery_limit_updated),
     min_quality: Math.min(10, Math.max(1, Math.floor(Number(p.min_quality) || 7))), per_keyword: Math.min(20, Math.max(1, Math.floor(Number(p.per_keyword) || 4))),
     warehouses: (list(p.warehouses).length ? p.warehouses : EUROPE).map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x) && (EU.has(x) || x === 'GB')),
     // departments added later are switched on even when the owner picked a list before they existed
@@ -147,7 +152,9 @@ function prefs() {
 function state() { return db.settings.get(SID) || {}; }
 function save(patch) { return db.settings.get(SID) ? db.settings.update(SID, typeof patch === 'function' ? patch : { ...patch }) : db.settings.insert({ id: SID, ...(typeof patch === 'function' ? patch({}) : patch) }); }
 function savePrefs(b = {}) {
-  const cur = state().prefs || {}; const next = { ...cur };
+  const cur = state().prefs || {};
+  const { max_days_eu, max_days_gb } = prefs();
+  const next = { ...cur, max_days_eu, max_days_gb, delivery_limit_updated: true };
   for (const k of ['batch', 'per_day', 'markup_pct', 'min_cost', 'max_cost', 'min_listed', 'min_stock', 'max_days_eu', 'max_days_gb', 'min_quality', 'per_keyword']) if (b[k] !== undefined && b[k] !== '') next[k] = Number(b[k]);
   if (b.daily !== undefined) next.daily = Boolean(b.daily);
   if (b.warehouses !== undefined) next.warehouses = (Array.isArray(b.warehouses) ? b.warehouses : String(b.warehouses).split(/[\s,]+/)).filter(Boolean);
@@ -335,7 +342,10 @@ async function run(opts = {}, by = 'admin') {
   const have = new Set(db.listings.all((l) => l.source === 'cj').map((l) => l.cj_pid));
   const s0 = state();
   const triedKey = photosOnly ? 'photos_tried' : 'tried';
-  const tried = new Set(list(s0[triedKey]));
+  const rulesKey = photosOnly ? 'photos_delivery_rules' : 'delivery_rules';
+  const rules = `${p.max_days_eu}|${p.max_days_gb}`;
+  const previousRules = s0[rulesKey] || '15|15';
+  const tried = new Set(previousRules === rules ? list(s0[triedKey]) : []);
   const q = queue(p, { cj: true });
   const cursorKey = photosOnly ? 'photos_cursor' : 'cursor';
   let cursor = Number(s0[cursorKey]) || 0;
@@ -349,7 +359,7 @@ async function run(opts = {}, by = 'admin') {
     tried.add(c.pid);
     rejected.push({ pid: c.pid, title, reason: why });
   };
-  const persist = () => save((x) => ({ ...x, run: { ...st }, [cursorKey]: cursor, [triedKey]: [...tried].slice(-30000), day: today(), day_added: (x.day === today() ? x.day_added || 0 : 0) }));
+  const persist = () => save((x) => ({ ...x, run: { ...st }, [cursorKey]: cursor, [triedKey]: [...tried].slice(-30000), [rulesKey]: rules, day: today(), day_added: (x.day === today() ? x.day_added || 0 : 0) }));
   save({ run: st });
   console.log(`[sourcing] started — up to ${target} products, ${p.departments.length} departments, warehouses ${p.warehouses.join(',')}`);
   let busy = 0; let passes = 0; let drySearches = 0;
@@ -608,4 +618,4 @@ function telegramReport(st, added, title = 'Kinan catalog builder') {
   for (const t of msgs.slice(0, 12)) push.telegram(t);
 }
 
-module.exports = { reviewRejection, delivery, applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
+module.exports = { deliveryLimit, reviewRejection, delivery, applyPhotos, SCHEMA, telegramReport, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };

@@ -1,9 +1,9 @@
 'use strict';
 /**
  * AliExpress catalog builder — the same rules as the CJ one (sourcing.js):
- *  (delivery: at most `max_days`, 15 — the owner's rule for CJ and AliExpress)
+ *  (delivery: at most `max_days`, 20 days by default)
  *  1. searches AliExpress (dropshipping search) with the same department keywords, most-ordered first
- *  2. keeps only products that reach the customer in at most `max_days` (10) days — the fastest delivery option
+ *  2. keeps only products that reach the customer in at most `max_days` days — the fastest delivery option
  *     of each "ships from" option, for the UK and for Germany (EU)
  *  3. the AI reviews each one (photos + text, quality ≥ min_quality), sorts it into a department, and keeps only clean
  *     photos of the product, best first
@@ -28,14 +28,15 @@ function prefs() {
     enabled: p.enabled !== false,
     per_run: Math.min(150, Math.max(1, Math.floor(Number(p.per_run) === 50 ? 150 : Number(p.per_run) || 150))),
     per_day: Math.min(DAILY_TARGET, Math.max(0, Math.floor(Number(p.per_day ?? DAILY_TARGET) || 0))),
-    max_days: Math.min(15, Math.max(3, Math.floor(Number(p.max_days) || 15))),
+    max_days: require('./sourcing').deliveryLimit(p.max_days, 3, p.delivery_limit_updated),
     min_orders: Math.max(MIN_SUPPLIER_ORDERS, Math.floor(Number(p.min_orders) || 0)),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || require('./sourcing').prefs().markup_pct)),
     min_cost: Math.max(0, Number(p.min_cost ?? 1)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40))
   };
 }
 function savePrefs(b = {}) {
-  const cur = state().prefs || {}; const next = { ...cur };
+  const cur = state().prefs || {};
+  const next = { ...cur, max_days: prefs().max_days, delivery_limit_updated: true };
   for (const k of ['per_run', 'per_day', 'max_days', 'min_orders', 'markup_pct', 'min_cost', 'max_cost']) if (b[k] !== undefined && b[k] !== '') next[k] = Number(b[k]);
   if (b.enabled !== undefined) next.enabled = Boolean(b.enabled);
   save({ prefs: next }); return prefs();
