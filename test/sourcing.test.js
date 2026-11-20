@@ -28,6 +28,7 @@ let aiCalls = 0;
 let photoRequests = 0;
 let photoUnavailable = false;
 let rejectPhotos = false;
+let malformedPhotoResponses = 0;
 const freightCalls = [];
 global.fetch = async (url, opts = {}) => {
   const u = new URL(String(url));
@@ -39,7 +40,7 @@ global.fetch = async (url, opts = {}) => {
       assert.equal(text.trim(), 'Number the attached photos starting from 1 in the order received.');
       assert.equal(body.contents[0].parts.filter((part) => part.inline_data).length, 2);
       if (photoUnavailable) throw new Error('simulated provider outage');
-      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ clean_photos: rejectPhotos ? [1] : [2, 1], quality: 9, reason: '' }) }] } }] }) };
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ clean_photos: malformedPhotoResponses > 0 && malformedPhotoResponses-- ? [99] : rejectPhotos ? [1] : [2, 1], quality: 9, reason: '' }) }] } }] }) };
     }
     const bad = /Squeaky/.test(text);
     const out = { keep: !bad, reason: bad ? 'Photos are a collage with text' : 'Clean photos, strong demand', quality: bad ? 3 : 8, photos_ok: !bad, photo_issues: bad ? 'collage' : '', department: 'pets', section: /Brush/.test(text) ? 'pets:care' : 'pets:dogs', ebay_ok: true, ebay_title: 'No Pull Dog Harness Reflective Adjustable Vest for Small Medium Large Dogs Walking Extra', keywords: ['dog harness', 'no pull harness'] };
@@ -138,7 +139,7 @@ test('CJ photo-only import requires a successful image review before making a li
   photoUnavailable = false;
   const run = await sourcing.run({ count: 1, photosOnly: true });
   assert.equal(run.added, 1);
-  assert.equal(photoRequests, 2);
+  assert.equal(photoRequests, 3); // Primary and fallback fail, then primary recovers.
   assert.equal(db.product_review_feedback.get(`cj:photos:${pid}`).decision, 'ok');
   const listing = db.listings.find((l) => l.cj_pid === pid);
   assert.equal(listing.status, 'active');
@@ -167,4 +168,17 @@ test('CJ products rejected by photo review make no freight requests and are not 
   } finally {
     rejectPhotos = false;
   }
+});
+
+test('a malformed CJ photo review does not block the next product', async () => {
+  P.D11 = { name: 'Dog Walking Strap', wh: 'DE', listed: 1500, days: '2-5' };
+  P.D12 = { name: 'Dog Walking Bag', wh: 'DE', listed: 1400, days: '2-5' };
+  malformedPhotoResponses = 1;
+  db.settings.update("sourcing", { photos_cursor: 0 });
+  const before = freightCalls.length;
+  const result = await sourcing.run({ count: 1, photosOnly: true });
+  assert.equal(result.reasons['AI: invalid photo review'], 1);
+  assert.equal(result.added, 1);
+  assert.ok(!freightCalls.slice(before).includes('D11'));
+  assert.equal(db.listings.find((row) => row.cj_pid === 'D12')?.status, 'active');
 });
