@@ -7,6 +7,7 @@ const path = require('path');
 const { config, configProblems } = require('./config');
 const db = require('./db');
 const auth = require('./auth');
+const appControl = require('./services/appControl');
 const sellerAuth = require('./taobao/sellerAuth');
 const catalog = require('./services/catalog');
 const orders = require('./services/orders');
@@ -404,7 +405,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const extra = (c?.fee || 0) - fe.free + (g?.fee || 0) + imp.fee;
   return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), ...impOut, days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
 });
-r('GET', '/api/config/public', null, async () => ({ payments_paused: process.env.PAYMENTS_PAUSED === '1', currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), google_native: require('./nativeAuth').googleEnabled(), apple_signin: require('./nativeAuth').appleEnabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ payments_paused: process.env.PAYMENTS_PAUSED === '1' || appControl.get().checkout === false, signups_paused: appControl.get().signups === false, currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), google_native: require('./nativeAuth').googleEnabled(), apple_signin: require('./nativeAuth').appleEnabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 // Idempotency-Key (optional, sent by the apps): the same key from the same customer returns the same order instead of a new one,
@@ -931,6 +932,10 @@ r('POST', '/api/admin/returns/:id', PEOPLE, async ({ req, params, user }) => {
 r('GET', '/api/admin/requests', CARE, async () => shopSvc.adminRequests());
 r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
 // One queue of cross-app exceptions; derived from live records, staff can assign and note
+// Control centre (owner switches): maintenance for the shop / Seller Center, pause checkout or sign-ups
+r('GET', '/api/app-status', null, async () => appControl.status());
+r('GET', '/api/admin/control', ADMIN, async () => appControl.get());
+r('POST', '/api/admin/control', ADMIN, async ({ req, user }) => appControl.set(await readJson(req), user));
 r('GET', '/api/admin/exceptions', STAFF, async ({ url, user }) => require('./services/exceptions').list({ area: url.searchParams.get('area') || '', provider: url.searchParams.get('provider') || '', result: url.searchParams.get('result') || '', mine: url.searchParams.get('mine') || '' }, user));
 r('POST', '/api/admin/exceptions/assign', STAFF, async ({ req, user }) => { const b = await readJson(req); return require('./services/exceptions').assign(b.key, { assignee_id: b.assignee_id, note: b.note }, user); });
 r('GET', '/api/admin/audit', ADMIN, async ({ url }) => require('./audit').list({ limit: url.searchParams.get('limit'), actor: url.searchParams.get('actor') || '', path: url.searchParams.get('path') || '' }));
@@ -1012,6 +1017,14 @@ const server = http.createServer(async (req, res) => {
     if ((req.method === 'GET' || req.method === 'HEAD') && host.endsWith('.onrender.com') && !mainHost.endsWith('.onrender.com') && host !== mainHost && !p.startsWith('/api/') && !p.startsWith('/webhooks/')) {
       res.writeHead(301, { Location: config.publicBaseUrl + req.url });
       return res.end();
+    }
+    // Control centre: maintenance and pauses set by the owner (webhooks, staff apps and sign-in always pass)
+    const held = appControl.gate(req.method, p, () => { try { return auth.authenticate(req); } catch { return null; } });
+    if (held) {
+      const ra = { 'Retry-After': '600', 'Cache-Control': 'no-store' };
+      if (held.api || req.method !== 'GET') return send(res, held.status, appControl.refusal(held), ra);
+      res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'X-Robots-Tag': 'noindex', 'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'", 'X-Content-Type-Options': 'nosniff', ...ra });
+      return res.end(appControl.page(held.app));
     }
     if (req.method === 'GET') {
       if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true, head: seo.siteJsonLd() + `<link rel="canonical" href="${attr(config.publicBaseUrl)}/">`, body: seo.ssrList({ title: 'Kinan Shop — delivered to your door', intro: 'Shop home and kitchen, fashion, electronics, beauty, toys and gifts from independent sellers and Kinan. Delivered to Europe, the UK and worldwide with tracking.', limit: 60 }) });

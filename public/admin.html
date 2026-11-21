@@ -80,8 +80,9 @@
   .scroll { overflow-x:auto; }
   .pill { display:inline-block; font-size:12px; padding:1px 9px; border-radius:99px; border:1px solid currentColor; white-space:nowrap; }
   .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .muted { color:var(--muted); font-size:13px; }
-  button.btn { font:inherit; border:0; border-radius:8px; padding:7px 12px; background:var(--accent); color:var(--accent-ink); cursor:pointer; white-space:nowrap; }
-  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  a.btn, summary.btn { display:inline-block; text-decoration:none; }
+  button.btn, a.btn, summary.btn { font:inherit; border:0; border-radius:8px; padding:7px 12px; background:var(--accent); color:var(--accent-ink); cursor:pointer; white-space:nowrap; }
+  button.ghost, a.btn.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
   button:disabled { opacity:.5; }
   input, select { font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
@@ -90,6 +91,27 @@
   .login { max-width:360px; margin:12vh auto; display:grid; gap:10px; }
   .login input { width:100%; }
   .err { color:var(--bad); white-space:pre-wrap; font-size:14px; }
+  .today { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin-bottom:14px; }
+  .tday { text-align:start; display:grid; gap:2px; padding:14px; border-radius:14px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; font:inherit; box-shadow:inset 4px 0 0 var(--accent); }
+  .tday span { font-size:13px; font-weight:600; color:var(--muted); } .tday b { font-size:26px; line-height:1.15; } .tday small { font-size:12px; color:var(--muted); }
+  .tday.warn { box-shadow:inset 4px 0 0 #f59e0b; } .tday.bad { box-shadow:inset 4px 0 0 var(--bad); } .tday.ok { box-shadow:inset 4px 0 0 var(--ok); }
+  .tday:hover { border-color:var(--accent); }
+  .ctlchip { border:0; border-radius:99px; padding:6px 12px; background:#fde68a; color:#5b4300; font-weight:700; font-size:13px; cursor:pointer; }
+  .hdr-actions { flex-wrap:wrap; justify-content:flex-end; }
+  .apps { position:relative; } .apps summary { list-style:none; cursor:pointer; } .apps summary::-webkit-details-marker { display:none; }
+  .appsmenu { position:absolute; inset-inline-end:0; top:calc(100% + 6px); z-index:30; min-width:190px; background:var(--card); color:var(--ink); border:1px solid var(--line); border-radius:12px; padding:6px; display:grid; box-shadow:0 8px 24px rgba(0,0,0,.16); }
+  .appsmenu a { padding:9px 12px; border-radius:8px; text-decoration:none; color:inherit; } .appsmenu a:hover { background:var(--chip); }
+  @media (max-width:760px) { .hdr-email { display:none; } }
+  .ctl { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; }
+  .ctl .sw { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; display:grid; gap:10px; align-content:start; }
+  .ctl .sw.off { border-color:#f59e0b; box-shadow:inset 4px 0 0 #f59e0b; }
+  .ctl .sw h3 { margin:0; font-size:17px; } .ctl .sw p { margin:0; font-size:13px; color:var(--muted); }
+  .ctl .state { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .ctl .badge { font-weight:700; font-size:13px; padding:3px 10px; border-radius:99px; background:color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
+  .ctl .off .badge { background:#fde68a; color:#5b4300; }
+  .ctlmsg { display:grid; gap:10px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-top:12px; }
+  .ctlmsg label { display:grid; gap:4px; font-size:13px; font-weight:600; } .ctlmsg textarea { min-height:64px; font:inherit; font-weight:400; }
+  .apps summary.btn { background:transparent; color:var(--nav-ink); border:1px solid rgba(255,255,255,.3); }
   .exq { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
   .exq li { background:var(--card); border:1px solid var(--line); border-inline-start:4px solid var(--muted); border-radius:10px; padding:12px 14px; display:grid; gap:8px; }
   .exq li.sev-high { border-inline-start-color:var(--bad); } .exq li.sev-medium { border-inline-start-color:var(--warn); }
@@ -182,20 +204,21 @@ function showLogin(msg = '') {
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
-  ['overview','Overview','*'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
+  ['overview','Overview','*'],['control','Control centre','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
   ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
-  ['Workspace',['overview','kinan','advertising','mail']],
-  ['Products',['imports','platforms','listings','ai-tools']],
-  ['Operations',['exceptions','orders','shipping','returns','requests']],
-  ['Suppliers & Channels',['cj','ebay','connections']],
-  ['People & Trust',['sellers','users','reviews']],
-  ['Finance',['reports','payouts']],
-  ['Settings',['tools','coupons','backup']]
+  ['Today',['overview','exceptions','control']],
+  ['Orders & delivery',['orders','shipping','returns','requests']],
+  ['Catalogue',['listings','platforms','imports','ai-tools']],
+  ['Suppliers & channels',['cj','ebay','connections']],
+  ['People',['sellers','users','reviews']],
+  ['Money',['payouts','reports','coupons']],
+  ['Growth',['kinan','advertising','mail']],
+  ['System',['tools','backup']]
 ];
 function adminNav() {
   return NAV_GROUPS.map(([name, ids]) => {
@@ -217,7 +240,7 @@ function boot(user) {
   TABS = ALL_TABS.filter(([, , r]) => can(r));
   if (!TABS.some(([k]) => k === tab)) tab = 'overview';
   $('#app').innerHTML = `<header><a class="brand" href="/admin"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
-      <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Kinan Shop</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a>${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
+      <div class="row hdr-actions"><span id="ctlchip"></span><details class="apps"><summary class="btn ghost">Apps</summary><div class="appsmenu"><a href="/" target="_blank" rel="noopener">Kinan Shop</a><a href="/seller" target="_blank" rel="noopener">Seller Center</a><a href="/warehouse">Warehouse</a><a href="/catalogue" target="_blank" rel="noopener">Catalogue</a></div></details>${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted hdr-email">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
     <div class="admin-shell">
       <div class="admin-menu"><button type="button" class="btn ghost admin-menu-toggle" id="menutoggle" aria-controls="adminnav" aria-expanded="false">Sections</button>
         <nav id="adminnav" aria-label="Admin sections">${adminNav()}</nav></div>
@@ -236,6 +259,16 @@ function boot(user) {
     openSection(button.dataset.t);
   });
   render();
+  ctlChip();
+}
+
+/** Header chip: always visible when an app is paused, so nobody forgets to reopen it. */
+async function ctlChip() {
+  const el = $('#ctlchip'); if (!el) return;
+  const c = await api('/api/app-status').catch(() => null); if (!c) return;
+  const off = [c.shop === 'maintenance' && 'Shop in maintenance', c.seller === 'maintenance' && 'Seller Center in maintenance', c.checkout === false && 'Checkout paused', c.signups === false && 'Sign-ups paused'].filter(Boolean);
+  el.innerHTML = off.length ? `<button type="button" class="ctlchip" title="${esc(off.join(' · '))}"><span aria-hidden="true">⏸ </span><span>${esc(off[0])}</span>${off.length > 1 ? `<span> +${off.length - 1}</span>` : ''}</button>` : '';
+  const b = el.querySelector('button'); if (b) b.onclick = () => openSection('control');
 }
 
 function openSection(section, businessTab) {
@@ -265,6 +298,7 @@ async function render() {
   const v = previous.cloneNode(false);
   v.innerHTML = '<p class="muted">Loading…</p>';
   previous.replaceWith(v);
+  v.addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) openSection(b.dataset.go); });
   try { await VIEWS[tab](v); } catch (e) { if (run === renderSeq) v.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 
@@ -386,7 +420,48 @@ function sourcingCard() {
 const EX_AREA = { order: 'Order', supplier: 'Supplier', carrier: 'Carrier', warehouse: 'Warehouse', catalog: 'Product sync', finance: 'Finance' };
 const EX_RESULT = { failed: 'Failed', stuck: 'Stuck', action: 'Action needed', review: 'To review' };
 const exFilter = { area: '', provider: '', result: '', mine: '' };
+function toast(msg) {
+  let t = document.getElementById('admtoast');
+  if (!t) { t = document.createElement('div'); t.id = 'admtoast'; t.setAttribute('role', 'status'); t.style.cssText = 'position:fixed;inset-inline:16px;bottom:16px;margin:auto;max-width:420px;z-index:60;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;font-weight:600;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.2)'; document.body.append(t); }
+  t.textContent = msg; t.hidden = false; clearTimeout(toast.tm); toast.tm = setTimeout(() => { t.hidden = true; }, 2600);
+}
+const CTL = [
+  ['shop', 'Kinan Shop', 'The shop customers use (web and app). In maintenance, visitors see a “back soon” page; orders already paid keep being bought, tracked and delivered.', 'maintenance'],
+  ['seller', 'Seller Center', 'Sellers’ app. In maintenance, sellers see a “back soon” page; their orders keep moving.', 'maintenance'],
+  ['checkout', 'New orders and payments', 'Pause checkout only: people can still browse and fill their bag.', false],
+  ['signups', 'New accounts', 'Pause sign-ups for new customers and sellers. Existing accounts can still sign in.', false]
+];
 const VIEWS = {
+  async control(v) {
+    const c = await api('/api/admin/control');
+    const isOff = (k, offv) => c[k] === offv;
+    const local = (t) => { if (!t) return ''; const d = new Date(t); const z = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; };
+    v.innerHTML = `<p class="muted" style="margin-top:0">Switch parts of KINAN off for maintenance or updates and back on. The admin dashboard, the warehouse, sign-in, payments already made and supplier/carrier updates (webhooks) always keep working. While you are signed in here you still see the apps as normal, so you can check them before reopening.</p>
+      <div class="ctl">${CTL.map(([k, title, help, offv]) => { const off = isOff(k, offv); return `<section class="sw ${off ? 'off' : ''}" aria-labelledby="sw-${k}">
+        <div class="state"><h3 id="sw-${k}">${esc(title)}</h3><span class="badge">${off ? (offv === 'maintenance' ? 'Maintenance' : 'Paused') : (offv === 'maintenance' ? 'Running' : 'On')}</span></div>
+        <p>${esc(help)}</p>
+        <button class="btn ${off ? '' : 'ghost'}" data-sw="${k}" data-to="${off ? (offv === 'maintenance' ? 'open' : 'true') : (offv === 'maintenance' ? 'maintenance' : 'false')}">${off ? (offv === 'maintenance' ? 'Reopen' : 'Turn back on') : (offv === 'maintenance' ? 'Start maintenance' : 'Pause')}</button></section>`; }).join('')}</div>
+      <form class="ctlmsg" id="ctlform"><h3 style="margin:0">Message on the maintenance page</h3>
+        <label>English<textarea name="message_en" maxlength="400" placeholder="Kinan is being updated. Please come back soon.">${esc(c.message_en || '')}</textarea></label>
+        <label>العربية<textarea name="message_ar" maxlength="400" dir="rtl" placeholder="نقوم بتحديث كنان الآن. يُرجى العودة بعد قليل.">${esc(c.message_ar || '')}</textarea></label>
+        <label>Expected back (optional)<input type="datetime-local" name="until" value="${esc(local(c.until))}"></label>
+        <div class="row"><button class="btn">Save message</button><a class="btn ghost" href="/" target="_blank" rel="noopener">Check the shop</a><a class="btn ghost" href="/seller" target="_blank" rel="noopener">Check Seller Center</a></div>
+        <p class="muted small" style="margin:0">${c.updated_at ? `Last change ${esc(date(c.updated_at))}${c.updated_by ? ` by ${esc(c.updated_by)}` : ''}.` : 'No changes yet.'} Every change is in the audit trail.</p>
+        <div class="err" id="ctlerr" role="alert"></div></form>`;
+    v.querySelectorAll('[data-sw]').forEach((b) => b.onclick = async () => {
+      const k = b.dataset.sw; const to = b.dataset.to; const t = CTL.find((x) => x[0] === k)[1];
+      const goingOff = to === 'maintenance' || to === 'false';
+      if (goingOff && !confirm(`${t}: ${to === 'maintenance' ? 'start maintenance' : 'pause'} now? Customers will see it immediately.`)) return;
+      b.disabled = true;
+      try { await api('/api/admin/control', 'POST', { [k]: to === 'true' ? true : to === 'false' ? false : to }); toast(goingOff ? `${t}: paused` : `${t}: back on`); render(); ctlChip(); }
+      catch (e) { $('#ctlerr').textContent = e.message; b.disabled = false; }
+    });
+    $('#ctlform').onsubmit = async (e) => {
+      e.preventDefault(); const f = e.target;
+      try { await api('/api/admin/control', 'POST', { message_en: f.message_en.value, message_ar: f.message_ar.value, until: f.until.value ? new Date(f.until.value).toISOString() : null }); toast('Message saved'); render(); }
+      catch (err) { $('#ctlerr').textContent = err.message; }
+    };
+  },
   async exceptions(v) {
     const q = new URLSearchParams(Object.entries(exFilter).filter(([, x]) => x)).toString();
     const d = await api(`/api/admin/exceptions${q ? `?${q}` : ''}`);
@@ -425,11 +500,20 @@ const VIEWS = {
       if (renderSeq !== startedView || !$('#live')) return;
       try { const l = await api('/api/admin/live'); if (renderSeq !== startedView) return; $('#lvShop').textContent = fmt(l.shop); $('#lvSeller').textContent = fmt(l.seller); $('#lvPeak').textContent = `Today's peak: ${l.peak_today.shop} shop · ${l.peak_today.seller} seller`; } catch { /* retry next time */ }
     };
-    const d = await api('/api/admin/overview');
+    const [d, ctl, exq] = await Promise.all([api('/api/admin/overview'), api('/api/app-status').catch(() => null), api('/api/admin/exceptions').catch(() => null)]);
     if (renderSeq !== startedView) return;
     const k = d.kpis; const c = d.currency;
+    const paused = ctl ? [ctl.shop === 'maintenance' && 'Shop', ctl.seller === 'maintenance' && 'Seller Center', ctl.checkout === false && 'Checkout', ctl.signups === false && 'Sign-ups'].filter(Boolean) : [];
+    const high = exq ? exq.items.filter((x) => x.severity === 'high').length : 0;
+    const today = [
+      ['control', paused.length ? 'Paused' : 'All open', paused.length ? paused.join(', ') : 'Shop, Seller Center, checkout and sign-ups are on', paused.length ? 'warn' : 'ok'],
+      ['exceptions', exq ? String(exq.total) : '—', exq ? (exq.total ? `${high} urgent · open the queue` : 'Nothing went wrong') : 'Could not load', high ? 'bad' : exq && exq.total ? 'warn' : 'ok'],
+      ['listings', String(k.listings_pending ?? 0), 'Products waiting for your approval', k.listings_pending ? 'warn' : 'ok'],
+      ['orders', String(k.orders_30d ?? 0), 'Orders in the last 30 days', '']
+    ].filter(([t]) => TABS.some(([key]) => key === t));
     const max = Math.max(1, ...d.daily.map((x) => x.revenue));
     v.innerHTML = `
+      <div class="today">${today.map(([t, big, small, tone]) => `<button type="button" class="tday ${tone}" data-go="${t}"><span>${esc(TABS.find(([key]) => key === t)[1])}</span><b>${esc(big)}</b><small>${esc(small)}</small></button>`).join('')}</div>
       <div class="live" id="live"><div class="lv"><i></i><span>Live on Shop</span><b id="lvShop">…</b></div><div class="lv"><i></i><span>Live on Seller</span><b id="lvSeller">…</b></div><small class="muted" id="lvPeak"></small></div>
       <div class="kpis">
         <div class="kpi"><span>Revenue (30 days)</span><b>${fmt(k.revenue_30d, c)}</b></div>
@@ -438,7 +522,7 @@ const VIEWS = {
         <div class="kpi"><span>Payable to sellers</span><b>${fmt(k.payable_to_sellers, c)}</b></div>
         <div class="kpi"><span>Active sellers</span><b>${fmt(k.active_sellers)}</b></div>
         <div class="kpi"><span>Live products</span><b>${fmt(k.listings)}</b></div>
-        ${isAdmin() ? `<button type="button" class="kpi" onclick="openSection('listings')"><span>Awaiting your approval</span><b class="${k.listings_pending ? 'warn' : ''}">${fmt(k.listings_pending)}</b></button>` : ''}
+        
       </div>
       <div class="overview-priority">
       <div class="card"><h2>Alerts</h2>${d.alerts.length ? `<ul class="alerts">${d.alerts.map((a) => `<li class="${a.kind === 'order' || a.kind === 'pay_deadline' ? 'bad' : 'warn'}">${esc(a.text)}</li>`).join('')}</ul>` : '<p class="muted">No alerts.</p>'}</div>

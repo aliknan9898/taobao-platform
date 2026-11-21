@@ -20,8 +20,16 @@ const K = (() => {
     const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(window.KinanLang ? { 'X-Kinan-Lang': window.KinanLang.lang } : {}), ...(/^\/seller/.test(location.pathname) ? { 'X-Kinan-App': 'seller' } : {}) }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
     const j = await r.json().catch(() => ({}));
     if (r.status === 401 && onUnauthorized) onUnauthorized();
+    if (r.status === 503 && j.maintenance) maintenanceScreen(j);
     if (!r.ok) throw Object.assign(new Error(j.error || r.statusText || 'Request failed'), { status: r.status });
     return j;
+  }
+
+  /** The app was put into maintenance while open (or served from the offline cache): reload into the maintenance page. */
+  let maintShown = false;
+  function maintenanceScreen() {
+    if (maintShown) return; maintShown = true;
+    setTimeout(() => { location.reload(); }, 400);
   }
 
   let toastTimer;
@@ -264,12 +272,12 @@ const K = (() => {
 
 
   // Parcel journey: 4 big steps (the ones the customer is notified about) + every carrier update below
-  var JOURNEY = [[5, 'Left the country it ships from'], [6, 'Arrived in your country'], [10, 'Out for delivery'], [12, 'Delivered']];
+  var JOURNEY = [[5, 'Left origin country'], [6, 'In your country'], [10, 'Out for delivery'], [12, 'Delivered']];
   var JOURNEY_AT = { 1: -1, 2: -1, 3: -1, 4: -1, 5: 0, 6: 1, 7: 1, 8: 1, 9: 1, 10: 2, 11: 2, 12: 3 };
   function journeyCss() {
     if (document.getElementById('jrny-css')) return;
     var st = document.createElement('style'); st.id = 'jrny-css';
-    st.textContent = '.jrny{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:6px 0 2px}.jrny>div{display:grid;gap:4px;justify-items:center;text-align:center;font-size:12px;color:#6b7280;position:relative}.jrny i{width:14px;height:14px;border-radius:50%;border:2px solid #d1d5db;background:#fff;z-index:1}.jrny>div:not(:first-child):before{content:"";position:absolute;top:6px;inset-inline-end:50%;width:100%;height:2px;background:#d1d5db}.jrny .on{color:inherit;font-weight:600}.jrny .on i{background:var(--jade,#036747);border-color:var(--jade,#036747)}.jrny .on:before{background:var(--jade,#036747)!important}.jrny .bad i{background:#dc2626;border-color:#dc2626}.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid color-mix(in srgb,var(--jade,#036747) 25%,transparent);display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
+    st.textContent = '.jrny{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:6px 0 2px}.jrny>div{display:grid;gap:4px;justify-items:center;align-content:start;text-align:center;font-size:12px;line-height:1.25;color:#6b7280;position:relative}.jrny i{width:14px;height:14px;border-radius:50%;border:2px solid #d1d5db;background:#fff;z-index:1}.jrny>div:not(:first-child):before{content:"";position:absolute;top:6px;inset-inline-end:50%;width:100%;height:2px;background:#d1d5db}.jrny .on{color:inherit;font-weight:600}.jrny .on i{background:var(--jade,#036747);border-color:var(--jade,#036747)}.jrny .on:before{background:var(--jade,#036747)!important}.jrny .bad i{background:#dc2626;border-color:#dc2626}.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid color-mix(in srgb,var(--jade,#036747) 25%,transparent);display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
     document.head.appendChild(st);
   }
   function journey(t, opts) {
@@ -279,7 +287,7 @@ const K = (() => {
     var stage = t.stage || 0; var at = JOURNEY_AT[stage]; var failed = stage === 13 || stage === 14;
     if (failed) at = -1;
     var bar = '<div class="jrny">' + JOURNEY.map(function (j, i) {
-      var label = (opts && opts.seller && j[0] === 6) ? 'Arrived in the customer’s country' : j[1];
+      var label = (opts && opts.seller && j[0] === 6) ? 'In customer’s country' : j[1];
       return '<div class="' + (at !== undefined && i <= at ? 'on' : '') + '"><i></i><span>' + esc(tr(label)) + '</span></div>';
     }).join('') + '</div>';
     var bad = failed ? '<div class="jrny-bad">⚠️ ' + esc(tr(stage === 14 ? 'Not delivered — going back' : 'Not delivered')) + '</div>' : '';

@@ -53,6 +53,19 @@
   .attn-list a { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 4px; border-top: 1px solid var(--line); text-decoration: none; color: inherit; font-weight: 600; font-size: 14px; }
   .attn-list a:hover { color: var(--jade); }
   .side .foot { margin-top: auto; display: grid; gap: 8px; }
+  .ocard { display: grid; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+  .ocard:last-child { border-bottom: 0; }
+  .ohead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .oamt { display: grid; justify-items: end; gap: 2px; text-align: end; font-size: 16px; }
+  .olines { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+  .olines li { display: flex; gap: 6px; min-width: 0; } .olines li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+  .olines .qty { flex: none; font-weight: 700; color: var(--ink-2); }
+  .opills { gap: 6px; }
+  .otrack { display: grid; gap: 2px; } .otrack .trk { font-variant-numeric: tabular-nums; word-break: break-all; }
+  .oacts { gap: 8px; flex-wrap: wrap; } .oacts .btn { flex: 1 1 auto; }
+  @media (min-width: 761px) { .oacts .btn { flex: 0 0 auto; } }
+  .mtop .row { flex-wrap: nowrap; min-width: 0; }
+  .mtop .row a.btn { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
   .mtop { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
   .content { padding: 22px clamp(16px, 3vw, 36px) 40px; max-width: 1120px; width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; }
   .head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
@@ -778,21 +791,36 @@ function editorScreen() {
 }
 
 // ---------- orders ----------
+/** "CAINIAO_FULFILLMENT_STD" → "Cainiao": carrier codes from suppliers are not for people. */
+function carrierName(c) {
+  const k = String(c || '').trim(); if (!k) return '';
+  const known = { CAINIAO: 'Cainiao', YANWEN: 'Yanwen', '4PX': '4PX', YUNEXPRESS: 'YunExpress', YUN: 'YunExpress', CNE: 'CNE', SUNYOU: 'SunYou', UBI: 'UBI', DHL: 'DHL', FEDEX: 'FedEx', UPS: 'UPS', EMS: 'EMS', USPS: 'USPS', ROYALMAIL: 'Royal Mail', CORREOS: 'Correos', POSTNL: 'PostNL', GLS: 'GLS', DPD: 'DPD', SF: 'SF Express', CJPACKET: 'CJPacket' };
+  const first = k.split(/[_\s-]+/)[0].toUpperCase();
+  if (known[first]) return known[first];
+  return /^[A-Z0-9_]+$/.test(k) ? k.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase()) : k;
+}
 function orderRow(o) {
   const p = o.purchase;
   const due = p && /WAIT_BUYER_P/.test(p.status);
-  return `<div class="prod" style="grid-template-columns:minmax(0,1fr) auto">
-    <div style="display:grid;gap:4px;min-width:0"><div class="row"><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><span class="muted">${date(o.created_at)}</span></div>
-      <div class="small">${o.lines.map((l) => `${l.qty} × ${esc(l.title)}${l.props ? ` <span class="muted">(${esc(variantLabel(l.props))})</span>` : ''}`).join('<br>')}</div>
-      <div class="row">${pill(o.status_label, ['delivered', 'shipped'].includes(o.status) ? 'ok' : ['cancelled', 'refunded'].includes(o.status) ? 'bad' : 'warn')}
-        ${p ? pill(p.manual || p.direct ? p.status_label : `Taobao: ${p.status_label}`, p.direct ? (['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : 'warn') : PO_STATUS_CLS(p.status)) : ''}
-        ${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
-      ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
-      ${(p?.logistics || []).length ? `<div class="small muted">${p.direct ? 'To the customer' : 'To warehouse'}: ${p.logistics.map((x) => x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(`${x.carrier || ''} ${x.tracking}`)}</a>` : esc(`${x.carrier || ''} ${x.tracking}`)).join(', ')}</div>` : ''}
-      ${p?.direct ? K.journey(p.track, { seller: true }) : ''}</div>
-    <div style="text-align:end;display:grid;gap:6px;justify-items:end"><b>${money(o.revenue, o.currency)}</b>${o.cost_cny ? `<span class="muted">cost ¥${num(o.cost_cny)}</span>` : ''}
-      <div class="row">${due && !cfg.taobao_kinan ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p && !p.manual && (!p.direct || (p.logistics || []).length) ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">${p.direct ? 'Refresh tracking' : 'Refresh'}</button>` : ''}<button class="btn sm quiet" data-msgs="${esc(o.id)}">Messages</button></div></div>
-    <div class="stack" data-mbox="${esc(o.id)}" hidden style="grid-column:1/-1"></div></div>`;
+  const tone = (st) => (['delivered', 'shipped'].includes(st) ? 'ok' : ['cancelled', 'refunded'].includes(st) ? 'bad' : 'warn');
+  // Direct (supplier-to-customer) purchases describe the same thing as the order status in more detail: show one pill.
+  const pills = p && p.direct
+    ? pill(p.status_label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : p.status === 'AE_CANCELLED' ? 'bad' : 'warn')
+    : pill(o.status_label, tone(o.status)) + (p ? pill(p.manual ? p.status_label : `Taobao: ${p.status_label}`, PO_STATUS_CLS(p.status)) : '');
+  const parcels = (p?.logistics || []).map((x) => {
+    const label = `<span>${esc(carrierName(x.carrier) || 'Carrier')}</span> <bdi dir="ltr" class="trk">${esc(x.tracking)}</bdi>`;
+    return x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${label}</a>` : label;
+  }).join('<br>');
+  return `<article class="ocard">
+    <header class="ohead"><div><b>Order <bdi dir="ltr">${esc(o.id.slice(-8).toUpperCase())}</bdi></b><div class="muted small">${date(o.created_at)}</div></div>
+      <div class="oamt"><b>${money(o.revenue, o.currency)}</b>${o.cost_cny ? `<span class="muted small">cost ¥${num(o.cost_cny)}</span>` : ''}</div></header>
+    <ul class="olines">${o.lines.map((l) => `<li><span class="qty">${l.qty}×</span><span dir="auto">${esc(l.title)}${l.props ? ` <span class="muted">(${esc(variantLabel(l.props))})</span>` : ''}</span></li>`).join('')}</ul>
+    <div class="row opills">${pills}${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
+    ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
+    ${parcels ? `<div class="otrack small"><span class="muted">${p.direct ? 'To the customer' : 'To warehouse'}</span><div>${parcels}</div></div>` : ''}
+    ${p?.direct ? K.journey(p.track, { seller: true }) : ''}
+    <div class="row oacts">${due && !cfg.taobao_kinan ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p && !p.manual && (!p.direct || (p.logistics || []).length) ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">${p.direct ? 'Refresh tracking' : 'Refresh'}</button>` : ''}<button class="btn sm quiet" data-msgs="${esc(o.id)}">Messages</button></div>
+    <div class="stack" data-mbox="${esc(o.id)}" hidden></div></article>`;
 }
 function wireOrderActions() {
   $$('[data-pay]').forEach((b) => b.onclick = async () => { if (!confirm('Pay this purchase order from your Taobao Distribution account balance?')) return; b.disabled = true; try { await api(`/api/seller/orders/${b.dataset.pay}/pay`, 'POST'); toast('Payment sent to Taobao'); } catch (e) { toast(e.message); } route(); });

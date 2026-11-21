@@ -12,6 +12,17 @@
     'Sign in to the admin dashboard': 'تسجيل الدخول إلى لوحة الإدارة', 'Sign in to the warehouse': 'تسجيل الدخول إلى المستودع',
     'Procurement': 'المشتريات', 'Finance': 'المالية', 'Support': 'الدعم',
     // ---- admin navigation ----
+    'Today': 'اليوم', 'Orders & delivery': 'الطلبات والتوصيل', 'Catalogue': 'الكتالوج', 'Suppliers & channels': 'الموردون والقنوات', 'People': 'الأشخاص', 'Money': 'المال', 'Growth': 'النمو', 'System': 'النظام', 'Apps': 'التطبيقات',
+    'Control centre': 'مركز التحكم', 'Kinan Shop': 'متجر كنان', 'Maintenance': 'صيانة', 'Running': 'يعمل', 'On': 'يعمل', 'Paused': 'متوقف مؤقتاً', 'Reopen': 'إعادة الفتح', 'Turn back on': 'إعادة التشغيل', 'Start maintenance': 'بدء الصيانة', 'Pause': 'إيقاف مؤقت',
+    'New orders and payments': 'الطلبات والمدفوعات الجديدة', 'New accounts': 'الحسابات الجديدة', 'Message on the maintenance page': 'الرسالة في صفحة الصيانة', 'English': 'الإنجليزية', 'Expected back (optional)': 'موعد العودة المتوقع (اختياري)',
+    'Save message': 'حفظ الرسالة', 'Check the shop': 'معاينة المتجر', 'Check Seller Center': 'معاينة مركز البائعين', 'Message saved': 'تم حفظ الرسالة', 'No changes yet.': 'لا تغييرات بعد.', 'Every change is in the audit trail.': 'كل تغيير مسجّل في سجل التدقيق.',
+    'The shop customers use (web and app). In maintenance, visitors see a “back soon” page; orders already paid keep being bought, tracked and delivered.': 'المتجر الذي يستخدمه الزبائن (الموقع والتطبيق). أثناء الصيانة يرى الزوار صفحة «سنعود قريباً»، والطلبات المدفوعة تستمر في الشراء والتتبع والتوصيل.',
+    'Sellers’ app. In maintenance, sellers see a “back soon” page; their orders keep moving.': 'تطبيق البائعين. أثناء الصيانة يرى البائعون صفحة «سنعود قريباً»، وطلباتهم تستمر.',
+    'Pause checkout only: people can still browse and fill their bag.': 'إيقاف الدفع فقط: يمكن للناس التصفح وإضافة المنتجات إلى السلة.',
+    'Pause sign-ups for new customers and sellers. Existing accounts can still sign in.': 'إيقاف التسجيل للزبائن والبائعين الجدد. الحسابات الحالية تستطيع تسجيل الدخول.',
+    'Switch parts of KINAN off for maintenance or updates and back on. The admin dashboard, the warehouse, sign-in, payments already made and supplier/carrier updates (webhooks) always keep working. While you are signed in here you still see the apps as normal, so you can check them before reopening.': 'أوقف أجزاء من كنان للصيانة أو التحديثات ثم أعد تشغيلها. لوحة الإدارة والمستودع وتسجيل الدخول والمدفوعات السابقة وتحديثات الموردين وشركات الشحن تبقى تعمل دائماً. وأثناء تسجيل دخولك هنا ترى التطبيقات بشكل طبيعي لتتأكد منها قبل إعادة الفتح.',
+    'All open': 'الكل يعمل', 'Shop, Seller Center, checkout and sign-ups are on': 'المتجر ومركز البائعين والدفع والتسجيل كلها تعمل', 'Nothing went wrong': 'لا توجد مشاكل', 'Could not load': 'تعذّر التحميل', 'Products waiting for your approval': 'منتجات بانتظار موافقتك', 'Orders in the last 30 days': 'الطلبات في آخر 30 يوماً',
+    'Shop in maintenance': 'المتجر في الصيانة', 'Seller Center in maintenance': 'مركز البائعين في الصيانة', 'Checkout paused': 'الدفع متوقف', 'Sign-ups paused': 'التسجيل متوقف', 'Shop': 'المتجر', 'Checkout': 'الدفع', 'Sign-ups': 'التسجيل',
     'Workspace': 'مساحة العمل', 'Products': 'المنتجات', 'Operations': 'العمليات', 'Suppliers & Channels': 'الموردون والقنوات', 'People & Trust': 'الأشخاص والثقة',
     'Overview': 'نظرة عامة', 'Live Imports': 'الاستيراد المباشر', 'AI & Product Research': 'الذكاء الاصطناعي وبحث المنتجات', 'Integrations': 'التكاملات', 'Admin Tools': 'أدوات الإدارة',
     'KINAN Business': 'أعمال كنان', 'Advertising': 'الإعلانات', 'KINAN Email': 'بريد كنان', 'Product Catalog': 'كتالوج المنتجات', 'Product Review': 'مراجعة المنتجات', 'CJdropshipping': 'CJdropshipping',
@@ -56,6 +67,7 @@
     [/^Parcel (\S+) received but not matched to an order$/, 'الطرد $1 استُلم ولم يُطابق بطلب'], [/^Parcel (\S+) failed quality check$/, 'الطرد $1 فشل في فحص الجودة'],
     [/^(\d+) (\w+) product\(s\): last price\/stock update failed$/, '$1 منتج من $2: فشل آخر تحديث للسعر أو المخزون'], [/^(\d+) product\(s\) cost more than their selling price$/, '$1 منتج تكلفته أعلى من سعر بيعه'],
     [/^(\d+) seller withdrawal\(s\) to pay$/, '$1 سحب للبائعين بانتظار الدفع'], [/^(\d+) return request\(s\) to review$/, '$1 طلب إرجاع للمراجعة'], [/^Location (\S+)$/, 'الموقع $1'],
+    [/^(\d+) urgent · open the queue$/, '$1 عاجل · افتح القائمة'], [/^(.+): paused$/, '$1: متوقف'], [/^(.+): back on$/, '$1: يعمل من جديد'],
     [/^(\d+) h ago$/, 'منذ $1 ساعة'], [/^(\d+) days ago$/, 'منذ $1 يوم'], [/^less than an hour ago$/, 'منذ أقل من ساعة']
   ]);
 })();
