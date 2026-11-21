@@ -397,25 +397,32 @@ const checkoutsInFlight = new Map();
 r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => {
   const body = await readJson(req);
   const key = String(req.headers['idempotency-key'] || '').trim();
-  if (!key) return orders.buyerView(await orders.checkout(user, body));
+  // the order is saved before the customer gets its payment details: a restart can no longer lose an order Stripe knows about
+  if (!key) { const o = await orders.checkout(user, body); await db.flush(); return orders.buyerView(o); }
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(key)) throw httpError(400, 'Invalid Idempotency-Key');
   const crypto = require('crypto');
   const keyHash = crypto.createHash('sha256').update(`${user.id}|${key}`).digest('hex');
   const bodyHash = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
   const replay = () => {
     const t = db.tokens.find((x) => x.kind === 'idem' && x.token_hash === keyHash && x.expires_at > Date.now());
-    if (!t) return null;
+    if (!t) {
+      // the order saves the key too: found even if the token was not written (restart between the two)
+      const o = db.orders.find((x) => x.idem_key_hash === keyHash && x.buyer_id === user.id && Date.now() - x.created_at < 24 * 3600e3);
+      if (o && o.idem_body_hash && o.idem_body_hash !== bodyHash) throw httpError(409, 'This Idempotency-Key was already used for a different checkout');
+      return o ? orders.buyerView(o) : null;
+    }
     if (t.body_hash !== bodyHash) throw httpError(409, 'This Idempotency-Key was already used for a different checkout');
     const o = db.orders.get(t.order_id);
     return o && o.buyer_id === user.id ? orders.buyerView(o) : null;
   };
   const prior = replay(); if (prior) return prior;
   if (checkoutsInFlight.has(keyHash)) { await checkoutsInFlight.get(keyHash).catch(() => null); const again = replay(); if (again) return again; }
-  const run = orders.checkout(user, body);
+  const run = orders.checkout(user, body, { idem_key_hash: keyHash, idem_body_hash: bodyHash });
   checkoutsInFlight.set(keyHash, run);
   try {
     const o = await run;
     db.tokens.insert({ kind: 'idem', token_hash: keyHash, body_hash: bodyHash, user_id: user.id, order_id: o.id, expires_at: Date.now() + 24 * 3600e3 });
+    await db.flush();
     return orders.buyerView(o);
   } finally { checkoutsInFlight.delete(keyHash); }
 });
