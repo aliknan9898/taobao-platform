@@ -930,6 +930,9 @@ r('POST', '/api/admin/returns/:id', PEOPLE, async ({ req, params, user }) => {
 });
 r('GET', '/api/admin/requests', CARE, async () => shopSvc.adminRequests());
 r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
+// One queue of cross-app exceptions; derived from live records, staff can assign and note
+r('GET', '/api/admin/exceptions', STAFF, async ({ url, user }) => require('./services/exceptions').list({ area: url.searchParams.get('area') || '', provider: url.searchParams.get('provider') || '', result: url.searchParams.get('result') || '', mine: url.searchParams.get('mine') || '' }, user));
+r('POST', '/api/admin/exceptions/assign', STAFF, async ({ req, user }) => { const b = await readJson(req); return require('./services/exceptions').assign(b.key, { assignee_id: b.assignee_id, note: b.note }, user); });
 r('GET', '/api/admin/audit', ADMIN, async ({ url }) => require('./audit').list({ limit: url.searchParams.get('limit'), actor: url.searchParams.get('actor') || '', path: url.searchParams.get('path') || '' }));
 r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
 // products by platform (AliExpress, CJ, Taobao, Banggood, Kinan catalogue, sellers' own, any new source)

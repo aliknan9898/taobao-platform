@@ -88,6 +88,15 @@
   .login { max-width:360px; margin:12vh auto; display:grid; gap:10px; }
   .login input { width:100%; }
   .err { color:var(--bad); white-space:pre-wrap; font-size:14px; }
+  .exq { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
+  .exq li { background:var(--card); border:1px solid var(--line); border-inline-start:4px solid var(--muted); border-radius:10px; padding:12px 14px; display:grid; gap:8px; }
+  .exq li.sev-high { border-inline-start-color:var(--bad); } .exq li.sev-medium { border-inline-start-color:var(--warn); }
+  .exq .exhead { display:flex; gap:8px; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; }
+  .exq .exmeta { display:flex; gap:6px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .exq .exmeta span { background:var(--chip); border-radius:99px; padding:1px 8px; }
+  .exq .exact { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .exq .exact input { flex:1; min-width:160px; }
+  .exfilters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; } .exfilters select { min-width:140px; }
   dialog { border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--ink); width:min(720px,94vw); padding:0; }
   .gbtn { display:flex; align-items:center; justify-content:center; gap:10px; padding:10px; border-radius:8px; border:1px solid #dadce0; background:#fff; color:#1f1f1f; font-weight:600; text-decoration:none; }
   .ordiv { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; }
@@ -173,14 +182,14 @@ let googleSignin = false; let cfg = {};
 const ALL_TABS = [
   ['overview','Overview','*'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
   ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
-  ['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
+  ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
   ['Workspace',['overview','kinan','advertising','mail']],
   ['Products',['imports','platforms','listings','ai-tools']],
-  ['Operations',['orders','shipping','returns','requests']],
+  ['Operations',['exceptions','orders','shipping','returns','requests']],
   ['Suppliers & Channels',['cj','ebay','connections']],
   ['People & Trust',['sellers','users','reviews']],
   ['Finance',['reports','payouts']],
@@ -372,7 +381,41 @@ function sourcingCard() {
   }).catch((e) => { const el = $('#srccard'); if (el) el.innerHTML = `<h2>AI catalog builder</h2><p class="err">${esc(e.message)}</p>`; });
 }
 
+const EX_AREA = { order: 'Order', supplier: 'Supplier', carrier: 'Carrier', warehouse: 'Warehouse', catalog: 'Product sync', finance: 'Finance' };
+const EX_RESULT = { failed: 'Failed', stuck: 'Stuck', action: 'Action needed', review: 'To review' };
+const exFilter = { area: '', provider: '', result: '', mine: '' };
 const VIEWS = {
+  async exceptions(v) {
+    const q = new URLSearchParams(Object.entries(exFilter).filter(([, x]) => x)).toString();
+    const d = await api(`/api/admin/exceptions${q ? `?${q}` : ''}`);
+    const opt = (k, list, label, names = {}) => `<label class="muted">${label}<br><select data-exf="${k}"><option value="">All</option>${list.map((f) => `<option value="${esc(f.value)}" ${exFilter[k] === f.value ? 'selected' : ''}>${esc(names[f.value] || f.value)} (${f.count})</option>`).join('')}</select></label>`;
+    const ago = (t) => { if (!t) return ''; const h = Math.round((Date.now() - t) / 3600e3); return h < 1 ? 'less than an hour ago' : h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`; };
+    v.innerHTML = `<p class="muted" style="margin-top:0">Everything that went wrong across the shop, sellers, suppliers, carriers and the warehouse. Items close by themselves when the cause is fixed.</p>
+      <div class="exfilters">${opt('area', d.facets.area, 'Area', EX_AREA)}${opt('provider', d.facets.provider, 'Provider')}${opt('result', d.facets.result, 'Result', EX_RESULT)}
+        <label class="muted">Assigned<br><select data-exf="mine"><option value="">Everyone</option><option value="1" ${exFilter.mine ? 'selected' : ''}>Assigned to me</option></select></label></div>
+      <p class="muted">${d.items.length} of ${d.total} open</p>
+      ${d.items.length ? `<ul class="exq">${d.items.map((x) => `<li class="sev-${x.severity}" data-key="${esc(x.key)}">
+        <div class="exhead"><b>${esc(x.title)}</b><span class="pill ${x.severity === 'high' ? 'bad' : x.severity === 'medium' ? 'warn' : ''}">${esc(EX_RESULT[x.result] || x.result)}</span></div>
+        ${x.detail ? `<div class="muted" dir="auto">${esc(x.detail)}</div>` : ''}
+        <div class="exmeta"><span>${esc(EX_AREA[x.area] || x.area)}</span>${x.provider ? `<span>${esc(x.provider)}</span>` : ''}${x.at ? `<span title="${esc(date(x.at))}">${esc(ago(x.at))}</span>` : ''}${x.assignee ? `<span>→ ${esc(x.assignee)}</span>` : ''}</div>
+        <div class="exact">${x.order_id ? `<button class="btn ghost" data-exopen="${esc(x.order_id)}">Open order <bdi dir="ltr">${esc(x.order_ref)}</bdi></button>` : ''}
+          ${x.retry.eligible && canBuy() ? `<button class="btn" data-exretry="${esc(x.order_id)}" title="${esc(x.retry.why)}">Retry purchase</button>` : x.order_id && x.area === 'supplier' ? `<span class="muted" title="Retry not available">${esc(x.retry.why)}</span>` : ''}
+          <select data-exwho aria-label="Assign to"><option value="">Unassigned</option>${d.staff.map((u) => `<option value="${esc(u.id)}" ${u.id === x.assignee_id ? 'selected' : ''}>${esc(u.name)} · ${esc(u.role)}</option>`).join('')}</select>
+          <input data-exnote placeholder="Note for the team" value="${esc(x.note)}" maxlength="300" aria-label="Note"><button class="btn ghost" data-exsave>Save</button></div>
+        <div class="err" data-exerr role="alert"></div></li>`).join('')}</ul>` : '<p>Nothing is open. 🎉</p>'}`;
+    v.querySelectorAll('[data-exf]').forEach((el) => el.onchange = () => { exFilter[el.dataset.exf] = el.value; render(); });
+    v.querySelectorAll('[data-exopen]').forEach((b) => b.onclick = () => openOrder(b.dataset.exopen));
+    v.querySelectorAll('[data-exretry]').forEach((b) => b.onclick = async () => {
+      const li = b.closest('li'); b.disabled = true; b.textContent = 'Retrying…';
+      try { await api(`/api/admin/orders/${b.dataset.exretry}/procure`, 'POST'); render(); }
+      catch (e) { li.querySelector('[data-exerr]').textContent = e.message; b.disabled = false; b.textContent = 'Retry purchase'; }
+    });
+    v.querySelectorAll('[data-exsave]').forEach((b) => b.onclick = async () => {
+      const li = b.closest('li'); const err = li.querySelector('[data-exerr]'); err.textContent = ''; b.disabled = true;
+      try { await api('/api/admin/exceptions/assign', 'POST', { key: li.dataset.key, assignee_id: li.querySelector('[data-exwho]').value, note: li.querySelector('[data-exnote]').value }); b.textContent = 'Saved'; setTimeout(() => { b.textContent = 'Save'; b.disabled = false; }, 1200); }
+      catch (e) { err.textContent = e.message; b.disabled = false; }
+    });
+  },
   advertising: (view) => window.KinanAdvertising.render(view, api, esc),
   async overview(v) {
     const startedView = renderSeq;
