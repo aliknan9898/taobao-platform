@@ -44,6 +44,14 @@
   .side :focus-visible { outline-color: #ffffff; }
   .side nav a svg { width: 20px; height: 20px; }
   .side nav a.on { background: rgba(255,255,255,.14); color: var(--nav-ink); font-weight: 650; }
+  .payflow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; counter-reset: pf; }
+  .payflow li { position: relative; padding: 10px 12px; border-radius: var(--r-md); background: var(--jade-soft); display: grid; gap: 2px; font-size: 13px; counter-increment: pf; }
+  .payflow li b::before { content: counter(pf) ". "; }
+  .payflow li span { color: var(--ink-2); font-size: 12px; }
+  @media (max-width: 760px) { .payflow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+  .attn-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; }
+  .attn-list a { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 4px; border-top: 1px solid var(--line); text-decoration: none; color: inherit; font-weight: 600; font-size: 14px; }
+  .attn-list a:hover { color: var(--jade); }
   .side .foot { margin-top: auto; display: grid; gap: 8px; }
   .mtop { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
   .content { padding: 22px clamp(16px, 3vw, 36px) 40px; max-width: 1120px; width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; }
@@ -211,6 +219,7 @@ async function dashboard() {
       <a class="kpi" href="#/earnings"><span>Available to pay out</span><b>${money(earn.payable, earn.currency)}</b></a>
       <a class="kpi" href="#/earnings"><span>On the way</span><b>${money(earn.pending, earn.currency)}</b></a>
     </div>
+    ${attentionPanel(prods, ords, earn, toPay)}
     <section class="panel" id="stats"></section>
     <section class="panel"><div class="row between" style="margin-bottom:6px"><h2>Recent orders</h2><a class="muted" href="#/orders">See all</a></div>
       ${ords.slice(0, 5).map(orderRow).join('') || '<div class="empty" style="padding:24px"><p>No orders yet. Once buyers order your products, they appear here.</p></div>'}</section>`;
@@ -221,6 +230,23 @@ async function dashboard() {
       ${days.length ? `<div style="display:flex;align-items:flex-end;gap:2px;height:60px;margin:10px 0" aria-label="Views per day">${days.map((d) => `<span title="${d}: ${st.per_day[d]}" style="flex:1;background:var(--jade);opacity:.75;border-radius:3px 3px 0 0;height:${Math.max(4, (st.per_day[d] / max) * 100)}%"></span>`).join('')}</div>` : ''}
       ${st.products.length ? `<div class="scroll"><table><thead><tr><th>Product</th><th>Views</th><th>Orders</th><th>Conversion</th></tr></thead><tbody>${st.products.slice(0, 10).map((p) => `<tr><td>${esc(p.title.slice(0, 60))}</td><td>${p.views}</td><td>${p.orders}</td><td>${p.conversion === null ? '—' : p.conversion + '%'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Views of your products will appear here.</p>'}`;
   }).catch(() => { $('#stats').hidden = true; });
+}
+
+/** One list of what the seller should look at, most urgent first; every row links to the screen that fixes it. */
+function attentionPanel(prods, ords, earn, toPay) {
+  const n = (f) => prods.filter(f).length;
+  const rows = [
+    [toPay.length, 'Orders waiting for your Taobao payment', '#/orders', 'bad'],
+    [ords.filter((o) => o.purchase && o.purchase.error && !o.purchase.direct).length, 'Orders with a purchase problem', '#/orders', 'bad'],
+    [n((p) => p.status === 'rejected'), 'Products that need changes', '#/products', 'bad'],
+    [n((p) => p.status === 'unavailable'), 'Products unavailable at the supplier', '#/products', 'warn'],
+    [n((p) => p.sync_error && p.status !== 'unavailable'), 'Products whose last price or stock update failed', '#/products', 'warn'],
+    [ords.filter((o) => ['paid', 'procuring'].includes(o.status) && o.purchase && !o.purchase.direct && !o.purchase.error && !/WAIT_BUYER_P/.test(o.purchase.status || '')).length, 'Orders being prepared', '#/orders', ''],
+    [n((p) => p.status === 'pending_review'), 'Products in review', '#/products', ''],
+    [Number(earn.available) >= Number(earn.min_withdrawal || 0) && Number(earn.available) > 0 ? 1 : 0, `Money ready to withdraw: ${money(earn.available, earn.currency)}`, '#/earnings', 'ok']
+  ].filter((r) => r[0] > 0);
+  return `<section class="panel attn" aria-labelledby="attn-h"><div class="row between"><h2 id="attn-h">Needs attention</h2><span class="muted small">${rows.length ? `${rows.length} open` : ''}</span></div>
+    ${rows.length ? `<ul class="attn-list">${rows.map(([c, t, href, tone]) => `<li><a href="${href}"><span>${esc(t)}</span>${t.startsWith('Money ready') ? '<span class="pill ok">Withdraw</span>' : `<span class="pill ${tone}">${c}</span>`}</a></li>`).join('')}</ul>` : '<p class="muted small" style="margin:6px 0 0">Nothing needs you right now.</p>'}</section>`;
 }
 
 /** Small CSV reader (quotes, commas and new lines inside quotes; comma or semicolon separated). */
@@ -845,6 +871,7 @@ async function earnings() {
       <div class="kpi"><span>Available to withdraw</span><b class="ok">${money(e.available, e.currency)}</b></div>
       <div class="kpi"><span>Withdrawal in progress</span><b>${money(e.requested, e.currency)}</b></div>
       <div class="kpi"><span>Withdrawn</span><b>${money(e.withdrawn, e.currency)}</b></div></div>
+    <ol class="payflow" aria-label="How your money moves"><li><b>On the way</b><span>Order paid, not delivered yet</span></li><li><b>Available</b><span>Delivered and the return window has ended</span></li><li><b>Withdrawal in progress</b><span>You asked for a payout; Kinan sends it</span></li><li><b>Withdrawn</b><span>Sent to your payout account</span></li></ol>
     <section class="panel stack" style="max-width:720px"><div><h2>Payout accounts</h2><p class="muted small" style="margin:4px 0 0">Where Kinan sends your money: a bank account (IBAN), PayPal, Payoneer or Wise. To protect your earnings, Kinan sends a small test payment (under 1) to each new account — enter the exact amount you received to confirm it.</p></div>
       ${PMS.length ? `<div class="stack" style="gap:8px">${PMS.map((m) => `<div class="panel" style="padding:12px;display:grid;gap:8px">
         <div class="row between"><div><b>${PM_ICON[m.type] || '🏦'} ${esc(m.type_name)}</b>${m.is_default ? ' <span class="pill ok">Default</span>' : ''}<div class="muted small" dir="ltr" style="text-align:start">${esc(m.label)} · ${esc(m.holder)}</div></div><span class="pill ${PMS_ST[m.status][1]}">${PMS_ST[m.status][0]}</span></div>
