@@ -44,10 +44,11 @@ function claudeCredit() {
   return { credit, spent: Math.round(spent * 1000) / 1000, left: Math.round(Math.max(0, credit - spent) * 1000) / 1000, calls, since: first, days_used: days.length, per_day: Math.round(perDay * 1000) / 1000, days_left: perDay > 0 ? Math.floor(Math.max(0, credit - spent) / perDay) : null };
 }
 function claudeSpentToday() { const x = db.settings.get(`set_ai_claude_d_${new Date().toISOString().slice(0, 10)}`); return x ? x.cost : 0; }
+let claudeOffUntil = 0; // set when Anthropic says the credit is used up
 function providers() {
   const want = String(process.env.AI_PROVIDER || '').toLowerCase();
   const out = [];
-  if (claudeKey() && claudeSpentToday() < DAILY_BUDGET()) out.push('claude');
+  if (claudeKey() && claudeSpentToday() < DAILY_BUDGET() && Date.now() >= claudeOffUntil) out.push('claude');
   if (process.env.GEMINI_API_KEY) out.push('gemini');
   if (want === 'gemini' && out.length === 2) out.reverse();
   return out;
@@ -196,7 +197,10 @@ async function askClaude({ system, name, description = '', schema, text, images 
     }).catch((e) => { throw httpError(502, `The AI assistant could not be reached (${e.message})`); });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) {
-      console.error('[ai] claude', res.status, j.error?.type, j.error?.message);
+      // No credit left (or the key was refused): stop asking Claude for 6 hours — every call would fail first,
+      // add a round trip and a log line before Gemini answers. A top-up is picked up within 6 hours.
+      if (/credit balance is too low/i.test(String(j.error?.message || '')) || res.status === 401) { claudeOffUntil = Date.now() + 6 * 3600e3; console.warn(`[ai] claude paused for 6 hours: ${j.error?.message || res.status} — using Gemini`); }
+      else console.error('[ai] claude', res.status, j.error?.type, j.error?.message);
       throw httpError(res.status === 429 || res.status === 529 ? 429 : 502, res.status === 429 || res.status === 529 ? 'The AI assistant is busy — try again in a minute' : 'The AI assistant could not answer — try again');
     }
     record(modelFor('claude'), j.usage, kind);
@@ -415,4 +419,4 @@ async function tick() {
   if (enabled() && prefs().auto) return improveKinan(40); return null;
 }
 
-module.exports = { claudeCredit, claudeKey, DAILY_BUDGET, claudeSpentToday, enabled, provider, providers, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };
+module.exports = { _claudeOff: (t) => { claudeOffUntil = t; }, claudeCredit, claudeKey, DAILY_BUDGET, claudeSpentToday, enabled, provider, providers, model, structured, assist, cleanKeywords, copywrite, usage, status, savePrefs, improveKinan, undo, tick, PRICES };

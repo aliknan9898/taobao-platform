@@ -220,7 +220,8 @@ async function resync(l) {
     return db.listings.update(l.id, { skus, last_synced_at: now(), sync_error: null, ...(l.status === 'unavailable' && skus.some((s) => s.stock > 0) ? { status: 'active' } : {}) });
   } catch (e) {
     if (e.status === 429) throw e; // CJ's points / our background limit: try again another day, nothing is wrong with the product
-    if (e.status === 404 || /not found/i.test(e.message)) return db.listings.update(l.id, { status: l.status === 'active' ? 'unavailable' : l.status, sync_error: 'Removed on CJdropshipping', last_synced_at: now() });
+    // gone at CJ ("Product has been removed from shelves" is CJ's usual answer): no longer sold, not just a failed check
+    if (e.status === 404 || /not found|removed from (the )?shel|off.?shel|discontinued|no longer (sold|available)/i.test(e.message)) return db.listings.update(l.id, { status: l.status === 'active' ? 'unavailable' : l.status, sync_error: 'Removed on CJdropshipping', last_synced_at: now() });
     return db.listings.update(l.id, { sync_error: e.message, sync_tried_at: now() /* a failed check is not a fresh price: last_synced_at keeps the last confirmed one */ });
   }
 }
@@ -314,6 +315,8 @@ async function warmUp() {
       catch (e) {
         stats.failed++; stats.last_error = e.message;
         if (e.status === 429) { warm.clear(); break; } // CJ's points or our background limit: stop, nothing else will work today
+        // CJ took the product off sale: hide it now instead of pricing it again every hour
+        if (/removed from (the )?shel|off.?shel|discontinued/i.test(e.message) && l.status === 'active') { db.listings.update(id, { status: 'unavailable', sync_error: 'Removed on CJdropshipping' }); stats.removed = (stats.removed || 0) + 1; continue; }
       }
       // CJ has no method to this country: keep that answer as long as a real price (no point asking every hour);
       // CJ did not answer: standard shipping for now, ask again in an hour
@@ -322,7 +325,7 @@ async function warmUp() {
     }
   } finally {
     warming = false;
-    if (stats.done) console.log(`[cj] shipping prices worked out for ${stats.done} product(s)${stats.failed ? `, ${stats.failed} failed (${stats.last_error})` : ''}${stats.none ? `, ${stats.none} with no CJ method` : ''}`);
+    if (stats.done) console.log(`[cj] shipping prices worked out for ${stats.done} product(s)${stats.failed ? `, ${stats.failed} failed (${stats.last_error})` : ''}${stats.none ? `, ${stats.none} with no CJ method` : ''}${stats.removed ? `, ${stats.removed} hidden (removed on CJ)` : ''}`);
     stats = { done: 0, failed: 0, none: 0, last_error: null };
   }
 }

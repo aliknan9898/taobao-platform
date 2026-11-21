@@ -28,9 +28,14 @@ const clean = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 &'-]+/g, ' 
 const okPhrase = (p) => { const w = p.split(' '); return w.length >= 2 && w.length <= 6 && p.length <= 60 && !NOT_PRODUCT.test(p) && !BRANDS.test(p) && !/\b(19|20)\d\d\b/.test(p); };
 
 /** Google's search suggestions for one query (most popular first). */
-async function suggest(q) {
+async function suggest(q, retry = true) {
   const u = `https://suggestqueries.google.com/complete/search?client=firefox&hl=en&gl=${GL()}&ie=utf-8&oe=utf-8&q=${encodeURIComponent(q)}`;
-  const r = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 (Kinan trends)' }, signal: AbortSignal.timeout(10000) });
+  let r;
+  // a single slow answer (seen several times a night) is asked once more instead of dropping the whole keyword
+  try { r = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 (Kinan trends)' }, signal: AbortSignal.timeout(10000) }); } catch (e) {
+    if (retry && (e.name === 'TimeoutError' || e.name === 'AbortError' || /aborted|timeout/i.test(e.message))) return suggest(q, false);
+    throw e;
+  }
   if (r.status === 429 || r.status === 403) { const e = new Error('Google suggestions are busy'); e.busy = true; throw e; }
   if (!r.ok) throw new Error(`Google suggestions HTTP ${r.status}`);
   const j = JSON.parse(await r.text());
@@ -69,12 +74,12 @@ async function tick({ force = false } = {}) {
   running = true;
   const all = seeds(); let cursor = st.day === day() ? Number(st.cursor) || 0 : 0;
   const end = Math.min(all.length, cursor + SEEDS_PER_TICK());
-  const touched = {}; let calls = 0; let error = null;
+  const touched = {}; let calls = 0; let error = null; let skipped = 0;
   try {
     for (; cursor < end; cursor++) {
       const s = all[cursor];
       let found;
-      try { found = await scanSeed(s); calls += 3; } catch (e) { error = e.message; if (e.busy) break; continue; }
+      try { found = await scanSeed(s); calls += 3; } catch (e) { if (e.busy) { error = e.message; break; } skipped = (skipped || 0) + 1; continue; } // a keyword that still fails is tried again on the next pass
       const b = touched[s.dept] || (touched[s.dept] = bank(s.dept));
       for (const [p, sc] of Object.entries(found)) {
         const x = b[p] || (b[p] = { group: s.group, seed: s.kw, first: day(), days: {} });
@@ -91,7 +96,7 @@ async function tick({ force = false } = {}) {
     }
     const done = cursor >= all.length;
     const phrases = Object.values(touched).reduce((a, b) => a + Object.keys(b).length, 0);
-    console.log(`[trends] scanned ${cursor}/${all.length} keywords · ${calls} Google calls · ${phrases} phrases in the touched departments${error ? ` · error: ${error}` : ''}`);
+    console.log(`[trends] scanned ${cursor}/${all.length} keywords · ${calls} Google calls · ${phrases} phrases in the touched departments${skipped ? ` · ${skipped} keyword(s) skipped (no answer)` : ''}${error ? ` · error: ${error}` : ''}`);
     put('trends_state', { day: day(), cursor, done_day: done ? day() : st.done_day || null, last_run: now(), last_calls: calls, error, seeds: all.length, scans: (st.scans || 0) + (done ? 1 : 0) });
     if (done) { try { await ebayCheck(); } catch (e) { console.warn('[trends] eBay check:', e.message); } console.log(`[trends] daily scan done: ${all.length} keywords`); }
     return { cursor, of: all.length, calls, error };

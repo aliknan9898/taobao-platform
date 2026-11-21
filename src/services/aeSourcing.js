@@ -74,8 +74,7 @@ async function search(kw, country) {
   const gap = 3000 - (now() - lastSearch); if (gap > 0) await wait(gap);
   lastSearch = now();
   const ask = () => ae.call('aliexpress.ds.text.search', { keyWord: kw, local: 'en_US', countryCode: country, currency: String(config.currency).toUpperCase(), pageSize: 30, pageIndex: 1, sortBy: 'orders,desc' }, tok);
-  let j;
-  try { j = await ask(); } catch (e) { if (!/SEARCH_ERROR|frequen|limit/i.test(e.message)) throw e; await wait(10000); lastSearch = now(); j = await ask(); }
+  const j = await ask(); // the client already retries once after a "too frequent" or search error
   logShape('search', j);
   return findAll(j, ['itemId', 'item_id', 'product_id', 'productId']).map((x) => ({
     id: String(x.itemId || x.item_id || x.product_id || x.productId),
@@ -167,12 +166,23 @@ async function run({ count } = {}, by = 'auto') {
         if (!items.length) break;
       }
     }
+    // Keyword search can be refused for the whole app (NGSELECTION_SEARCH_ERROR on every word, seen for days):
+    // after two refusals in a row it pauses for 12 hours and the feeds alone are used, instead of spending
+    // ~20 s and 4 API calls on every keyword of every run.
+    const off = Number(state().search_off_until) || 0;
+    if (off > now()) { st.search_paused_until = off; return; }
     for (let qi = 0; qi < q.length; qi++) {
       const item = q[(start + qi) % q.length];
       let found;
-      try { found = await search(item.kw, 'GB'); fails = 0; } catch (e) {
-        // one keyword AliExpress cannot search: skip it; several in a row: stop until the next run
+      try { found = await search(item.kw, 'GB'); fails = 0; if (state().search_error) save({ search_error: null, search_off_until: 0 }); } catch (e) {
+        // one keyword AliExpress cannot search: skip it; two app-wide refusals in a row: pause keyword search
         fails++; console.warn('[ae-sourcing] search', item.kw, e.message);
+        if (fails >= 2 && /SEARCH_ERROR/i.test(e.message)) {
+          save({ search_off_until: now() + 12 * 3600e3, search_error: String(e.message).slice(0, 120), cursor: (start + qi + 1) % q.length });
+          st.search_paused_until = now() + 12 * 3600e3;
+          console.warn('[ae-sourcing] keyword search refused by AliExpress — paused 12 h, feeds only');
+          return;
+        }
         if (fails >= 5) { st.error = `AliExpress search: ${e.message}`; return; }
         save({ cursor: (start + qi + 1) % q.length });
         continue;
