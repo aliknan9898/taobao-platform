@@ -671,6 +671,10 @@ test('review fixes: stock, photo access, test payments, cleanup, client IP', asy
   assert.ok(cleanup() >= 1);
   assert.ok(!db.sessions.find((x) => x.token_hash === 'old'));
   assert.strictEqual(clientIp({ headers: { 'x-forwarded-for': '1.1.1.1, 9.9.9.9' }, socket: { remoteAddress: '10.0.0.1' } }), '9.9.9.9');
-  assert.strictEqual(clientIp({ headers: { 'cf-connecting-ip': '5.5.5.5', 'x-forwarded-for': '1.1.1.1' }, socket: {} }), '5.5.5.5');
+  // CF-Connecting-IP counts only when the request really came from a Cloudflare edge address
+  assert.strictEqual(clientIp({ headers: { 'cf-connecting-ip': '5.5.5.5', 'x-forwarded-for': '104.16.3.4' }, socket: {} }), '5.5.5.5');
+  assert.strictEqual(clientIp({ headers: { 'cf-connecting-ip': '5.5.5.5', 'x-forwarded-for': '2606:4700:10::ac43:1' }, socket: {} }), '5.5.5.5');
+  assert.strictEqual(clientIp({ headers: { 'cf-connecting-ip': '5.5.5.5', 'x-forwarded-for': '1.1.1.1' }, socket: {} }), '1.1.1.1', 'a spoofed header from elsewhere is ignored');
+  assert.strictEqual(clientIp({ headers: { 'cf-connecting-ip': '6.6.6.6', 'x-forwarded-for': '8.8.8.8' }, socket: {} }), '8.8.8.8');
   assert.strictEqual(clientIp({ headers: {}, socket: { remoteAddress: '10.0.0.1' } }), '10.0.0.1');
 });
