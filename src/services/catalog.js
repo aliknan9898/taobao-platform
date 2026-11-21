@@ -480,21 +480,20 @@ function similar(id, limit = 12) {
   if (!l) return { items: [] };
   const words = (t) => new Set(String(t || '').toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').split(/\s+/).filter((w) => w.length > 2 && !['the', 'and', 'for', 'with', 'set', 'pcs', 'new'].includes(w)));
   const mine = words(`${l.title} ${(l.keywords || []).join(' ')}`);
+  // Score the raw records of the visible catalogue (same rule as browse(): active product of an active shop), then build
+  // buyer views only for the few shown. Building a view for every product made each product page wait ~150 ms.
+  const activeSellers = new Map(db.sellers.all((s) => s.status === 'active').map((s) => [s.id, s]));
+  const newest = (x) => x.review?.decided_at || x.created_at;
   const out = [];
-  // Resolve listing IDs once: repeated db.listings.get() scanned the entire
-  // collection for every recommendation candidate (quadratic work).
-  const listingsById = new Map(db.listings.all().map((item) => [item.id, item]));
-  for (const p of browse({ limit: 100000 }).items) {
-    if (p.id === id) continue;
-    const o = listingsById.get(p.id); if (!o) continue;
+  for (const o of db.listings.all((x) => x.status === 'active' && activeSellers.has(x.seller_id) && x.id !== id)) {
     let sc = 0;
     if (l.collection_group && o.collection_group === l.collection_group && (o.collections || []).some((c) => (l.collections || []).includes(c))) sc += 4;
     else if ((o.collections || []).some((c) => (l.collections || []).includes(c))) sc += 1;
     if ((o.category || 'other') === (l.category || 'other')) sc += 1;
     for (const w of words(`${o.title} ${(o.keywords || []).join(' ')}`)) if (mine.has(w)) sc += 2;
-    if (sc >= 3) out.push({ p, sc });
+    if (sc >= 3) out.push({ o, sc, at: newest(o) });
   }
-  return { items: out.sort((a, b) => b.sc - a.sc || b.p.listed_at - a.p.listed_at).slice(0, limit).map((x) => x.p) };
+  return { items: out.sort((a, b) => b.sc - a.sc || b.at - a.at).slice(0, limit).map((x) => toBuyerView(x.o, activeSellers.get(x.o.seller_id))) };
 }
 
 module.exports = { delivery, many, similar,

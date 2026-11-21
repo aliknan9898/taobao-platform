@@ -117,9 +117,20 @@ ${images(l).map(abs).filter((u) => /^https:/.test(u)).slice(0, 4).map((u) => `<i
 ${desc ? `<p>${h(desc)}</p>` : ''}${opts.length > 1 ? `<p>Options: ${h(opts.join(', '))}</p>` : ''}${l.description_ar ? `<p lang="ar" dir="rtl">${h(plain(l.description_ar).slice(0, 1500))}</p>` : ''}</article>
 ${related.length ? `<h2>More ${h(cat || 'products')}</h2>${cardsHtml(related)}` : ''}`;
 }
-function ssrList({ title, intro, collection, category, seller_id, limit = 120 } = {}) {
-  const list = liveProducts().filter(({ l }) => (!collection || (l.collections || []).includes(collection)) && (!category || (l.category || 'other') === category) && (!seller_id || l.seller_id === seller_id)).slice(0, limit).map(({ l }) => l);
-  const cats = [...new Set(liveProducts().map(({ l }) => l.category || 'other'))];
+// The server-rendered product list of a page changes only when products or shops change: kept for a minute per page
+const ssrMemo = new Map();
+function ssrList(opts = {}) {
+  const key = `${JSON.stringify(opts)}|${db.version('listings')}|${db.version('sellers')}`;
+  const hit = ssrMemo.get(key); if (hit && Date.now() - hit.at < 60e3) return hit.html;
+  const html = ssrListBuild(opts);
+  if (ssrMemo.size > 200) ssrMemo.clear();
+  ssrMemo.set(key, { at: Date.now(), html });
+  return html;
+}
+function ssrListBuild({ title, intro, collection, category, seller_id, limit = 120 } = {}) {
+  const live = liveProducts();
+  const list = live.filter(({ l }) => (!collection || (l.collections || []).includes(collection)) && (!category || (l.category || 'other') === category) && (!seller_id || l.seller_id === seller_id)).slice(0, limit).map(({ l }) => l);
+  const cats = [...new Set(live.map(({ l }) => l.category || 'other'))];
   return `<h1>${h(title)}</h1>${intro ? `<p>${h(intro)}</p>` : ''}${cardsHtml(list)}
 <nav aria-label="Categories">${cats.map((c) => `<a href="/c/${h(c)}">${h((require('./services/shipping').CATEGORIES.find(([id]) => id === c) || [c, c])[1])}</a>`).join(' · ')}${require('./services/seasonal').publicInfo().length ? ' · <a href="/christmas">Christmas Shop</a>' : ''}</nav>`;
 }
