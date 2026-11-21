@@ -44,16 +44,25 @@ async function tick(time = Date.now()) {
   if (!report || db.settings.get(deliveryId)?.day === today) return false;
   sending = true;
   try {
-    const lines = [`📦 تقرير استيراد KINAN · ${report.id.slice(prefix.length)} (مالطا)`];
-    for (const [source, stats] of Object.entries(report.sources)) {
-      lines.push('', source, `الدفعات: ${stats.runs} · فُحص: ${stats.checked} · تجاوز: ${stats.skipped}`,
-        `نُشر: ${stats.published} · بانتظار النشر: ${stats.pending} · رُفض: ${stats.rejected}`);
-      for (const [reason, count] of Object.entries(stats.reasons).sort((a, b) => b[1] - a[1]).slice(0, 3)) {
+    // One Telegram message per source (AliExpress, CJ catalog, …), so each report can be read on its own.
+    // A source already sent is not sent again if a later one fails; the day is closed when all are sent.
+    const date = report.id.slice(prefix.length);
+    const sent = new Set(report.sent_sources || []);
+    let failed = false;
+    for (const [source, stats] of Object.entries(report.sources || {})) {
+      if (sent.has(source)) continue;
+      const lines = [`📦 تقرير استيراد KINAN · ${source}`, `${date} (مالطا)`, '',
+        `الدفعات: ${stats.runs} · فُحص: ${stats.checked} · تجاوز: ${stats.skipped}`,
+        `نُشر: ${stats.published} · بانتظار النشر: ${stats.pending} · رُفض: ${stats.rejected}`];
+      for (const [reason, count] of Object.entries(stats.reasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 5)) {
         lines.push(`• ${reason.slice(0, 90)}: ${count}`);
       }
       if (stats.error) lines.push(`آخر خطأ: ${stats.error}`);
+      if (!await require('../push').telegram(lines.join('\n').slice(0, 3500))) { failed = true; break; }
+      sent.add(source);
+      db.settings.update(report.id, { sent_sources: [...sent] });
     }
-    if (!await require('../push').telegram(lines.join('\n').slice(0, 3500))) return false;
+    if (failed) { await db.flush(); return false; }
     db.settings.update(report.id, { sent_at: time });
     if (db.settings.get(deliveryId)) db.settings.update(deliveryId, { day: today });
     else db.settings.insert({ id: deliveryId, day: today });
