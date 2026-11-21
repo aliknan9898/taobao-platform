@@ -354,6 +354,8 @@ async function run(opts = {}, by = 'admin') {
   const rejected = [];
   const screened = new Map();
   const st = { running: true, started_at: now(), by, target, photos_only: photosOnly, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, error: null, last: [] };
+  // cost of this run: CJ API calls (background budget) and AI reviews, reported per product added
+  const calls0 = Number(cjc.usage().total_calls) || 0; st.ai_reviews = 0;
   activeRun = st;
   const skip = (why, c, title = c.title) => {
     st.skipped++;
@@ -396,6 +398,7 @@ async function run(opts = {}, by = 'admin') {
             if (cj.BLOCK.test(`${product.title} ${product.description}`) || NOT_FOR_US.test(product.title)) throw httpError(422, 'not suitable');
             if (list(product.images).filter((u) => /^https?:/.test(u)).length < 2) throw httpError(422, 'too few photos');
             if (photosOnly) {
+              st.ai_reviews++;
               try { photos = await reviewPhotos(product, p.min_quality, c.pid); }
               catch (e) { photoReviewError = true; throw e; }
             }
@@ -429,6 +432,7 @@ async function run(opts = {}, by = 'admin') {
         }
         const drop = (why) => { db.listings.remove(l.id); skip(why, c, l.title); };
         // the AI decides (photos + text)
+        if (!photos) st.ai_reviews++;
         const d = photos ? { quality: photos.quality, ebay_ok: false } : await curate(l, item);
         if (!photos && d && !d.error) {
           const reason = reviewRejection(l.id, d, p.min_quality);
@@ -469,11 +473,14 @@ async function run(opts = {}, by = 'admin') {
     }
   } catch (e) { st.error = e.message; }
   finally {
+    const used = (Number(cjc.usage().total_calls) || 0) - calls0; st.cj_calls = used >= 0 ? used : null;
+    st.cj_calls_per_added = st.added && st.cj_calls != null ? Math.round(st.cj_calls / st.added * 10) / 10 : null;
+    st.ai_per_added = st.added ? Math.round(st.ai_reviews / st.added * 10) / 10 : null;
     running = false; st.running = false; st.done_at = now(); st.stopped = stopAsked && !st.retry_at ? true : undefined;
     persist();
     activeRun = null;
   }
-  console.log(`[sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}`);
+  console.log(`[sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} · CJ calls ${st.cj_calls ?? '?'} (${st.cj_calls_per_added ?? '—'} per product added) · AI reviews ${st.ai_reviews} ${JSON.stringify(st.reasons)}${st.error ? ` — ${st.error}` : ''}`);
   const allRejected = [...screened.values(), ...rejected];
   require('./importDigest').record('CJ catalog', st, added, allRejected);
   return st;

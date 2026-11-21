@@ -89,6 +89,10 @@ test('catalog builder: picks best sellers in EU/UK warehouses, fast delivery, AI
   assert.ok(!db.listings.all((l) => ['D7', 'D8'].includes(l.cj_pid)).length);
   assert.ok(st.reasons['AI: photos not good enough'] >= 1, JSON.stringify(st.reasons));
   assert.ok(Object.keys(st.reasons).some((k) => /no delivery in 7 days/.test(k)), JSON.stringify(st.reasons));
+  // cost per approved product is reported
+  assert.ok(Number.isFinite(st.cj_calls) && st.cj_calls > 0, `cj_calls ${st.cj_calls}`);
+  assert.ok(st.ai_reviews >= st.added);
+  assert.ok(st.added === 0 || st.cj_calls_per_added > 0);
   assert.ok(!db.listings.all((l) => /Leash|Disney/.test(l.title)).length, 'low demand and brand copies are left out');
   const harness = added.find((l) => /Harness/.test(l.sourcing.supplier_title));
   assert.deepStrictEqual(harness.collections, ['pets']);

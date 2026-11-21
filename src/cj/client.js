@@ -82,7 +82,7 @@ function bgBudget() {
   if (bgUse.n >= BG_MAX()) throw new CjError(`CJ: today's background limit (${BG_MAX()} calls) is used — the rest is kept for orders`, 'BUDGET', 429);
   bgUse.n++; saveUse();
 }
-const usage = () => (loadUse(), { background_calls: bgUse.n, background_limit: BG_MAX(), resets_at: bgUse.reset || nextReset(), points_out_until: pointsOutUntil > Date.now() ? pointsOutUntil : null,
+const usage = () => (loadUse(), { total_calls: totalCalls, background_calls: bgUse.n, background_limit: BG_MAX(), resets_at: bgUse.reset || nextReset(), points_out_until: pointsOutUntil > Date.now() ? pointsOutUntil : null,
   points: points ? { ...points, reserve: RESERVE(), refill_per_minute: points.total ? Math.round(points.total / 1440) : null } : null });
 /** When stopped background work should try again: right after CJ's points have refilled (or in 20 minutes). */
 const retryAt = () => { const u = pointsOutUntil > Date.now() ? pointsOutUntil : 0; return u ? u + 60e3 : Date.now() + 20 * 60e3; };
@@ -173,7 +173,9 @@ async function token({ force = false } = {}) {
 }
 
 /** Authenticated call; signs in again once if CJ says the token is no longer valid. */
+let totalCalls = 0; // every CJ API call made by this process (for cost reports)
 async function call(method, path, opts = {}) {
+  totalCalls++;
   const isBackground = Boolean(ctx.getStore()?.bg);
   if (isBackground) bgBudget();
   let t = await token();
