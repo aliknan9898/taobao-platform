@@ -32,6 +32,8 @@ function database() {
 
 test('configuration: only the kinan service (or a local run) is eligible by default', () => {
   assert.equal(eligible({ RENDER_SERVICE_NAME: 'kinan' }).ok, true);
+  assert.equal(eligible({ RENDER_SERVICE_NAME: 'kinan-17ma', RENDER_SERVICE_ID: 'srv-dbpdpl08v5cc73dvt3bg' }).ok, true); // what Render really sets
+  assert.equal(eligible({ RENDER_SERVICE_NAME: 'taobao-platform', RENDER_SERVICE_ID: 'srv-dbpd2dmc6qcc73ab5g30' }).ok, false);
   assert.equal(eligible({ RENDER_SERVICE_NAME: 'taobao-platform' }).ok, false);
   assert.equal(eligible({}).ok, true);
   assert.equal(eligible({ RENDER_SERVICE_NAME: 'kinan', RUN_JOBS: '0' }).ok, false);
