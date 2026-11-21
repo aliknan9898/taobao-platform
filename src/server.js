@@ -1244,9 +1244,7 @@ function startJobs() {
   every(10 * 60e3, () => require('./services/uilang').tick()); // French, German, Italian, Spanish
   setTimeout(() => require('./services/uilang').tick().catch(() => {}), 90e3); // start translating soon after a deploy
   every(20 * 60e3, () => require('./services/sourcing').tick());
-  if (!process.env.RENDER_SERVICE_NAME || process.env.RENDER_SERVICE_NAME === 'kinan') {
-    every(5 * 60e3, () => require('./services/importDigest').tick());
-  }
+  every(5 * 60e3, () => require('./services/importDigest').tick()); // jobOwner already limits jobs to one process
   every(5 * 60e3, () => require('./services/payouts').tick()); // PayPal payouts follow-up and payout-day sending // checked every 20 min (a deploy no longer pushes it back an hour); it only runs when there is room today
   setTimeout(() => Promise.resolve(require('./cj/client').background(() => require('./services/sourcing').tick())).catch(() => {}), 3 * 60e3); // AI catalog builder: the daily batch, and resuming a paused run // eBay: orders in, tracking out, hourly price/stock // AI review of new and changed products
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) await cjs.resyncStale(300); });
@@ -1273,7 +1271,8 @@ if (require.main === module) (async () => {
     console.log(`Kinan on :${config.port}  store: /  seller: /seller  admin: /admin  warehouse: /warehouse`);
     console.log(`OAuth callback: ${config.redirectUri}`);
   });
-  startJobs();
+  // one process runs the scheduled jobs: see src/jobOwner.js (RUN_JOBS, JOBS_SERVICE, PostgreSQL advisory lock)
+  require('./jobOwner').run(startJobs, { pool: db.pgPool() }).catch((e) => console.error('[jobs]', e.message));
   try { require('./services/kyc').enforce(); } catch (e) { console.error('[kyc]', e.message); }
   // Brevo: add/check the site's domain now, then every 30 minutes until it is authenticated
   const mailDomain = () => mailer.setupDomain().catch((e) => console.error('[mail] domain setup:', e.message));

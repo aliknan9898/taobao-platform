@@ -144,6 +144,7 @@ function exportAll() {
 module.exports = {
   id, init, flush, close, exportAll, version,
   get mode() { return pool ? 'postgres' : 'json'; },
+  pgPool: () => pool, // for the scheduled-jobs lock (src/jobOwner.js); null in JSON mode
   pendingWrites: () => pending.size,
   ...Object.fromEntries(COLLECTIONS.map(([name, prefix]) => [name === 'oauth_states' ? 'oauthStates' : name, collection(name, prefix)])),
   _reset() { cache.clear(); }
