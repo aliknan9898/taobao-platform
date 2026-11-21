@@ -1191,6 +1191,12 @@ function cleanup(now = Date.now()) {
 }
 
 function startJobs() {
+  // For duplicate web services, disable ALL scheduled jobs on the passive instance.
+  // Defaults to enabled for backward compatibility; configure explicitly per Render service.
+  if (process.env.KINAN_BACKGROUND_JOBS_ENABLED === '0') {
+    console.log('[jobs] scheduled background jobs disabled for this instance');
+    return;
+  }
   // Scheduled jobs are background work: their CJ calls wait behind anything a person is doing
   const every = (ms, fn) => setInterval(() => Promise.resolve(require('./cj/client').background(fn)).catch(() => {}), ms).unref();
   every(30e3, webhooks.processInbox);
