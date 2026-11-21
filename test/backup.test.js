@@ -102,3 +102,16 @@ test('off until configured: no key, no upload', async () => {
   assert.ok((await backup.run()).skipped);
   process.env.BACKUP_ENCRYPTION_KEY = saved;
 });
+
+test('bucket check: reachable with the keys, a clear reason when not (no encryption key needed)', async () => {
+  assert.equal((await backup.checkBucket()).reachable, true);
+  const env = { ...process.env, BACKUP_ENCRYPTION_KEY: '' };
+  const r = await backup.checkBucket(env);
+  assert.equal(r.reachable, true); assert.equal(r.encryption_key, false);
+  const missing = await backup.checkBucket({ ...env, R2_ACCOUNT_ID: '' });
+  assert.equal(missing.reachable, false); assert.match(missing.missing.join(), /R2_ACCOUNT_ID/);
+  const real = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 403, text: async () => '' });
+  assert.match((await backup.checkBucket()).error, /refused/);
+  global.fetch = real;
+});

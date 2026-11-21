@@ -769,7 +769,7 @@ r('GET', '/api/admin/orders/:id/qc/:n', STAFF, async ({ params, res }) => sendIm
 r('GET', '/api/admin/orders/:id/messages', CARE, async ({ params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); return messages.threadsFor(o, { role: 'staff' }); });
 r('POST', '/api/admin/orders/:id/messages', CARE, async ({ req, user, params }) => { const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Not found'); const b = await readJson(req); return messages.post(o, { role: 'staff', user }, { thread: 'kinan', text: b.text }); });
 r('GET', '/api/admin/backup', ADMIN, async ({ res }) => { const f = ops.backupFile(); res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="${f.name}"`, 'Content-Length': f.body.length, 'Cache-Control': 'no-store' }); res.end(f.body); });
-r('GET', '/api/admin/backup/offsite', ADMIN, async () => require('./services/backup').status());
+r('GET', '/api/admin/backup/offsite', ADMIN, async () => ({ ...require('./services/backup').status(), check: await require('./services/backup').checkBucket() }));
 r('POST', '/api/admin/backup/offsite', ADMIN, async () => require('./services/backup').run({ reason: 'manual' })); // e.g. right before a migration
 r('POST', '/api/admin/backup/email', ADMIN, async () => { const k = `backup:${new Date().toISOString().slice(0, 10)}`; for (const m of db.mail.all((x) => x.key === k)) db.mail.remove(m.id); return { ...(await ops.dailyBackup()), to: ops.backupRecipient() }; });
 // Seasonal collections (Christmas Shop from CJ's European warehouses)

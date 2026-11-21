@@ -109,6 +109,22 @@ async function run({ reason = 'daily', env = process.env } = {}) {
   return { ...manifest, removed };
 }
 
+/** Can Kinan reach the private bucket with the R2 keys? (works before the encryption key is set; reads nothing secret) */
+async function checkBucket(env = process.env) {
+  const c = cfg(env);
+  const missing = [['R2_ACCOUNT_ID', c.account], ['BACKUP_R2_ACCESS_KEY_ID (or R2_ACCESS_KEY_ID)', c.keyId], ['BACKUP_R2_SECRET_ACCESS_KEY (or R2_SECRET_ACCESS_KEY)', c.secret]].filter(([, v]) => !v).map(([k]) => k);
+  let keyOk = true; try { keyBytes(c.key); } catch { keyOk = false; }
+  if (missing.length) return { bucket: c.bucket, reachable: false, missing, encryption_key: keyOk };
+  try {
+    const r = await s3('GET', `/${encodeURIComponent(c.bucket)}`, { query: ['list-type=2', 'max-keys=1'].join('&') }, env);
+    return { bucket: c.bucket, reachable: r.ok, missing: [], encryption_key: keyOk };
+  } catch (e) {
+    const code = (String(e.message).match(/HTTP (\d+)/) || [])[1];
+    const why = code === '403' ? 'the keys are refused (wrong key, or the token has no access to this bucket)' : code === '404' ? 'no bucket with this name' : e.message;
+    return { bucket: c.bucket, reachable: false, missing: [], encryption_key: keyOk, error: why };
+  }
+}
+
 /** For monitoring: age of the last off-site backup. */
 function status(now = Date.now()) {
   const m = db.settings.get('backup_last');
@@ -148,4 +164,4 @@ async function restoreInto(target, snap) {
   return counts;
 }
 
-module.exports = { cfg, enabled, encrypt, decrypt, snapshot, expired, run, status, tick, restoreInto, list, MAGIC };
+module.exports = { checkBucket, cfg, enabled, encrypt, decrypt, snapshot, expired, run, status, tick, restoreInto, list, MAGIC };
