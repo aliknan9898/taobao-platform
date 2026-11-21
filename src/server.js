@@ -91,7 +91,9 @@ function readRaw(req) {
 async function readJson(req) {
   const raw = await readRaw(req);
   if (!raw) return {};
-  try { return JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
+  let j; try { j = JSON.parse(raw); } catch { throw httpError(400, 'Invalid JSON'); }
+  req._json = j; // field names (never values) go to the admin audit trail
+  return j;
 }
 // Keep templates in memory; refresh when the underlying file changes during development.
 const pageTemplates = new Map();
@@ -908,6 +910,7 @@ r('POST', '/api/admin/returns/:id', PEOPLE, async ({ req, params, user }) => {
 });
 r('GET', '/api/admin/requests', CARE, async () => shopSvc.adminRequests());
 r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
+r('GET', '/api/admin/audit', ADMIN, async ({ url }) => require('./audit').list({ limit: url.searchParams.get('limit'), actor: url.searchParams.get('actor') || '', path: url.searchParams.get('path') || '' }));
 r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
 // products by platform (AliExpress, CJ, Taobao, Banggood, Kinan catalogue, sellers' own, any new source)
 r('GET', '/api/admin/platforms', ADMIN, async () => require('./services/platforms').summary());
@@ -977,6 +980,7 @@ const CUSTOMER_PATH = /^\/(api\/(buyer|catalog|shops|categories|shipping|search|
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
+  let auditCtx = null; // set for routes that need a role: the admin audit trail records who did it
   try {
     if (p === '/healthz') return send(res, 200, 'ok');
     // Send visitors of the old *.onrender.com address to the main domain (pages only; API calls and webhooks keep working)
@@ -1169,15 +1173,19 @@ const server = http.createServer(async (req, res) => {
       if (APP_LANGS.includes(hl)) { const lu = auth.authenticate(req); const rec = lu && db.users.get(lu.id); if (rec && rec.lang !== hl) db.users.update(rec.id, { lang: hl }); }
       if (rt.roles) {
         const user = auth.authenticate(req);
+        auditCtx = { user, params: ctx.params };
         Object.assign(ctx, auth.requireRole(user, ...rt.roles));
+        auditCtx.user = ctx.user || user;
       }
       const out = await rt.handler(ctx);
+      if (auditCtx) { try { require('./audit').record({ req, path: p, user: auditCtx.user, status: res.statusCode >= 300 && res.writableEnded ? res.statusCode : 200, params: auditCtx.params }); } catch (e) { console.error('[audit]', e.message); } }
       if (res.writableEnded) return; // handler wrote its own response (e.g. a CSV download)
       return send(res, req.method === 'POST' && /register|checkout|products$|manual$|products\/aliexpress$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
     }
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     const status = e.status || (e.name === 'TaobaoApiError' ? 502 : 500);
+    if (auditCtx) { try { require('./audit').record({ req, path: p, user: auditCtx.user, status, params: auditCtx.params, error: e.message }); } catch { /* never block the answer */ } }
     const errorId = status >= 500 ? require('crypto').randomBytes(4).toString('hex') : undefined;
     if (status >= 500) { console.error('[error]', errorId, req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message} (${errorId})`); }
     // Customers never see internal or supplier error text (it can name a supplier or a system): a plain message and an id
@@ -1196,6 +1204,7 @@ function cleanup(now = Date.now()) {
   for (const x of db.sessions.all((s) => s.expires_at < now)) { db.sessions.remove(x.id); n++; }
   for (const x of db.oauthStates.all((s) => (s.expires_at || 0) < now)) { db.oauthStates.remove(x.id); n++; }
   for (const x of db.tokens.all((t) => t.expires_at < now)) { db.tokens.remove(x.id); n++; }
+  n += require('./audit').prune(now);
   return n;
 }
 
