@@ -72,3 +72,20 @@ test('an order follows its parcel: notified once per milestone, delivered at the
   assert.ok(!('shipping_address' in sv));
   T._setFetcher(null);
 });
+
+test('two parcels of one order are tracked apart: one delivered, the other still travelling', async () => {
+  const u = db.users.insert({ email: 'two@x.test', role: 'buyer', name: 'T' });
+  const o = db.orders.insert({ buyer_id: u.id, status: 'shipped', currency: 'usd', total: 20, shipping_address: { country_code: 'MT' },
+    lines: [{ line_no: 1, title: 'Cap', qty: 1, price: 10, direct: true, seller_id: 's1' }, { line_no: 2, title: 'Mug', qty: 1, price: 10, direct: true, seller_id: 's2' }],
+    sub_orders: [
+      { outer_purchase_id: 'P1', seller_id: 's1', direct: true, source: 'aliexpress', status: 'AE_SHIPPED', line_nos: [1], logistics: [{ carrier: 'Cainiao', tracking: 'AP_A' }] },
+      { outer_purchase_id: 'P2', seller_id: 's2', direct: true, source: 'aliexpress', status: 'AE_SHIPPED', line_nos: [2], logistics: [{ carrier: 'Cainiao', tracking: 'AP_B' }] }], timeline: [] });
+  T._setFetcher(async (nums) => ({ AP_A: [ev('Delivered', '2'), ev('Out for delivery', '1')], AP_B: [ev('Departed from the origin country', '1')] }));
+  await T.refresh(o.id);
+  const x = db.orders.get(o.id);
+  assert.deepEqual(x.sub_orders.map((s) => [s.outer_purchase_id, s.status, s.track.status]), [['P1', 'AE_DELIVERED', 12], ['P2', 'AE_SHIPPED', 5]]);
+  assert.notEqual(x.status, 'delivered');
+  const keys = (x.notices || []).filter((k) => k.startsWith('trk:'));
+  assert.ok(keys.some((k) => k.includes(':P1:12')) && keys.some((k) => k.includes(':P2:5')), JSON.stringify(keys));
+  T._setFetcher(null);
+});
