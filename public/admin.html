@@ -1112,6 +1112,7 @@ function monitorImports() {
           ${running && r.current ? `<p class="small">Checking <b>${esc(r.current)}</b></p>` : ''}
           ${recent.length ? `<div class="small">Newest additions<ul>${recent.join('')}</ul></div>` : ''}
           ${reasons.length ? `<div class="small">Top skip reasons<ul>${reasons.join('')}</ul></div>` : ''}
+          ${r.markets ? `<div class="small">Delivery within the limit, per country (passed / checked): ${Object.entries(r.markets).map(([cc, m]) => `<b>${esc(cc)}</b> ${Number(m.passed) || 0}/${Number(m.checked) || 0}`).join(' · ')}</div>` : ''}
           ${progress === null ? '' : `<progress max="100" value="${progress}" style="width:100%"></progress><small class="muted">${progress}% of target</small>`}
           ${r.error ? `<p class="err small">${esc(String(r.error).slice(0,250))}</p>` : ''}
           ${start ? `<p class="muted small">Started ${new Date(start).toLocaleString()}</p>` : ''}</div>`;
