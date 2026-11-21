@@ -88,7 +88,7 @@ const K = (() => {
   ];
   function footer(owner = 'Ali Almadhoun Mohammed Kinan') {
     const social = SOCIAL.map(([n, u, d]) => `<a href="${u}" target="_blank" rel="noopener" aria-label="Kinan on ${n}" title="${n}"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg></a>`).join('');
-    return `<footer class="sitefoot"><div class="wrap"><nav class="social" aria-label="Follow Kinan">${social}</nav><nav aria-label="Legal"><a href="/#/track">Track order</a><a href="/terms">Terms</a><a href="/seller-terms">Seller Terms</a><a href="/privacy">Privacy</a><a href="/legal">Legal notice</a></nav>
+    return `<footer class="sitefoot"><div class="wrap"><nav class="social" aria-label="Follow Kinan">${social}</nav><nav aria-label="Legal"><a href="/#/track">Track order</a><a href="/catalogue">Catalogue</a><a href="/terms">Terms</a><a href="/seller-terms">Seller Terms</a><a href="/privacy">Privacy</a><a href="/legal">Legal notice</a></nav>
       <p>© ${new Date().getFullYear()} ${esc(owner)}. All rights reserved. Kinan is a trading name of ${esc(owner)}.</p></div></footer>`;
   }
 

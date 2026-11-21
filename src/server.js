@@ -1051,6 +1051,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
       if (p === '/download' || p === '/apps') return page(res, 'download.html');
+      if (p === '/catalogue' || p === '/catalog') return page(res, 'catalogue.html');
       if (p === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(seo.robots()); }
       if (p === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.sitemap()); }
       if (p === '/feeds/google.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.merchantFeed()); }
