@@ -595,7 +595,10 @@ const routes = [
   [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/points$/, pointsPage], [/^#\/deals$/, dealsPage], [/^#\/giftcards(?:\/([\w-]+))?$/, (c) => giftcardsPage(c || '')], [/^#\/photo$/, photoPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
   [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
 ];
+let catalogRequest;
 async function route() {
+  catalogRequest?.abort();
+  catalogRequest = null;
   renderTabbar();
   const h = location.hash || '#/';
   // The catalog can render without a session, but account and checkout routes
@@ -656,11 +659,18 @@ const toolbar = () => `<form class="toolbar" id="tb">
     <select name="sort" aria-label="Sort"><option value="new">Newest</option><option value="price_asc">Price: low to high</option><option value="price_desc">Price: high to low</option></select>
     <input name="min_price" type="number" min="0" step="1" placeholder="Min ${({ USD: "$", EUR: "€", GBP: "£" })[Locale.get().currency] || "$"}" aria-label="Minimum price" value="${esc(filters.min_price)}">
     <input name="max_price" type="number" min="0" step="1" placeholder="Max ${({ USD: "$", EUR: "€", GBP: "£" })[Locale.get().currency] || "$"}" aria-label="Maximum price" value="${esc(filters.max_price)}">
-    <button class="btn sm ghost">Apply</button></form>`;
+    <button class="btn sm ghost">Apply</button>
+    <button type="button" class="btn sm ghost" id="clear-filters">${KinanLang.t('Clear filters')}</button></form>`;
 function wireToolbar(reload) {
   const f = $('#tb'); if (!f) return;
   f.sort.value = filters.sort;
   f.sort.onchange = () => f.requestSubmit();
+  f.querySelector('#clear-filters').onclick = () => {
+    f.sort.value = 'new';
+    f.min_price.value = '';
+    f.max_price.value = '';
+    f.requestSubmit();
+  };
   f.onsubmit = (e) => { e.preventDefault(); filters = { sort: f.sort.value, min_price: f.min_price.value, max_price: f.max_price.value }; reload(); };
 }
 const toBase = (v) => { const r = (cfg.fx && cfg.fx.rates && cfg.fx.rates[Locale.get().currency]) || 1; return String(Math.round((Number(v) / r) * 100) / 100); };
@@ -684,13 +694,15 @@ async function home(q = '', category = '') {
   Search.set(q);
   // The catalog API is paginated; keep fetching subsequent pages on demand.
   // Reset the cursor when search, category or toolbar filters change.
-  let requestVersion = 0;
+  const results = v.querySelector('#results');
+  const activeView = () => results.isConnected && $('#view') === v;
   const pageSize = 24;
   const load = async (append = false) => {
     append = append === true;
-    const version = ++requestVersion;
-    const results = $('#results');
-    if (!results) return;
+    if (!activeView()) return;
+    catalogRequest?.abort();
+    const controller = new AbortController();
+    catalogRequest = controller;
     const existing = append ? (results.querySelector('.grid')?.children.length || 0) : 0;
     if (!append) results.innerHTML = skeletonGrid();
     else {
@@ -698,13 +710,11 @@ async function home(q = '', category = '') {
       if (more) { more.disabled = true; more.textContent = 'Loading…'; }
     }
     const query = catalogQuery({ q, limit: pageSize, offset: existing, ...(category ? { category } : {}) });
-    let timeout;
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 12000);
     try {
-      const d = await Promise.race([
-        api(`/api/catalog?${query}`),
-        new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Catalog request timed out')), 12000); })
-      ]);
-      if (version !== requestVersion || !v.isConnected || $('#view') !== v) return;
+      const d = await api(`/api/catalog?${query}`, 'GET', undefined, { signal: controller.signal });
+      if (controller.signal.aborted || catalogRequest !== controller || !activeView()) return;
       const items = d.items || [];
       followPrices(query, items);
       const total = Number(d.total) || 0;
@@ -722,7 +732,7 @@ async function home(q = '', category = '') {
         results.querySelector('#catalog-more')?.addEventListener('click', () => { void load(true); });
       }
     } catch (e) {
-      if (version !== requestVersion || !v.isConnected || $('#view') !== v) return;
+      if (catalogRequest !== controller || (controller.signal.aborted && !timedOut) || !activeView()) return;
       if (append) {
         const more = results.querySelector('#catalog-more');
         if (more) { more.disabled = false; more.textContent = 'Try loading more'; }
@@ -731,14 +741,17 @@ async function home(q = '', category = '') {
         results.querySelector('#retry-catalog')?.addEventListener('click', () => { void load(); });
       }
       console.warn('[catalog] failed to load', e.message);
-    } finally { clearTimeout(timeout); }
+    } finally {
+      clearTimeout(timeout);
+      if (catalogRequest === controller) catalogRequest = null;
+    }
   };
   wireToolbar(load); renderLocaleChip();
   if ($('#seenrow')) fillSeen($('#seenrow'));
   // Prioritize the visible product grid. Secondary shelves should not compete for
   // network connections or CPU while the main catalogue is loading.
   await load();
-  if (!v.isConnected || $('#view') !== v) return;
+  if (!activeView()) return;
   const secondary = [];
   if ($('#dealstrip')) secondary.push(async () => {
     const el = $('#dealstrip');
