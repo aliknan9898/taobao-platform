@@ -18,6 +18,11 @@
   :root { --bg:#ffffff; --card:#fff; --ink:#172923; --muted:#55655e; --line:#e3e9e4; --accent:#205f70; --accent-ink:#fff; --accent-soft:#e1eff1; --nav:#1a3740; --nav-ink:#fff; --nav-muted:rgba(255,255,255,.72); --ok:#1f7a4d; --warn:#9a6400; --bad:#b42318; --chip:#eceff5; --marigold:#f4b400; }
   :root { color-scheme: light; }
   :root[data-theme="dark"] { --bg:#0f1428; --card:#171d36; --ink:#eef0f7; --muted:#9097b3; --line:#2a3150; --chip:#222a47; --accent:#5fb6c9; --accent-ink:#04221b; --accent-soft:#163a44; --nav:#0b1712; color-scheme: dark; }
+  .unitin { position:relative; display:flex; } .unitin input { width:100%; padding-inline-end:28px; } .unitin span { position:absolute; inset-inline-end:10px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:13px; }
+  .psteps { list-style:none; margin:6px 0 0; padding:0; display:flex; gap:4px; flex-wrap:wrap; font-size:11px; }
+  .psteps li { padding:1px 7px; border-radius:99px; background:var(--chip); color:var(--muted); }
+  .psteps li.done { background:color-mix(in srgb, var(--ok) 14%, transparent); color:var(--ok); } .psteps li.done::before { content:"✓ "; }
+  .psteps li.cur { background:var(--accent); color:var(--accent-ink); font-weight:600; }
   [data-theme-toggle] { display:inline-flex; align-items:center; gap:6px; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Instrument Sans",system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
@@ -159,12 +164,12 @@ function boot(user) {
     <section class="card"><h2>Receive parcel</h2>
       <form class="scan" id="scan">
         <div class="camin wide"><input name="tracking" placeholder="Scan or type tracking number" required autofocus autocomplete="off" inputmode="text"><button type="button" class="cambtn" data-cam="tracking" aria-label="Scan with camera" title="Scan with camera">${CAM}</button></div>
-        <input name="location" placeholder="Location (A-01)">
-        <input name="weight_g" type="number" min="0" placeholder="Weight (g)">
-        <select name="qc"><option value="pass">QC passed</option><option value="fail">QC failed</option></select>
+        <input name="location" placeholder="Location (A-01)" aria-label="Shelf location" autocomplete="off">
+        <div class="unitin"><input name="weight_g" type="number" min="1" max="70000" step="1" inputmode="numeric" placeholder="Weight" aria-label="Weight in grams"><span aria-hidden="true">g</span></div>
+        <select name="qc" aria-label="Quality check"><option value="pass">QC passed</option><option value="fail">QC failed</option></select>
         <button class="btn">Receive</button>
       </form>
-      <div id="scanOut"></div>
+      <div id="scanOut" aria-live="assertive"></div>
       <p class="note">Goods count as legally delivered once signed for here. After they leave this warehouse they can no longer be returned to the Taobao seller, so inspect them before packing.</p>
     </section>
     <div class="counts" id="counts"></div>
@@ -177,20 +182,39 @@ function boot(user) {
   load();
 }
 
-async function onScan(e) {
-  e.preventDefault();
-  const f = Object.fromEntries(new FormData(e.target));
+async function onScan(e, update = false) {
+  if (e) e.preventDefault();
+  const form = $('#scan');
+  const f = Object.fromEntries(new FormData(form));
   const out = $('#scanOut');
+  if (f.weight_g && (Number(f.weight_g) <= 0 || Number(f.weight_g) > 70000)) { out.innerHTML = `<div class="result bad">${esc(KT('Weight must be in grams, between 1 and 70000 g'))}</div>`; form.weight_g.focus(); return; }
+  if (f.weight_g && Number(f.weight_g) < 20 && !confirmSmall(f.weight_g)) return;
+  const btn = form.querySelector('button.btn'); btn.disabled = true;
   try {
-    const r = await api('/api/warehouse/receive', 'POST', f);
-    const p = r.parcel;
-    out.innerHTML = r.matched
-      ? `<div class="result ${p.status === 'qc_failed' ? 'bad' : 'ok'}">${p.status === 'qc_failed' ? 'Recorded with QC failure' : 'Received'}: <code>${esc(p.tracking)}</code> → order <code>${esc(p.order_id.slice(-8))}</code>${p.location ? ` · location ${esc(p.location)}` : ''}</div>`
-      : `<div class="result warn">Unknown parcel <code>${esc(p.tracking)}</code> — recorded under "In stock" for manual matching.</div>`;
-    e.target.reset(); e.target.tracking.focus();
+    const r = await api('/api/warehouse/receive', 'POST', { ...f, update });
+    const p = r.parcel; const rb = r.readback || {};
+    const facts = [rb.item && `<div>${esc(rb.item)}${rb.shop ? ` · <span class="muted">${esc(rb.shop)}</span>` : ''}</div>`,
+      `<div class="muted">${rb.order_ref ? `${esc(KT('Order'))} <code>${esc(rb.order_ref)}</code> · ${rb.parcels_received}/${rb.parcels_total} ${esc(KT('parcels here'))}` : esc(KT('No order linked'))}${rb.location ? ` · ${esc(KT('location'))} <b>${esc(rb.location)}</b>` : ''}${rb.weight_g ? ` · <b>${esc(rb.weight_g)} g</b>` : ''}</div>`,
+      rb.next && `<div><b>${esc(KT('Next'))}:</b> ${esc(KT(rb.next))}</div>`].filter(Boolean).join('');
+    if (r.duplicate) {
+      out.innerHTML = `<div class="result warn" role="alert"><b>${esc(KT('Already received'))}</b> <code>${esc(p.tracking)}</code> · ${esc(date(p.received_at))}${facts}
+        <div class="row" style="margin-top:6px"><button type="button" class="btn" id="dupupd">${esc(KT('Update location / weight / QC'))}</button><button type="button" class="btn ghost" id="dupkeep">${esc(KT('Keep the first scan'))}</button></div></div>`;
+      $('#dupupd').onclick = () => onScan(null, true);
+      $('#dupkeep').onclick = () => { out.innerHTML = ''; form.reset(); form.tracking.focus(); };
+      $('#dupupd').focus();
+      return;
+    }
+    const tone = p.status === 'qc_failed' ? 'bad' : r.matched ? 'ok' : 'warn';
+    const head = !r.matched ? KT('Unknown parcel — recorded for manual matching') : p.status === 'qc_failed' ? KT('Recorded with QC failure') : r.updated ? KT('Updated') : KT('Received');
+    out.innerHTML = `<div class="result ${tone}"><b>${esc(head)}</b> <code>${esc(p.tracking)}</code>${facts}</div>`;
+    form.reset(); form.tracking.focus();
     load();
-  } catch (err) { out.innerHTML = `<div class="result bad">${esc(err.message)}</div>`; }
+  } catch (err) { out.innerHTML = `<div class="result bad" role="alert">${esc(err.message)}</div>`; }
+  finally { btn.disabled = false; }
 }
+/** A weight under 20 g is usually a scale or unit mistake (kg typed as g). */
+function confirmSmall(g) { return confirm(`${g} g — ${KT('is that right? Weights are in grams.')}`); }
+const KT = (x) => (window.KinanLang ? KinanLang.t(x) : x);
 
 let data;
 async function load() {
@@ -267,6 +291,13 @@ function openShip(o) {
   };
 }
 
+/** Pack-and-dispatch steps for one order: parcels in → QC photos → customer check → ready → shipped. */
+function packSteps(o) {
+  const all = o.parcels_total > 0 && o.parcels_received >= o.parcels_total;
+  const steps = [[all, `${o.parcels_received}/${o.parcels_total} ${KT('in')}`], [o.qc_photos > 0, KT('Photos')], [!o.qc_photos ? false : ['approved', 'resolved'].includes(o.qc_review) || !o.qc_review, KT('Checked')], [o.status === 'ready_to_ship' && !o.hold && o.qc_review !== 'problem', KT('Pack & ship')]];
+  const cur = steps.findIndex(([done]) => !done);
+  return `<ol class="psteps" aria-label="${esc(KT('Steps'))}">${steps.map(([done, t], i) => `<li class="${done ? 'done' : i === cur ? 'cur' : ''}">${esc(t)}</li>`).join('')}</ol>`;
+}
 const LISTS = {
   expected(el) {
     el.innerHTML = `<div class="scroll"><table><thead><tr><th>Tracking no.</th><th>Carrier</th><th>Product</th><th>Shop</th><th>Order</th></tr></thead><tbody>
@@ -286,7 +317,7 @@ const LISTS = {
   },
   orders(el) {
     el.innerHTML = `<div class="scroll"><table><thead><tr><th>Order</th><th>Recipient</th><th>Destination</th><th>Items</th><th>Parcels</th><th>Status</th><th>International shipping</th></tr></thead><tbody>
-      ${data.orders.map((o) => `<tr><td><code>${esc(o.id.slice(-8))}</code></td><td>${esc(o.recipient)}</td><td>${esc(o.destination)}</td><td>${o.items}</td><td>${o.parcels_received}/${o.parcels_total}</td>
+      ${data.orders.map((o) => `<tr><td><code>${esc(o.id.slice(-8))}</code>${packSteps(o)}</td><td>${esc(o.recipient)}</td><td>${esc(o.destination)}</td><td>${o.items}</td><td>${o.parcels_received}/${o.parcels_total}</td>
         <td><span class="pill ${o.status === 'ready_to_ship' ? 'ok' : o.status === 'attention' ? 'bad' : 'warn'}">${esc(o.status_label)}</span>
           ${o.hold ? '<div><span class="pill warn">Stored — wait for customer</span></div>' : ''}${o.packaging !== 'standard' ? `<div><span class="pill">${o.packaging === 'protect' ? 'Extra protection' : 'Remove boxes'}</span></div>` : ''}
           ${o.qc_photos ? `<div class="muted">${o.qc_photos} photo(s) · ${({ pending: 'customer checking', approved: 'customer OK', problem: '<b class="bad">customer problem</b>', resolved: 'resolved' })[o.qc_review] || ''}</div>` : ''}
