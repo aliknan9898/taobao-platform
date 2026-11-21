@@ -78,8 +78,19 @@ async function read(address, id) {
 
 async function send(body) {
   const from = mailbox(body?.from);
-  const to = String(body.to || '').trim();
-  const subject = String(body.subject || '').trim();
+  // A reply stays in the customer's conversation: same Gmail thread, In-Reply-To/References, "Re:" subject, and by
+  // default back to whoever wrote. The original must have been sent to this KINAN address.
+  let reply = null;
+  if (body.reply_to_id) {
+    const original = await gmail('messages/' + encodeURIComponent(String(body.reply_to_id)) + '?format=metadata');
+    if (!recipients(original).includes(from)) throw httpError(404, 'Message not found for this address');
+    const messageId = header(original, 'message-id');
+    reply = { threadId: original.threadId, messageId, references: [header(original, 'references'), messageId].filter(Boolean).join(' ').slice(-2000),
+      to: (header(original, 'reply-to') || header(original, 'from')).match(/[^\s<>"]+@[^\s<>"]+/)?.[0] || '', subject: header(original, 'subject') };
+  }
+  const to = String(body.to || reply?.to || '').trim();
+  let subject = String(body.subject || (reply ? reply.subject : '') || '').trim();
+  if (reply && subject && !/^re:/i.test(subject)) subject = 'Re: ' + subject;
   const text = String(body.text || '').trim();
   if (to.length > 254 || !emailPattern.test(to) || !subject || subject.length > 140 || /[\r\n]/.test(subject) || !text || text.length > 30000) {
     throw httpError(400, 'Enter one valid recipient, a subject and a message');
@@ -90,10 +101,11 @@ async function send(body) {
   }
   const raw = [
     'From: ' + from, 'To: ' + to, 'Subject: =?UTF-8?B?' + Buffer.from(subject).toString('base64') + '?=',
+    ...(reply?.messageId && !/[\r\n]/.test(reply.messageId) ? ['In-Reply-To: ' + reply.messageId, 'References: ' + reply.references.replace(/[\r\n]+/g, ' ')] : []),
     'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '',
     Buffer.from(text).toString('base64').match(/.{1,76}/g).join('\r\n')
   ].join('\r\n');
-  return { id: (await gmail('messages/send', { raw: Buffer.from(raw).toString('base64url') })).id };
+  return { id: (await gmail('messages/send', { raw: Buffer.from(raw).toString('base64url'), ...(reply?.threadId ? { threadId: reply.threadId } : {}) })).id, thread_id: reply?.threadId || null };
 }
 
 module.exports = { enabled, inbox, read, send };

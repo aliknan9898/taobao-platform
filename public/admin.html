@@ -1005,7 +1005,7 @@ VIEWS.mail = async (v) => {
     const form = composer.querySelector('form');
     if (message) {
       form.elements.to.value = /<([^<>]+)>$/.exec(message.from)?.[1] || message.from;
-      form.elements.subject.value = ('Re: ' + message.subject).slice(0, 140);
+      form.elements.subject.value = (/^re:/i.test(message.subject) ? message.subject : 'Re: ' + message.subject).slice(0, 140);
     }
     form.onsubmit = async (event) => {
       event.preventDefault();
@@ -1014,7 +1014,8 @@ VIEWS.mail = async (v) => {
       button.disabled = true;
       result.textContent = 'Sending…';
       try {
-        await api('/api/admin/mailbox/send', 'POST', { from: address, ...Object.fromEntries(new FormData(form)) });
+        // a reply carries the original message id: the server keeps it in the same Gmail conversation
+        await api('/api/admin/mailbox/send', 'POST', { from: address, ...Object.fromEntries(new FormData(form)), ...(message?.id ? { reply_to_id: message.id } : {}) });
         form.reset();
         result.textContent = 'Email sent.';
       } catch (error) { result.textContent = error.message; }
