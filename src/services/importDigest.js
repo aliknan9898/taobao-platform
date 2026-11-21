@@ -17,6 +17,8 @@ function record(source, run, accepted, rejected = [], time = Date.now()) {
   summary.published += accepted.filter((item) => item.status === 'active').length;
   summary.pending += accepted.filter((item) => item.status !== 'active').length;
   summary.rejected += rejected.length;
+  if (Number.isFinite(run.cj_calls)) summary.cj_calls = (summary.cj_calls || 0) + run.cj_calls;
+  if (Number.isFinite(run.ai_reviews)) summary.ai_reviews = (summary.ai_reviews || 0) + run.ai_reviews;
   if (run.error) summary.error = String(run.error).slice(0, 180);
   const reasons = new Map(Object.entries(run.reasons || {}));
   const explicit = new Map();
@@ -57,6 +59,7 @@ async function tick(time = Date.now()) {
       for (const [reason, count] of Object.entries(stats.reasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 5)) {
         lines.push(`• ${reason.slice(0, 90)}: ${count}`);
       }
+      if (stats.cj_calls != null || stats.ai_reviews != null) lines.push(`التكلفة: ${stats.cj_calls ?? 0} طلب CJ · ${stats.ai_reviews ?? 0} مراجعة AI${stats.published + stats.pending ? ` · لكل منتج مضاف: ${Math.round((stats.cj_calls || 0) / (stats.published + stats.pending) * 10) / 10} CJ` : ''}`);
       if (stats.error) lines.push(`آخر خطأ: ${stats.error}`);
       if (!await require('../push').telegram(lines.join('\n').slice(0, 3500))) { failed = true; break; }
       sent.add(source);
