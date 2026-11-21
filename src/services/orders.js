@@ -98,7 +98,18 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     const seller = db.sellers.get(l.seller_id);
     if (!seller || seller.status !== 'active') throw httpError(409, 'The shop of one of the items is unavailable');
     // Fresh stock/cost before taking money
-    if (now() - (l.last_synced_at || 0) > 10 * 60e3) { try { l = await catalog.resync(l.id) || l; } catch { /* the supplier could not be asked right now: use the last known stock and price */ } }
+    if (now() - (l.last_synced_at || 0) > 10 * 60e3) {
+      let why = '';
+      try { l = await catalog.resync(l.id) || l; } catch (e) { why = e.message; }
+      // The supplier could not confirm stock and price right now: the last confirmed ones are used — unless they are too
+      // old to trust (a changed supplier price or a sold-out option must not slip through to a paid order).
+      const apiSynced = l.source !== 'manual' && (l.fulfillment === 'direct' || Boolean(l.mp_id) || Boolean(l.taobao_item_id));
+      const maxAge = (Number(process.env.CHECKOUT_STALE_HOURS) || 48) * 3600e3;
+      if (apiSynced && now() - (l.last_synced_at || 0) > maxAge) {
+        console.warn('[checkout] stale price refused', l.id, why || l.sync_error || 'not refreshed');
+        throw httpError(409, `We cannot confirm the current price and stock of “${String(l.title).slice(0, 60)}” right now — please try again later`);
+      }
+    }
     let sku = l.skus.find((s) => s.mp_sku_id === require('./publicIds').skuIn(l, it.mp_sku_id));
     if (!sku) throw httpError(409, 'Variant not found');
     // AliExpress warehouse ("Ships From") chosen for this address: in the customer's region if possible, else the cheapest
@@ -114,6 +125,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       ...(l.fulfillment === 'direct' && !['cj', 'banggood'].includes(l.source) ? { direct: true, source: 'aliexpress', source_link: l.source_link || '', ae_product_id: l.ae_product_id || null, ae_sku_attr: sku.ae_sku_attr || '', cost_sale: sku.cost_sale ?? null, ...(l.from_kinan ? { seller_cost: require('./kinanCatalog').lineCost(l, sku), from_kinan: l.from_kinan } : {}) } : {}),
       image: (l.own_images || []).length ? catalog.photoUrl(l, 0, l.own_images[0]) : (l.images || [])[0] || null,
       ...(l.source === 'manual' || (l.source === 'aliexpress' && !sku.ae_sku_id) ? { own_stock: true } : {}), // typed-in stock, not synced from an API
+      ...(l.last_synced_at ? { checked_at: l.last_synced_at } : {}), // when stock and price were last confirmed with the supplier
       qty, price: require('./deals').priceOf(l, sku), ...(require('./deals').dealFor(l) ? { deal_pct: require('./deals').dealFor(l).pct, list_price: sku.price } : {}), cost_cny: sku.cost_cny
     });
   }

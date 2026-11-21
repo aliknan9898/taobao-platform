@@ -243,7 +243,7 @@ async function resync(listingId) {
 }
 
 async function resyncStale(maxAgeMs = 6 * 3600e3) {
-  for (const l of db.listings.all((x) => !['manual', 'cj', 'banggood'].includes(x.source) && ['active', 'pending_review'].includes(x.status) && Date.now() - (x.last_synced_at || 0) > maxAgeMs)) {
+  for (const l of db.listings.all((x) => !['manual', 'cj', 'banggood'].includes(x.source) && ['active', 'pending_review'].includes(x.status) && Date.now() - Math.max(x.last_synced_at || 0, x.sync_tried_at || 0) > maxAgeMs)) {
     await resync(l.id);
   }
 }

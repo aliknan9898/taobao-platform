@@ -221,15 +221,15 @@ async function resync(l) {
   } catch (e) {
     if (e.status === 429) throw e; // CJ's points / our background limit: try again another day, nothing is wrong with the product
     if (e.status === 404 || /not found/i.test(e.message)) return db.listings.update(l.id, { status: l.status === 'active' ? 'unavailable' : l.status, sync_error: 'Removed on CJdropshipping', last_synced_at: now() });
-    return db.listings.update(l.id, { sync_error: e.message, last_synced_at: now() });
+    return db.listings.update(l.id, { sync_error: e.message, sync_tried_at: now() /* a failed check is not a fresh price: last_synced_at keeps the last confirmed one */ });
   }
 }
 
 /** Daily: re-check the CJ products that were not refreshed for a day (CJ allows 1 call per second). */
 async function resyncStale(max = 200) {
   if (!cj.enabled()) return 0;
-  const stale = db.listings.all((l) => l.source === 'cj' && ['active', 'paused', 'unavailable', 'private'].includes(l.status) && now() - (l.last_synced_at || 0) > 22 * 3600e3)
-    .sort((a, b) => (a.last_synced_at || 0) - (b.last_synced_at || 0)).slice(0, max);
+  const stale = db.listings.all((l) => l.source === 'cj' && ['active', 'paused', 'unavailable', 'private'].includes(l.status) && now() - Math.max(l.last_synced_at || 0, l.sync_tried_at || 0) > 22 * 3600e3)
+    .sort((a, b) => Math.max(a.last_synced_at || 0, a.sync_tried_at || 0) - Math.max(b.last_synced_at || 0, b.sync_tried_at || 0)).slice(0, max);
   let n = 0;
   for (const l of stale) { try { await resync(l); n++; } catch (e) { if (e.status === 429) break; } }
   return n;

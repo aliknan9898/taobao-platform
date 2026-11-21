@@ -49,3 +49,19 @@ test('a failed Telegram send retries only the sources not yet sent', async (t) =
   assert.equal(messages.filter((m) => /AliExpress/.test(m)).length, 1);
   assert.equal(messages.filter((m) => /CJ best sellers/.test(m)).length, 1);
 });
+
+test('midnight in Malta splits the reports by day; each day is sent once, the oldest first', async (t) => {
+  const messages = [];
+  t.mock.method(push, 'telegram', async (message) => { messages.push(message); return true; });
+  // 23:50 and 00:10 Malta time (UTC+1) on 22/23 November
+  report.record('AliExpress', { checked: 1 }, [{ status: 'active' }], [], Date.parse('2026-11-22T22:50:00Z'));
+  report.record('AliExpress', { checked: 2 }, [{ status: 'active' }], [], Date.parse('2026-11-22T23:10:00Z'));
+  const nextNight = Date.parse('2026-11-23T23:05:00Z');
+  assert.equal(await report.tick(nextNight), true);
+  assert.equal(await report.tick(nextNight), false); // one report per tick day
+  assert.equal(await report.tick(Date.parse('2026-11-24T23:05:00Z')), true);
+  const ae = messages.filter((m) => /AliExpress/.test(m));
+  assert.equal(ae.length, 2);
+  assert.match(ae[0], /2026-11-22/);
+  assert.match(ae[1], /2026-11-23/);
+});
