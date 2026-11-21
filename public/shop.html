@@ -303,6 +303,7 @@
       <div class="ssug" id="ssug" role="listbox"></div>
     </form>
     <div class="grow mob-only"></div>
+    <a class="btn ghost sm desk-only tracklink" href="#/track">Track order</a>
     <a class="iconbtn desk-only" href="#/orders" aria-label="Orders" id="nav-orders"></a>
     <a class="iconbtn desk-only" href="#/account" aria-label="Account" id="nav-account"></a>
     <a class="iconbtn sellbtn" href="/seller" aria-label="Seller Center" title="Seller Center" id="nav-sell"></a>
@@ -591,11 +592,53 @@ const Search = (() => {
 K.onUnauthorized = () => { me = null; };
 
 // ---------- router ----------
+// ---------- public order tracking (reference + email, no sign-in) ----------
+async function trackPage(refArg) {
+  const v = $('#view');
+  const ref0 = refArg ? decodeURIComponent(refArg) : '';
+  const mine = me && me.role === 'buyer';
+  v.innerHTML = `<div class="pagehead"><div><h1>Track your order</h1><p class="muted">Enter the order reference from your confirmation email and the email you used to order.</p></div></div>
+    <form class="panel stack track-form" id="tf" novalidate style="max-width:560px">
+      <label class="field"><span>Order reference</span><input id="tref" name="ref" autocomplete="off" autocapitalize="characters" spellcheck="false" dir="ltr" placeholder="e.g. 1A2B3C4D" value="${esc(ref0)}" required aria-describedby="tref-h"><small class="muted" id="tref-h">The 8 characters after “Order” in your email.</small></label>
+      <label class="field"><span>Email</span><input id="tmail" name="email" type="email" autocomplete="email" dir="ltr" required value="${mine ? esc(me.email || '') : ''}"></label>
+      <p class="error" id="terr" role="alert" hidden></p>
+      <div class="row"><button class="btn" id="tgo">Track order</button>${mine ? '<a class="btn ghost" href="#/orders">My orders</a>' : '<a class="btn ghost" href="#/signin/orders">Sign in to see all orders</a>'}</div>
+    </form>
+    <div id="tres" aria-live="polite"></div>`;
+  const form = $('#tf'); const err = $('#terr'); const res = $('#tres'); const go = $('#tgo');
+  form.onsubmit = async (ev) => {
+    ev.preventDefault(); err.hidden = true;
+    const ref = $('#tref').value.trim(); const email = $('#tmail').value.trim();
+    if (!ref || !email || !/@/.test(email)) { err.textContent = KinanLang.t('Enter both the order reference and your email.'); err.hidden = false; (ref ? $('#tmail') : $('#tref')).focus(); return; }
+    go.disabled = true; go.textContent = KinanLang.t('Checking…'); res.innerHTML = '';
+    try {
+      const t = await api('/api/track', 'POST', { ref, email });
+      res.innerHTML = trackResult(t);
+      history.replaceState(null, '', `#/track/${encodeURIComponent(t.ref)}`);
+      res.querySelector('h2')?.focus();
+    } catch (e) { err.textContent = e.message; err.hidden = false; }
+    finally { go.disabled = false; go.textContent = KinanLang.t('Track order'); }
+  };
+}
+function trackResult(t) {
+  const cls = ['delivered'].includes(t.status) ? 'ok' : ['attention', 'cancelled', 'refunded'].includes(t.status) ? 'bad' : 'warn';
+  const parcel = (p) => `<div class="panel stack" style="gap:6px"><div class="row between"><b>${esc(KinanLang.t(p.label))}</b><span class="muted small">${p.items} ${esc(KinanLang.t(p.items === 1 ? 'item' : 'items'))}</span></div>
+    ${p.number ? `<div class="small">${esc(p.carrier || KinanLang.t('Carrier'))} · <bdi dir="ltr"><b>${esc(p.number)}</b></bdi>${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(KinanLang.t('Carrier tracking'))}</a>` : ''}</div>` : `<div class="small muted">${esc(KinanLang.t('A tracking number appears here when the parcel leaves.'))}</div>`}
+    ${p.track ? K.journey(p.track) : ''}</div>`;
+  return `<section class="stack" style="max-width:720px;margin-top:16px">
+    <div class="panel stack" style="gap:8px"><div class="row between"><h2 tabindex="-1">${esc(KinanLang.t('Order'))} <bdi dir="ltr">${esc(t.ref)}</bdi></h2>${pill(t.status_label, cls)}</div>
+      <p class="muted small">${esc(KinanLang.t('Placed'))} ${date(t.placed_at)} · ${t.items} ${esc(KinanLang.t(t.items === 1 ? 'item' : 'items'))}</p>
+      <div class="nextstep"><div><b>${esc(KinanLang.t('What happens next'))}</b><div class="small">${esc(KinanLang.t(t.next))}</div></div></div>
+      <ul class="small" style="margin:0;padding-inline-start:18px">${t.lines.map((l) => `<li dir="auto">${esc(l.title)} × ${l.qty}</li>`).join('')}</ul></div>
+    ${t.parcels.map(parcel).join('') || `<p class="muted small">${esc(KinanLang.t('No parcel has left yet.'))}</p>`}
+    ${t.timeline.length ? `<details class="panel"><summary><b>${esc(KinanLang.t('Order history'))}</b></summary><ul class="jrny-ev">${t.timeline.slice().reverse().map((x) => `<li><b>${esc(KinanLang.t(x.event))}</b><small>${date(x.at)}</small></li>`).join('')}</ul></details>` : ''}
+  </section>`;
+}
 const routes = [
   [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
   [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/add\/(.+)$/, addLink], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
   [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/points$/, pointsPage], [/^#\/deals$/, dealsPage], [/^#\/giftcards(?:\/([\w-]+))?$/, (c) => giftcardsPage(c || '')], [/^#\/photo$/, photoPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
-  [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
+  [/^#\/track(?:\/([\w%-]+))?$/, trackPage], [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
 ];
 async function route() {
   renderTabbar();

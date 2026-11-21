@@ -442,6 +442,12 @@ r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => {
     return orders.buyerView(o);
   } finally { checkoutsInFlight.delete(keyHash); }
 });
+// Public tracking: order reference + the email on the order. Failed lookups count towards the sign-in limit per IP.
+r('POST', '/api/track', null, async ({ req }) => {
+  const ip = clientIp(req); throttle(ip); throttleLight(req);
+  const b = await readJson(req);
+  try { return await require('./services/publicTrack').lookup({ ref: b.ref, email: b.email }); } catch (e) { if (e.status === 404) recordFailure(ip); throw e; }
+});
 r('GET', '/api/buyer/orders', BUYER, async ({ user }) => db.orders.all((o) => o.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(orders.buyerView));
 r('GET', '/api/buyer/orders/:id', BUYER, async ({ user, params }) => {
   let o = db.orders.get(params.id); if (!o || o.buyer_id !== user.id) throw httpError(404, 'Not found');

@@ -122,6 +122,8 @@ code { font-size: 12px; background: var(--chip); padding: 1px 6px; border-radius
 /* Feedback */
 .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); z-index: 50; background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: var(--r-md); font-size: 14px; box-shadow: var(--shadow); max-width: calc(100vw - 32px); }
 .error { color: var(--bad); font-size: 14px; white-space: pre-wrap; }
+.nextstep { padding: 10px 12px; border-radius: var(--r-md); background: var(--jade-soft); border-inline-start: 3px solid var(--jade); }
+@media (max-width: 760px) { .tracklink { display: none; } }
 .empty { text-align: center; padding: 48px 16px; display: grid; gap: 10px; justify-items: center; color: var(--muted); }
 .empty h3 { color: var(--ink); }
 .skeleton { background: linear-gradient(90deg, var(--chip), var(--line), var(--chip)); background-size: 200% 100%; animation: sk 1.2s infinite linear; border-radius: var(--r-md); }
