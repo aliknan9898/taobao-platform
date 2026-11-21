@@ -246,7 +246,25 @@
     'Add at least one photo': 'أضف صورة واحدة على الأقل', 'Enter a product title': 'أدخل عنوان المنتج', 'Choose a reason': 'اختر السبب', 'Choose the item(s) you want to return': 'اختر المنتج أو المنتجات التي تريد إرجاعها',
     'This is not a customer account. Sellers sign in at the Seller Center.': 'هذا ليس حساب عميل. يسجّل البائعون الدخول من مركز البائعين.', 'This reset link has expired or was already used. Ask for a new one.': 'انتهت صلاحية رابط إعادة التعيين أو استُخدم مسبقاً. اطلب رابطاً جديداً.',
     'Your wallet balance is not enough for this order': 'رصيد محفظتك لا يكفي لهذا الطلب', 'Enter a valid IBAN': 'أدخل رقم IBAN صحيحاً', 'Enter the account holder name': 'أدخل اسم صاحب الحساب', 'That is more than your available earnings': 'المبلغ أكبر من أرباحك المتاحة',
-    'You already have an open return for this order': 'لديك طلب إرجاع مفتوح لهذا الطلب', 'Paste a Taobao link or describe the item': 'الصق رابط تاوباو أو صف المنتج', 'That does not look like a Taobao or Tmall link': 'هذا لا يبدو رابط تاوباو أو تيمول'
+    'You already have an open return for this order': 'لديك طلب إرجاع مفتوح لهذا الطلب', 'Paste a Taobao link or describe the item': 'الصق رابط تاوباو أو صف المنتج', 'That does not look like a Taobao or Tmall link': 'هذا لا يبدو رابط تاوباو أو تيمول',
+    // ---- public order tracking ----
+    'Track order': 'تتبع الطلب', 'Track your order': 'تتبّع طلبك', 'Enter the order reference from your confirmation email and the email you used to order.': 'أدخل رقم الطلب من رسالة التأكيد والبريد الذي طلبت به.',
+    'Order reference': 'رقم الطلب', 'The 8 characters after “Order” in your email.': 'الأحرف الثمانية بعد كلمة «Order» في رسالتك.', 'Enter both the order reference and your email.': 'أدخل رقم الطلب وبريدك الإلكتروني.',
+    'Checking…': 'جارٍ التحقق…', 'My orders': 'طلباتي', 'Sign in to see all orders': 'سجّل الدخول لرؤية كل طلباتك', 'What happens next': 'ما التالي',
+    'No order matches that reference and email. Check both and try again.': 'لا يوجد طلب بهذا الرقم وهذا البريد. تحقّق منهما وحاول مجدداً.',
+    'Placed': 'تاريخ الطلب', 'item': 'منتج', 'items': 'منتجات', 'Carrier': 'شركة الشحن', 'Carrier tracking': 'التتبع لدى شركة الشحن', 'From our warehouse': 'من مستودعنا',
+    'A tracking number appears here when the parcel leaves.': 'يظهر رقم التتبع هنا عند خروج الطرد.', 'No parcel has left yet.': 'لم يخرج أي طرد بعد.', 'Order history': 'سجل الطلب',
+    'Finish paying to start your order — sign in to your account to pay.': 'أكمل الدفع ليبدأ طلبك — سجّل الدخول إلى حسابك للدفع.',
+    'Nothing to do. We are buying your items from the suppliers.': 'لا شيء مطلوب منك. نشتري منتجاتك من الموردين.',
+    'Nothing to do. Your items are being bought and sent to our warehouse.': 'لا شيء مطلوب منك. نشتري منتجاتك ونرسلها إلى مستودعنا.',
+    'Nothing to do. We check every item at our warehouse before it ships.': 'لا شيء مطلوب منك. نفحص كل منتج في مستودعنا قبل الشحن.',
+    'Nothing to do. Your parcel is packed and leaves soon.': 'لا شيء مطلوب منك. طردك مغلّف وسيخرج قريباً.',
+    'Your parcel is on its way. Use the carrier number below for the latest steps.': 'طردك في الطريق. استخدم رقم شركة الشحن أدناه لآخر التحديثات.',
+    'Delivered. If something is wrong, sign in to request a return.': 'تم التسليم. إذا كان هناك خطأ، سجّل الدخول لطلب إرجاع.',
+    'This order was cancelled. Any payment is returned to your card or wallet.': 'أُلغي هذا الطلب. يُعاد أي مبلغ مدفوع إلى بطاقتك أو محفظتك.',
+    'This order was refunded.': 'تم استرداد مبلغ هذا الطلب.',
+    'Our team is sorting out a problem with this order. We will email you; nothing to do now.': 'فريقنا يعالج مشكلة في هذا الطلب. سنراسلك بالبريد؛ لا شيء مطلوب منك الآن.',
+    'Order placed': 'تم إنشاء الطلب', 'Preparing your order': 'تجهيز طلبك', 'Quality check': 'فحص الجودة', 'Ready to ship': 'جاهز للشحن', 'Needs attention': 'يحتاج متابعة'
   };
 
   // Text with numbers or names inside

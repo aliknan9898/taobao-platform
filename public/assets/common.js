@@ -88,7 +88,7 @@ const K = (() => {
   ];
   function footer(owner = 'Ali Almadhoun Mohammed Kinan') {
     const social = SOCIAL.map(([n, u, d]) => `<a href="${u}" target="_blank" rel="noopener" aria-label="Kinan on ${n}" title="${n}"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg></a>`).join('');
-    return `<footer class="sitefoot"><div class="wrap"><nav class="social" aria-label="Follow Kinan">${social}</nav><nav aria-label="Legal"><a href="/terms">Terms</a><a href="/seller-terms">Seller Terms</a><a href="/privacy">Privacy</a><a href="/legal">Legal notice</a></nav>
+    return `<footer class="sitefoot"><div class="wrap"><nav class="social" aria-label="Follow Kinan">${social}</nav><nav aria-label="Legal"><a href="/#/track">Track order</a><a href="/terms">Terms</a><a href="/seller-terms">Seller Terms</a><a href="/privacy">Privacy</a><a href="/legal">Legal notice</a></nav>
       <p>© ${new Date().getFullYear()} ${esc(owner)}. All rights reserved. Kinan is a trading name of ${esc(owner)}.</p></div></footer>`;
   }
 
@@ -269,7 +269,7 @@ const K = (() => {
   function journeyCss() {
     if (document.getElementById('jrny-css')) return;
     var st = document.createElement('style'); st.id = 'jrny-css';
-    st.textContent = '.jrny{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:6px 0 2px}.jrny>div{display:grid;gap:4px;justify-items:center;text-align:center;font-size:12px;color:#6b7280;position:relative}.jrny i{width:14px;height:14px;border-radius:50%;border:2px solid #d1d5db;background:#fff;z-index:1}.jrny>div:not(:first-child):before{content:"";position:absolute;top:6px;inset-inline-end:50%;width:100%;height:2px;background:#d1d5db}.jrny .on{color:inherit;font-weight:600}.jrny .on i{background:#0f766e;border-color:#0f766e}.jrny .on:before{background:#0f766e!important}.jrny .bad i{background:#dc2626;border-color:#dc2626}.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid #0f766e33;display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
+    st.textContent = '.jrny{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:6px 0 2px}.jrny>div{display:grid;gap:4px;justify-items:center;text-align:center;font-size:12px;color:#6b7280;position:relative}.jrny i{width:14px;height:14px;border-radius:50%;border:2px solid #d1d5db;background:#fff;z-index:1}.jrny>div:not(:first-child):before{content:"";position:absolute;top:6px;inset-inline-end:50%;width:100%;height:2px;background:#d1d5db}.jrny .on{color:inherit;font-weight:600}.jrny .on i{background:var(--jade,#036747);border-color:var(--jade,#036747)}.jrny .on:before{background:var(--jade,#036747)!important}.jrny .bad i{background:#dc2626;border-color:#dc2626}.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid color-mix(in srgb,var(--jade,#036747) 25%,transparent);display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
     document.head.appendChild(st);
   }
   function journey(t, opts) {
