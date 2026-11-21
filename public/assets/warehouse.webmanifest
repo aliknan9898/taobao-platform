@@ -7,7 +7,7 @@
  "display": "standalone",
  "description": "Kinan China warehouse operations.",
  "background_color": "#ffffff",
- "theme_color": "#ffffff",
+ "theme_color": "#1a3740",
  "icons": [
   {
    "src": "/assets/icon-192.png",

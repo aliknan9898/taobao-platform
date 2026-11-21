@@ -10,16 +10,16 @@
 <link rel="stylesheet" href="/assets/admin-advertising.css">
 <script src="/assets/admin-advertising.js" defer></script>
 <link rel="manifest" href="/assets/admin.webmanifest">
-<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon-48.png" type="image/png" sizes="48x48">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kinan Admin">
 <link rel="stylesheet" href="/assets/fonts.css">
 
 <style>
-  :root { --bg:#ffffff; --card:#fff; --ink:#141b3a; --muted:#6b7290; --line:#e1e5ee; --accent:#0e7c66; --accent-ink:#fff; --ok:#1f7a4d; --warn:#9a6400; --bad:#b42318; --chip:#eceff5; --marigold:#f4b400; }
+  :root { --bg:#ffffff; --card:#fff; --ink:#172923; --muted:#55655e; --line:#e3e9e4; --accent:#036747; --accent-ink:#fff; --accent-soft:#e7f2ec; --nav:#172e26; --nav-ink:#fff; --nav-muted:rgba(255,255,255,.72); --ok:#1f7a4d; --warn:#9a6400; --bad:#b42318; --chip:#eceff5; --marigold:#f4b400; }
   :root { color-scheme: light; }
-  :root[data-theme="dark"] { --bg:#0f1428; --card:#171d36; --ink:#eef0f7; --muted:#9097b3; --line:#2a3150; --chip:#222a47; --accent:#2fb293; --accent-ink:#04221b; color-scheme: dark; }
+  :root[data-theme="dark"] { --bg:#0f1428; --card:#171d36; --ink:#eef0f7; --muted:#9097b3; --line:#2a3150; --chip:#222a47; --accent:#3cc08f; --accent-ink:#04221b; --accent-soft:#123a2c; --nav:#0b1712; color-scheme: dark; }
   [data-theme-toggle] { display:inline-flex; align-items:center; gap:6px; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Instrument Sans",system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
@@ -33,7 +33,11 @@
     header > .row .muted { display:none; }
   }
   .brand { display:inline-flex; align-items:center; gap:8px; text-decoration:none; color:var(--ink); font-family:"Bricolage Grotesque",system-ui,sans-serif; font-weight:750; font-size:21px; letter-spacing:-.03em; }
-  .brand svg { width:28px; height:28px; } .brand small { font:500 13px "Instrument Sans",system-ui,sans-serif; color:var(--muted); letter-spacing:0; }
+  .brand svg, .brand .brand-mark { width:32px; height:32px; border-radius:8px; background:#fff; object-fit:contain; flex:none; }
+  header .brand { color:var(--nav-ink); } header .brand small, header > .row .muted { color:var(--nav-muted); }
+  header { background:var(--nav) !important; border-bottom-color:transparent !important; }
+  header .btn.ghost { color:var(--nav-ink); border-color:rgba(255,255,255,.3); background:transparent; }
+  header :focus-visible { outline-color:#fff; } .brand small { font:500 13px "Instrument Sans",system-ui,sans-serif; color:var(--muted); letter-spacing:0; }
   h1, h2 { font-family:"Bricolage Grotesque",system-ui,sans-serif; letter-spacing:-.01em; }
   nav { display:flex; gap:4px; overflow-x:auto; padding:8px 16px; background:var(--card); border-bottom:1px solid var(--line); }
   nav button { background:transparent; color:var(--muted); border:0; padding:8px 12px; border-radius:8px; font:inherit; cursor:pointer; white-space:nowrap; }
@@ -116,7 +120,7 @@
 @media (prefers-reduced-motion:reduce){.lv i{animation:none}}
 .pfgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .pfcard{display:grid;gap:12px;cursor:pointer;border:1px solid var(--line);font:inherit;color:inherit;background:var(--card,#fff);text-align:left}
-.pfcard:hover{border-color:var(--accent,#0e7c66)}
+.pfcard:hover{border-color:var(--accent,#036747)}
 .pfico{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;color:#fff;font-weight:800;font-size:14px;flex:none}
 .pfstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .pfstats div{display:grid;text-align:center;background:var(--bg,#f4f6f9);border-radius:8px;padding:6px 2px}
@@ -148,7 +152,7 @@ function showLogin(msg = '') {
   renderSeq++;
   clearInterval(window.__live);
   clearInterval(window.__importMonitor);
-  $('#app').innerHTML = `<form class="card login" id="lf"><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>Admin</small></a><h2>Sign in to the admin dashboard</h2>
+  $('#app').innerHTML = `<form class="card login" id="lf"><a class="brand" href="/admin"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>Admin</small></a><h2>Sign in to the admin dashboard</h2>
     ${googleSignin ? `<a class="gbtn" href="/auth/google?app=admin"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.2-8.5 2.2-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>Continue with Google</a><div class="ordiv"><span>or with email</span></div>` : ''}
     <input name="email" type="email" placeholder="Email" required autocomplete="username">
     <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
@@ -201,7 +205,7 @@ function boot(user) {
   me = user;
   TABS = ALL_TABS.filter(([, , r]) => can(r));
   if (!TABS.some(([k]) => k === tab)) tab = 'overview';
-  $('#app').innerHTML = `<header><a class="brand" href="/admin"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg><span>kinan</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
+  $('#app').innerHTML = `<header><a class="brand" href="/admin"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
       <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Kinan Shop</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a>${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
     <div class="admin-shell">
       <div class="admin-menu"><button type="button" class="btn ghost admin-menu-toggle" id="menutoggle" aria-controls="adminnav" aria-expanded="false">Sections</button>

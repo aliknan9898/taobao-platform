@@ -10,7 +10,7 @@
 <script src="/assets/theme.js"></script>
 <script src="/assets/i18n.js"></script>
 <link rel="manifest" href="/assets/shop.webmanifest">
-<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon-48.png" type="image/png" sizes="48x48">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kinan Shop">
@@ -43,8 +43,8 @@
   .asform { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); }
   .asform input { flex: 1; min-width: 0; }
 .gc-band { display: block; margin: -6px 0 14px; padding: 10px 14px; border-radius: 12px; border: 1px dashed var(--line); text-decoration: none; color: inherit; font-size: 14.5px; }
-  .gcard { aspect-ratio: 1.6; border-radius: 18px; padding: 18px; background: linear-gradient(135deg, #0e7c66, #0b4f43); color: #fff; display: grid; align-content: space-between; box-shadow: 0 10px 30px rgba(0,0,0,.15); } .gcard span { font-weight: 800; font-size: 20px; } .gcard b { font-size: 34px; } .gcard small { opacity: .8; }
-  .eta { margin-top: 6px; line-height: 1.5; } .xmas-ok { color: #0e7c66; font-weight: 600; }
+  .gcard { aspect-ratio: 1.6; border-radius: 18px; padding: 18px; background: linear-gradient(135deg, #036747, #013d2a); color: #fff; display: grid; align-content: space-between; box-shadow: 0 10px 30px rgba(0,0,0,.15); } .gcard span { font-weight: 800; font-size: 20px; } .gcard b { font-size: 34px; } .gcard small { opacity: .8; }
+  .eta { margin-top: 6px; line-height: 1.5; } .xmas-ok { color: var(--jade); font-weight: 600; }
   .fbt { display: flex; align-items: stretch; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
   .fbt-item { display: grid; gap: 4px; width: 140px; flex: none; cursor: pointer; } .fbt-item img { width: 140px; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--line); }
   .fbt-plus { align-self: center; font-size: 22px; color: var(--ink-2); }
@@ -1222,7 +1222,7 @@ async function pay(id) {
     const cp = await api(`/api/buyer/orders/${id}/card-payment`, 'POST');
     if (cp.paid) { toast('Payment received'); location.hash = `#/orders/${id}`; return; }
     const stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
-    const elements = stripe.elements({ clientSecret: cp.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+    const elements = stripe.elements({ clientSecret: cp.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#036747', borderRadius: '10px' } } });
     elements.create('payment').mount('#pay-element');
     // Saved cards: pick one, or "new card" to use the form
     let pick = saved.length ? saved[0].id : 'new';
@@ -1616,7 +1616,7 @@ async function giftcardsPage(code = '') {
         gc = await api('/api/buyer/giftcards', 'POST', { amount, currency: cur, to_email: f.to_email.value, to_name: f.to_name.value, from_name: f.from_name.value, message: f.message.value });
         if (gc.demo) { await api(`/api/buyer/giftcards/${gc.id}/confirm`, 'POST'); return done(f.to_email.value); }
         const Stripe = await loadStripe(); stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
-        elements = stripe.elements({ clientSecret: gc.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#0e7c66', borderRadius: '10px' } } });
+        elements = stripe.elements({ clientSecret: gc.client_secret, appearance: { theme: KinanTheme.isDark() ? 'night' : 'stripe', variables: { colorPrimary: '#036747', borderRadius: '10px' } } });
         elements.create('payment').mount('#gc-element'); $('#gcpay').hidden = false;
         $$('#gcf input, #gcf textarea, [data-amt]').forEach((x) => { x.disabled = true; });
         $('#gcgo').textContent = `${KinanLang.t('Pay')} ${money(gc.amount, gc.currency)}`; $('#gcgo').disabled = false; return;
