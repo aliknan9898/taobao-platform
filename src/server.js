@@ -197,12 +197,26 @@ function safeReturnTo(v) {
 }
 
 /** The visitor's IP. Render puts its proxy in front, so the socket address is the proxy for everyone. */
+// Cloudflare's published edge ranges (cloudflare.com/ips). Its CF-Connecting-IP header is trusted only when the request
+// really came through Cloudflare; otherwise anyone could send the header and pick a new "IP" for every login attempt.
+const CF_V4 = ['173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22']
+  .map((c) => { const [ip, bits] = c.split('/'); return [ip.split('.').reduce((a, o) => a * 256 + Number(o), 0), Number(bits)]; });
+const CF_V6 = /^(2400:cb00|2606:4700|2803:f800|2405:b500|2405:8100|2c0f:f248|2a06:98c[0-7]):/i;
+function fromCloudflare(ip) {
+  ip = String(ip || '').replace(/^::ffff:/, '');
+  if (CF_V6.test(ip)) return true;
+  const m = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/); if (!m) return false;
+  const n = ((+m[1] * 256 + +m[2]) * 256 + +m[3]) * 256 + +m[4];
+  return CF_V4.some(([base, bits]) => Math.floor(n / 2 ** (32 - bits)) === Math.floor(base / 2 ** (32 - bits)));
+}
 function clientIp(req) {
   const h = req.headers;
-  const cf = h['cf-connecting-ip'] || h['true-client-ip'];
-  if (cf) return String(cf).trim();
+  // the last X-Forwarded-For hop is added by Render's proxy: the address that actually connected
   const xff = String(h['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
-  return xff.length ? xff[xff.length - 1] : req.socket.remoteAddress;
+  const hop = xff.length ? xff[xff.length - 1] : req.socket.remoteAddress;
+  const cf = h['cf-connecting-ip'];
+  if (cf && (process.env.TRUST_CF_HEADER === '1' || fromCloudflare(hop))) return String(cf).trim();
+  return hop;
 }
 
 // Login throttling per IP: only FAILED sign-ins count, so people who share a network can still sign in.
