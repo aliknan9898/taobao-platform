@@ -53,6 +53,9 @@ test('AliExpress builder: only fast, AI-approved products with clean photos are 
   assert.ok(st.reasons['no UK delivery in 15 days'] >= 1);
   assert.equal(st.reasons['no US delivery in 15 days'], 1);
   assert.equal(st.reasons['no MT delivery in 15 days'], 1);
+  // per-destination qualification: the Malta-slow lamp passed seven markets and failed Malta
+  assert.ok(st.markets.MT.failed >= 1 && st.markets.MT.checked >= st.markets.MT.failed);
+  assert.ok(st.markets.GB.checked >= st.markets.US.checked);
   assert.ok(st.reasons['AI: fewer than 2 clean photos'] >= 1);
   assert.ok(st.reasons['AI: not a good product'] >= 1);
   const l = db.listings.find((x) => x.ae_product_id === '1005000000000001');

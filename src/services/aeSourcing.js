@@ -204,7 +204,11 @@ async function run({ count } = {}, by = 'auto') {
             for (const country of DELIVERY_MARKETS) {
               const quote = await freight(c.id, sku.ae_sku_id, country);
               if (country === 'GB' && quote && (!gb || quote.days < gb.days)) gb = quote;
-              if (!quote || quote.days > p.max_days) { failedMarket = country; break; }
+              // per-destination qualification (Admin + daily report): how many reach each market within the limit
+              st.markets = st.markets || {}; const mk = st.markets[country] || (st.markets[country] = { checked: 0, passed: 0, failed: 0 });
+              mk.checked++;
+              if (!quote || quote.days > p.max_days) { mk.failed++; failedMarket = country; break; }
+              mk.passed++;
               quotes[country] = quote;
             }
             if (Object.keys(quotes).length === DELIVERY_MARKETS.length) {
@@ -272,7 +276,7 @@ async function run({ count } = {}, by = 'auto') {
     running = false; activeRun = null; st.running = false; st.finished_at = now();
     save((x) => ({ ...x, last: st, tried: [...tried].slice(-3000) }));
   }
-  console.log(`[ae-sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)} fastest UK delivery (days): ${JSON.stringify(st.days || {})}${st.error ? ` — ${st.error}` : ''}`);
+  console.log(`[ae-sourcing] done: added ${st.added}, checked ${st.checked}, skipped ${st.skipped} ${JSON.stringify(st.reasons)} fastest UK delivery (days): ${JSON.stringify(st.days || {})} per market (checked/passed): ${Object.entries(st.markets || {}).map(([k, v]) => `${k} ${v.checked}/${v.passed}`).join(', ')}${st.error ? ` — ${st.error}` : ''}`);
   require('./importDigest').record('AliExpress', st, added.map((item) => ({ ...item, status: 'active' })));
   return st;
 }
