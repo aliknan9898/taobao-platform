@@ -271,6 +271,12 @@
     'Nothing needs you right now.': 'لا شيء يحتاجك الآن.', 'Orders waiting for your Taobao payment': 'طلبات بانتظار دفعك على تاوباو', 'Orders with a purchase problem': 'طلبات فيها مشكلة شراء',
     'Products that need changes': 'منتجات تحتاج تعديلات', 'Products unavailable at the supplier': 'منتجات غير متوفرة لدى المورد', 'Products whose last price or stock update failed': 'منتجات فشل آخر تحديث لسعرها أو مخزونها', 'Orders being prepared': 'طلبات قيد التجهيز', 'Products in review': 'منتجات قيد المراجعة',
     'How your money moves': 'كيف تنتقل أموالك', 'Order paid, not delivered yet': 'الطلب مدفوع ولم يُسلَّم بعد', 'Delivered and the return window has ended': 'تم التسليم وانتهت مهلة الإرجاع', 'You asked for a payout; Kinan sends it': 'طلبت سحباً وكنان يرسله', 'Sent to your payout account': 'أُرسل إلى حساب الدفع الخاص بك',
+    'Catalogue': 'الكتالوج', 'Products per department': 'عدد المنتجات لكل قسم', 'Departments': 'الأقسام', 'All departments': 'كل الأقسام', 'Download PDF': 'تحميل PDF',
+    'Loading the catalogue…': 'جارٍ تحميل الكتالوج…', 'Could not load the catalogue': 'تعذّر تحميل الكتالوج', 'No products are live right now.': 'لا توجد منتجات منشورة الآن.', 'Delivered price': 'السعر مع التوصيل',
+    'Everyday goods. Global finds.': 'منتجات يومية. من حول العالم.', 'Products from trusted suppliers, checked and delivered to your door across the UK, Europe and the Middle East.': 'منتجات من موردين موثوقين، نفحصها ونوصلها إلى بابك في بريطانيا وأوروبا والشرق الأوسط.',
+    'Scan a product code or visit kinan.shop': 'امسح رمز المنتج أو زر kinan.shop', 'Pay securely by card': 'ادفع بأمان بالبطاقة', 'We buy and check every item': 'نشتري كل منتج ونفحصه', 'Track your parcel to your door': 'تابع طردك حتى بابك',
+    'continued': 'تابع', 'products in the shop': 'منتجاً في المتجر', 'Thousands more products online': 'آلاف المنتجات الأخرى على الموقع', 'pages': 'صفحات', 'Prices as of': 'الأسعار بتاريخ', 'Cover': 'الغلاف', 'Back cover': 'الغلاف الخلفي',
+    'Prices change with suppliers and exchange rates; the price at checkout is the one that counts. Every order is tracked to your door.': 'تتغير الأسعار حسب الموردين وأسعار الصرف؛ السعر المعتمد هو سعر صفحة الدفع. كل طلب يُتابَع حتى بابك.',
     'Order placed': 'تم إنشاء الطلب', 'Preparing your order': 'تجهيز طلبك', 'Quality check': 'فحص الجودة', 'Ready to ship': 'جاهز للشحن', 'Needs attention': 'يحتاج متابعة'
   };
 

@@ -1,0 +1,189 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. -->
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KINAN catalogue</title>
+<meta name="description" content="The KINAN.shop product catalogue: live products by department with prices and a QR code to buy each one.">
+<meta name="theme-color" content="#036747">
+<script src="/assets/i18n.js"></script>
+<link rel="icon" href="/assets/favicon-48.png" type="image/png" sizes="48x48">
+<link rel="stylesheet" href="/assets/fonts.css">
+<style>
+  :root { --brand: #036747; --soft: #e8f3ec; --gold: #ffbd00; --ink: #172923; --muted: #55655e; --line: #e3e9e4; --paper: #f5f7f4; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 "Instrument Sans", "IBM Plex Sans Arabic", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3 { font-family: "Bricolage Grotesque", "IBM Plex Sans Arabic", system-ui, sans-serif; margin: 0; letter-spacing: -.01em; }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  /* screen toolbar */
+  .bar { position: sticky; top: 0; z-index: 5; background: #fff; border-bottom: 1px solid var(--line); }
+  .bar .in { max-width: 210mm; margin: 0 auto; padding: 10px 16px; display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  .bar label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .bar select, .bar button { font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff; color: var(--ink); min-height: 40px; }
+  .bar .go { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; cursor: pointer; }
+  .bar .sp { flex: 1; }
+  .status { max-width: 210mm; margin: 12px auto 0; padding: 0 16px; color: var(--muted); font-size: 14px; }
+
+  /* pages */
+  .pages { display: grid; gap: 16px; justify-items: center; padding: 16px 0 40px; }
+  .page { width: 210mm; min-height: 297mm; background: #fff; box-shadow: 0 2px 16px rgba(23,41,35,.1); padding: 14mm 12mm 16mm; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  @media (max-width: 230mm) { .page { width: calc(100vw - 16px); min-height: 0; padding: 18px 14px 26px; } }
+
+  .cover { justify-content: space-between; background: linear-gradient(180deg, #fff 0 70%, var(--soft) 70% 100%); }
+  .cbrand { display: flex; align-items: center; gap: 12px; font: 800 30px/1 "Bricolage Grotesque", sans-serif; }
+  .cbrand img { width: 54px; height: 54px; }
+  .ctitle { margin-top: 18mm; }
+  .ctitle h1 { font-size: 54px; line-height: 1.02; letter-spacing: -.03em; }
+  .ctitle p { margin: 10px 0 0; font-size: 18px; color: var(--muted); max-width: 120mm; }
+  .ctitle .edition { display: inline-block; margin-top: 14px; padding: 4px 12px; border-radius: 99px; background: var(--soft); color: var(--brand); font-weight: 700; font-size: 13px; }
+  .mosaic { margin-top: 9mm; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-width: 150mm; }
+  .mosaic div { aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden; background: var(--paper); }
+  .mosaic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cfoot { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: end; margin-top: 8mm; margin-bottom: 6mm; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; counter-reset: s; }
+  .steps li { counter-increment: s; display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+  .steps li::before { content: counter(s); flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+  .qrbox { text-align: center; font-size: 13px; font-weight: 700; color: var(--brand); }
+  .qrbox .q { width: 38mm; height: 38mm; padding: 2mm; background: #fff; border-radius: 10px; border: 1px solid var(--line); }
+  .qrbox svg { width: 100%; height: 100%; display: block; }
+
+  .sect { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid var(--brand); margin-bottom: 10px; }
+  .sect h2 { font-size: 26px; }
+  .sect span { color: var(--muted); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 600px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ctitle h1 { font-size: 38px; } .cfoot, .steps { grid-template-columns: minmax(0, 1fr); } }
+  .item { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; break-inside: avoid; background: #fff; }
+  .item .ph { aspect-ratio: 1; background: var(--paper); }
+  .item .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .item .bd { padding: 8px 10px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; align-items: end; flex: 1; }
+  .item .t { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.35; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.7em; overflow-wrap: anywhere; }
+  .item .pr { font: 800 15px/1.1 "Bricolage Grotesque", sans-serif; color: var(--brand); }
+  .item .pr small { display: block; font: 500 10.5px/1.3 "Instrument Sans", "IBM Plex Sans Arabic", sans-serif; color: var(--muted); }
+  .item .mq { width: 15mm; height: 15mm; }
+  .item .mq svg { width: 100%; height: 100%; display: block; }
+  .item .shop { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+  .pfoot { position: absolute; inset: auto 12mm 6mm; display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .sweep { position: absolute; inset: auto 0 0 0; height: 4mm; background: linear-gradient(90deg, var(--brand) 0 70%, var(--gold) 70% 100%); }
+
+  .back { justify-content: center; align-items: center; text-align: center; gap: 14px; background: var(--brand); color: #fff; }
+  .back h2 { font-size: 40px; } .back p { margin: 0; max-width: 140mm; font-size: 16px; opacity: .92; }
+  .back .q { width: 60mm; height: 60mm; padding: 3mm; background: #fff; border-radius: 14px; margin-top: 8px; }
+  .back .q svg { width: 100%; height: 100%; display: block; }
+  .back .url { font: 800 26px "Bricolage Grotesque", sans-serif; letter-spacing: .01em; }
+  .back .sweep { background: var(--gold); height: 8mm; }
+
+  @page { size: A4; margin: 0; }
+  @media print {
+    body { background: #fff; }
+    .bar, .status { display: none !important; }
+    .pages { display: block; padding: 0; }
+    .page { box-shadow: none; width: 210mm; height: 297mm; min-height: 297mm; page-break-after: always; break-after: page; }
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .back, .sweep, .steps li::before, .edition { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="bar"><div class="in">
+  <label>Deliver to<select id="cc" aria-label="Country"></select></label>
+  <label>Products per department<select id="per"><option>6</option><option selected>9</option><option>12</option><option>24</option></select></label>
+  <label>Departments<select id="dep"><option value="">All departments</option></select></label>
+  <span class="sp"></span>
+  <button type="button" id="lang" data-lang-toggle data-no-tr></button>
+  <button type="button" class="go" id="print">Download PDF</button>
+</div></div>
+<p class="status" id="status" role="status">Loading the catalogue…</p>
+<div class="pages" id="pages"></div>
+<script src="/assets/common.js"></script>
+<script src="/assets/qr.js"></script>
+<script>
+'use strict';
+const { esc, money } = K;
+const T = (s) => (window.KinanLang ? KinanLang.t(s) : s);
+const AR = () => window.KinanLang && KinanLang.lang === 'ar';
+const ORIGIN = 'https://kinan.shop';
+const PER_PAGE = 12; // 4 × 3 products on an A4 page
+const q = new URLSearchParams(location.search);
+const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== '' && v != null)).toString();
+const get = (p) => fetch(p, { credentials: 'same-origin' }).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+
+$('#lang').textContent = AR() ? 'English' : 'العربية';
+$('#print').onclick = () => window.print();
+
+function savedCountry() {
+  try { const a = JSON.parse(localStorage.getItem('kinan_addr') || '{}'); if (a.country_code) return a.country_code; } catch { /* ignore */ }
+  try { const l = JSON.parse(localStorage.getItem('kinan_locale') || '{}'); if (l.country) return l.country; } catch { /* ignore */ }
+  return 'DE';
+}
+function $(s) { return document.querySelector(s); }
+
+function qr(url, color, logo) { return KinanQR.svg(url, { color, logo, label: url }); }
+function itemCard(p) {
+  const title = AR() && p.title_ar ? p.title_ar : p.title;
+  const price = p.delivered_price ?? p.min_price;
+  const url = `${ORIGIN}/p/${encodeURIComponent(p.id)}`;
+  return `<article class="item"><div class="ph">${p.images && p.images[0] ? K.img(p.images[0], 350, 'alt="" loading="eager" decoding="async"') : ''}</div>
+    <div class="bd"><div class="t" dir="auto">${esc(title)}</div>
+      <div class="pr">${money(price, p.currency)}<small>${esc(T(p.delivered_price != null ? 'Delivered price' : 'From'))}</small></div>
+      <div class="mq" title="${esc(url)}">${qr(url, '#172923')}</div>
+      ${p.shop && p.shop.name ? `<div class="shop">${esc(T('Sold by'))} ${esc(p.shop.name)}</div>` : ''}</div></article>`;
+}
+const footer = (n) => `<div class="pfoot"><span>KINAN.shop · ${esc(T('Catalogue'))}</span><span>${n}</span></div><div class="sweep"></div>`;
+
+async function build() {
+  const cc = $('#cc').value; const per = Number($('#per').value); const only = $('#dep').value;
+  const st = $('#status'); st.textContent = T('Loading the catalogue…');
+  const cats = (await get('/api/categories')).filter((c) => c.count > 0 && (!only || c.id === only));
+  const sections = [];
+  for (const c of cats) {
+    const d = await get(`/api/catalog?${qs({ category: c.id, limit: Math.min(per, 100), country: cc })}`);
+    if (d.items.length) sections.push({ c, items: d.items, total: d.total });
+  }
+  const all = sections.flatMap((s) => s.items);
+  const lang = AR() ? 'ar' : 'en';
+  const month = new Date().toLocaleDateString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', year: 'numeric' });
+  let n = 1;
+  const pages = [];
+  pages.push(`<section class="page cover" aria-label="${esc(T('Cover'))}">
+    <div><div class="cbrand"><img src="/assets/logo-main.png" alt=""><span dir="ltr">KINAN.shop</span></div>
+      <div class="ctitle"><h1>${esc(T('Everyday goods. Global finds.'))}</h1><p>${esc(T('Products from trusted suppliers, checked and delivered to your door across the UK, Europe and the Middle East.'))}</p><span class="edition">${esc(T('Catalogue'))} · ${esc(month)}</span></div>
+      <div class="mosaic">${all.filter((p) => p.images && p.images[0]).slice(0, 4).map((p) => `<div>${K.img(p.images[0], 500, 'alt=""')}</div>`).join('')}</div></div>
+    <div class="cfoot"><ol class="steps"><li>${esc(T('Scan a product code or visit kinan.shop'))}</li><li>${esc(T('Pay securely by card'))}</li><li>${esc(T('We buy and check every item'))}</li><li>${esc(T('Track your parcel to your door'))}</li></ol>
+      <div class="qrbox"><div class="q">${KinanQR.svg(ORIGIN, { color: '#036747', logo: '/assets/logo-main.png' })}</div><div dir="ltr">kinan.shop</div></div></div>
+    ${footer(n++)}</section>`);
+  for (const s of sections) {
+    const name = lang === 'ar' ? s.c.ar : s.c.en;
+    for (let i = 0; i < s.items.length; i += PER_PAGE) {
+      pages.push(`<section class="page" aria-label="${esc(name)}"><div class="sect"><h2>${esc(name)}</h2><span>${i ? esc(T('continued')) : `${s.total} ${esc(T('products in the shop'))}`}</span></div>
+        <div class="grid">${s.items.slice(i, i + PER_PAGE).map(itemCard).join('')}</div>${footer(n++)}</section>`);
+    }
+  }
+  pages.push(`<section class="page back" aria-label="${esc(T('Back cover'))}"><img src="/assets/logo-main.png" alt="" width="84" height="84" style="background:#fff;border-radius:18px;padding:6px">
+    <h2>${esc(T('Thousands more products online'))}</h2><p>${esc(T('Prices change with suppliers and exchange rates; the price at checkout is the one that counts. Every order is tracked to your door.'))}</p>
+    <div class="q">${KinanQR.svg(ORIGIN, { color: '#036747', logo: '/assets/logo-main.png' })}</div><div class="url" dir="ltr">kinan.shop</div><div class="sweep"></div></section>`);
+  $('#pages').innerHTML = pages.join('');
+  const asOf = new Date().toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  st.textContent = sections.length ? `${all.length} ${T('products')} · ${pages.length} ${T('pages')} · ${T('Prices as of')} ${asOf}` : T('No products are live right now.');
+  history.replaceState(null, '', `?${qs({ country: cc, per, dep: only })}`);
+}
+
+(async () => {
+  try {
+    const cfg = await get('/api/config/public');
+    const countries = cfg.countries || [];
+    const want = (q.get('country') || savedCountry()).toUpperCase();
+    $('#cc').innerHTML = countries.map(([c, n]) => `<option value="${esc(c)}" ${c === want ? 'selected' : ''}>${esc(T(n))}</option>`).join('');
+    if (q.get('per')) $('#per').value = q.get('per');
+    const cats = await get('/api/categories');
+    $('#dep').innerHTML += cats.filter((c) => c.count > 0).map((c) => `<option value="${esc(c.id)}">${esc(AR() ? c.ar : c.en)} (${c.count})</option>`).join('');
+    if (q.get('dep')) $('#dep').value = q.get('dep');
+    ['#cc', '#per', '#dep'].forEach((s) => { $(s).onchange = () => build().catch(fail); });
+    await build();
+  } catch (e) { fail(e); }
+})();
+function fail(e) { $('#status').textContent = `${T('Could not load the catalogue')}: ${e.message}`; }
+</script>
+</body>
+</html>
