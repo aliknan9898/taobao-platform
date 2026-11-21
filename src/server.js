@@ -155,7 +155,7 @@ function sharePage(res, kind, id) {
     }
     const s = shopSvc.getShop(id);
     return page(res, 'shop.html', { stripe: true, title: `${s.name} — Kinan Shop`, body: seo.ssrList({ title: s.name, intro: s.description, seller_id: s.id }), head: shareHead({ title: `${s.name} on Kinan Shop`, description: s.description || `${s.products} products, delivered to your door with tracking.`, image: s.logo, url: `/s/${s.id}`, hash: `#/s/${s.id}` }) });
-  } catch { return page(res, 'shop.html', { stripe: true }); }
+  } catch { return page(res, 'shop.html', { stripe: true, head: '<meta name="robots" content="noindex">' }); } // unavailable product or shop: not a copy of the homepage for search engines
 }
 
 // Cache busting: every /assets/*.css|js link in a page gets ?v=<content hash>, so phones pick up

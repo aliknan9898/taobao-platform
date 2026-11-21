@@ -114,12 +114,14 @@ const K = (() => {
   /** Shop events → whichever tools are loaded. name: view_item | add_to_cart | begin_checkout | purchase */
   function track(name, p = {}) {
     if (!tracking) return;
+    // A purchase is reported once per order, whichever page sees the payment first (card, redirect back, order page)
+    if (name === 'purchase') { const k = `kinan_purchase_${p.id}`; try { if (!p.id || localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch { /* private mode: send */ } }
     try {
       if (window.gtag) window.gtag('event', name, { currency: p.currency, value: p.value, transaction_id: p.id, items: p.items });
       const metaName = { view_item: 'ViewContent', add_to_cart: 'AddToCart', begin_checkout: 'InitiateCheckout', purchase: 'Purchase' }[name];
-      if (window.fbq && metaName) window.fbq('track', metaName, { currency: p.currency, value: p.value });
+      if (window.fbq && metaName) window.fbq('track', metaName, { currency: p.currency, value: p.value }, p.id ? { eventID: `${name}_${p.id}` } : undefined);
       const ttName = { view_item: 'ViewContent', add_to_cart: 'AddToCart', begin_checkout: 'InitiateCheckout', purchase: 'CompletePayment' }[name];
-      if (window.ttq && ttName) window.ttq.track(ttName, { currency: p.currency, value: p.value });
+      if (window.ttq && ttName) window.ttq.track(ttName, { currency: p.currency, value: p.value }, p.id ? { event_id: `${name}_${p.id}` } : undefined);
     } catch { /* analytics never breaks the shop */ }
   }
 
