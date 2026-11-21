@@ -32,8 +32,15 @@ const K = (() => {
     clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hide'), 2800);
   }
 
-  const LOGO = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0e7c66" style="fill:var(--logo,#0e7c66)"/><path d="M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z" fill="#fff"/><circle cx="49" cy="15" r="6" fill="#f4b400"/></svg>';
-  const brand = (sub) => `<a class="brand" href="${sub === 'Seller Center' ? '/seller' : sub === 'Admin' ? '/admin' : sub === 'Warehouse' ? '/warehouse' : '/'}">${LOGO}<span>kinan</span>${sub ? `<small>${esc(sub)}</small>` : ''}</a>`;
+  // Brand artwork is the KINAN bag; the seller apps use the purple version. The live product name stays text beside it.
+  const logoImg = (seller) => `<img class="brand-mark" src="/assets/logo-${seller ? 'seller' : 'main'}.png" width="36" height="36" alt="" decoding="async">`;
+  const LOGO = logoImg(false);
+  const brand = (sub) => {
+    const seller = sub === 'Seller Center' || sub === 'Seller';
+    const href = seller ? '/seller' : sub === 'Admin' ? '/admin' : sub === 'Warehouse' ? '/warehouse' : '/';
+    const name = sub === 'Shop' ? '<span class="brand-name" dir="ltr">KINAN<span class="brand-tld">.shop</span></span>' : '<span class="brand-name" dir="ltr">KINAN</span>';
+    return `<a class="brand" href="${href}" aria-label="KINAN${sub ? ` ${esc(sub)}` : ''}">${logoImg(seller)}${name}${sub && sub !== 'Shop' ? `<small>${esc(sub)}</small>` : ''}</a>`;
+  };
 
   const ORDER_STATUS = {
     pending_payment: ['Awaiting payment', 'warn'], paid: ['Paid', 'ok'], procuring: ['Buying from supplier', 'warn'],

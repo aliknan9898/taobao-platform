@@ -7,7 +7,7 @@
  "display": "standalone",
  "description": "Run your Kinan shop: add products from the Kinan catalogue, manage orders and earnings.",
  "background_color": "#ffffff",
- "theme_color": "#1f3a8a",
+ "theme_color": "#4b319b",
  "icons": [
   {
    "src": "/assets/icon-seller-192.png",
@@ -20,7 +20,7 @@
    "type": "image/png"
   },
   {
-   "src": "/assets/icon-seller-512.png",
+   "src": "/assets/icon-seller-maskable-512.png",
    "sizes": "512x512",
    "type": "image/png",
    "purpose": "maskable"

@@ -7,7 +7,7 @@
  "display": "standalone",
  "description": "Shop many sellers in one place, delivered to your door.",
  "background_color": "#ffffff",
- "theme_color": "#ffffff",
+ "theme_color": "#036747",
  "icons": [
   {
    "src": "/assets/icon-192.png",

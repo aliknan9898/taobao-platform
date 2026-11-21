@@ -4,14 +4,16 @@
 :root {
   --paper: #ffffff;
   --surface: #ffffff;
-  --ink: #141b3a;
+  --ink: #172923;
   --ink-2: #4a5170;
   --muted: #6b7290;
   --line: #e1e5ee;
-  --jade: #0e7c66;
+  --jade: #036747;
   --jade-ink: #ffffff;
-  --jade-soft: #e3f2ee;
-  --marigold: #f4b400;
+  --jade-soft: #e8f3ec;
+  --nav: #ffffff;
+  --nav-ink: var(--ink);
+  --marigold: #ffbd00;
   --marigold-ink: #2a1f00;
   --ok: #1f7a4d;
   --warn: #9a6400;
@@ -46,7 +48,10 @@ p { margin: 0; }
 
 /* Wordmark */
 .brand { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-family: var(--font-display); font-weight: 750; font-size: 22px; letter-spacing: -.03em; color: var(--ink); }
-.brand svg { width: 28px; height: 28px; }
+.brand svg, .brand .brand-mark { width: 32px; height: 32px; flex: none; }
+.brand .brand-mark { border-radius: 8px; object-fit: contain; background: #fff; }
+.brand-name { white-space: nowrap; }
+.brand-tld { font-weight: 600; }
 .brand small { font: 500 13px var(--font-body); color: var(--muted); letter-spacing: 0; }
 
 /* Layout */

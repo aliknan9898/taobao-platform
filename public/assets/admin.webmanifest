@@ -7,7 +7,7 @@
  "display": "standalone",
  "description": "Kinan platform administration.",
  "background_color": "#ffffff",
- "theme_color": "#ffffff",
+ "theme_color": "#172e26",
  "icons": [
   {
    "src": "/assets/icon-192.png",
