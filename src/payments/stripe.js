@@ -73,10 +73,10 @@ async function refundIntent(id, reason = 'requested_by_customer') {
   return stripe('/refunds', { payment_intent: id, reason }, `rf_pi_${id}`);
 }
 
-async function refund(order, amount) {
+async function refund(order, amount, key = '') {
   if (demoMode() || order.payment?.provider !== 'stripe') return { demo: true };
   const c = chargeOf(order); // amounts are in the sale currency; the card was charged in the customer's currency
-  return stripe('/refunds', { payment_intent: order.payment.intent_id, amount: amount ? toMinor(Math.min(c.amount, Math.round(amount * c.rate * 100) / 100), c.currency) : undefined }, `rf_${order.id}_${amount || 'full'}`);
+  return stripe('/refunds', { payment_intent: order.payment.intent_id, amount: amount ? toMinor(Math.min(c.amount, Math.round(amount * c.rate * 100) / 100), c.currency) : undefined }, `rf_${order.id}_${key || amount || 'full'}`); // key: one refund per return, even of equal amounts
 }
 
 // ---------- automatic setup: webhook endpoint + Apple Pay / Google Pay domain ----------

@@ -211,7 +211,7 @@ function requestReturn(buyer, orderId, b = {}) {
   if (o.status !== 'delivered') throw httpError(409, 'You can ask for a return once the order is delivered');
   const at = deliveredAt(o);
   if (at && Date.now() - at > RETURN_DAYS * 86400e3) throw httpError(409, `Returns must be requested within ${RETURN_DAYS} days of delivery`);
-  if (db.returns.find((r) => r.order_id === o.id && ['requested', 'approved'].includes(r.status))) throw httpError(409, 'You already have an open return for this order');
+  if (db.returns.find((r) => r.order_id === o.id && ['requested', 'approved', 'refunding'].includes(r.status))) throw httpError(409, 'You already have an open return for this order');
   const reason = REASONS.includes(b.reason) ? b.reason : null;
   if (!reason) throw httpError(400, 'Choose a reason');
   const lines = (Array.isArray(b.lines) ? b.lines : []).map(String).filter((n) => o.lines.some((l) => l.line_no === n));
@@ -229,6 +229,7 @@ async function decideReturn(id, { action, note, amount, refund_to = 'wallet', ch
   if (!r) throw httpError(404, 'Return not found');
   const o = db.orders.get(r.order_id);
   if (['refunded', 'rejected'].includes(r.status)) throw httpError(409, 'This return is closed');
+  if (r.status === 'refunding') throw httpError(409, 'This return is being refunded');
   if (action === 'approve') { const out = db.returns.update(id, { status: 'approved', admin_note: str(note, 1000) }); notify.returnUpdate(out); return out; }
   if (action === 'reject') {
     if (!str(note, 1000)) throw httpError(400, 'Tell the customer why');
@@ -236,11 +237,20 @@ async function decideReturn(id, { action, note, amount, refund_to = 'wallet', ch
   }
   if (action !== 'refund') throw httpError(400, 'Unknown action');
   const a = money(amount ?? r.value);
-  const already = money(db.returns.all((x) => x.order_id === o.id && x.status === 'refunded').reduce((s, x) => s + (x.refund_amount || 0), 0));
+  const already = money(db.returns.all((x) => x.order_id === o.id && x.id !== id && ['refunded', 'refunding'].includes(x.status)).reduce((s, x) => s + (x.refund_amount || 0), 0));
   if (!(a > 0) || a > money(o.total - already)) throw httpError(400, `Refund must be between 0 and ${money(o.total - already)}`);
   const to = refund_to === 'card' && o.payment?.provider === 'stripe' ? 'card' : 'wallet';
-  if (to === 'card') await stripe.refund(o, a);
-  else shop.walletEntry(o.buyer_id, a, `Refund — return for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'refund' });
+  // Claimed before any money moves (no await since the status check above): a double click or a second admin
+  // cannot refund the same return twice; another return's refund in progress counts against the order total
+  const prev = r.status;
+  db.returns.update(id, { status: 'refunding', refunding_by: admin.id, refunding_at: Date.now(), refund_amount: a });
+  try {
+    if (to === 'card') await stripe.refund(o, a, `ret_${r.id}`);
+  } catch (e) {
+    db.returns.update(id, { status: prev, refunding_by: null, refunding_at: null, refund_amount: null, last_refund_error: String(e.message).slice(0, 200) });
+    throw e;
+  }
+  if (to !== 'card') shop.walletEntry(o.buyer_id, a, `Refund — return for order ${o.id.slice(-8).toUpperCase()}`, { order_id: o.id, kind: 'refund' });
   if (charge_seller) {
     // Split the refund between the sellers of the returned items, in proportion to their value
     const lines = o.lines.filter((l) => r.lines.includes(l.line_no));
