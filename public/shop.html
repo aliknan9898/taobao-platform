@@ -192,6 +192,9 @@
   @media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
   .sum { display: grid; gap: 8px; }
   .sum div { display: flex; justify-content: space-between; }
+  .sum .summeta { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--r-md); background: var(--jade-soft); }
+  .sum .summeta div { gap: 12px; }
+  .sum .subt { border-top: 1px solid var(--line); padding-top: 8px; }
   .sum .total { font-weight: 700; font-size: 18px; padding-top: 8px; border-top: 1px solid var(--line); }
 
   .track { display: grid; gap: 0; }
@@ -1144,13 +1147,15 @@ async function checkout() {
       <button class="btn" id="go">Continue to payment</button>
       <p class="muted">Your address is only used to deliver your order. By placing your order you agree to the <a href="/terms" target="_blank">Terms of Service</a>; import taxes may apply in your country.</p>
     </form>
-    <aside class="panel sum">${items.map((x) => `<div class="small"><span>${x.qty} × ${esc(x.title.slice(0, 40))}${x.title.length > 40 ? '…' : ''}</span><span>${money(x.price * x.qty, cur)}</span></div>`).join('')}
-      <div><span>Shipping</span><span id="kship">Choose a country</span></div><div class="muted small" id="kshipnote"></div>
+    <aside class="panel sum" aria-label="Order summary"><div class="summeta small" id="kmeta" aria-live="polite">${esc(KinanLang.t('Choose a country to see delivery, taxes and the final total.'))}</div>${items.map((x) => `<div class="small"><span>${x.qty} × ${esc(x.title.slice(0, 40))}${x.title.length > 40 ? '…' : ''}</span><span>${money(x.price * x.qty, cur)}</span></div>`).join('')}
+      <div class="subt"><span>Subtotal</span><span>${money(sub, cur)}</span></div>
+      <div><span>Shipping</span><span id="kship">Choose a country</span></div>
+      <div id="kimp" hidden><span>Import duty & handling</span><span id="kimpv"></span></div><div class="muted small" id="kshipnote"></div>
       <div id="kpack" hidden><span>Extra protection</span><span id="kpackv"></span></div>
       <div id="kdisc" hidden><span>Discount <code id="kcode"></code></span><span id="kdiscv" class="amt pos"></span></div>
       <div id="kbundle" hidden><span>${KinanLang.t('Bought together')}</span><span class="dealtxt"></span></div>
       <form class="row" id="cpf" style="gap:6px;flex-wrap:nowrap"><input name="code" placeholder="Discount code" autocomplete="off" style="flex:1;min-width:0;text-transform:uppercase"><button class="btn sm ghost">Apply</button></form><div class="small" id="cpm"></div>
-      <div class="total"><span>Total</span><span id="ktot">${money(sub, cur)}</span></div></aside></div>`;
+      <div class="total"><span>Total</span><span id="ktot">${money(sub, cur)}</span></div><p class="muted small" id="ktax"></p></aside></div>`;
   let lastFee = 0;
   const extras = () => { const f = $('#af'); return f.packaging && f.packaging.value === 'protect' ? Number((cfg.packaging || {}).protect || 2) : 0; };
   let coupon = null;
@@ -1160,8 +1165,12 @@ async function checkout() {
     const code = $('#af').country_code.value; if (!code) return;
     try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: code });
       lastFee = q.fee || 0; bundleOff = Number(q.bundle_discount) || 0;
-      $('#kship').textContent = q.fee ? money(q.fee, cur) : 'Included';
-      if (q.import_fee) $('#kship').title = `Includes EU import duty ${money(q.import_fee, cur)}`;
+      const imp = Number(q.import_fee) || 0; const ship = Math.max(0, (q.fee || 0) - imp);
+      $('#kship').textContent = ship ? money(ship, cur) : KinanLang.t('Included');
+      $('#kimp').hidden = !imp; if (imp) $('#kimpv').textContent = money(imp, cur);
+      const days = q.days || (items.every((x) => x.direct) ? null : '');
+      $('#kmeta').innerHTML = `<div><span>${esc(KinanLang.t('Deliver to'))}</span><b>${esc(KinanLang.t(countryName(code)))}</b></div><div><span>${esc(KinanLang.t('Currency'))}</span><b dir="ltr">${esc(String(cur).toUpperCase())}</b></div><div><span>${esc(KinanLang.t('Delivery'))}</span><b>${days ? `${esc(days)} ${esc(KinanLang.t('days'))}` : esc(KinanLang.t('Supplier estimate on each item'))}</b></div>`;
+      $('#ktax').textContent = imp ? KinanLang.t('EU import duty and handling are included in the total above.') : KinanLang.t('Import taxes or fees may apply in your country and are not included above.');
       $('#kshipnote').textContent = [q.weight_kg ? `${q.weight_kg} kg estimated · arrives in about ${q.days} days. If your parcel weighs less, we refund the difference to your wallet.` : '', q.cj?.fee ? `Includes ${money(q.cj.fee, cur)} for items that ship separately${q.cj.days ? ` (about ${String(q.cj.days).replace('-', '–')} days)` : ''}.` : '', q.import_fee ? `Includes the EU import duty (${money(q.import_fee, cur)}) — nothing more to pay on delivery.` : ''].filter(Boolean).join(' ');
       paintTotal();
     } catch {}

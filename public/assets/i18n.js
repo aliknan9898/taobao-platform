@@ -264,6 +264,8 @@
     'This order was cancelled. Any payment is returned to your card or wallet.': 'أُلغي هذا الطلب. يُعاد أي مبلغ مدفوع إلى بطاقتك أو محفظتك.',
     'This order was refunded.': 'تم استرداد مبلغ هذا الطلب.',
     'Our team is sorting out a problem with this order. We will email you; nothing to do now.': 'فريقنا يعالج مشكلة في هذا الطلب. سنراسلك بالبريد؛ لا شيء مطلوب منك الآن.',
+    'Choose a country to see delivery, taxes and the final total.': 'اختر الدولة لترى التوصيل والضرائب والإجمالي النهائي.', 'Import duty & handling': 'رسوم الاستيراد والمعالجة', 'Currency': 'العملة', 'Delivery': 'التوصيل', 'days': 'أيام',
+    'Supplier estimate on each item': 'حسب تقدير المورد لكل منتج', 'EU import duty and handling are included in the total above.': 'رسوم الاستيراد الأوروبية والمعالجة مشمولة في الإجمالي أعلاه.', 'Import taxes or fees may apply in your country and are not included above.': 'قد تُفرض ضرائب أو رسوم استيراد في بلدك وهي غير مشمولة أعلاه.', 'Order summary': 'ملخص الطلب',
     'Order placed': 'تم إنشاء الطلب', 'Preparing your order': 'تجهيز طلبك', 'Quality check': 'فحص الجودة', 'Ready to ship': 'جاهز للشحن', 'Needs attention': 'يحتاج متابعة'
   };
 
