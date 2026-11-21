@@ -360,7 +360,7 @@ r('GET', '/api/catalog', null, async ({ url }) => {
 r('GET', '/api/catalog/lines', null, async ({ url }) => require('./services/testOrder').lines(url.searchParams.get('items')));
 r('GET', '/api/admin/test-basket', ADMIN, async ({ url }) => require('./services/testOrder').basket(Object.fromEntries(url.searchParams)));
 r('GET', '/api/catalog/many', null, async ({ url }) => catalog.many(url.searchParams.get('ids')));
-r('GET', '/api/catalog/:id/similar', null, async ({ params }) => catalog.similar(params.id));
+r('GET', '/api/catalog/:id/similar', null, async ({ params }) => cached(`similar:${params.id}|${db.version('listings')}|${db.version('sellers')}`, 60e3, () => catalog.similar(params.id)));
 r('GET', '/api/catalog/:id/questions', null, async ({ params }) => require('./services/assistant').questionsFor(params.id));
 r('POST', '/api/catalog/:id/questions', BUYER, async ({ req, params, user }) => { throttleLight(req); return require('./services/assistant').ask(db.users.get(user.id), params.id, (await readJson(req)).question); });
 r('POST', '/api/assistant', null, async ({ req }) => { throttleLight(req); photoLimit(req); const b = await readJson(req); return require('./services/assistant').chat({ messages: b.messages, currency: b.currency, lang: b.lang }); });
