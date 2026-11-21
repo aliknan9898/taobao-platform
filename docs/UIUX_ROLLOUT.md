@@ -46,11 +46,8 @@ read models, roles and permission checks.
 
 Still open: Arabic for the deeper admin sections (catalog tools, integrations, reports), the editorial shop home (hero and serif headline), and self-hosted Inter / Noto Sans Arabic files.
 
-## Proposed next stages (each one is a separate PR and needs owner approval)
+## Next stages (each one is a separate PR and needs owner approval)
 
-2. Shop home and product detail layout: hero, featured grid, and variant and market eligibility before "Add to bag".
-3. Checkout cost summary and public order tracking by reference (with verification).
-4. Seller dashboard queues and payout timeline.
-5. Admin exceptions queue and supplier/jobs surface.
-6. Warehouse scan → pack → dispatch steps and duplicate-scan handling.
-7. Arabic for admin and warehouse.
+1. Editorial shop home: hero, featured grid, serif English headline.
+2. Arabic for the deeper admin sections (catalog tools, integrations, reports).
+3. Self-hosted Inter / Noto Sans Arabic, if the owner wants the handoff fonts instead of the current ones.
