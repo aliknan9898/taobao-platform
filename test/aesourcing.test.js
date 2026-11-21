@@ -109,3 +109,21 @@ test('AliExpress imports previously skipped products at the 20-day ceiling', asy
   assert.equal(db.listings.find((row) => row.ae_product_id === '1005000000000002').status, 'active');
   assert.equal(A.savePrefs({ max_days: 21 }).max_days, 20);
 });
+
+test('keyword search refused app-wide: paused for 12 hours after two refusals, feeds still used', async () => {
+  const original = aeClient.call; let searches = 0;
+  aeClient.call = async (method, params) => {
+    if (method === 'aliexpress.ds.text.search') { searches++; throw new Error('AliExpress error NGSELECTION_SEARCH_ERROR'); }
+    if (method === 'aliexpress.ds.recommend.feed.get') return { result: { products: { traffic_product_d_t_o: [] } } };
+    return original(method, params);
+  };
+  db.settings.update('ae_sourcing', (s) => ({ ...s, feed_pages: {}, search_off_until: 0 }));
+  const first = await A.run({ count: 1 }, 'test');
+  assert.equal(searches, 2);
+  assert.ok(first.search_paused_until > Date.now() + 11 * 3600e3);
+  assert.ok(!first.error, 'a paused search is not a run error');
+  const second = await A.run({ count: 1 }, 'test');
+  assert.equal(searches, 2, 'no keyword searches while paused');
+  assert.ok(second.search_paused_until);
+  aeClient.call = original;
+});
