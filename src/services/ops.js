@@ -79,13 +79,13 @@ function invoiceHtml(o) {
   const rows = o.lines.map((l) => `<tr><td>${esc(l.title)}${l.props ? `<div class="m">${esc(String(l.props).slice(0, 80))}</div>` : ''}</td><td class="r">${l.qty}</td><td class="r">${fmt(l.price)}</td><td class="r">${fmt(l.price * l.qty)}</td></tr>`).join('');
   const line = (label, v, cls = '') => `<tr class="${cls}"><td colspan="3">${label}</td><td class="r">${v}</td></tr>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Invoice ${no}</title>
-<style>body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#141b3a;margin:0;background:#f4f6f9}.p{max-width:780px;margin:20px auto;background:#fff;padding:32px;border:1px solid #e1e5ee;border-radius:12px}
-h1{font-size:22px;margin:0}.top{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}.brand{color:#0e7c66;font-weight:800;font-size:26px}.m{color:#6b7290;font-size:12px}.ar{color:#6b7290;font-size:12px}
-table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px 6px;border-bottom:1px solid #eef0f5;text-align:start;vertical-align:top}th{font-size:12px;color:#6b7290;font-weight:600}.r{text-align:end;white-space:nowrap}.tot td{font-weight:700;font-size:16px;border-bottom:0}
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}.btn{display:inline-block;margin:0 0 12px;padding:8px 14px;border-radius:8px;background:#0e7c66;color:#fff;text-decoration:none;font-weight:600;border:0;cursor:pointer}
+<style>body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#172923;margin:0;background:#f5f7f4}.p{max-width:780px;margin:20px auto;background:#fff;padding:32px;border:1px solid #e3e9e4;border-radius:12px}
+h1{font-size:22px;margin:0}.top{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:10px;color:#172923;font-weight:800;font-size:26px}.brand img{width:44px;height:44px}.m{color:#55655e;font-size:12px}.ar{color:#55655e;font-size:12px}
+table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px 6px;border-bottom:1px solid #eef0f5;text-align:start;vertical-align:top}th{font-size:12px;color:#55655e;font-weight:600}.r{text-align:end;white-space:nowrap}.tot td{font-weight:700;font-size:16px;border-bottom:0}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}.btn{display:inline-block;margin:0 0 12px;padding:8px 14px;border-radius:8px;background:#036747;color:#fff;text-decoration:none;font-weight:600;border:0;cursor:pointer}
 @media print{body{background:#fff}.p{border:0;margin:0;max-width:none}.noprint{display:none}}</style></head><body><div class="p">
-<a class="btn noprint" href="/invoice/${o.id}.pdf">Download PDF</a> <button class="btn noprint" onclick="print()" style="background:#141b3a">Print</button>
-<div class="top"><div><div class="brand">kinan</div><div class="m">${esc(op.tradingName || 'Kinan')}<br>${esc(op.email || 'support@kinan.shop')}${op.vatNumber ? `<br>VAT ${esc(op.vatNumber)}` : ''}${op.companyNumber ? `<br>Company ${esc(op.companyNumber)}` : ''}</div></div>
+<a class="btn noprint" href="/invoice/${o.id}.pdf">Download PDF</a> <button class="btn noprint" onclick="print()" style="background:#172923">Print</button>
+<div class="top"><div><div class="brand"><img src="/assets/logo-main.png" alt="">KINAN</div><div class="m">${esc(op.tradingName || 'Kinan')}<br>${esc(op.email || 'support@kinan.shop')}${op.vatNumber ? `<br>VAT ${esc(op.vatNumber)}` : ''}${op.companyNumber ? `<br>Company ${esc(op.companyNumber)}` : ''}</div></div>
 <div style="text-align:end"><h1>Invoice</h1><div>${no}</div><div class="m">Date: ${day(o.paid_at || o.created_at)}<br>Order: ${o.id.slice(-8).toUpperCase()}</div></div></div>
 <div class="cols"><div><b>Bill to</b><div>${esc(a.name || buyer.name || '')}<br>${esc(buyer.email || '')}</div></div>
 <div><b>Ship to</b><div>${esc(a.name || '')}<br>${esc(a.line1 || '')}${a.line2 ? `, ${esc(a.line2)}` : ''}<br>${esc(a.city || '')} ${esc(a.postal_code || '')}<br>${esc(a.country || '')}</div></div></div>
@@ -106,16 +106,14 @@ function invoicePdf(o) {
   const cur = (o.charge?.currency || o.currency || config.currency).toUpperCase(); const rate = o.charge?.rate || 1;
   const fmt = (n) => { const v = Math.round(Number(n) * rate * 100) / 100; try { return v.toLocaleString('en-US', { style: 'currency', currency: cur }); } catch { return `${v.toFixed(2)} ${cur}`; } };
   const no = invoiceNo(o); const op = config.operator;
-  const INK = '#141b3a'; const MUTED = '#6b7290'; const JADE = '#0e7c66'; const LINE = '#e1e5ee';
+  const INK = '#172923'; const MUTED = '#55655e'; const JADE = '#036747'; const LINE = '#e3e9e4';
   const doc = new PDF({ title: `Kinan invoice ${no}`, author: 'Kinan' });
   const L = 48; const R = doc.w - 48; let y;
 
   const header = (first) => {
-    // Logo: the Kinan "K" mark
-    doc.rect(L, 40, 46, 46, { fill: JADE, radius: 11.5 });
-    doc.path('M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z', L, 40, 46 / 64, { fill: '#ffffff' });
-    doc.circle(L + 49 * 46 / 64, 40 + 15 * 46 / 64, 6 * 46 / 64, { fill: '#f4b400' });
-    doc.text('kinan', L + 58, 72, { size: 26, bold: true, color: INK });
+    // Logo: the KINAN bag
+    drawLogo(doc, L, 40, 46);
+    doc.text('KINAN', L + 56, 72, { size: 24, bold: true, color: INK });
     doc.text('INVOICE', R, 70, { size: 20, bold: true, color: INK, align: 'right' });
     if (!first) { doc.text(no, R, 96, { size: 9, color: MUTED, align: 'right' }); return 120; }
     let yy = 108;
@@ -140,7 +138,7 @@ function invoicePdf(o) {
 
   // Items table
   const cQty = R - 170; const cPrice = R - 95; const tableHead = () => {
-    doc.rect(L, y, R - L, 24, { fill: '#e3f2ee', radius: 6 });
+    doc.rect(L, y, R - L, 24, { fill: '#e8f3ec', radius: 6 });
     doc.text('Item', L + 10, y + 16, { size: 9, bold: true });
     doc.text('Qty', cQty, y + 16, { size: 9, bold: true, align: 'right' }); doc.text('Price', cPrice, y + 16, { size: 9, bold: true, align: 'right' }); doc.text('Amount', R - 10, y + 16, { size: 9, bold: true, align: 'right' });
     y += 36;
@@ -186,12 +184,12 @@ function invoicePdf(o) {
 }
 
 // ---------------- Seller account statement ----------------
-/** The Kinan mark: rounded square with the K and the yellow dot. */
-function drawLogo(doc, x, y, size) {
-  const k = size / 64;
-  doc.rect(x, y, size, size, { fill: '#0e7c66', radius: size / 4 });
-  doc.path('M20 15h8v14l13-14h10L36.5 30.5 52 49H41.5L28 33v16h-8z', x, y, k, { fill: '#ffffff' });
-  doc.circle(x + 49 * k, y + 15 * k, 6 * k, { fill: '#f4b400' });
+/** The KINAN bag logo (emerald for customers, purple for sellers). */
+const LOGOS = {};
+function drawLogo(doc, x, y, size, seller = false) {
+  const k = seller ? 'seller' : 'main';
+  if (!LOGOS[k]) LOGOS[k] = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'public', 'assets', `logo-${k}.jpg`));
+  doc.image(LOGOS[k], x, y, size, size);
 }
 
 const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(v));
@@ -230,12 +228,12 @@ function sellerStatementPdf(seller, { from, to } = {}) {
   const bal = require('./money').sellerBalance(seller.id);
   const owner = db.users.get(seller.user_id) || {};
 
-  const INK = '#141b3a'; const MUTED = '#6b7290'; const JADE = '#0e7c66'; const LINE = '#e1e5ee';
+  const INK = '#172923'; const MUTED = '#55655e'; const JADE = '#4b319b'; const LINE = '#e3e9e4';
   const doc = new PDF({ title: `Kinan statement ${seller.shop_name || ''} ${per.from} to ${per.to}`, author: 'Kinan' });
   const L = 40; const R = doc.w - 40; let y;
   const header = (first) => {
-    drawLogo(doc, L, 36, 42);
-    doc.text('kinan', L + 52, 66, { size: 24, bold: true, color: INK });
+    drawLogo(doc, L, 36, 42, true);
+    doc.text('KINAN', L + 52, 66, { size: 22, bold: true, color: INK });
     doc.text('ACCOUNT STATEMENT', R, 58, { size: 16, bold: true, color: INK, align: 'right' });
     doc.text(`${per.from}  to  ${per.to}`, R, 74, { size: 9, color: MUTED, align: 'right' });
     if (!first) return 100;
@@ -249,7 +247,7 @@ function sellerStatementPdf(seller, { from, to } = {}) {
   y = header(true);
 
   // Summary
-  const box = (x, w, label, value, color = INK) => { doc.rect(x, y, w, 46, { fill: '#f4f6f9', radius: 8 }); doc.text(label, x + 10, y + 17, { size: 8, color: MUTED }); doc.text(value, x + 10, y + 36, { size: 12, bold: true, color }); };
+  const box = (x, w, label, value, color = INK) => { doc.rect(x, y, w, 46, { fill: '#f5f7f4', radius: 8 }); doc.text(label, x + 10, y + 17, { size: 8, color: MUTED }); doc.text(value, x + 10, y + 36, { size: 12, bold: true, color }); };
   const bw = (R - L - 18) / 4;
   box(L, bw, 'Opening balance', fmt(opening)); box(L + bw + 6, bw, 'Earned in period', fmt(sales - commission - cost + refunds), JADE);
   box(L + 2 * (bw + 6), bw, 'Withdrawals sent', fmt(-withdrawals)); box(L + 3 * (bw + 6), bw, 'Closing balance', fmt(closing), JADE);
@@ -261,7 +259,7 @@ function sellerStatementPdf(seller, { from, to } = {}) {
   // Transactions
   const C = { date: L + 6, desc: L + 66, sales: R - 250, comm: R - 185, cost: R - 125, net: R - 62, bal: R - 6 };
   const head = () => {
-    doc.rect(L, y, R - L, 22, { fill: '#e3f2ee', radius: 6 });
+    doc.rect(L, y, R - L, 22, { fill: '#eee9fb', radius: 6 });
     const hy = y + 15; const o = { size: 8, bold: true };
     doc.text('Date', C.date, hy, o); doc.text('Description', C.desc, hy, o); doc.text('Sales', C.sales, hy, { ...o, align: 'right' }); doc.text('Commission', C.comm, hy, { ...o, align: 'right' });
     doc.text('Cost', C.cost, hy, { ...o, align: 'right' }); doc.text('Amount', C.net, hy, { ...o, align: 'right' }); doc.text('Balance', C.bal, hy, { ...o, align: 'right' });
@@ -284,8 +282,8 @@ function sellerStatementPdf(seller, { from, to } = {}) {
   }
   if (!rows.length) { doc.text('No transactions in this period.', C.desc, y, { size: 9, color: MUTED }); y += 22; }
   if (y > doc.h - 150) { doc.addPage(); y = header(false); }
-  doc.rect(L, y, R - L, 26, { fill: '#e8f5ee', radius: 6 });
-  doc.text('Closing balance', L + 12, y + 17, { size: 10, bold: true, color: '#1f7a4d' }); doc.text(fmt(closing), R - 12, y + 17, { size: 11, bold: true, color: '#1f7a4d', align: 'right' });
+  doc.rect(L, y, R - L, 26, { fill: '#eee9fb', radius: 6 });
+  doc.text('Closing balance', L + 12, y + 17, { size: 10, bold: true, color: JADE }); doc.text(fmt(closing), R - 12, y + 17, { size: 11, bold: true, color: JADE, align: 'right' });
   y += 44;
   doc.text(`Today: available to withdraw ${fmt(bal.available)} · on the way ${fmt(bal.pending)} · withdrawal in progress ${fmt(bal.requested)}`, L, y, { size: 8, color: MUTED }); y += 12;
   for (const t of doc.wrap('Sales are your sale price; Kinan’s commission and, for items Kinan buys for you, the purchase cost are deducted. Earnings become available when the customer receives the order. Withdrawals appear on the date they were sent.', R - L, 7.5)) { doc.text(t, L, y, { size: 7.5, color: MUTED }); y += 10; }

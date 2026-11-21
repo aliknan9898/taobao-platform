@@ -1489,7 +1489,7 @@ async function addCardDialog(after) {
     const stripe = Stripe(cfg.stripe_publishable_key, { locale: stripeLocale() });
     // Card only: Stripe's single secure card field (number, expiry, CVC)
     const dark = KinanTheme.isDark();
-    const card = stripe.elements().create('card', { hidePostalCode: true, style: { base: { fontSize: '16px', color: dark ? '#eef0f7' : '#141b3a', '::placeholder': { color: '#9097b3' } }, invalid: { color: '#d93025' } } });
+    const card = stripe.elements().create('card', { hidePostalCode: true, style: { base: { fontSize: '16px', color: dark ? '#eef0f7' : '#172923', '::placeholder': { color: '#9097b3' } }, invalid: { color: '#d93025' } } });
     d.querySelector('#card-element').innerHTML = '';
     card.mount('#card-element');
     card.on('change', (ev) => { err.textContent = ev.error ? ev.error.message : ''; });
