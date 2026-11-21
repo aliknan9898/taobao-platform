@@ -1,12 +1,14 @@
 <!doctype html>
 <!-- Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. -->
-<html lang="en" dir="ltr">
+<html lang="en" dir="ltr" data-langs="en ar">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KINAN Admin — Commerce Control Center</title>
 <meta name="theme-color" content="#ffffff">
 <script src="/assets/theme.js"></script>
+<script src="/assets/i18n.js"></script>
+<script src="/assets/i18n-staff.js"></script>
 <link rel="stylesheet" href="/assets/admin-advertising.css">
 <script src="/assets/admin-advertising.js" defer></script>
 <link rel="manifest" href="/assets/admin.webmanifest">
@@ -74,7 +76,7 @@
   .kpi b { display:block; font-size:22px; font-variant-numeric:tabular-nums; } .kpi span { color:var(--muted); font-size:13px; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   th { color:var(--muted); font-weight:500; font-size:12px; }
-  th, td { text-align:left; padding:9px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th, td { text-align:start; padding:9px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
   .scroll { overflow-x:auto; }
   .pill { display:inline-block; font-size:12px; padding:1px 9px; border-radius:99px; border:1px solid currentColor; white-space:nowrap; }
   .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .muted { color:var(--muted); font-size:13px; }
@@ -128,7 +130,7 @@
 @keyframes lvp{70%{box-shadow:0 0 0 7px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
 @media (prefers-reduced-motion:reduce){.lv i{animation:none}}
 .pfgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
-.pfcard{display:grid;gap:12px;cursor:pointer;border:1px solid var(--line);font:inherit;color:inherit;background:var(--card,#fff);text-align:left}
+.pfcard{display:grid;gap:12px;cursor:pointer;border:1px solid var(--line);font:inherit;color:inherit;background:var(--card,#fff);text-align:start}
 .pfcard:hover{border-color:var(--accent,#036747)}
 .pfico{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;color:#fff;font-weight:800;font-size:14px;flex:none}
 .pfstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
@@ -215,7 +217,7 @@ function boot(user) {
   TABS = ALL_TABS.filter(([, , r]) => can(r));
   if (!TABS.some(([k]) => k === tab)) tab = 'overview';
   $('#app').innerHTML = `<header><a class="brand" href="/admin"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
-      <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Kinan Shop</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a>${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
+      <div class="row"><a href="/" target="_blank" rel="noopener"><button class="btn ghost">Kinan Shop</button></a><a href="/seller" target="_blank" rel="noopener"><button class="btn ghost">Seller Center</button></a><a href="/warehouse"><button class="btn ghost">Warehouse</button></a>${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
     <div class="admin-shell">
       <div class="admin-menu"><button type="button" class="btn ghost admin-menu-toggle" id="menutoggle" aria-controls="adminnav" aria-expanded="false">Sections</button>
         <nav id="adminnav" aria-label="Admin sections">${adminNav()}</nav></div>
@@ -897,9 +899,9 @@ const VIEWS = {
       const tot = P.reduce((a, p) => a + p.active, 0);
       v.innerHTML = `<div class="card"><h2>Products by platform</h2><p class="muted">Every source of products, in one place. ${tot} live products in total. A new platform appears here by itself as soon as it has products.</p></div>
         <div class="pfgrid">${P.map((p) => `<button class="card pfcard" data-pf="${esc(p.id)}">
-          <div class="row" style="gap:10px"><span class="pfico" style="background:${esc(p.color)}">${esc(p.icon)}</span><div style="text-align:left"><b>${esc(p.name)}</b><div class="muted small">${p.total} products${p.added_today ? ` · <span class="ok">+${p.added_today} today</span>` : ''}</div></div></div>
+          <div class="row" style="gap:10px"><span class="pfico" style="background:${esc(p.color)}">${esc(p.icon)}</span><div style="text-align:start"><b>${esc(p.name)}</b><div class="muted small">${p.total} products${p.added_today ? ` · <span class="ok">+${p.added_today} today</span>` : ''}</div></div></div>
           <div class="pfstats"><div><b class="ok">${p.active}</b><span>Live</span></div><div><b class="warn">${p.pending}</b><span>Review</span></div><div><b>${p.paused}</b><span>Paused</span></div><div><b class="bad">${p.rejected}</b><span>Rejected</span></div></div>
-          <div class="muted small" style="text-align:left">${p.kinan_shop} in Kinan’s shop · ${p.seller_shops} seller shop(s)${p.avg_days ? ` · average delivery ${p.avg_days} days` : ''}</div>
+          <div class="muted small" style="text-align:start">${p.kinan_shop} in Kinan’s shop · ${p.seller_shops} seller shop(s)${p.avg_days ? ` · average delivery ${p.avg_days} days` : ''}</div>
         </button>`).join('') || '<div class="card muted">No products yet.</div>'}</div>`;
       v.querySelectorAll('[data-pf]').forEach((b) => b.onclick = () => { v.dataset.pf = b.dataset.pf; v.dataset.pst = ''; v.dataset.pq = ''; v.dataset.pp = '1'; render(); });
       return;

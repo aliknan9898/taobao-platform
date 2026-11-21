@@ -1,12 +1,14 @@
 <!doctype html>
 <!-- Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved. Proprietary — see LICENSE. -->
-<html lang="en" dir="ltr">
+<html lang="en" dir="ltr" data-langs="en ar">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kinan Warehouse</title>
 <meta name="theme-color" content="#ffffff">
 <script src="/assets/theme.js"></script>
+<script src="/assets/i18n.js"></script>
+<script src="/assets/i18n-staff.js"></script>
 <link rel="manifest" href="/assets/warehouse.webmanifest">
 <link rel="icon" href="/assets/favicon-48.png" type="image/png" sizes="48x48">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -60,7 +62,7 @@
   .tabs button.on { background:var(--chip); color:var(--ink); font-weight:600; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   th { color:var(--muted); font-weight:500; font-size:12px; }
-  th, td { text-align:left; padding:9px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th, td { text-align:start; padding:9px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
   .scroll { overflow-x:auto; }
   .pill { display:inline-block; font-size:12px; padding:1px 9px; border-radius:99px; border:1px solid currentColor; white-space:nowrap; }
   .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .muted { color:var(--muted); font-size:13px; }
@@ -159,7 +161,7 @@ function wireCams(root) {
   });
 }
 function boot(user) {
-  $('#app').innerHTML = `<header><a class="brand" href="/warehouse"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>Warehouse · China</small></a><div class="row">${user.role === 'admin' ? '<a href="/admin"><button class="btn ghost">Admin dashboard</button></a>' : ''}${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.name || user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
+  $('#app').innerHTML = `<header><a class="brand" href="/warehouse"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>Warehouse · China</small></a><div class="row">${user.role === 'admin' ? '<a href="/admin"><button class="btn ghost">Admin dashboard</button></a>' : ''}${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.name || user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
   <main>
     <section class="card"><h2>Receive parcel</h2>
       <form class="scan" id="scan">
