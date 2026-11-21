@@ -14,7 +14,7 @@ const KNOWN = {
   cj: { name: 'CJdropshipping', icon: 'CJ', color: '#1d6fe8' },
   taobao: { name: 'Taobao', icon: '淘', color: '#ff5000' },
   banggood: { name: 'Banggood', icon: 'BG', color: '#f39c12' },
-  kinan: { name: 'Kinan catalogue (sellers)', icon: 'K', color: '#0e7c66' },
+  kinan: { name: 'Kinan catalogue (sellers)', icon: 'K', color: '#036747' },
   manual: { name: 'Sellers’ own products', icon: '✎', color: '#5b6478' },
   warehouse: { name: 'Kinan warehouse', icon: '▣', color: '#6c5ce7' }
 };

@@ -119,13 +119,21 @@ class PDF {
     this.addPage();
   }
   addPage() { this.ops = []; this.pages.push(this.ops); return this; }
+  /** Draw a JPEG (baseline or progressive) at x, y (top-left), w × h points. */
+  image(jpeg, x, y, w, h) {
+    this.images = this.images || [];
+    let i = this.images.findIndex((im) => im.buf === jpeg);
+    if (i < 0) { this.images.push({ buf: jpeg, ...jpegSize(jpeg) }); i = this.images.length - 1; }
+    this.ops.push(`q ${num(w)} 0 0 ${num(h)} ${num(x)} ${num(this.h - y - h)} cm /Im${i + 1} Do Q`);
+    return this;
+  }
   /** Width of a string in points. */
   width(text, size = 10, bold = false) {
     const f = bold ? this.f.bold : this.f.regular;
     return visual(text).reduce((a, c) => a + (f.widths[f.map.get(c) || 0] || 0), 0) * size / f.upm;
   }
   /** Draw text; x,y = baseline from the TOP-left corner. align: left | right | center (x is that edge). */
-  text(str, x, y, { size = 10, bold = false, color = '#141b3a', align = 'left' } = {}) {
+  text(str, x, y, { size = 10, bold = false, color = '#172923', align = 'left' } = {}) {
     if (str === undefined || str === null || str === '') return this;
     const f = bold ? this.f.bold : this.f.regular;
     const gids = visual(str).map((c) => { const g = f.map.get(c) || f.map.get(0x3F) || 0; f.used.set(g, c); return g; });
@@ -162,7 +170,7 @@ class PDF {
     this.ops.push(`${fill ? `${hexColor(fill)} rg ` : ''}${stroke ? `${hexColor(stroke)} RG ${num(lineWidth)} w ` : ''}${p} ${fill && stroke ? 'B' : fill ? 'f' : 'S'}`);
     return this;
   }
-  line(x1, y1, x2, y2, { color = '#e1e5ee', width = 1 } = {}) { this.ops.push(`${hexColor(color)} RG ${num(width)} w ${num(x1)} ${num(this.h - y1)} m ${num(x2)} ${num(this.h - y2)} l S`); return this; }
+  line(x1, y1, x2, y2, { color = '#e3e9e4', width = 1 } = {}) { this.ops.push(`${hexColor(color)} RG ${num(width)} w ${num(x1)} ${num(this.h - y1)} m ${num(x2)} ${num(this.h - y2)} l S`); return this; }
   circle(cx, cy, r, { fill = '#000' } = {}) { return this.rect(cx - r, cy - r, 2 * r, 2 * r, { fill, radius: r }); }
   /** Fill an SVG path made of M/L/H/V/Z commands (absolute or relative), drawn in a box scaled from viewBox units. */
   path(d, x, y, scale, { fill = '#000' } = {}) {
@@ -198,11 +206,13 @@ class PDF {
       return add(`<< /Type /Font /Subtype /Type0 /BaseFont /${name} /Encoding /Identity-H /DescendantFonts [${cid} 0 R] /ToUnicode ${tu} 0 R >>`);
     };
     const f1 = fontObj(this.f.regular, 'AAAAAA+DejaVuSans'); const f2 = fontObj(this.f.bold, 'AAAAAB+DejaVuSans-Bold');
+    const imgs = (this.images || []).map((im) => add(Buffer.concat([Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${im.width} /Height ${im.height} /ColorSpace /${im.comps === 1 ? 'DeviceGray' : im.comps === 4 ? 'DeviceCMYK' : 'DeviceRGB'} /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.buf.length} >>\nstream\n`), im.buf, Buffer.from('\nendstream')])));
+    const xo = imgs.length ? ` /XObject << ${imgs.map((id, i) => `/Im${i + 1} ${id} 0 R`).join(' ')} >>` : '';
     const pagesId = objs.length + 1 + this.pages.length * 2; // reserved below
     const pageIds = [];
     for (const ops of this.pages) {
       const c = add(stream('', Buffer.from(ops.join('\n'))));
-      pageIds.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${num(this.w)} ${num(this.h)}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${c} 0 R >>`));
+      pageIds.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${num(this.w)} ${num(this.h)}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >>${xo} >> /Contents ${c} 0 R >>`));
     }
     const pages = add(`<< /Type /Pages /Kids [${pageIds.map((p) => `${p} 0 R`).join(' ')}] /Count ${pageIds.length} >>`);
     if (pages !== pagesId) throw new Error('pdf: object numbering');
@@ -215,6 +225,19 @@ class PDF {
     parts.push(Buffer.from(xref));
     return Buffer.concat(parts);
   }
+}
+
+/** Width, height and colour components from a JPEG's SOF marker. */
+function jpegSize(b) {
+  if (!Buffer.isBuffer(b) || b[0] !== 0xff || b[1] !== 0xd8) throw new Error('pdf: image must be a JPEG');
+  let i = 2;
+  while (i < b.length) {
+    if (b[i] !== 0xff) { i++; continue; }
+    const m = b[i + 1]; const len = b.readUInt16BE(i + 2);
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7), comps: b[i + 9] };
+    i += 2 + len;
+  }
+  throw new Error('pdf: JPEG size not found');
 }
 
 module.exports = { PDF, visual, shape };

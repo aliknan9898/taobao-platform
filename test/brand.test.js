@@ -58,3 +58,26 @@ test('brand helper picks the seller artwork only for the seller apps', () => {
   assert.match(K.brand('Shop'), /KINAN<span class="brand-tld">\.shop<\/span>/);
   assert.match(K.brand('Shop'), /dir="ltr"/, 'the name stays upright in Arabic');
 });
+
+test('invoices and statements carry the bag logo as an image, not the old K mark', () => {
+  const os = require('os');
+  process.env.DATA_DIR = process.env.DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'brand-'));
+  const db = require('../src/db'); const ops = require('../src/services/ops');
+  const b = db.users.insert({ email: 'b@kinan.test', role: 'buyer', name: 'B' });
+  const o = db.orders.insert({ buyer_id: b.id, status: 'paid', currency: 'eur', subtotal: 10, shipping_fee: 2, total: 12, paid_at: Date.now(), shipping_address: { name: 'B', city: 'Valletta', country: 'Malta' }, lines: [{ line_no: 1, title: 'Lamp', qty: 1, price: 10 }] });
+  for (const pdf of [ops.invoicePdf(o).body, ops.sellerStatementPdf(db.sellers.insert({ shop_name: 'S', status: 'active' }), {}).body]) {
+    const s = pdf.toString('latin1');
+    assert.match(s, /\/Subtype \/Image .*\/Filter \/DCTDecode/, 'logo image embedded');
+    assert.match(s, /^%PDF-1\.7/);
+    assert.ok(s.trimEnd().endsWith('%%EOF'));
+  }
+  assert.match(ops.invoiceHtml(o), /logo-main\.png/);
+});
+
+test('emails use the app colour and the KINAN name', () => {
+  const m = require('../src/mailer');
+  const shop = m.layout({ title: 'Hi', button: { text: 'Go', url: 'https://kinan.shop' }, app: 'shop' });
+  const seller = m.layout({ title: 'Hi', button: { text: 'Go', url: 'https://kinan.shop/seller' }, app: 'seller' });
+  assert.ok(!/#0e7c66|#141b3a/.test(shop + seller), 'old colours gone');
+  assert.match(shop, /#036747/); assert.match(seller, /#4b319b/); assert.match(shop, />KINAN</);
+});
