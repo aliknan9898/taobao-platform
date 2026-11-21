@@ -264,8 +264,11 @@
     'This order was cancelled. Any payment is returned to your card or wallet.': 'أُلغي هذا الطلب. يُعاد أي مبلغ مدفوع إلى بطاقتك أو محفظتك.',
     'This order was refunded.': 'تم استرداد مبلغ هذا الطلب.',
     'Our team is sorting out a problem with this order. We will email you; nothing to do now.': 'فريقنا يعالج مشكلة في هذا الطلب. سنراسلك بالبريد؛ لا شيء مطلوب منك الآن.',
-    'Choose a country to see delivery, taxes and the final total.': 'اختر الدولة لترى التوصيل والضرائب والإجمالي النهائي.', 'Import duty & handling': 'رسوم الاستيراد والمعالجة', 'Currency': 'العملة', 'Delivery': 'التوصيل', 'days': 'أيام',
+    'Choose a country to see delivery, taxes and the final total.': 'اختر الدولة لترى التوصيل والضرائب والإجمالي النهائي.', 'Import duty & handling': 'رسوم الاستيراد والمعالجة', 'days': 'أيام',
     'Supplier estimate on each item': 'حسب تقدير المورد لكل منتج', 'EU import duty and handling are included in the total above.': 'رسوم الاستيراد الأوروبية والمعالجة مشمولة في الإجمالي أعلاه.', 'Import taxes or fees may apply in your country and are not included above.': 'قد تُفرض ضرائب أو رسوم استيراد في بلدك وهي غير مشمولة أعلاه.', 'Order summary': 'ملخص الطلب',
+    'Nothing needs you right now.': 'لا شيء يحتاجك الآن.', 'Orders waiting for your Taobao payment': 'طلبات بانتظار دفعك على تاوباو', 'Orders with a purchase problem': 'طلبات فيها مشكلة شراء',
+    'Products that need changes': 'منتجات تحتاج تعديلات', 'Products unavailable at the supplier': 'منتجات غير متوفرة لدى المورد', 'Products whose last price or stock update failed': 'منتجات فشل آخر تحديث لسعرها أو مخزونها', 'Orders being prepared': 'طلبات قيد التجهيز', 'Products in review': 'منتجات قيد المراجعة',
+    'How your money moves': 'كيف تنتقل أموالك', 'Order paid, not delivered yet': 'الطلب مدفوع ولم يُسلَّم بعد', 'Delivered and the return window has ended': 'تم التسليم وانتهت مهلة الإرجاع', 'You asked for a payout; Kinan sends it': 'طلبت سحباً وكنان يرسله', 'Sent to your payout account': 'أُرسل إلى حساب الدفع الخاص بك',
     'Order placed': 'تم إنشاء الطلب', 'Preparing your order': 'تجهيز طلبك', 'Quality check': 'فحص الجودة', 'Ready to ship': 'جاهز للشحن', 'Needs attention': 'يحتاج متابعة'
   };
 
