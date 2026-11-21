@@ -33,6 +33,19 @@ read models, roles and permission checks.
 | Warehouse: receive, inspection, photos, consolidation, packing, labels, dispatch | Receive (scan + location + weight + QC), Expected / In stock / Orders / Shipments | Step-by-step pack and dispatch flow, duplicate-scan readback, explicit weight units on every field; Arabic UI |
 | Shared | Sign-in, theme toggle, empty states, Arabic RTL in shop and seller | Admin and warehouse are English-only; stale and partial-failure states are not uniform |
 
+## Gaps closed on this branch (21 Nov 2026)
+
+| Gap | What shipped | Where |
+|---|---|---|
+| Public tracking by reference | `#/track`: order reference + email, one answer for every mismatch, counted against the per-IP sign-in limit, no address/amount/supplier/internal ids | `src/services/publicTrack.js`, `POST /api/track`, `public/shop.html` |
+| Full cost before payment | Destination, currency, delivery range, subtotal, shipping, EU import duty and a taxes note together in the order summary | `public/shop.html` checkout |
+| Seller queues and payouts | Needs-attention list on the dashboard; four payout stages on Earnings | `public/seller.html` |
+| Admin exceptions | One queue with area/provider/result/assignee filters, assignment and notes, retry only where `procure` can redo the purchase | `src/services/exceptions.js`, `/api/admin/exceptions`, admin "Exceptions" |
+| Warehouse scanning | Duplicate scan never overwrites; readback with next step; grams validated 1–70000; pack steps per order | `src/services/warehouse.js`, `public/warehouse.html` |
+| Arabic for staff apps | Admin and warehouse offer English/Arabic only (`data-langs`), RTL, translated shell, navigation, overview, exceptions and the whole warehouse | `public/assets/i18n-staff.js`, `KinanLang.add` |
+
+Still open: Arabic for the deeper admin sections (catalog tools, integrations, reports), the editorial shop home (hero and serif headline), and self-hosted Inter / Noto Sans Arabic files.
+
 ## Proposed next stages (each one is a separate PR and needs owner approval)
 
 2. Shop home and product detail layout: hero, featured grid, and variant and market eligibility before "Add to bag".

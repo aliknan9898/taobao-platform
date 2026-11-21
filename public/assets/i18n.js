@@ -22,7 +22,9 @@
     try { var s = localStorage.getItem(KEY); if (LANGS.indexOf(s) >= 0) return s; } catch (e) { /* private mode */ }
     return phoneLang();
   }
+  var ONLY = (root.getAttribute('data-langs') || '').split(/\s+/).filter(Boolean);
   var lang = pick();
+  if (ONLY.length && ONLY.indexOf(lang) < 0) lang = ONLY.indexOf('en') >= 0 ? 'en' : ONLY[0];
   root.setAttribute('lang', lang);
   root.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
 
@@ -390,7 +392,12 @@
   });
   var phone = NAMES[phoneLang()];
   window.KinanLang = {
-    lang: lang, t: tr, set: set, langs: LANGS, names: NAMES,
+    lang: lang, t: tr, set: set, langs: ONLY.length ? ONLY : LANGS, names: NAMES,
+    /** Extra Arabic phrases and patterns for one app (admin, warehouse); call before the page is drawn. */
+    add: function (dict, patterns) {
+      for (var k in dict) if (Object.prototype.hasOwnProperty.call(dict, k) && !Object.prototype.hasOwnProperty.call(AR, k)) AR[k] = dict[k];
+      if (patterns) for (var i = 0; i < patterns.length; i++) { PATTERNS.push(patterns[i]); TEMPLATES.push(null); }
+    },
     /** For the server's translator: every English phrase, and the patterns as sentences with {0} blanks. */
     _source: function () { return { keys: Object.keys(AR), templates: TEMPLATES.filter(Boolean) }; },
     /** Button that switches language; shows the OTHER language's name. */
