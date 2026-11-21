@@ -18,25 +18,46 @@ const PARCEL_LABEL = { expected: 'Expected', received: 'Received', qc_failed: 'Q
 function normTracking(t) { return String(t || '').trim().toUpperCase().replace(/\s+/g, ''); }
 
 /** Scan a tracking number at the dock. Unknown parcels are recorded for manual matching. */
-function receive({ tracking, location, weight_g, qc = 'pass', notes }, staff) {
+function receive({ tracking, location, weight_g, qc = 'pass', notes, update = false }, staff) {
   const tr = normTracking(tracking);
   if (!tr) throw httpError(400, 'Tracking number is required');
+  const grams = weight_g === undefined || weight_g === null || weight_g === '' ? null : Number(weight_g);
+  if (grams !== null && !(Number.isFinite(grams) && grams > 0 && grams <= 70000)) throw httpError(400, 'Weight must be in grams, between 1 and 70000 g');
   let p = db.parcels.find((x) => normTracking(x.tracking) === tr);
+  // Scanned twice: say so and keep the first record unless the person explicitly updates it
+  update = update === true;
+  if (p && ['received', 'qc_failed'].includes(p.status) && !update) {
+    return { parcel: p, matched: Boolean(p.order_id), duplicate: true, readback: readback(p) };
+  }
   const patch = {
     status: qc === 'fail' ? 'qc_failed' : 'received',
-    location: String(location || '').slice(0, 40) || null,
-    weight_g: weight_g ? Number(weight_g) : null,
+    location: String(location || '').slice(0, 40) || (update && p ? p.location : null),
+    weight_g: grams ?? (update && p ? p.weight_g : null),
     notes: String(notes || '').slice(0, 300) || null,
     received_at: Date.now(), received_by: staff.id
   };
   if (!p) {
     p = db.parcels.insert({ tracking: tr, order_id: null, unmatched: true, ...patch });
-    return { parcel: p, matched: false };
+    return { parcel: p, matched: false, readback: readback(p) };
   }
   if (p.status === 'packed') throw httpError(409, 'Parcel is already packed in a shipment');
-  p = db.parcels.update(p.id, patch);
+  p = db.parcels.update(p.id, { ...patch, ...(update ? { updated_by: staff.id, updated_at: Date.now() } : {}) });
   if (p.order_id) orders.recompute(p.order_id);
-  return { parcel: p, matched: Boolean(p.order_id) };
+  return { parcel: p, matched: Boolean(p.order_id), updated: Boolean(update), readback: readback(p) };
+}
+
+/** What the scanner should read back: item, order progress and what to do with the parcel next. */
+function readback(p) {
+  const o = p.order_id ? db.orders.get(p.order_id) : null;
+  const line = o?.lines.find((l) => l.mp_sku_id === p.mp_sku_id);
+  const ps = o ? db.parcels.all((x) => x.order_id === o.id) : [];
+  const got = ps.filter((x) => ['received', 'qc_failed', 'packed'].includes(x.status)).length;
+  const next = !o ? 'Put it on the unmatched shelf and link it to an order'
+    : p.status === 'qc_failed' ? 'Keep it apart: quality check failed'
+      : got < ps.length ? `Store it: ${ps.length - got} more parcel(s) for this order to come`
+        : 'All parcels are here: take QC photos, then pack the order';
+  return { order_ref: o ? o.id.slice(-8).toUpperCase() : null, item: line ? `${line.title}${line.props ? ` — ${line.props}` : ''} × ${line.qty}` : null, shop: db.sellers.get(p.seller_id)?.shop_name || null,
+    parcels_received: got, parcels_total: ps.length, location: p.location || null, weight_g: p.weight_g || null, received_at: p.received_at || null, next };
 }
 
 function assign(parcelId, orderId) {
