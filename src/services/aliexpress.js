@@ -182,7 +182,7 @@ async function resync(l) {
     const by = new Map(p.skus.map((s) => [s.ae_sku_id, s]));
     const skus = l.skus.map((s) => { const f = by.get(s.ae_sku_id); return f ? { ...s, cost_sale: f.cost_sale, stock: f.stock, ...(f.image ? { image: f.image } : {}), ...(f.opts ? { opts: f.opts } : {}) } : { ...s, stock: s.ae_sku_id ? 0 : s.stock }; });
     return db.listings.update(l.id, { skus, last_synced_at: now(), sync_error: null });
-  } catch (e) { return db.listings.update(l.id, { sync_error: e.message, last_synced_at: now() }); }
+  } catch (e) { return db.listings.update(l.id, { sync_error: e.message, sync_tried_at: now() /* a failed check is not a fresh price: last_synced_at keeps the last confirmed one */ }); }
 }
 
 // ---------------- Direct orders ----------------

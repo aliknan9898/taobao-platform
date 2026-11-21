@@ -216,7 +216,7 @@ async function resync(l) {
     return db.listings.update(l.id, { skus, bg_warehouse: p.warehouse, last_synced_at: now(), sync_error: null, ...(l.status === 'unavailable' && skus.some((s) => s.stock > 0) ? { status: 'active' } : {}) });
   } catch (e) {
     if (e.status === 404) return db.listings.update(l.id, { status: l.status === 'active' ? 'unavailable' : l.status, sync_error: 'No longer sold on Banggood', last_synced_at: now() });
-    return db.listings.update(l.id, { sync_error: e.message, last_synced_at: now() });
+    return db.listings.update(l.id, { sync_error: e.message, sync_tried_at: now() /* a failed check is not a fresh price: last_synced_at keeps the last confirmed one */ });
   }
 }
 // ---------------- brand minimum prices ----------------
@@ -299,8 +299,8 @@ async function updateTick() {
 /** Safety net: products not refreshed for a week (the hourly update list catches normal changes). */
 async function resyncStale(max = 200) {
   if (!enabled()) return 0;
-  const stale = db.listings.all((l) => l.source === 'banggood' && ['active', 'paused', 'unavailable', 'private'].includes(l.status) && now() - (l.last_synced_at || 0) > 7 * 86400e3)
-    .sort((a, b) => (a.last_synced_at || 0) - (b.last_synced_at || 0)).slice(0, max);
+  const stale = db.listings.all((l) => l.source === 'banggood' && ['active', 'paused', 'unavailable', 'private'].includes(l.status) && now() - Math.max(l.last_synced_at || 0, l.sync_tried_at || 0) > 7 * 86400e3)
+    .sort((a, b) => Math.max(a.last_synced_at || 0, a.sync_tried_at || 0) - Math.max(b.last_synced_at || 0, b.sync_tried_at || 0)).slice(0, max);
   for (const l of stale) await resync(l);
   return stale.length;
 }
