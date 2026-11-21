@@ -8,7 +8,8 @@
  *  1. Configuration (safe default):
  *       RUN_JOBS=0  never run jobs here (e.g. a preview or a second web service)
  *       RUN_JOBS=1  always eligible
- *       unset       eligible only on the Render service named JOBS_SERVICE (default "kinan"), or locally
+ *       unset       eligible only on the Render service listed in JOBS_SERVICE (names or ids; default the kinan
+ *                   service: "kinan", its slug "kinan-17ma" and its id), or locally
  *                   (no RENDER_SERVICE_NAME). A copy of the app under another Render name stays web-only.
  *  2. With PostgreSQL, an eligible process must also hold a session-level advisory lock, so two instances of
  *     the same service (or an overlapping deploy) never run the jobs twice. The lock is released automatically
@@ -19,9 +20,12 @@ const LOCK_KEY = 0x4b494e41; // "KINA"
 function eligible(env = process.env) {
   if (env.RUN_JOBS === '0') return { ok: false, why: 'RUN_JOBS=0' };
   if (env.RUN_JOBS === '1') return { ok: true, why: 'RUN_JOBS=1' };
-  const owner = env.JOBS_SERVICE || 'kinan';
-  if (env.RENDER_SERVICE_NAME && env.RENDER_SERVICE_NAME !== owner) return { ok: false, why: `Render service "${env.RENDER_SERVICE_NAME}" is not the jobs owner "${owner}"` };
-  return { ok: true, why: env.RENDER_SERVICE_NAME ? `Render service "${owner}"` : 'local process' };
+  // Render's RENDER_SERVICE_NAME is the service slug (kinan → "kinan-17ma"); RENDER_SERVICE_ID is stable.
+  const owners = String(env.JOBS_SERVICE || 'kinan,kinan-17ma,srv-dbpdpl08v5cc73dvt3bg').split(',').map((x) => x.trim()).filter(Boolean);
+  const name = env.RENDER_SERVICE_NAME; const id = env.RENDER_SERVICE_ID;
+  if (!name && !id) return { ok: true, why: 'local process' };
+  if ((name && owners.includes(name)) || (id && owners.includes(id))) return { ok: true, why: `Render service "${name || id}"` };
+  return { ok: false, why: `Render service "${name || id}" is not the jobs owner (${owners.join(', ')})` };
 }
 
 /**
