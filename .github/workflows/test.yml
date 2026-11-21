@@ -20,3 +20,5 @@ jobs:
       - run: node --check src/server.js
       - run: node --check src/db.js
       - run: node --check src/auth.js
+      - name: Staging smoke check (isolated data, no production keys, jobs off)
+        run: npm run staging:local

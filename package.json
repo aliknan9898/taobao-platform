@@ -13,7 +13,9 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
-    "backup:restore": "node scripts/restore-backup.js"
+    "backup:restore": "node scripts/restore-backup.js",
+    "smoke": "node scripts/smoke.js",
+    "staging:local": "bash scripts/staging-local.sh"
   },
   "dependencies": {
     "pg": "^8.13.1"
