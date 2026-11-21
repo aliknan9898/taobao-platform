@@ -52,7 +52,12 @@ async function flush() {
   flushing = (async () => {
     while (pending.size) {
       const batch = [...pending.values()]; pending.clear();
+      // One transaction per batch: a crash or a failed statement never leaves half of a change saved
+      // (e.g. a seller's ledger line without the order marked paid). Pools without connect() (test doubles) write directly.
+      const client = typeof pool.connect === 'function' ? await pool.connect().catch(() => null) : null;
+      const q = client ? (sql, params) => client.query(sql, params) : (sql, params) => pool.query(sql, params);
       try {
+        if (client) await q('BEGIN');
         // Index only collections touched by this batch: avoid a full scan per document.
         const batchIndexes = new Map();
         for (const { coll, id } of batch) {
@@ -61,15 +66,19 @@ async function flush() {
             batchIndexes.set(coll, { version: version(coll), docs: new Map(load(coll).map((d) => [d.id, d])) });
           }
           const doc = batchIndexes.get(coll).docs.get(id);
-          if (doc) await pool.query('INSERT INTO kinan_docs (coll, id, doc, updated_at) VALUES ($1, $2, $3, now()) ON CONFLICT (coll, id) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()', [coll, id, JSON.stringify(doc)]);
-          else await pool.query('DELETE FROM kinan_docs WHERE coll = $1 AND id = $2', [coll, id]);
+          if (doc) await q('INSERT INTO kinan_docs (coll, id, doc, updated_at) VALUES ($1, $2, $3, now()) ON CONFLICT (coll, id) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()', [coll, id, JSON.stringify(doc)]);
+          else await q('DELETE FROM kinan_docs WHERE coll = $1 AND id = $2', [coll, id]);
         }
+        if (client) await q('COMMIT');
         failures = 0;
       } catch (e) {
+        if (client) await q('ROLLBACK').catch(() => {});
         for (const x of batch) { const key = `${x.coll}\u0000${x.id}`; if (!pending.has(key)) pending.set(key, x); } // preserve newer writes
         failures += 1;
         console.error(`[db] write to PostgreSQL failed (${failures}): ${e.message}`);
         await new Promise((r) => setTimeout(r, Math.min(30000, 500 * 2 ** failures)));
+      } finally {
+        if (client) client.release();
       }
     }
   })();

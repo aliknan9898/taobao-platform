@@ -80,7 +80,7 @@ function chargeFor(total, country, chosen) {
 const PACKAGING = { standard: 0, no_boxes: 0, protect: Number(process.env.PACKAGING_PROTECT_FEE ?? 2) };
 const STORAGE_DAYS = Number(process.env.STORAGE_DAYS || 30);
 
-async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false, coupon = '', currency = '' }) {
+async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false, coupon = '', currency = '' }, { idem_key_hash = null, idem_body_hash = null } = {}) {
   const payCur = PAY_CURRENCIES.includes(String(currency).toUpperCase()) ? String(currency).toUpperCase() : null;
   if (!Object.prototype.hasOwnProperty.call(PACKAGING, packaging)) throw httpError(400, 'Unknown packaging option');
   if (!Array.isArray(items) || !items.length) throw httpError(400, 'Cart is empty');
@@ -154,7 +154,8 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code, payCur), ...(payCur ? { pay_currency: payCur } : {}), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },
     ...(cjShip ? { cj_shipping: { method: cjShip.method, methods: cjShip.methods || {}, origins: cjShip.origins || {}, fee: cjShip.fee, days: cjShip.days, estimated: Boolean(cjShip.estimated) } } : {}),
     ...(bgShip ? { bg_shipping: { fee: bgShip.fee, days: bgShip.days, methods: bgShip.methods || [], estimated: Boolean(bgShip.estimated) } } : {}),
-    status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }]
+    status: 'pending_payment', sub_orders: [], timeline: [{ at: now(), event: 'created' }],
+    ...(idem_key_hash ? { idem_key_hash, idem_body_hash } : {}) // the app's Idempotency-Key, saved with the order itself: a retry after a restart finds it
   });
   const payment = await stripe.createPaymentIntent(order);
   return db.orders.update(order.id, { payment });
@@ -168,7 +169,7 @@ async function markPaid(orderId, { provider, intent_id }) {
   if (o.status !== 'pending_payment') return o; // idempotent (webhooks retry)
   if (o.payment?.intent_id && intent_id && o.payment.intent_id !== intent_id) throw httpError(400, 'Payment mismatch');
   // The wallet part of a card + wallet payment is taken now
-  if (o.wallet_applied && !o.wallet_debited) {
+  if (o.wallet_applied && !o.wallet_debited && !db.wallet.find((w) => w.order_id === o.id && w.kind === 'payment')) {
     shop.walletEntry(o.buyer_id, -o.wallet_applied, `Payment for order ${o.id.slice(-8).toUpperCase()} (wallet part)`, { order_id: o.id, kind: 'payment' });
     db.orders.update(o.id, { wallet_debited: true });
   }
@@ -178,6 +179,7 @@ async function markPaid(orderId, { provider, intent_id }) {
   for (const [sellerId, lines] of Object.entries(bySeller)) {
     const s = db.sellers.get(sellerId);
     if (s?.system) continue; // Kinan's own shop (buy-for-me): no seller to pay
+    if (db.ledger.find((x) => x.order_id === o.id && x.seller_id === sellerId && ['sale', 'ebay_sale', 'ebay_charge'].includes(x.type))) continue; // a replayed payment never credits a seller twice
     // Sold on eBay: the seller's share is the profit after eBay's fees, goods and delivery, less Kinan's part of it
     if (o.channel === 'ebay') { const e = require('./ebay').ledgerFor(o, sellerId, lines); if (e) db.ledger.insert(e); continue; }
     const gross = money(lines.reduce((a, l) => a + l.price * l.qty, 0));
