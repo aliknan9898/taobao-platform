@@ -44,7 +44,7 @@
   .asform input { flex: 1; min-width: 0; }
 .gc-band { display: block; margin: -6px 0 14px; padding: 10px 14px; border-radius: 12px; border: 1px dashed var(--line); text-decoration: none; color: inherit; font-size: 14.5px; }
   .gcard { aspect-ratio: 1.6; border-radius: 18px; padding: 18px; background: linear-gradient(135deg, #036747, #013d2a); color: #fff; display: grid; align-content: space-between; box-shadow: 0 10px 30px rgba(0,0,0,.15); } .gcard span { font-weight: 800; font-size: 20px; } .gcard b { font-size: 34px; } .gcard small { opacity: .8; }
-  .eta { margin-top: 6px; line-height: 1.5; } .xmas-ok { color: var(--jade); font-weight: 600; }
+  .arrive { margin-top: 6px; line-height: 1.5; } .xmas-ok { color: var(--jade); font-weight: 600; }
   .fbt { display: flex; align-items: stretch; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
   .fbt-item { display: grid; gap: 4px; width: 140px; flex: none; cursor: pointer; } .fbt-item img { width: 140px; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--line); }
   .fbt-plus { align-self: center; font-size: 22px; color: var(--ink-2); }
@@ -930,7 +930,7 @@ async function product(id) {
         <div class="row"><div class="qty"><button type="button" id="qm" aria-label="Less">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="More">+</button></div><span class="muted" id="stock"></span></div>
         <div class="row"><button class="btn" id="add" style="flex:1">Add to cart</button><button class="btn ghost" id="buy" style="flex:1">Buy now</button></div>
         <div class="row"><button class="btn quiet" id="share">${ICONS.share} Share</button><button class="btn quiet heart" id="save" type="button">${HEART} <span>Save</span></button>${p.rating ? `<a href="#reviews" class="small" style="text-decoration:none">${stars(p.rating, p.reviews)}</a>` : ''}</div>
-        <div class="landed small" id="landed"></div><div class="eta small" id="eta"></div>
+        <div class="landed small" id="landed"></div><div class="arrive small" id="eta"></div>
         <div class="panel flat stack small">
           <div><b>Shipping:</b> priced for your address · tracking included</div>
           ${p.fulfillment === 'direct' ? `<div class="eta"><div><span class="muted">Delivery</span><b>${esc(realDays(p, Locale.get().country) || cfg.aliexpress?.delivery_days || '10–15')} days</b></div><div><span class="muted">Tracking</span><b>Included</b></div></div>
@@ -1687,7 +1687,7 @@ function showEta(id) {
   const cc = savedAddress().country_code || Locale.get().country; if (!cc) return;
   api(`/api/catalog/${encodeURIComponent(id)}/delivery?country=${encodeURIComponent(cc)}`).then((d) => {
     const el = $('#eta'); if (!el || !d.from) return;
-    const loc = KinanLang.lang === 'ar' ? 'ar' : KinanLang.lang || 'en-GB';
+    const loc = KinanLang.lang === 'ar' ? 'ar' : !KinanLang.lang || KinanLang.lang === 'en' ? 'en-GB' : KinanLang.lang;
     const f = (t, withMonth) => new Date(t).toLocaleDateString(loc, { weekday: 'short', day: 'numeric', ...(withMonth ? { month: 'short' } : {}), timeZone: 'Europe/Malta' });
     const sameMonth = new Date(d.from).getUTCMonth() === new Date(d.to).getUTCMonth();
     const range = `${f(d.from, !sameMonth)} – ${f(d.to, true)}`;
