@@ -1244,7 +1244,7 @@ async function pay(id) {
         : await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/?order=${encodeURIComponent(id)}` } });
       if (error) { $('#pe').textContent = error.message; $('#paybtn').disabled = false; return; }
       await api(`/api/buyer/orders/${id}/confirm-card`, 'POST').catch(() => {});
-      K.track('purchase', { id, currency: o.currency, value: o.total });
+      K.track('purchase', { id, currency: (o.charge?.currency || o.currency || '').toUpperCase(), value: o.charge?.total ?? o.total }); // what the customer actually paid
       toast('Payment received'); location.hash = `#/orders/${id}`;
     };
   } catch (e) { $('#pe').textContent = e.message; }
@@ -1306,6 +1306,8 @@ function trackSteps(t) { return K.journey(t); }
 async function orderDetail(id) {
   if (!requireBuyer(`/orders/${id}`)) return;
   const o = await api(`/api/buyer/orders/${id}`);
+  // paid by a redirect (bank app, 3-D Secure) lands here: report the purchase once (K.track ignores repeats)
+  if (!['pending_payment', 'cancelled'].includes(o.status) && Date.now() - (o.created_at || 0) < 2 * 86400e3) K.track('purchase', { id: o.id, currency: String(o.currency || '').toUpperCase(), value: o.total });
   const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
   const steps = o.all_direct ? DIRECT_STEPS : STEPS;
   const idx = steps.findIndex(([k]) => k === o.status);
