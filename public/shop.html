@@ -1361,8 +1361,6 @@ async function orderDetail(id) {
   // paid by a redirect (bank app, 3-D Secure) lands here: report the purchase once (K.track ignores repeats)
   if (!['pending_payment', 'cancelled'].includes(o.status) && Date.now() - (o.created_at || 0) < 2 * 86400e3) K.track('purchase', { id: o.id, currency: String(o.currency || '').toUpperCase(), value: o.total });
   const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
-  const steps = o.all_direct ? DIRECT_STEPS : STEPS;
-  const idx = steps.findIndex(([k]) => k === o.status);
   const ended = ['cancelled', 'refunded'].includes(o.status);
   const a = o.shipping_address;
   $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/orders">${ICONS.back} Orders</a><h1 style="margin-top:6px">Order ${esc(o.id.slice(-8).toUpperCase())}</h1><p class="muted">Placed ${date(o.created_at)}</p></div>${pill(label, cls)}</div>
@@ -1381,7 +1379,6 @@ async function orderDetail(id) {
       ${o.shipping_due ? `<div class="panel row between warn"><span>Your parcel weighed more than estimated. Extra shipping: <b>${money(o.shipping_due, o.currency)}</b></span><button class="btn sm" id="paydue">Pay from wallet</button></div>` : ''}
       ${o.shipping_settled?.result === 'credited' ? `<div class="panel flat small">Your parcel weighed ${o.shipping_settled.actual_weight_kg} kg, less than estimated — we added ${money(-o.shipping_settled.diff, o.currency)} to your <a href="#/wallet">wallet</a>.</div>` : ''}
       ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div class="row between"><span><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></span>${o.tracking.url ? `<a class="btn sm" href="${esc(o.tracking.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div></div>` : ''}
-      ${!ended && o.status !== 'pending_payment' ? `<div class="panel"><h3 style="margin-bottom:14px">Progress</h3><div class="track"><ul>${steps.map(([k, t], i) => `<li class="${idx > i || o.status === 'delivered' ? 'done' : idx === i ? 'now done' : ''}"><span>${t}</span></li>`).join('')}</ul></div></div>` : ''}
       <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `${K.img(l.image, 120, 'alt=""')}` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
     </div>
     <aside class="stack">
