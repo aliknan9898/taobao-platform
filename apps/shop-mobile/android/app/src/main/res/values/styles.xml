@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppCompat descendants are required by the Stripe Android SDK (flutter_stripe setup step 4). -->
+    <style name="LaunchTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+    <style name="NormalTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

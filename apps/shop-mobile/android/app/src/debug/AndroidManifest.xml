@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Debug builds only: allow plain HTTP to the local staging server (http://10.0.2.2:3999).
+         Release builds keep Android's default (HTTPS only). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <application android:usesCleartextTraffic="true" />
+</manifest>

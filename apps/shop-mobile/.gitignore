@@ -1,0 +1,33 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+*.iml
+.idea/
+.vscode/
+
+# Local configuration (copy from config/*.example.json)
+config/local.json
+config/staging.json
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+android/app/*.keystore
+android/app/*.jks
+android/**/GeneratedPluginRegistrant.*
+android/app/.cxx/
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+**/xcuserdata/
