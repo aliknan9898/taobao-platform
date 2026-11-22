@@ -2,6 +2,10 @@
 
 Within v1 changes are additive only. Handle unknown fields, enum values and event types.
 
+## Connectors — KINAN for WooCommerce (sandbox)
+- No change to the Partner API contract.
+- KINAN-run WooCommerce connector. WooCommerce calls `/api/partner/connect/woocommerce/callback`, `/return` and `/webhooks/{connection}`. See `WOOCOMMERCE_RUNBOOK.md`.
+
 ## Batch 4 — KINAN for Shopify (sandbox)
 - No change to the Partner API contract.
 - New KINAN-run Shopify connector. Shopify calls KINAN on `/api/partner/connect/shopify/callback` and `/webhooks`. See `SHOPIFY_RUNBOOK.md`.

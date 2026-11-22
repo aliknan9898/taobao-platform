@@ -183,6 +183,24 @@ Batch 1 was built on the development branch `fix/chatgpt-security-db-ci-20261118
   - cancellation, an order KINAN cannot accept, token refresh, revoked access and reinstall
   - settings, privacy and uninstall webhooks, the dev store and the off switch
 
+## WooCommerce connector — delivered (sandbox, behind `PARTNER_WOOCOMMERCE_ENABLED=1`)
+
+**KINAN for WooCommerce** (`src/partner/connectors/woocommerce.js`, `woo-client.js`). Setup and support are in `WOOCOMMERCE_RUNBOOK.md`.
+
+- **Shared core:** `connectors/core.js` holds what both platforms share: the catalogue loop, importing orders exactly once, cancellations, the sync pass and admin actions. The Shopify tests passed unchanged after the move.
+- **Connecting:**
+  - Through WooCommerce's own approval screen (`/wc-auth/v1/authorize`), which posts the keys to KINAN, or with keys entered by the admin.
+  - Migration `004` widens the platform check to include `woocommerce`.
+- **Calls to shops** go through the partner-webhook address guard: https and public addresses only, checked on every call, with the connection pinned to the checked address.
+- **What it does:**
+  - Drafts with `KINAN-` SKUs and managed stock.
+  - Paid orders imported once; cancellations forwarded.
+  - Tracking sent as a customer note, through Shipment Tracking when installed, and *completed* when everything has shipped.
+  - Per-connection webhook secret.
+  - KINAN's webhooks are re-activated when WooCommerce disables them, and removed on disconnect.
+- **Admin:** Partner API → Partner shops (Shopify, WooCommerce), in EN/AR.
+- **Tests:** `test/partner-woocommerce.test.js` (real PostgreSQL + fake WooCommerce; address guard and DNS-rebinding refusal).
+
 ## Known limits (honest list)
 
 - **Batches 2–3:**
@@ -208,7 +226,7 @@ Batch 1 was built on the development branch `fix/chatgpt-security-db-ci-20261118
 - **Lookups:** `db.get` is a linear scan. Fine for the sandbox (12 products) and a pilot assortment. It needs an index or SQL before thousands of live products.
 - **Not built yet:**
   - Partner portal (self-service keys, endpoints and logs)
-  - WooCommerce adapter (Shopify delivered in Batch 4, tested against a fake Shopify only; see `SHOPIFY_RUNBOOK.md` §5)
+  - A first real-shop round trip for Shopify and WooCommerce. Both are tested against fakes only; see each runbook §5–6.
   - Live fulfilment handoff
   - Partner ledger and settlement
 - **No production effect:** there are no live keys and no live catalogue, and nothing is merged to `main` without owner approval.
