@@ -15,7 +15,9 @@ const { config } = require('./config');
 const COLLECTIONS = [['users', 'usr'], ['sessions', 'ses'], ['sellers', 'sel'], ['listings', 'lst'], ['orders', 'ord'], ['parcels', 'pcl'],
   ['shipments', 'shp'], ['ledger', 'led'], ['inbox', 'msg'], ['oauth_states', 'st'], ['wallet', 'wal'], ['requests', 'req'], ['settings', 'set'],
   ['payouts', 'pay'], ['returns', 'ret'], ['tokens', 'tok'], ['mail', 'mail'],
-  ['coupons', 'cpn'], ['reviews', 'rev'], ['wishlist', 'wsh'], ['carts', 'crt'], ['push_subs', 'psh'], ['messages', 'chat'], ['views', 'vw'], ['kyc_docs', 'kyc'], ['questions', 'qst'], ['giftcards', 'gc'], ['devices', 'dev'], ['media', 'med'], ['product_review_feedback', 'prf'], ['audit', 'aud'], ['exceptions_meta', 'exm']];
+  ['coupons', 'cpn'], ['reviews', 'rev'], ['wishlist', 'wsh'], ['carts', 'crt'], ['push_subs', 'psh'], ['messages', 'chat'], ['views', 'vw'], ['kyc_docs', 'kyc'], ['questions', 'qst'], ['giftcards', 'gc'], ['devices', 'dev'], ['media', 'med'], ['product_review_feedback', 'prf'], ['audit', 'aud'], ['exceptions_meta', 'exm'],
+  // Partner API (B2B): organisations, stores, hashed keys, projected state, change feed, synthetic sandbox catalogue
+  ['partner_orgs', 'por'], ['partner_stores', 'pst'], ['partner_keys', 'pky'], ['partner_state', 'pps'], ['partner_changes', 'pch'], ['partner_sandbox', 'psb']];
 
 let pool = null;          // pg Pool when DATABASE_URL is used
 const cache = new Map();

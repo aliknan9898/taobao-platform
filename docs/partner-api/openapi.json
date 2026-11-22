@@ -1,0 +1,1001 @@
+{
+ "openapi": "3.1.1",
+ "info": {
+  "title": "KINAN Partner API",
+  "version": "1.0.0-batch1",
+  "summary": "Server-to-server API for approved partner stores.",
+  "description": "Batch 1: identity and the catalogue (snapshot + change feed). Quotes, orders, shipments, cancellations, returns, documents and webhooks follow in later batches under the same /api/partner/v1 base path; additive changes only within v1.\n\nConventions: JSON over HTTPS, ISO 8601 UTC times, ISO 4217 currencies, ISO 3166-1 alpha-2 countries, money as integer minor units with an explicit currency. Every response has an X-Request-Id header. Errors use RFC 9457 application/problem+json. The sandbox (knp_test_ keys) serves a synthetic catalogue only.",
+  "contact": {
+   "name": "KINAN partner support",
+   "url": "https://kinan.shop/legal"
+  }
+ },
+ "servers": [
+  {
+   "url": "https://kinan.shop/api/partner/v1",
+   "description": "KINAN (sandbox or live is decided by the key)"
+  }
+ ],
+ "security": [
+  {
+   "partnerKey": []
+  }
+ ],
+ "tags": [
+  {
+   "name": "Account"
+  },
+  {
+   "name": "Catalogue"
+  }
+ ],
+ "paths": {
+  "/me": {
+   "get": {
+    "tags": [
+     "Account"
+    ],
+    "operationId": "getMe",
+    "summary": "Who am I",
+    "description": "Environment, organisation, store, scopes, enabled markets, locales and currencies for the calling key.",
+    "responses": {
+     "200": {
+      "description": "Caller details",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Me"
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    }
+   }
+  },
+  "/catalog/products": {
+   "get": {
+    "tags": [
+     "Catalogue"
+    ],
+    "operationId": "listProducts",
+    "summary": "Catalogue snapshot (paged)",
+    "description": "Products your store is entitled to in one market, ordered by product_id. Keep following next_cursor; the last page returns sync_cursor, bound to the change-feed position when the first page was read. Writes during the snapshot are replayed by /catalog/changes.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/market"
+     },
+     {
+      "$ref": "#/components/parameters/locale"
+     },
+     {
+      "$ref": "#/components/parameters/limitSnapshot"
+     },
+     {
+      "$ref": "#/components/parameters/cursorOptional"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "One page",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProductPage"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    }
+   }
+  },
+  "/catalog/products/{product_id}": {
+   "get": {
+    "tags": [
+     "Catalogue"
+    ],
+    "operationId": "getProduct",
+    "summary": "One product",
+    "parameters": [
+     {
+      "name": "product_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^kp_[A-Za-z0-9_]{1,80}$"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/market"
+     },
+     {
+      "$ref": "#/components/parameters/locale"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Product",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Product"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     }
+    }
+   }
+  },
+  "/catalog/changes": {
+   "get": {
+    "tags": [
+     "Catalogue"
+    ],
+    "operationId": "listChanges",
+    "summary": "Ordered catalogue changes since a cursor",
+    "description": "Apply events in seq order. upsert carries the current product projection; withdraw means stop selling and unpublish (it is also sent for products you are no longer entitled to, and is a no-op if you never had the product). Versions only increase: ignore anything older than what you hold. Store next_cursor atomically with the effects. 410 CURSOR_EXPIRED means rebuild from a new snapshot.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/market"
+     },
+     {
+      "$ref": "#/components/parameters/locale"
+     },
+     {
+      "$ref": "#/components/parameters/limitChanges"
+     },
+     {
+      "$ref": "#/components/parameters/cursorRequired"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Events",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChangePage"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "410": {
+      "$ref": "#/components/responses/Gone"
+     }
+    }
+   }
+  },
+  "/openapi.json": {
+   "get": {
+    "tags": [
+     "Account"
+    ],
+    "operationId": "getOpenApi",
+    "summary": "This document",
+    "security": [],
+    "responses": {
+     "200": {
+      "description": "OpenAPI document",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "securitySchemes": {
+   "partnerKey": {
+    "type": "http",
+    "scheme": "bearer",
+    "bearerFormat": "knp_test_… / knp_live_…",
+    "description": "Store key issued by KINAN. Shown once; rotate by issuing a new key and revoking the old one."
+   }
+  },
+  "headers": {
+   "RequestId": {
+    "description": "Unique id of this request; quote it to KINAN support.",
+    "schema": {
+     "type": "string"
+    }
+   },
+   "RetryAfter": {
+    "description": "Seconds to wait.",
+    "schema": {
+     "type": "integer"
+    }
+   }
+  },
+  "parameters": {
+   "market": {
+    "name": "market",
+    "in": "query",
+    "required": true,
+    "schema": {
+     "type": "string",
+     "pattern": "^[A-Z]{2}$"
+    },
+    "example": "DE"
+   },
+   "locale": {
+    "name": "locale",
+    "in": "query",
+    "required": false,
+    "schema": {
+     "type": "string",
+     "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+     "default": "en"
+    },
+    "example": "de-DE"
+   },
+   "limitSnapshot": {
+    "name": "limit",
+    "in": "query",
+    "schema": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100,
+     "default": 50
+    }
+   },
+   "limitChanges": {
+    "name": "limit",
+    "in": "query",
+    "schema": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "default": 100
+    }
+   },
+   "cursorOptional": {
+    "name": "cursor",
+    "in": "query",
+    "required": false,
+    "schema": {
+     "type": "string"
+    }
+   },
+   "cursorRequired": {
+    "name": "cursor",
+    "in": "query",
+    "required": true,
+    "schema": {
+     "type": "string"
+    }
+   }
+  },
+  "schemas": {
+   "Money": {
+    "type": "object",
+    "required": [
+     "amount_minor",
+     "currency"
+    ],
+    "properties": {
+     "amount_minor": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+     }
+    },
+    "additionalProperties": false
+   },
+   "Availability": {
+    "type": "object",
+    "required": [
+     "state",
+     "checked_at"
+    ],
+    "properties": {
+     "state": {
+      "type": "string",
+      "enum": [
+       "in_stock",
+       "out_of_stock",
+       "unknown"
+      ]
+     },
+     "checked_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "sellable_quantity": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Only where backed by inventory KINAN controls."
+     }
+    },
+    "additionalProperties": false
+   },
+   "Variant": {
+    "type": "object",
+    "required": [
+     "variant_id",
+     "sku",
+     "options",
+     "availability",
+     "wholesale_unit_price_ex_tax",
+     "min_order_quantity"
+    ],
+    "properties": {
+     "variant_id": {
+      "type": "string"
+     },
+     "sku": {
+      "type": "string"
+     },
+     "options": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      }
+     },
+     "weight_grams": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "dimensions_mm": {
+      "oneOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "required": [
+         "length",
+         "width",
+         "height"
+        ],
+        "properties": {
+         "length": {
+          "type": "integer"
+         },
+         "width": {
+          "type": "integer"
+         },
+         "height": {
+          "type": "integer"
+         }
+        },
+        "additionalProperties": false
+       }
+      ]
+     },
+     "availability": {
+      "$ref": "#/components/schemas/Availability"
+     },
+     "wholesale_unit_price_ex_tax": {
+      "$ref": "#/components/schemas/Money"
+     },
+     "min_order_quantity": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "additionalProperties": false
+   },
+   "Compliance": {
+    "type": "object",
+    "required": [
+     "publication_status",
+     "warnings",
+     "resources"
+    ],
+    "properties": {
+     "publication_status": {
+      "type": "string",
+      "enum": [
+       "eligible",
+       "review_required",
+       "blocked"
+      ]
+     },
+     "warnings": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "resources": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     }
+    },
+    "additionalProperties": false
+   },
+   "Product": {
+    "type": "object",
+    "required": [
+     "product_id",
+     "version",
+     "market",
+     "locale",
+     "title",
+     "category_id",
+     "media",
+     "variants",
+     "compliance",
+     "price_list_version"
+    ],
+    "properties": {
+     "product_id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Grows whenever anything in this projection changes for your store."
+     },
+     "market": {
+      "type": "string"
+     },
+     "locale": {
+      "type": "string"
+     },
+     "content_locale": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Locale the text was actually taken from (fallback: language, then en)."
+     },
+     "title": {
+      "type": "string"
+     },
+     "description": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "category_id": {
+      "type": "string"
+     },
+     "media": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "url"
+       ],
+       "properties": {
+        "url": {
+         "type": "string",
+         "format": "uri"
+        },
+        "alt": {
+         "type": [
+          "string",
+          "null"
+         ]
+        }
+       },
+       "additionalProperties": false
+      }
+     },
+     "variants": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Variant"
+      }
+     },
+     "compliance": {
+      "$ref": "#/components/schemas/Compliance"
+     },
+     "price_list_version": {
+      "type": "integer"
+     },
+     "pricing_note": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "ProductPage": {
+    "type": "object",
+    "required": [
+     "data",
+     "next_cursor",
+     "sync_cursor",
+     "total"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Product"
+      }
+     },
+     "next_cursor": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "sync_cursor": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Present on the last page only."
+     },
+     "total": {
+      "type": "integer"
+     }
+    },
+    "additionalProperties": false
+   },
+   "ChangeEvent": {
+    "type": "object",
+    "required": [
+     "seq",
+     "type",
+     "product_id",
+     "version",
+     "reason",
+     "occurred_at"
+    ],
+    "properties": {
+     "seq": {
+      "type": "integer"
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "upsert",
+       "withdraw"
+      ]
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "integer"
+     },
+     "reason": {
+      "type": "string",
+      "enum": [
+       "created",
+       "updated",
+       "inventory",
+       "restored",
+       "withdrawn",
+       "market_removed",
+       "entitlement_granted",
+       "entitlement_revoked",
+       "price_list",
+       "not_entitled"
+      ]
+     },
+     "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "product": {
+      "$ref": "#/components/schemas/Product"
+     }
+    },
+    "additionalProperties": false
+   },
+   "ChangePage": {
+    "type": "object",
+    "required": [
+     "data",
+     "next_cursor",
+     "has_more"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ChangeEvent"
+      }
+     },
+     "next_cursor": {
+      "type": "string"
+     },
+     "has_more": {
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false
+   },
+   "Me": {
+    "type": "object",
+    "required": [
+     "environment",
+     "organization",
+     "store",
+     "scopes",
+     "markets",
+     "locales",
+     "currencies",
+     "price_list",
+     "api_version"
+    ],
+    "properties": {
+     "environment": {
+      "type": "string",
+      "enum": [
+       "sandbox",
+       "live"
+      ]
+     },
+     "organization": {
+      "type": "object",
+      "required": [
+       "id",
+       "name"
+      ],
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "name": {
+        "type": "string"
+       }
+      },
+      "additionalProperties": false
+     },
+     "store": {
+      "type": "object",
+      "required": [
+       "id",
+       "name",
+       "platform"
+      ],
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "name": {
+        "type": "string"
+       },
+       "platform": {
+        "type": "string"
+       }
+      },
+      "additionalProperties": false
+     },
+     "scopes": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "markets": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "locales": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "currencies": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "price_list": {
+      "type": "object",
+      "required": [
+       "version",
+       "currency"
+      ],
+      "properties": {
+       "version": {
+        "type": "integer"
+       },
+       "currency": {
+        "type": "string"
+       }
+      },
+      "additionalProperties": false
+     },
+     "api_version": {
+      "type": "string",
+      "const": "v1"
+     }
+    },
+    "additionalProperties": false
+   },
+   "Problem": {
+    "type": "object",
+    "required": [
+     "type",
+     "title",
+     "status",
+     "code",
+     "request_id"
+    ],
+    "properties": {
+     "type": {
+      "type": "string",
+      "format": "uri"
+     },
+     "title": {
+      "type": "string"
+     },
+     "status": {
+      "type": "integer"
+     },
+     "code": {
+      "type": "string",
+      "enum": [
+       "INVALID_INPUT",
+       "INVALID_CURSOR",
+       "CURSOR_SCOPE_MISMATCH",
+       "INVALID_CREDENTIAL",
+       "INSUFFICIENT_SCOPE",
+       "RESOURCE_NOT_FOUND",
+       "METHOD_NOT_ALLOWED",
+       "CURSOR_EXPIRED",
+       "UNSUPPORTED_DESTINATION",
+       "RATE_LIMITED",
+       "TEMPORARILY_UNAVAILABLE",
+       "INTERNAL"
+      ]
+     },
+     "request_id": {
+      "type": "string"
+     },
+     "detail": {
+      "type": "string"
+     },
+     "errors": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "field",
+        "code"
+       ],
+       "properties": {
+        "field": {
+         "type": "string"
+        },
+        "code": {
+         "type": "string"
+        },
+        "detail": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": false
+      }
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  "responses": {
+   "BadRequest": {
+    "description": "Invalid input or cursor",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "Unauthorized": {
+    "description": "Missing, unknown or revoked key",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "Forbidden": {
+    "description": "Key lacks the scope",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "NotFound": {
+    "description": "Unknown or not entitled",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "Gone": {
+    "description": "Cursor older than the retention window: rebuild from a snapshot",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "Unprocessable": {
+    "description": "Market not enabled for the store",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "RateLimited": {
+    "description": "Too many requests",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     },
+     "Retry-After": {
+      "$ref": "#/components/headers/RetryAfter"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "Unavailable": {
+    "description": "Store paused or service unavailable",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   }
+  }
+ }
+}

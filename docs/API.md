@@ -97,3 +97,10 @@ Register a URL scheme in the app (e.g. `myseller://`) and pass it as `return_to`
 - `GET /api/catalog/:id/delivery` gives `known: true` with `basis: GB|EU` when delivery to that market was measured.
 - `X-Kinan-Lang` accepts en, ar, fr, de, it, es. Messages not yet translated arrive in English.
 - Image search, the assistant and other light limits count per signed-in account (per IP when signed out).
+
+## Partner API (B2B, server-to-server)
+
+Approved partner stores use `/api/partner/v1` with their own store keys (`Authorization: Bearer knp_test_…`), not Buyer
+or Seller sessions. Contract: `docs/partner-api/openapi.json` (also `GET /api/partner/v1/openapi.json`); quickstart:
+`docs/partner-api/README.md`; status and limits: `docs/partner-api/STATUS.md`. Batch 1 is the catalogue (sandbox only).
+Admin management lives under `/api/admin/partners…` (admin role only, audited).
