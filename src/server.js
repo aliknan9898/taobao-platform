@@ -1084,6 +1084,17 @@ r('PATCH', '/api/admin/team/:id', ADMIN, async ({ user, params, req }) => {
   }
   return auth.publicUser(updated);
 });
+// Delete an employee account: sessions, sign-in and pending send keys go with it. The audit trail is kept
+// (each entry carries the employee's email), so past activity stays visible in the owner's audit log.
+r('DELETE', '/api/admin/team/:id', ADMIN, async ({ user, params }) => {
+  requireOwner(user);
+  const record = requireOperator(params.id);
+  for (const session of db.sessions.all((item) => item.user_id === record.id)) db.sessions.remove(session.id);
+  for (const token of db.tokens.all((item) => item.user_id === record.id)) db.tokens.remove(token.id);
+  teamPresence.delete(record.id);
+  db.users.remove(record.id);
+  return { deleted: true, id: record.id, email: record.email };
+});
 r('GET', '/api/admin/team/:id/activity', ADMIN, async ({ user, params }) => {
   requireOwner(user);
   const record = db.users.get(params.id);

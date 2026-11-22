@@ -84,6 +84,7 @@
   a.btn, summary.btn { display:inline-block; text-decoration:none; }
   button.btn, a.btn, summary.btn { font:inherit; border:0; border-radius:8px; padding:7px 12px; background:var(--accent); color:var(--accent-ink); cursor:pointer; white-space:nowrap; }
   button.ghost, a.btn.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  button.ghost.danger { color:var(--bad); border-color:var(--bad); }
   button:disabled { opacity:.5; }
   input, select { font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
   input, select, textarea { max-width:100%; } code { overflow-wrap:anywhere; word-break:break-word; }
@@ -1267,7 +1268,7 @@ VIEWS.team = async (v) => {
     const editing = roster.querySelector('form:focus-within');
     if (editing) return;
     const legacy = team.filter((member) => member.role !== 'operator' && member.status === 'active').length;
-    roster.innerHTML = (legacy ? `<p class="small warn" role="note">Older staff roles keep broad access. Review them below: ${legacy}</p>` : '') + (team.length ? `<table><thead><tr><th>Employee</th><th>Presence</th><th>Account</th><th>Access</th><th>Actions</th></tr></thead>
+    roster.innerHTML = (legacy ? `<p class="small warn" role="note">Older staff roles keep broad access. Review them below: ${legacy}</p>` : '') + (team.length ? `<table class="mail-table"><thead><tr><th>Employee</th><th>Presence</th><th>Account</th><th>Access</th><th>Actions</th></tr></thead>
       <tbody>${team.map((member) => `<tr><td>${esc(member.name || member.email)}<br><small>${esc(member.email)}</small></td>
         <td>${member.online ? 'Online' : 'Offline'}${member.last_seen ? `<br><small>${esc(new Date(member.last_seen).toLocaleString())}</small>` : ''}</td>
         <td>${esc(member.role)} · ${esc(member.status)}</td><td>${access(member)}</td><td>
@@ -1276,7 +1277,8 @@ VIEWS.team = async (v) => {
             <fieldset><legend>Mailboxes</legend>${choices(member.mailboxes)}</fieldset>
             <button class="btn ghost" name="status" value="${esc(member.status)}">Save mailboxes</button>
             <button class="btn ghost" name="status" value="${member.status === 'active' ? 'suspended' : 'active'}">${member.status === 'active' ? 'Suspend access' : 'Reactivate'}</button>
-          </form>` : ''}
+          </form>
+          <button class="btn ghost danger" type="button" data-delete="${esc(member.id)}" data-email="${esc(member.email)}">Delete employee</button>` : ''}
         </td></tr>`).join('')}</tbody></table>` : '<p class="muted">No employee accounts yet.</p>');
   }
   v.querySelector('#staff-create').onsubmit = async (event) => {
@@ -1303,7 +1305,19 @@ VIEWS.team = async (v) => {
     } catch (err) { notice.textContent = err.message; }
   };
   let activityRequest = 0;
+  const tr = (text) => (window.KinanLang ? KinanLang.t(text) : text);
   roster.onclick = async (event) => {
+    const remove = event.target.closest('[data-delete]');
+    if (remove) {
+      if (!confirm(tr('Delete this employee? They are signed out and can no longer sign in. Their activity log is kept.') + '\n' + remove.dataset.email)) return;
+      try {
+        await api('/api/admin/team/' + encodeURIComponent(remove.dataset.delete), 'DELETE');
+        activity.hidden = true;
+        notice.textContent = tr('Employee deleted.');
+        await refresh();
+      } catch (err) { notice.textContent = err.message; }
+      return;
+    }
     const button = event.target.closest('[data-activity]');
     if (!button) return;
     const request = ++activityRequest;
