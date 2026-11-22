@@ -205,7 +205,7 @@ function showLogin(msg = '') {
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
-  ['overview','Overview','*'],['control','Control centre','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
+  ['overview','Overview','*'],['control','Control centre','admin'],['partners','Partner API (B2B)','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
   ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
@@ -215,7 +215,7 @@ const NAV_GROUPS = [
   ['Today',['overview','exceptions','control']],
   ['Orders & delivery',['orders','shipping','returns','requests']],
   ['Catalogue',['listings','platforms','imports','ai-tools']],
-  ['Suppliers & channels',['cj','ebay','connections']],
+  ['Suppliers & channels',['cj','ebay','connections','partners']],
   ['People',['sellers','users','reviews']],
   ['Money',['payouts','reports','coupons']],
   ['Growth',['kinan','advertising','mail']],
@@ -426,6 +426,8 @@ function toast(msg) {
   if (!t) { t = document.createElement('div'); t.id = 'admtoast'; t.setAttribute('role', 'status'); t.style.cssText = 'position:fixed;inset-inline:16px;bottom:16px;margin:auto;max-width:420px;z-index:60;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;font-weight:600;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.2)'; document.body.append(t); }
   t.textContent = msg; t.hidden = false; clearTimeout(toast.tm); toast.tm = setTimeout(() => { t.hidden = true; }, 2600);
 }
+const PCATS = ['home_storage', 'home_lighting', 'home_textiles', 'kitchen', 'electronics', 'bags'];
+const partnerKeyShown = { v: null };
 const CTL = [
   ['shop', 'Kinan Shop', 'The shop customers use (web and app). In maintenance, visitors see a “back soon” page; orders already paid keep being bought, tracked and delivered.', 'maintenance'],
   ['seller', 'Seller Center', 'Sellers’ app. In maintenance, sellers see a “back soon” page; their orders keep moving.', 'maintenance'],
@@ -433,6 +435,48 @@ const CTL = [
   ['signups', 'New accounts', 'Pause sign-ups for new customers and sellers. Existing accounts can still sign in.', false]
 ];
 const VIEWS = {
+  async partners(v) {
+    const d = await api('/api/admin/partners');
+    const sb = d.health.find((h) => h.env === 'sandbox');
+    const keyRow = (k) => `<tr><td><code>${esc(k.prefix)}…</code></td><td>${esc(k.env)}</td><td>${esc(k.scopes.join(', '))}</td><td>${k.last_used_at ? esc(date(k.last_used_at)) : '—'}</td><td>${k.revoked_at ? `<span class="pill bad">Revoked</span>` : `<button class="btn ghost" data-prevoke="${esc(k.id)}">Revoke</button>`}</td></tr>`;
+    const storeCard = (st) => `<section class="ctlmsg" style="margin-top:0">
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(st.name)} <span class="muted small">${esc(st.platform)} · ${esc(st.id)}</span></h3><span class="pill ${st.status === 'active' ? 'ok' : 'warn'}">${esc(st.status === 'active' ? 'Active' : 'Paused')}</span></div>
+      <form class="row" data-pstore="${esc(st.id)}" style="align-items:flex-end;flex-wrap:wrap;gap:8px">
+        <label>Markets<input name="markets" value="${esc(st.entitlements.markets.join(','))}" size="10"></label>
+        <label>Categories (empty = all)<input name="categories" value="${esc(st.entitlements.categories.join(','))}" placeholder="${esc(PCATS.join(','))}"></label>
+        <label>Locales<input name="locales" value="${esc(st.entitlements.locales.join(','))}" size="8"></label>
+        <label>Markup over the 30% floor (%)<input name="markup_pct" type="number" min="0" step="0.5" value="${esc(st.price_list?.markup_pct ?? 0)}" style="width:90px"></label>
+        <button class="btn">Save</button><button type="button" class="btn ghost" data-ppause="${esc(st.id)}" data-to="${st.status === 'active' ? 'paused' : 'active'}">${st.status === 'active' ? 'Pause API' : 'Resume API'}</button>
+      </form>
+      <div style="overflow-x:auto"><table><thead><tr><th>Key</th><th>Environment</th><th>Scopes</th><th>Last used</th><th></th></tr></thead><tbody>${st.keys.map(keyRow).join('') || '<tr><td colspan="5" class="muted">No keys yet.</td></tr>'}</tbody></table></div>
+      <div class="row"><button class="btn" data-pkey="${esc(st.id)}">Issue sandbox key</button>${d.live_enabled ? `<button class="btn ghost" data-pkey="${esc(st.id)}" data-env="live">Issue live key</button>` : '<span class="muted small">Live keys are off until production is approved.</span>'}</div>
+      <div class="err" data-perr="${esc(st.id)}" role="alert"></div></section>`;
+    v.innerHTML = `<p class="muted" style="margin-top:0">Independent stores read the KINAN catalogue through <code>/api/partner/v1</code> with their own keys. Batch 1 is read-only (catalogue snapshot and change feed). Sandbox keys see synthetic products only. <a href="/api/partner/v1/openapi.json" target="_blank" rel="noopener">OpenAPI contract</a></p>
+      ${partnerKeyShown.v ? `<div class="ctlmsg" style="border-color:#f59e0b"><b>New key — copy it now, it is not shown again</b><code style="font-size:15px;user-select:all">${esc(partnerKeyShown.v.key)}</code><span class="muted small">${esc(partnerKeyShown.v.env)} · ${esc(partnerKeyShown.v.scopes.join(', '))}</span><div><button class="btn ghost" id="pcopy">Copy</button> <button class="btn ghost" id="phide">Done</button></div></div>` : ''}
+      <div class="today">${['sandbox', 'live'].map((e) => { const h = d.health.find((x) => x.env === e); return `<div class="tday ${e === 'live' && !d.live_enabled ? 'warn' : 'ok'}"><span>${e === 'sandbox' ? 'Sandbox' : 'Live'} catalogue</span><b>${h.products}</b><small>products · feed position ${h.head_seq}${e === 'live' && !d.live_enabled ? ' · off' : ''}</small></div>`; }).join('')}</div>
+      ${d.orgs.map((o) => `<h3 style="margin:18px 0 8px">${esc(o.name)} <span class="muted small">${esc(o.contact_email || '')}</span></h3><div style="display:grid;gap:12px">${o.stores.map(storeCard).join('')}</div>
+        <form class="row" data-pnewstore="${esc(o.id)}" style="margin-top:8px;gap:8px;flex-wrap:wrap"><input name="name" placeholder="New store name" required><input name="markets" value="DE" size="8"><select name="platform"><option>custom</option><option>shopify</option><option>woocommerce</option></select><button class="btn ghost">Add store</button></form>`).join('') || '<p class="muted">No partners yet.</p>'}
+      <form class="ctlmsg" id="pneworg"><h3 style="margin:0">New partner organisation</h3><div class="row" style="gap:8px;flex-wrap:wrap"><input name="name" placeholder="Company name" required><input name="contact_email" type="email" placeholder="Technical contact email"><button class="btn">Create</button></div></form>
+      <form class="ctlmsg" id="psim"><h3 style="margin:0">Sandbox simulator</h3><p class="muted small" style="margin:0">Change a synthetic product so partners can test their sync. Never touches real products.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end"><label>Product<select name="product">${['basket', 'lamp', 'mug', 'organiser', 'headphones', 'charger', 'backpack', 'tote', 'bottle', 'cushion', 'blanket', 'speaker'].map((k) => `<option>${k}</option>`).join('')}</select></label>
+        <label>Stock<input name="stock" type="number" min="0" style="width:90px"></label><label>Cost (cents)<input name="cost_minor" type="number" min="1" style="width:110px"></label>
+        <label>Availability<select name="withdrawn"><option value="">unchanged</option><option value="1">withdraw</option><option value="0">restore</option></select></label><button class="btn">Apply</button><button type="button" class="btn ghost" id="preset">Reset sandbox</button></div>
+        <div class="muted small" id="psimout">${sb ? `Feed position ${sb.head_seq} · ${sb.events} events kept` : ''}</div></form>
+      <div class="err" id="perr" role="alert"></div>`;
+    const fail = (id) => (e) => { const el = id ? v.querySelector(`[data-perr="${id}"]`) : $('#perr'); el.textContent = e.message; };
+    const csv = (x) => String(x || '').split(',').map((y) => y.trim()).filter(Boolean);
+    v.querySelectorAll('[data-pstore]').forEach((f) => f.onsubmit = (e) => { e.preventDefault(); api(`/api/admin/partners/stores/${f.dataset.pstore}`, 'POST', { markets: csv(f.markets.value), categories: csv(f.categories.value), locales: csv(f.locales.value), markup_pct: Number(f.markup_pct.value) || 0 }).then(() => { toast('Store saved'); render(); }, fail(f.dataset.pstore)); });
+    v.querySelectorAll('[data-ppause]').forEach((b) => b.onclick = () => api(`/api/admin/partners/stores/${b.dataset.ppause}`, 'POST', { status: b.dataset.to }).then(render, fail(b.dataset.ppause)));
+    v.querySelectorAll('[data-pkey]').forEach((b) => b.onclick = () => api(`/api/admin/partners/stores/${b.dataset.pkey}/keys`, 'POST', { env: b.dataset.env || 'sandbox', scopes: ['catalog:read'] }).then((k) => { partnerKeyShown.v = k; render(); }, fail(b.dataset.pkey)));
+    v.querySelectorAll('[data-prevoke]').forEach((b) => b.onclick = () => { if (confirm('Revoke this key? Requests with it stop immediately.')) api(`/api/admin/partners/keys/${b.dataset.prevoke}/revoke`, 'POST').then(render, fail()); });
+    v.querySelectorAll('[data-pnewstore]').forEach((f) => f.onsubmit = (e) => { e.preventDefault(); api(`/api/admin/partners/orgs/${f.dataset.pnewstore}/stores`, 'POST', { name: f.name.value, markets: csv(f.markets.value), platform: f.platform.value }).then(render, fail()); });
+    $('#pneworg').onsubmit = (e) => { e.preventDefault(); const f = e.target; api('/api/admin/partners/orgs', 'POST', { name: f.name.value, contact_email: f.contact_email.value }).then(render, fail()); };
+    $('#psim').onsubmit = (e) => { e.preventDefault(); const f = e.target; const body = { product: f.product.value }; if (f.stock.value !== '') body.stock = Number(f.stock.value); if (f.cost_minor.value !== '') body.cost_minor = Number(f.cost_minor.value); if (f.withdrawn.value !== '') body.withdrawn = f.withdrawn.value === '1';
+      api('/api/admin/partners/sandbox/simulate', 'POST', body).then((r) => { $('#psimout').textContent = `${r.events} change event(s) written.`; }, fail()); };
+    $('#preset').onclick = () => { if (confirm('Reset the synthetic sandbox catalogue to its starting data?')) api('/api/admin/partners/sandbox/simulate', 'POST', { reset: true }).then((r) => { $('#psimout').textContent = `Reset · ${r.events} change event(s) written.`; }, fail()); };
+    const cp = $('#pcopy'); if (cp) cp.onclick = () => navigator.clipboard?.writeText(partnerKeyShown.v.key).then(() => toast('Copied'));
+    const hd = $('#phide'); if (hd) hd.onclick = () => { partnerKeyShown.v = null; render(); };
+  },
   async control(v) {
     const c = await api('/api/admin/control');
     const isOff = (k, offv) => c[k] === offv;

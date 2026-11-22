@@ -1,0 +1,644 @@
+{
+ "note": "Synthetic sandbox catalogue: fictional products, costs and stock. Never real supplier data.",
+ "currency": "EUR",
+ "products": [
+  {
+   "key": "basket",
+   "category_id": "home_storage",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Storage basket",
+    "de": "Aufbewahrungskorb"
+   },
+   "description": {
+    "en": "Foldable fabric basket for shelves and wardrobes.",
+    "de": "Faltbarer Stoffkorb für Regale und Schränke."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/basket.jpg",
+     "alt": {
+      "en": "Storage basket",
+      "de": "Aufbewahrungskorb"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "basket_gray",
+     "sku": "SBX-BAS-GRA",
+     "options": {
+      "color": {
+       "en": "gray",
+       "de": "grau"
+      }
+     },
+     "cost_minor": 780,
+     "weight_grams": 320,
+     "dimensions_mm": {
+      "length": 300,
+      "width": 200,
+      "height": 110
+     },
+     "stock": 25,
+     "min_order_quantity": 1
+    },
+    {
+     "key": "basket_beige",
+     "sku": "SBX-BAS-BEI",
+     "options": {
+      "color": {
+       "en": "beige",
+       "de": "beige"
+      }
+     },
+     "cost_minor": 780,
+     "weight_grams": 320,
+     "dimensions_mm": {
+      "length": 300,
+      "width": 200,
+      "height": 110
+     },
+     "stock": 0,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "lamp",
+   "category_id": "home_lighting",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Table lamp",
+    "de": "Tischlampe"
+   },
+   "description": {
+    "en": "Warm LED table lamp with fabric shade.",
+    "de": "Warme LED-Tischlampe mit Stoffschirm."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/lamp.jpg",
+     "alt": {
+      "en": "Table lamp",
+      "de": "Tischlampe"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "lamp_white",
+     "sku": "SBX-LAM-WHI",
+     "options": {
+      "color": {
+       "en": "white",
+       "de": "weiß"
+      }
+     },
+     "cost_minor": 1450,
+     "weight_grams": 900,
+     "dimensions_mm": {
+      "length": 250,
+      "width": 250,
+      "height": 380
+     },
+     "stock": 12,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "mug",
+   "category_id": "kitchen",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Ceramic mug set (2)",
+    "de": "Keramikbecher-Set (2)"
+   },
+   "description": {
+    "en": "Two stoneware mugs, 350 ml each.",
+    "de": "Zwei Steingutbecher, je 350 ml."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/mug.jpg",
+     "alt": {
+      "en": "Ceramic mug set (2)",
+      "de": "Keramikbecher-Set (2)"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "mug_sand",
+     "sku": "SBX-MUG-SAN",
+     "options": {
+      "color": {
+       "en": "sand",
+       "de": "sand"
+      }
+     },
+     "cost_minor": 820,
+     "weight_grams": 700,
+     "dimensions_mm": {
+      "length": 200,
+      "width": 110,
+      "height": 120
+     },
+     "stock": 40,
+     "min_order_quantity": 1
+    },
+    {
+     "key": "mug_black",
+     "sku": "SBX-MUG-BLA",
+     "options": {
+      "color": {
+       "en": "black",
+       "de": "schwarz"
+      }
+     },
+     "cost_minor": 820,
+     "weight_grams": 700,
+     "dimensions_mm": {
+      "length": 200,
+      "width": 110,
+      "height": 120
+     },
+     "stock": 8,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "organiser",
+   "category_id": "home_storage",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Drawer organiser",
+    "de": "Schubladen-Organizer"
+   },
+   "description": {
+    "en": "Set of 6 stackable drawer trays.",
+    "de": "Set aus 6 stapelbaren Schubladeneinsätzen."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/organiser.jpg",
+     "alt": {
+      "en": "Drawer organiser",
+      "de": "Schubladen-Organizer"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "organiser_clear",
+     "sku": "SBX-ORG-CLE",
+     "options": {
+      "color": {
+       "en": "clear",
+       "de": "transparent"
+      }
+     },
+     "cost_minor": 560,
+     "weight_grams": 410,
+     "dimensions_mm": {
+      "length": 320,
+      "width": 240,
+      "height": 60
+     },
+     "stock": 60,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "headphones",
+   "category_id": "electronics",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Wireless headphones",
+    "de": "Kabellose Kopfhörer"
+   },
+   "description": {
+    "en": "Over-ear Bluetooth headphones, 30 h battery.",
+    "de": "Over-Ear-Bluetooth-Kopfhörer, 30 h Akku."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/headphones.jpg",
+     "alt": {
+      "en": "Wireless headphones",
+      "de": "Kabellose Kopfhörer"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "headphones_black",
+     "sku": "SBX-HEA-BLA",
+     "options": {
+      "color": {
+       "en": "black",
+       "de": "schwarz"
+      }
+     },
+     "cost_minor": 2390,
+     "weight_grams": 380,
+     "dimensions_mm": {
+      "length": 200,
+      "width": 180,
+      "height": 90
+     },
+     "stock": 15,
+     "min_order_quantity": 1
+    },
+    {
+     "key": "headphones_silver",
+     "sku": "SBX-HEA-SIL",
+     "options": {
+      "color": {
+       "en": "silver",
+       "de": "silber"
+      }
+     },
+     "cost_minor": 2390,
+     "weight_grams": 380,
+     "dimensions_mm": {
+      "length": 200,
+      "width": 180,
+      "height": 90
+     },
+     "stock": 3,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "charger",
+   "category_id": "electronics",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Travel charger 65W",
+    "de": "Reiseladegerät 65 W"
+   },
+   "description": {
+    "en": "USB-C GaN charger with EU, UK and US plugs.",
+    "de": "USB-C-GaN-Ladegerät mit EU-, UK- und US-Stecker."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/charger.jpg",
+     "alt": {
+      "en": "Travel charger 65W",
+      "de": "Reiseladegerät 65 W"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "charger_white",
+     "sku": "SBX-CHA-WHI",
+     "options": {
+      "color": {
+       "en": "white",
+       "de": "weiß"
+      }
+     },
+     "cost_minor": 1290,
+     "weight_grams": 180,
+     "dimensions_mm": {
+      "length": 70,
+      "width": 60,
+      "height": 30
+     },
+     "stock": 30,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "backpack",
+   "category_id": "bags",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Laptop backpack",
+    "de": "Laptop-Rucksack"
+   },
+   "description": {
+    "en": "Water-repellent backpack for 15.6\" laptops.",
+    "de": "Wasserabweisender Rucksack für 15,6\"-Laptops."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/backpack.jpg",
+     "alt": {
+      "en": "Laptop backpack",
+      "de": "Laptop-Rucksack"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "backpack_navy",
+     "sku": "SBX-BAC-NAV",
+     "options": {
+      "color": {
+       "en": "navy",
+       "de": "marine"
+      }
+     },
+     "cost_minor": 1890,
+     "weight_grams": 850,
+     "dimensions_mm": {
+      "length": 450,
+      "width": 300,
+      "height": 150
+     },
+     "stock": 18,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "tote",
+   "category_id": "bags",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Canvas tote bag",
+    "de": "Canvas-Tragetasche"
+   },
+   "description": {
+    "en": "Heavy cotton tote with inner pocket.",
+    "de": "Schwere Baumwolltasche mit Innentasche."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/tote.jpg",
+     "alt": {
+      "en": "Canvas tote bag",
+      "de": "Canvas-Tragetasche"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "tote_natural",
+     "sku": "SBX-TOT-NAT",
+     "options": {
+      "color": {
+       "en": "natural",
+       "de": "natur"
+      }
+     },
+     "cost_minor": 640,
+     "weight_grams": 240,
+     "dimensions_mm": {
+      "length": 400,
+      "width": 380,
+      "height": 20
+     },
+     "stock": 50,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "bottle",
+   "category_id": "kitchen",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Insulated bottle 750 ml",
+    "de": "Isolierflasche 750 ml"
+   },
+   "description": {
+    "en": "Keeps drinks cold for 24 h.",
+    "de": "Hält Getränke 24 h kalt."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/bottle.jpg",
+     "alt": {
+      "en": "Insulated bottle 750 ml",
+      "de": "Isolierflasche 750 ml"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "bottle_green",
+     "sku": "SBX-BOT-GRE",
+     "options": {
+      "color": {
+       "en": "green",
+       "de": "grün"
+      }
+     },
+     "cost_minor": 980,
+     "weight_grams": 410,
+     "dimensions_mm": {
+      "length": 80,
+      "width": 80,
+      "height": 280
+     },
+     "stock": 22,
+     "min_order_quantity": 1
+    },
+    {
+     "key": "bottle_white",
+     "sku": "SBX-BOT-WHI",
+     "options": {
+      "color": {
+       "en": "white",
+       "de": "weiß"
+      }
+     },
+     "cost_minor": 980,
+     "weight_grams": 410,
+     "dimensions_mm": {
+      "length": 80,
+      "width": 80,
+      "height": 280
+     },
+     "stock": 0,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "cushion",
+   "category_id": "home_textiles",
+   "markets": [
+    "DE",
+    "GB"
+   ],
+   "title": {
+    "en": "Linen cushion cover",
+    "de": "Leinen-Kissenbezug"
+   },
+   "description": {
+    "en": "45 × 45 cm washed linen cover.",
+    "de": "Bezug aus gewaschenem Leinen, 45 × 45 cm."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/cushion.jpg",
+     "alt": {
+      "en": "Linen cushion cover",
+      "de": "Leinen-Kissenbezug"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "cushion_sage",
+     "sku": "SBX-CUS-SAG",
+     "options": {
+      "color": {
+       "en": "sage",
+       "de": "salbei"
+      }
+     },
+     "cost_minor": 690,
+     "weight_grams": 160,
+     "dimensions_mm": {
+      "length": 450,
+      "width": 450,
+      "height": 10
+     },
+     "stock": 35,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "blanket",
+   "category_id": "home_textiles",
+   "markets": [
+    "DE"
+   ],
+   "title": {
+    "en": "Knitted throw",
+    "de": "Strickdecke"
+   },
+   "description": {
+    "en": "Soft knitted throw, 130 × 170 cm.",
+    "de": "Weiche Strickdecke, 130 × 170 cm."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/blanket.jpg",
+     "alt": {
+      "en": "Knitted throw",
+      "de": "Strickdecke"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "blanket_cream",
+     "sku": "SBX-BLA-CRE",
+     "options": {
+      "color": {
+       "en": "cream",
+       "de": "creme"
+      }
+     },
+     "cost_minor": 1990,
+     "weight_grams": 1100,
+     "dimensions_mm": {
+      "length": 400,
+      "width": 300,
+      "height": 120
+     },
+     "stock": 10,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  },
+  {
+   "key": "speaker",
+   "category_id": "electronics",
+   "markets": [
+    "DE"
+   ],
+   "title": {
+    "en": "Bluetooth speaker",
+    "de": "Bluetooth-Lautsprecher"
+   },
+   "description": {
+    "en": "Splash-proof speaker, 12 h battery.",
+    "de": "Spritzwassergeschützter Lautsprecher, 12 h Akku."
+   },
+   "media": [
+    {
+     "url": "https://assets.example.com/kinan-sandbox/speaker.jpg",
+     "alt": {
+      "en": "Bluetooth speaker",
+      "de": "Bluetooth-Lautsprecher"
+     }
+    }
+   ],
+   "variants": [
+    {
+     "key": "speaker_blue",
+     "sku": "SBX-SPE-BLU",
+     "options": {
+      "color": {
+       "en": "blue",
+       "de": "blau"
+      }
+     },
+     "cost_minor": 1590,
+     "weight_grams": 520,
+     "dimensions_mm": {
+      "length": 180,
+      "width": 80,
+      "height": 80
+     },
+     "stock": 0,
+     "min_order_quantity": 1
+    }
+   ],
+   "withdrawn": false
+  }
+ ]
+}

@@ -49,7 +49,7 @@ function status() {
 // Paths that always work, whatever the switches say.
 const ALWAYS = [/^\/healthz$/, /^\/admin(\/|$)/, /^\/warehouse(\/|$)/, /^\/api\/admin\//, /^\/api\/warehouse\//, /^\/api\/auth\//, /^\/api\/staff\//,
   /^\/webhooks\//, /^\/oauth\//, /^\/api\/oauth\//, /^\/auth\//, /^\/assets\//, /^\/sw\.js$/, /^\/favicon\.ico$/, /^\/apple-touch-icon\.png$/, /^\/robots\.txt$/,
-  /^\/api\/app-status$/, /^\/api\/config\/public$/, /^\/api\/me$/, /^\/api\/push\//, /^\/api\/presence$/, /^\/brand\//, /^\/img\//, /^\/feeds\//, /^\/sitemap\.xml$/, /^\/llms\.txt$/, /^\/reset$/, /^\/(terms|privacy|legal|imprint|seller-terms|cookies|returns-policy|shipping-policy)(\/|$)/, /^\/legal\//];
+  /^\/api\/partner\//, /^\/api\/app-status$/, /^\/api\/config\/public$/, /^\/api\/me$/, /^\/api\/push\//, /^\/api\/presence$/, /^\/brand\//, /^\/img\//, /^\/feeds\//, /^\/sitemap\.xml$/, /^\/llms\.txt$/, /^\/reset$/, /^\/(terms|privacy|legal|imprint|seller-terms|cookies|returns-policy|shipping-policy)(\/|$)/, /^\/legal\//];
 const isSeller = (p) => /^\/seller(\/|$)/.test(p) || /^\/api\/(seller|cj|banggood)(\/|$)/.test(p);
 const PAY = [/^\/api\/buyer\/checkout$/, /^\/api\/buyer\/orders\/[^/]+\/(demo-pay|card-payment|pay-wallet|pay-shipping-due)$/];
 

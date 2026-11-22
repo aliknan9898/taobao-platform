@@ -936,6 +936,14 @@ r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.a
 r('GET', '/api/app-status', null, async () => appControl.status());
 r('GET', '/api/admin/control', ADMIN, async () => appControl.get());
 r('POST', '/api/admin/control', ADMIN, async ({ req, user }) => appControl.set(await readJson(req), user));
+// Partner API administration (owner/admin only): organisations, stores, entitlements, keys, sandbox simulation
+r('GET', '/api/admin/partners', ADMIN, async () => { const C = require('./partner/catalog'); C.sync('sandbox'); C.sync('live'); return { ...require('./partner/store').overview(), health: ['sandbox', 'live'].map((e) => C.health(e)) }; });
+r('POST', '/api/admin/partners/orgs', ADMIN, async ({ req, user }) => require('./partner/store').createOrg(await readJson(req), user));
+r('POST', '/api/admin/partners/orgs/:id/stores', ADMIN, async ({ req, user, params }) => require('./partner/store').createStore(params.id, await readJson(req), user));
+r('POST', '/api/admin/partners/stores/:id', ADMIN, async ({ req, user, params }) => require('./partner/store').updateStore(params.id, await readJson(req), user));
+r('POST', '/api/admin/partners/stores/:id/keys', ADMIN, async ({ req, user, params }) => require('./partner/store').issueKey(params.id, await readJson(req), user));
+r('POST', '/api/admin/partners/keys/:id/revoke', ADMIN, async ({ user, params }) => require('./partner/store').revokeKey(params.id, user));
+r('POST', '/api/admin/partners/sandbox/simulate', ADMIN, async ({ req }) => { const b = await readJson(req); return b.reset ? require('./partner/catalog').resetSandbox() : require('./partner/catalog').simulate(b.product, b); });
 r('GET', '/api/admin/exceptions', STAFF, async ({ url, user }) => require('./services/exceptions').list({ area: url.searchParams.get('area') || '', provider: url.searchParams.get('provider') || '', result: url.searchParams.get('result') || '', mine: url.searchParams.get('mine') || '' }, user));
 r('POST', '/api/admin/exceptions/assign', STAFF, async ({ req, user }) => { const b = await readJson(req); return require('./services/exceptions').assign(b.key, { assignee_id: b.assignee_id, note: b.note }, user); });
 r('GET', '/api/admin/audit', ADMIN, async ({ url }) => require('./audit').list({ limit: url.searchParams.get('limit'), actor: url.searchParams.get('actor') || '', path: url.searchParams.get('path') || '' }));
@@ -1199,6 +1207,9 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, 'Distribution Platform account connected. You can return to the app.');
       } catch (e) { return send(res, e.status || 400, `Connection failed: ${e.message}`); }
     }
+
+    // Partner API v1 (B2B, server-to-server keys): handled separately with problem+json errors
+    if (p.startsWith('/api/partner/') && await require('./partner/http').handle(req, res, p, url)) return;
 
     for (const rt of routes) {
       if (rt.method !== req.method) continue;
