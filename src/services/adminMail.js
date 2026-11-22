@@ -1,13 +1,20 @@
 // Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
 'use strict';
 
-const { httpError } = require('../auth');
+const { httpError, ownerEmail } = require('../auth');
 const addresses = ['hello', 'info', 'sellers', 'support'].map((name) => name + '@kinan.shop');
 const emailPattern = /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+$/i;
 let access;
 
 function enabled() {
   return Boolean(process.env.ADMIN_MAIL_GOOGLE_CLIENT_ID && process.env.ADMIN_MAIL_GOOGLE_CLIENT_SECRET && process.env.ADMIN_MAIL_GMAIL_REFRESH_TOKEN);
+}
+
+async function staffEnabled() {
+  const expected = process.env.ADMIN_MAIL_STAFF_ACCOUNT?.trim().toLowerCase();
+  if (!enabled() || !expected?.endsWith('@kinan.shop') || ownerEmail(expected)) return false;
+  const profile = await gmail('profile');
+  return profile.emailAddress?.toLowerCase() === expected;
 }
 
 function mailbox(value) {
@@ -108,4 +115,4 @@ async function send(body) {
   return { id: (await gmail('messages/send', { raw: Buffer.from(raw).toString('base64url'), ...(reply?.threadId ? { threadId: reply.threadId } : {}) })).id, thread_id: reply?.threadId || null };
 }
 
-module.exports = { enabled, inbox, read, send };
+module.exports = { addresses, enabled, staffEnabled, inbox, read, send };

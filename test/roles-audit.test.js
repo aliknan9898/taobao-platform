@@ -104,3 +104,61 @@ test('audit trail: changes and sensitive reads are recorded with who, what and r
   await api('GET', '/api/admin/sellers', null, T.boss);
   assert.equal(db.audit.all().length, n);
 });
+
+test('owner can provision, monitor and suspend an operator without exposing financial data or personal email', async (t) => {
+  const body = { email: 'operator@x.com', password: 'staff-pass-long', name: 'Operator', role: 'operator', mailboxes: ['support@kinan.shop'] };
+  assert.equal((await api('POST', '/api/admin/staff', { ...body, mailboxes: ['other@example.com'] }, T.boss)).status, 400);
+  const employee = await api('POST', '/api/admin/staff', body, T.boss);
+  assert.equal(employee.status, 201);
+  const id = employee.body.id;
+  const token = await login(body.email, body.password);
+  assert.ok(token);
+
+  for (const endpoint of ['overview', 'orders', `orders/${ids.order_a}`, 'users', 'audit', 'backup', 'payouts', 'team', `team/${id}/activity`]) {
+    assert.equal((await api('GET', '/api/admin/' + endpoint, null, token)).status, 403, endpoint);
+  }
+  const orderList = await api('GET', '/api/admin/team-orders', null, token);
+  assert.equal(orderList.status, 200);
+  assert.equal(orderList.body.length, 2);
+  assert.deepEqual(Object.keys(orderList.body[0]).sort(), ['created_at', 'id', 'status']);
+  assert.equal((await api('POST', '/api/admin/team/presence', null, token)).status, 200);
+  const team = await api('GET', '/api/admin/team', null, T.boss);
+  assert.equal(team.body.find((member) => member.id === id).online, true);
+
+  const mailboxStatus = await api('GET', '/api/admin/mailbox/status', null, token);
+  assert.deepEqual(mailboxStatus.body, { configured: false, addresses: ['support@kinan.shop'] });
+  assert.equal((await api('GET', '/api/admin/mailbox/inbox?address=hello@kinan.shop', null, token)).status, 403);
+  assert.equal((await api('POST', '/api/admin/mailbox/send', { from: 'support@kinan.shop' }, token)).status, 503);
+
+  Object.assign(process.env, {
+    ADMIN_MAIL_GOOGLE_CLIENT_ID: 'test-client', ADMIN_MAIL_GOOGLE_CLIENT_SECRET: 'test-secret',
+    ADMIN_MAIL_GMAIL_REFRESH_TOKEN: 'test-refresh', ADMIN_MAIL_STAFF_ACCOUNT: 'team@kinan.shop'
+  });
+  t.after(() => {
+    for (const key of ['ADMIN_MAIL_GOOGLE_CLIENT_ID', 'ADMIN_MAIL_GOOGLE_CLIENT_SECRET', 'ADMIN_MAIL_GMAIL_REFRESH_TOKEN', 'ADMIN_MAIL_STAFF_ACCOUNT']) delete process.env[key];
+  });
+  const localFetch = global.fetch;
+  let primary = 'personal@gmail.com';
+  t.mock.method(global, 'fetch', (input, options) => {
+    const url = new URL(input);
+    const reply = (data) => Promise.resolve({ ok: true, json: async () => data });
+    if (url.hostname === 'oauth2.googleapis.com') return reply({ access_token: 'test-token', expires_in: 3600 });
+    if (url.pathname.endsWith('/profile')) return reply({ emailAddress: primary });
+    if (url.pathname.endsWith('/settings/sendAs')) return reply({ sendAs: [{ sendAsEmail: 'support@kinan.shop', verificationStatus: 'accepted' }] });
+    if (url.pathname.endsWith('/messages/send')) return reply({ id: 'provider-message' });
+    return localFetch(input, options);
+  });
+  const draft = { from: 'support@kinan.shop', to: 'customer@x.com', subject: 'Private subject', text: 'Private contents' };
+  assert.equal((await api('POST', '/api/admin/mailbox/send', draft, token)).status, 503);
+  primary = 'team@kinan.shop';
+  assert.equal((await api('POST', '/api/admin/mailbox/send', draft, token)).status, 200);
+  const activity = (await api('GET', `/api/admin/team/${id}/activity`, null, T.boss)).body;
+  assert.ok(activity.some((event) => event.path === '/api/auth/login'));
+  assert.ok(activity.some((event) => event.mailbox === draft.from && event.message_id === 'provider-message'));
+  assert.doesNotMatch(JSON.stringify(activity), /Private subject|Private contents|staff-pass-long|customer@x\.com/);
+
+  assert.equal((await api('PATCH', `/api/admin/team/${id}`, { status: 'suspended' }, T.boss)).status, 200);
+  assert.equal((await api('GET', '/api/admin/team-orders', null, token)).status, 401);
+  assert.equal((await api('PATCH', `/api/admin/team/${id}`, { status: 'active' }, T.boss)).status, 200);
+  assert.equal((await api('GET', '/api/admin/team-orders', null, token)).status, 401);
+});

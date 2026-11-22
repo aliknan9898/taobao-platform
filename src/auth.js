@@ -10,9 +10,10 @@ const db = require('./db');
 const { config } = require('./config');
 
 const SESSION_TTL = 30 * 86400e3;
-const ROLES = ['admin', 'seller', 'buyer', 'warehouse', 'procurement', 'finance', 'support'];
+const ROLES = ['admin', 'seller', 'buyer', 'warehouse', 'procurement', 'finance', 'support', 'operator'];
 /** Staff roles the admin can create, and what each one is for. */
 const STAFF_ROLES = {
+  operator: 'Limited Admin workspace and assigned business email',
   admin: 'Everything', procurement: 'Buys orders on Taobao / AliExpress, answers item requests',
   warehouse: 'Receives, checks and ships parcels in China', finance: 'Withdrawals, refunds, wallets and reports',
   support: 'Customer questions: orders, returns, item requests, password links'
@@ -58,7 +59,7 @@ function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || ''
  * accounts, each with its own password and session. Staff emails stay unique.
  */
 const APP_ROLE = { shop: 'buyer', seller: 'seller' };
-const isStaff = (u) => u && (u.role === 'admin' || Boolean(STAFF_ROLES[u.role]));
+const isStaff = (u) => u && (u.role === 'admin' || Object.hasOwn(STAFF_ROLES, u.role));
 const usersByEmail = (email) => db.users.all((u) => u.email === String(email || '').trim().toLowerCase());
 
 // The Seller Terms version a seller must accept (public/legal/seller-terms.html); a new version asks sellers again
@@ -87,12 +88,12 @@ function register({ email, password, name, role, shop_name, lang, accept_terms, 
   return publicUser(user);
 }
 
-function createStaff({ email, password, name, role }) {
-  if (!STAFF_ROLES[role]) throw httpError(400, 'Invalid role');
-  if (!validEmail(email) || !password || password.length < 8) throw httpError(400, 'Invalid data');
+function createStaff({ email, password, name, role, mailboxes = [] }) {
+  if (!Object.hasOwn(STAFF_ROLES, role)) throw httpError(400, 'Invalid role');
+  if (!validEmail(email) || typeof password !== 'string' || password.length < (role === 'operator' ? 12 : 8)) throw httpError(400, 'Invalid data');
   email = email.trim().toLowerCase();
   if (db.users.find((u) => u.email === email)) throw httpError(409, 'Email is already registered');
-  return publicUser(db.users.insert({ email, name, role, status: 'active', pass: hashPassword(password) }));
+  return publicUser(db.users.insert({ email, name, role, status: 'active', pass: hashPassword(password), ...(role === 'operator' ? { mailboxes } : {}) }));
 }
 
 /** Sign in. `app` (shop / seller) picks the right account when the email has both. */

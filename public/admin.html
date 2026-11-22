@@ -185,6 +185,7 @@ async function api(path, method = 'GET', body) {
 function showLogin(msg = '') {
   renderSeq++;
   clearInterval(window.__live);
+  clearInterval(window.__teamPresence);
   clearInterval(window.__importMonitor);
   $('#app').innerHTML = `<form class="card login" id="lf"><a class="brand" href="/admin"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>Admin</small></a><h2>Sign in to the admin dashboard</h2>
     ${googleSignin ? `<a class="gbtn" href="/auth/google?app=admin"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.2-8.5 2.2-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>Continue with Google</a><div class="ordiv"><span>or with email</span></div>` : ''}
@@ -205,18 +206,18 @@ function showLogin(msg = '') {
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
-  ['overview','Overview','*'],['control','Control centre','admin'],['partners','Partner API (B2B)','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
-  ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','admin'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
+  ['overview','Overview','*'],['team-orders','Order status','operator'],['team','Staff & activity','owner'],['control','Control centre','admin'],['partners','Partner API (B2B)','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
+  ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','owner operator'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
-  ['Today',['overview','exceptions','control']],
+  ['Today',['overview','exceptions','control','team-orders']],
   ['Orders & delivery',['orders','shipping','returns','requests']],
   ['Catalogue',['listings','platforms','imports','ai-tools']],
   ['Suppliers & channels',['cj','ebay','connections','partners']],
-  ['People',['sellers','users','reviews']],
+  ['People',['sellers','users','reviews','team']],
   ['Money',['payouts','reports','coupons']],
   ['Growth',['kinan','advertising','mail']],
   ['System',['tools','backup']]
@@ -228,8 +229,12 @@ function adminNav() {
       `<button type="button" data-t="${key}">${label}</button>`).join('')}</div>` : '';
   }).join('');
 }
-const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support'];
-const can = (roles) => roles === '*' || roles.split(' ').includes(me?.role);
+const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support', 'operator'];
+const can = (roles) => {
+  const allowed = roles.split(' ');
+  return (roles === '*' && me?.role !== 'operator') || allowed.includes(me?.role) || (me?.owner && allowed.includes('owner'));
+};
+let heartbeatTimer;
 let TABS = ALL_TABS;
 const isAdmin = () => me?.role === 'admin';
 const canBuy = () => ['admin', 'procurement'].includes(me?.role);
@@ -239,7 +244,7 @@ let tab = 'overview', me;
 function boot(user) {
   me = user;
   TABS = ALL_TABS.filter(([, , r]) => can(r));
-  if (!TABS.some(([k]) => k === tab)) tab = 'overview';
+  if (!TABS.some(([k]) => k === tab)) tab = TABS[0][0];
   $('#app').innerHTML = `<header><a class="brand" href="/admin"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
       <div class="row hdr-actions"><span id="ctlchip"></span><details class="apps"><summary class="btn ghost">Apps</summary><div class="appsmenu"><a href="/" target="_blank" rel="noopener">Kinan Shop</a><a href="/seller" target="_blank" rel="noopener">Seller Center</a><a href="/warehouse">Warehouse</a><a href="/catalogue" target="_blank" rel="noopener">Catalogue</a></div></details>${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted hdr-email">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
     <div class="admin-shell">
@@ -248,7 +253,15 @@ function boot(user) {
       <div class="admin-content"><h1 id="viewtitle" tabindex="-1"></h1><main id="view" aria-labelledby="viewtitle"></main></div>
     </div>
     <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>`;
-  $('#lo').onclick = async () => { await api('/api/auth/logout', 'POST'); showLogin(); };
+  clearInterval(heartbeatTimer);
+  if (!user.owner) {
+    const heartbeat = () => {
+      if (!document.hidden) api('/api/admin/team/presence', 'POST').catch(() => {});
+    };
+    heartbeat();
+    heartbeatTimer = setInterval(heartbeat, 25_000);
+  }
+  $('#lo').onclick = async () => { clearInterval(heartbeatTimer); await api('/api/auth/logout', 'POST'); showLogin(); };
   const toggle = $('#menutoggle');
   const setMenu = (open) => {
     toggle.parentElement.classList.toggle('menu-open', open);
@@ -1197,7 +1210,7 @@ const VIEWS = {
   async users(v) {
     const list = await api('/api/admin/users');
     const ROLE = { admin:'Admin', seller:'Seller', buyer:'Buyer', warehouse:'Warehouse', procurement:'Procurement', finance:'Finance', support:'Support' };
-    const roles = isAdmin() ? await api('/api/admin/staff-roles') : null;
+    const roles = me.owner ? await api('/api/admin/staff-roles') : null;
     v.innerHTML = `${roles ? `<div class="card"><h2>Add staff member</h2><form class="row" id="sf">
         <input name="name" placeholder="Name" required><input name="email" type="email" placeholder="Email" required>
         <input name="password" type="password" placeholder="Password (8+)" minlength="8" required>
@@ -1216,6 +1229,91 @@ const VIEWS = {
   }
 };
 
+VIEWS['team-orders'] = async (v) => {
+  const orders = await api('/api/admin/team-orders');
+  v.innerHTML = `<section class="card"><h2>Latest order statuses</h2>
+    <div style="overflow-x:auto"><table><thead><tr><th>Reference</th><th>Status</th><th>Created</th></tr></thead>
+    <tbody>${orders.map((order) => `<tr><td>${esc(order.id)}</td><td>${esc(order.status)}</td><td>${esc(new Date(order.created_at).toLocaleString())}</td></tr>`).join('')}</tbody></table></div>
+    ${orders.length ? '' : '<p class="muted">No orders yet.</p>'}</section>`;
+};
+
+VIEWS.team = async (v) => {
+  const mailboxes = ['hello', 'info', 'sellers', 'support'].map((name) => name + '@kinan.shop');
+  const choices = (selected = []) => mailboxes.map((address) =>
+    `<label><input type="checkbox" name="mailboxes" value="${address}" ${selected.includes(address) ? 'checked' : ''}> ${address}</label>`).join(' ');
+  v.innerHTML = `<section class="card"><h2>Add an employee</h2>
+    <form id="staff-create" class="stack">
+      <label>Name <input name="name" required maxlength="100"></label>
+      <label>Login email <input name="email" type="email" required></label>
+      <label>Initial password <input name="password" type="password" minlength="12" required autocomplete="new-password"></label>
+      <fieldset><legend>Allowed business email addresses</legend>${choices()}</fieldset>
+      <button class="btn">Create employee</button>
+    </form><p id="team-feedback" role="status"></p></section>
+    <section class="card"><h2>Employees</h2><p class="muted">Online means Admin reported activity in the last 90 seconds.</p>
+      <div id="team-roster" style="overflow-x:auto"></div></section>
+    <section class="card" id="team-activity" hidden></section>`;
+  const notice = v.querySelector('#team-feedback');
+  const roster = v.querySelector('#team-roster');
+  const activity = v.querySelector('#team-activity');
+  async function refresh() {
+    const team = await api('/api/admin/team');
+    if (!v.isConnected) return;
+    const editing = roster.querySelector('form:focus-within');
+    if (editing) return;
+    roster.innerHTML = team.length ? `<table><thead><tr><th>Employee</th><th>Presence</th><th>Account</th><th>Actions</th></tr></thead>
+      <tbody>${team.map((member) => `<tr><td>${esc(member.name || member.email)}<br><small>${esc(member.email)}</small></td>
+        <td>${member.online ? 'Online' : 'Offline'}${member.last_seen ? `<br><small>${esc(new Date(member.last_seen).toLocaleString())}</small>` : ''}</td>
+        <td>${esc(member.role)} · ${esc(member.status)}</td><td>
+          <button class="btn ghost" type="button" data-activity="${esc(member.id)}">Activity log</button>
+          ${member.role === 'operator' ? `<form data-employee="${esc(member.id)}">
+            <fieldset><legend>Mailboxes</legend>${choices(member.mailboxes)}</fieldset>
+            <button class="btn ghost" name="status" value="${esc(member.status)}">Save mailboxes</button>
+            <button class="btn ghost" name="status" value="${member.status === 'active' ? 'suspended' : 'active'}">${member.status === 'active' ? 'Suspend access' : 'Reactivate'}</button>
+          </form>` : ''}
+        </td></tr>`).join('')}</tbody></table>` : '<p class="muted">No employee accounts yet.</p>';
+  }
+  v.querySelector('#staff-create').onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    try {
+      await api('/api/admin/staff', 'POST', { ...Object.fromEntries(data), role: 'operator', mailboxes: data.getAll('mailboxes') });
+      form.reset();
+      notice.textContent = 'Employee created.';
+      await refresh();
+    } catch (err) { notice.textContent = err.message; }
+  };
+  roster.onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const status = event.submitter?.value;
+    if (!status) return;
+    try {
+      await api('/api/admin/team/' + encodeURIComponent(form.dataset.employee), 'PATCH', { status, mailboxes: new FormData(form).getAll('mailboxes') });
+      document.activeElement?.blur();
+      notice.textContent = 'Access updated.';
+      await refresh();
+    } catch (err) { notice.textContent = err.message; }
+  };
+  let activityRequest = 0;
+  roster.onclick = async (event) => {
+    const button = event.target.closest('[data-activity]');
+    if (!button) return;
+    const request = ++activityRequest;
+    const employee = button.closest('tr').cells[0].textContent;
+    try {
+      const entries = await api('/api/admin/team/' + encodeURIComponent(button.dataset.activity) + '/activity');
+      if (request !== activityRequest) return;
+      activity.hidden = false;
+      activity.innerHTML = `<h2>Activity for ${esc(employee)}</h2>${entries.length ? `<ul>${entries.map((entry) =>
+        `<li>${esc(new Date(entry.at).toLocaleString())} · ${esc(entry.method)} ${esc(entry.path)}
+          ${entry.mailbox ? ' · ' + esc(entry.mailbox) : ''} · ${esc(String(entry.status))}</li>`).join('')}</ul>` : '<p class="muted">No activity recorded yet.</p>'}`;
+    } catch (err) { notice.textContent = err.message; }
+  };
+  await refresh();
+  if (v.isConnected) window.__teamPresence = setInterval(() => refresh().catch(() => {}), 15_000);
+};
+
 VIEWS.mail = async (v) => {
   const inboxes = [
     ['hello', 'General enquiries'],
@@ -1228,17 +1326,17 @@ VIEWS.mail = async (v) => {
   if (view !== renderSeq) return;
   v.innerHTML = `<section class="card">
     <h2>KINAN Email</h2>
-    <p class="muted">These addresses forward to your shared Gmail inbox. ${status.configured ? 'Choose an address to read or send mail.' : 'Connect Gmail to read and send here.'}</p>
+    <p class="muted">${status.configured ? 'Choose an address to read or send mail.' : 'A KINAN mailbox must be connected and assigned to your account.'}</p>
     <div style="overflow-x:auto"><table>
       <thead><tr><th>Address</th><th>Purpose</th><th>Setup</th><th>Actions</th></tr></thead>
-      <tbody>${inboxes.map(([name, purpose]) => {
+      <tbody>${inboxes.filter(([name]) => status.addresses.includes(name + '@kinan.shop')).map(([name, purpose]) => {
         const address = name + '@kinan.shop';
         const query = encodeURIComponent('to:' + address);
         return `<tr><td><b>${esc(address)}</b></td><td>${esc(purpose)}</td>
           <td><span class="pill">Forwarding</span></td>
           <td><div class="row">
             ${status.configured ? `<button type="button" class="btn" data-open-mail="${esc(address)}">Open inbox</button> <button type="button" class="btn ghost" data-new-mail="${esc(address)}">New email</button>` : ''}
-            <a class="btn ghost" href="https://mail.google.com/mail/#search/${query}" target="_blank" rel="noopener noreferrer">Open in Gmail</a>
+            ${me.owner ? `<a class="btn ghost" href="https://mail.google.com/mail/#search/${query}" target="_blank" rel="noopener noreferrer">Open in Gmail</a>` : ''}
             <button type="button" class="btn ghost" data-copy-email="${esc(address)}">Copy address</button>
           </div></td></tr>`;
       }).join('')}</tbody>

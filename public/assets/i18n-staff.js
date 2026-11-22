@@ -11,6 +11,18 @@
     'Sections': 'الأقسام', 'Loading…': 'جارٍ التحميل…', 'Open': 'فتح', 'Close': 'إغلاق', 'Cancel': 'إلغاء', 'OK': 'حسناً', 'Link': 'ربط', 'Next': 'التالي', 'Steps': 'الخطوات',
     'Sign in to the admin dashboard': 'تسجيل الدخول إلى لوحة الإدارة', 'Sign in to the warehouse': 'تسجيل الدخول إلى المستودع',
     'Procurement': 'المشتريات', 'Finance': 'المالية', 'Support': 'الدعم',
+    // ---- employee workspace ----
+    'Staff & activity': 'الموظفون وسجل النشاط', 'Operator': 'موظف عمليات', 'Add an employee': 'إضافة موظف',
+    'Login email': 'بريد تسجيل الدخول', 'Initial password': 'كلمة المرور الأولية',
+    'Allowed business email addresses': 'عناوين بريد العمل المسموح بها', 'Create employee': 'إنشاء حساب الموظف',
+    'Employees': 'الموظفون', 'Employee': 'الموظف', 'Presence': 'التواجد', 'Account': 'الحساب',
+    'Online means Admin reported activity in the last 90 seconds.': 'متصل يعني أن لوحة الإدارة سجّلت تواجده خلال آخر 90 ثانية.',
+    'Online': 'متصل', 'Offline': 'غير متصل', 'Activity log': 'سجل النشاط', 'Mailboxes': 'صناديق البريد',
+    'Save mailboxes': 'حفظ صلاحيات البريد', 'Suspend access': 'إيقاف الوصول', 'Reactivate': 'إعادة التفعيل',
+    'No employee accounts yet.': 'لا توجد حسابات موظفين بعد.', 'Employee created.': 'تم إنشاء حساب الموظف.',
+    'Access updated.': 'تم تحديث الصلاحيات.', 'No activity recorded yet.': 'لا يوجد نشاط مسجل بعد.',
+    'Latest order statuses': 'حالة أحدث الطلبات', 'Reference': 'المرجع',
+    'A KINAN mailbox must be connected and assigned to your account.': 'يجب ربط صندوق بريد كنان وتخصيص عنوان لحسابك.',
     // ---- admin navigation ----
     'Waiting for KINAN': 'بانتظار كنان', 'Request': 'الطلب', 'Cancellation': 'إلغاء', 'Accept': 'قبول', 'Reject': 'رفض', 'Approve': 'موافقة', 'Mark received': 'تأكيد الاستلام', 'Credit': 'إضافة رصيد',
     'Nothing is waiting.': 'لا شيء بانتظارك.', 'Hand off (test)': 'تسليم للتنفيذ (اختبار)', 'Ship (test)': 'شحن (اختبار)', 'Deliver (test)': 'تسليم للزبون (اختبار)', 'Done (sandbox)': 'تم (تجريبي)', 'Queued again': 'أُعيد إلى قائمة الإرسال',
