@@ -11,7 +11,7 @@ const db = require('../db');
 const { httpError } = require('../auth');
 
 const SCOPES = ['catalog:read', 'quotes:write', 'orders:write', 'orders:read', 'returns:write', 'returns:read', 'documents:read', 'webhooks:manage'];
-const BATCH1_SCOPES = ['catalog:read']; // scopes with endpoints today; others are accepted but have nothing to call yet
+const BATCH1_SCOPES = ['catalog:read', 'quotes:write', 'orders:write', 'orders:read']; // scopes with endpoints today (Batches 1–2)
 const MARKETS = ['DE', 'GB', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'MT', 'PL', 'SE'];
 const B62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 

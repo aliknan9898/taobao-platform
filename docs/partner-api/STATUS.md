@@ -61,7 +61,52 @@ Batch 1 was built on the development branch `fix/chatgpt-security-db-ci-20261118
   - the 30% floor
   - public API regression
 
+## Batch 2 — delivered (sandbox, behind `PARTNER_ORDERS_ENABLED=1`)
+
+- **Endpoints:**
+  - `POST /quotes`
+  - `POST /orders` (Idempotency-Key)
+  - `GET /orders` (keyset paging, filter by `external_order_ref`)
+  - `GET /orders/{id}`
+- **Admin:** a sandbox order list with "mark settled (test)".
+- **Storage:** real PostgreSQL tables (`src/partner/migrations/001_partner_core.sql`, additive). They are applied under an advisory lock the first time ordering is used. Rollback is in `001_partner_core.down.sql`, run by the owner only.
+- **Order creation** is one transaction:
+  1. idempotency record
+  2. quote check: expiry, country and postal code
+  3. order (unique store + reference)
+  4. reservation of controlled stock (conditional `UPDATE`)
+  5. outbox event and history
+  6. the stored answer
+- **Supporting jobs:**
+  - Fulfilment intents use `FOR UPDATE SKIP LOCKED` and a unique order id, so there is exactly one per order.
+  - A sweeper releases unpaid reservations after `PARTNER_RESERVATION_MIN` (default 60) minutes.
+  - Idempotency records are purged after 30 days.
+- **Recipient data:** AES-256-GCM at rest. Live needs `PARTNER_PII_KEY`; the sandbox derives a key.
+- **Pricing:**
+  - Quotes per origin: DE warehouse and CN direct with import handling. Shipping and handling are priced to the floor.
+  - The basket contribution is checked against `PARTNER_TARGET_MARGIN` (30%) with `PARTNER_FEE_RATE`; quotes below it are refused.
+  - `PARTNER_QUOTE_TTL_MIN` defaults to 15.
+- **Tests:** `test/partner-orders.test.js` runs on a real, isolated PostgreSQL 16: locally with `KINAN_TEST_PG=1`, and in CI through a postgres service. It covers:
+  - 30 concurrent identical requests
+  - two Node processes × 25 retries
+  - a crash after COMMIT
+  - key/body conflict, reused reference, expired quote, postcode mismatch, stock race
+  - 30% floor with a 3% fee and two origins
+  - reservation timeout
+  - store isolation and scopes
+  - the off switch
+  - OpenAPI validation of every answer
+
+  The test-only wire-protocol client is `test/support/minipg.js`. Production uses `pg`.
+
 ## Known limits (honest list)
+
+- **Batch 2:**
+  - Live quotes are refused: real tariffs, VAT treatment and duties need owner decisions.
+  - Tax is 0 and labelled `sandbox_no_tax`.
+  - Fulfilment intents are recorded but not yet handed to suppliers or the warehouse (Batch 3).
+  - There is no shipment, cancellation, return or document API yet.
+  - The outbox fills but nothing dispatches it yet (webhooks are Batch 3).
 
 - **Restarts and multiple processes:** the change sequence and state live in the document store. A restart keeps them, because they are written to PostgreSQL by the same write-behind as everything else. Two processes writing the feed at once are not supported: the app runs as a single instance (the job owner uses a Postgres advisory lock). Batch 2 moves commands to real SQL tables.
 - **Live projection:**

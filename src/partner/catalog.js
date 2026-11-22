@@ -77,7 +77,7 @@ function sandboxProducts() {
 }
 function baseFromSandbox(p) {
   return {
-    product_id: `kp_sbx_${p.key}`, category_id: p.category_id, markets: [...p.markets].sort(),
+    product_id: `kp_sbx_${p.key}`, category_id: p.category_id, markets: [...p.markets].sort(), ships_from: p.ships_from || 'DE',
     title: p.title, description: p.description, media: p.media,
     variants: p.variants.map((v) => ({ variant_id: `kv_sbx_${v.key}`, sku: v.sku, options: v.options, weight_grams: v.weight_grams, dimensions_mm: v.dimensions_mm, stock: Math.max(0, Math.floor(v.stock)), quantity_backed: true, cost_minor: v.cost_minor, min_order_quantity: v.min_order_quantity || 1 })),
     compliance: { publication_status: 'eligible', warnings: [], resources: [] },
@@ -96,7 +96,7 @@ function baseFromLive({ l, kc }) {
   const ds = { en: String(l.description || '').slice(0, 4000) }; if (l.description_ar) ds.ar = String(l.description_ar).slice(0, 4000);
   return {
     product_id: `kp_${String(l.id).replace(/^lst_/, '')}`, category_id: (l.collections || [])[0] || l.category || 'general',
-    markets: ['DE'], title: tr, description: ds,
+    markets: ['DE'], ships_from: 'CN', title: tr, description: ds,
     media: (l.images || []).slice(0, 8).map((u) => ({ url: String(u), alt: { en: l.title } })),
     variants: skus.map((s) => ({ variant_id: `kv_${String(s.mp_sku_id)}`, sku: `KIN-${String(s.mp_sku_id).slice(-10).toUpperCase()}`, options: { option: { en: s.props || 'Standard' } }, weight_grams: s.weight_g || null, dimensions_mm: null, stock: Math.max(0, Number(s.stock) || 0), quantity_backed: false, cost_minor: Math.round(kc.lineCost(l, s) * 100), min_order_quantity: 1 })),
     // Live products need publication evidence (manufacturer, responsible person, warnings) before partners may list them
@@ -177,7 +177,7 @@ function project(state, store, market, locale) {
     version: state.version + ((pl.version || 1) - 1),
     market, locale, content_locale: t.locale,
     title: t.value, description: pickLocale(b.description, locale).value,
-    category_id: b.category_id,
+    category_id: b.category_id, ships_from: b.ships_from || null,
     media: b.media.map((m) => ({ url: m.url, alt: pickLocale(m.alt, locale).value })),
     variants: b.variants.map((v) => ({
       variant_id: v.variant_id, sku: v.sku,
@@ -262,4 +262,13 @@ function resetSandbox() { for (const p of db.partner_sandbox.all()) db.partner_s
 /** Health numbers for the admin page. */
 function health(env) { return { env, head_seq: headSeq(env), floor_seq: floorSeq(env), products: db.partner_state.all((s) => s.env === env && s.base.active).length, events: db.partner_changes.all((e) => e.env === env).length, last_sync: lastSync[env] || null }; }
 
-module.exports = { PartnerError, snapshot, product, changes, sync, prune, entitled, entitlementChanged, simulate, resetSandbox, health, encodeCursor, decodeCursor, _lastSync: lastSync };
+/** The projected product and variant behind a variant id (for quotes), or null. */
+function findVariant(env, variantId) {
+  for (const st of db.partner_state.all((x) => x.env === env)) {
+    const v = st.base.variants.find((x) => x.variant_id === variantId);
+    if (v) return { state: st, base: st.base, variant: v };
+  }
+  return null;
+}
+
+module.exports = { PartnerError, snapshot, product, changes, sync, prune, entitled, entitlementChanged, simulate, resetSandbox, health, encodeCursor, decodeCursor, findVariant, secret, _lastSync: lastSync };

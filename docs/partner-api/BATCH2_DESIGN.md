@@ -1,4 +1,10 @@
-# Partner API Batch 2 — quotes, orders, idempotency, reservations and outbox (design, not built)
+# Partner API Batch 2 — quotes, orders, idempotency, reservations and outbox
+
+> **Status:** implemented in the sandbox (see `STATUS.md`). The design below is kept as the reference. Differences from it:
+> - The quote stores costs per line.
+> - Shipping and handling are priced per origin.
+> - `partner_fulfillment_intent` was added as its own table.
+> - Overrides of the 30% check are not built yet: quotes under the target are refused.
 
 Goal: `POST /quotes` and `POST /orders` with exactly-once order creation across retries, restarts and two processes,
 stock reservations for stock KINAN controls, a durable outbox for later webhooks, and per-quote enforcement of the

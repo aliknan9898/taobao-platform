@@ -12,6 +12,8 @@
     'Sign in to the admin dashboard': 'تسجيل الدخول إلى لوحة الإدارة', 'Sign in to the warehouse': 'تسجيل الدخول إلى المستودع',
     'Procurement': 'المشتريات', 'Finance': 'المالية', 'Support': 'الدعم',
     // ---- admin navigation ----
+    'Partner orders': 'طلبات الشركاء', 'Partner orders (sandbox)': 'طلبات الشركاء (تجريبي)', 'Mark settled (test)': 'تأكيد الدفع (اختبار)', 'Settled (sandbox)': 'تم تأكيد الدفع (تجريبي)', 'No orders yet.': 'لا طلبات بعد.', 'Reference': 'المرجع', 'Payable': 'المستحق', 'Payment': 'الدفع', 'Fulfilment': 'التنفيذ', 'Created': 'تاريخ الإنشاء', 'Store': 'المتجر',
+    'Quotes and orders are switched off. They start when the owner sets PARTNER_ORDERS_ENABLED=1 on the server (needs PostgreSQL).': 'عروض الأسعار والطلبات متوقفة. تبدأ عندما يضبط المالك PARTNER_ORDERS_ENABLED=1 على الخادم (تحتاج PostgreSQL).',
     'Partner API (B2B)': 'واجهة الشركاء (B2B)', 'Issue sandbox key': 'إصدار مفتاح تجريبي', 'Issue live key': 'إصدار مفتاح فعلي', 'Revoke': 'إلغاء', 'Revoked': 'ملغى', 'Pause API': 'إيقاف الواجهة', 'Resume API': 'تشغيل الواجهة',
     'Markets': 'الأسواق', 'Categories (empty = all)': 'الفئات (فارغ = الكل)', 'Locales': 'اللغات', 'Markup over the 30% floor (%)': 'زيادة فوق حد 30٪ (٪)', 'No keys yet.': 'لا مفاتيح بعد.', 'Live keys are off until production is approved.': 'المفاتيح الفعلية متوقفة حتى الموافقة على التشغيل الفعلي.',
     'New partner organisation': 'شريك جديد', 'Company name': 'اسم الشركة', 'Technical contact email': 'بريد المسؤول التقني', 'Create': 'إنشاء', 'Add store': 'إضافة متجر', 'New store name': 'اسم المتجر الجديد', 'No partners yet.': 'لا يوجد شركاء بعد.',
