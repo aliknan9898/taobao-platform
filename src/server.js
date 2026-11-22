@@ -1360,7 +1360,20 @@ function startJobs() {
   setTimeout(() => require('./services/translate').translatePending().catch(() => {}), 30e3).unref();
 }
 
-if (require.main === module) (async () => {
+/** KINAN_COPY_MODE=1: a region move is copying the database. Serve only /healthz and a "moving" page; never touch
+    the database (no init, no jobs, no writes), so the copy is not overwritten. Remove the variable to start normally. */
+function copyModeServer() {
+  const http = require('http');
+  return http.createServer((req, res) => {
+    if (req.url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok (copy mode)'); }
+    res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': '600', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
+    res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KINAN</title><p style="font:16px system-ui;margin:40px;text-align:center">KINAN is moving to a faster server. Back in a few minutes.<br><span dir="rtl">كنان تنتقل إلى خادم أسرع. نعود خلال دقائق.</span></p>');
+  });
+}
+
+if (require.main === module && process.env.KINAN_COPY_MODE === '1') {
+  copyModeServer().listen(config.port, '0.0.0.0', () => console.log(`[copy-mode] database untouched; serving /healthz on :${config.port}. Remove KINAN_COPY_MODE to start normally.`));
+} else if (require.main === module) (async () => {
   try { await db.init(); } catch (e) { console.error('[db] could not connect to PostgreSQL:', e.message); process.exit(1); }
   auth.bootstrapAdmin();
   try { auth.secureOwnerAccounts(); } catch (e) { console.error('[auth] securing owner accounts:', e.message); }
@@ -1435,4 +1448,4 @@ if (require.main === module) (async () => {
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
 })();
 
-module.exports = { server, safeReturnTo, cleanup, clientIp };
+module.exports = { copyModeServer, server, safeReturnTo, cleanup, clientIp };
