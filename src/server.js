@@ -962,11 +962,16 @@ const shopifyOn = () => { const pgm = require('./partner/pg'); if (!pgm.enabled(
 r('GET', '/api/admin/partners/connections', ADMIN, async () => { const pgm = require('./partner/pg'); const S = require('./partner/connectors/shopify'); if (!pgm.enabled() || !pgm.pool()) return { enabled: false, ordering: false, connections: [] }; const out = await S.adminList(); return { ...out, ordering: true }; });
 r('POST', '/api/admin/partners/stores/:id/shopify/install', ADMIN, async ({ req, params }) => shopifyOn().installUrl(params.id, (await readJson(req)).shop));
 r('POST', '/api/admin/partners/stores/:id/shopify/dev-store', ADMIN, async ({ req, params }) => shopifyOn().connectDevStore(params.id, (await readJson(req)).shop));
-r('POST', '/api/admin/partners/connections/:id', ADMIN, async ({ req, params }) => shopifyOn().adminUpdate(params.id, await readJson(req)));
-r('POST', '/api/admin/partners/connections/:id/sync', ADMIN, async ({ params }) => shopifyOn().syncOnce(params.id));
-r('POST', '/api/admin/partners/connections/:id/orders/:oid/retry', ADMIN, async ({ params }) => shopifyOn().adminRetryOrder(params.id, params.oid));
-r('POST', '/api/admin/partners/connections/:id/disconnect', ADMIN, async ({ params }) => shopifyOn().adminDisconnect(params.id));
-r('POST', '/api/admin/partners/privacy/:id/done', ADMIN, async ({ params }) => shopifyOn().adminPrivacyDone(params.id));
+// shared by Shopify and WooCommerce connections
+const connectorsOn = () => { const pgm = require('./partner/pg'); if (!pgm.enabled() || !pgm.pool()) throw httpError(503, 'Partner ordering is switched off (PARTNER_ORDERS_ENABLED)'); return require('./partner/connectors/core'); };
+const wooOn = () => { connectorsOn(); if (!require('./partner/connectors/woocommerce').enabled()) throw httpError(503, 'The WooCommerce connector is switched off (PARTNER_WOOCOMMERCE_ENABLED)'); return require('./partner/connectors/woocommerce'); };
+r('POST', '/api/admin/partners/stores/:id/woocommerce/connect', ADMIN, async ({ req, params }) => wooOn().connectUrl(params.id, (await readJson(req)).store_url));
+r('POST', '/api/admin/partners/stores/:id/woocommerce/keys', ADMIN, async ({ req, params }) => { const b = await readJson(req); return wooOn().connectWithKeys(params.id, b.store_url, b.consumer_key, b.consumer_secret); });
+r('POST', '/api/admin/partners/connections/:id', ADMIN, async ({ req, params }) => connectorsOn().adminUpdate(params.id, await readJson(req)));
+r('POST', '/api/admin/partners/connections/:id/sync', ADMIN, async ({ params }) => connectorsOn().syncOnce(params.id));
+r('POST', '/api/admin/partners/connections/:id/orders/:oid/retry', ADMIN, async ({ params }) => connectorsOn().adminRetryOrder(params.id, params.oid));
+r('POST', '/api/admin/partners/connections/:id/disconnect', ADMIN, async ({ params }) => connectorsOn().adminDisconnect(params.id));
+r('POST', '/api/admin/partners/privacy/:id/done', ADMIN, async ({ params }) => connectorsOn().adminPrivacyDone(params.id));
 r('POST', '/api/admin/partners/webhooks/deliveries/:id/replay', ADMIN, async ({ params }) => require('./partner/webhooks').adminReplay(params.id));
 r('POST', '/api/admin/partners/orders/:id/settle', ADMIN, async ({ req, user, params }) => { const b = await readJson(req); const o = await require('./partner/orders').settle(params.id, { mode: b.mode || 'settled', actor: user.email || user.id }); return { id: o.id, payment_state: o.payment_state }; });
 r('POST', '/api/admin/partners/sandbox/simulate', ADMIN, async ({ req }) => { const b = await readJson(req); return b.reset ? require('./partner/catalog').resetSandbox() : require('./partner/catalog').simulate(b.product, b); });

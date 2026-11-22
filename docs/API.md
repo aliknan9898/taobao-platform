@@ -109,4 +109,6 @@ Admin management lives under `/api/admin/partners…` (admin role only, audited)
 `POST /api/admin/partners/orders/:id/simulate`, `…/cancellations/:id/decide`, `…/returns/:id/decide` and
 `…/webhooks/deliveries/:id/replay`. Batch 4 adds the KINAN-run Shopify connector (`docs/partner-api/SHOPIFY_RUNBOOK.md`):
 Shopify calls `GET /api/partner/connect/shopify/callback` and `POST /api/partner/connect/shopify/webhooks`; admin routes
-are under `/api/admin/partners/connections…` and `/api/admin/partners/stores/:id/shopify/…`.
+are under `/api/admin/partners/connections…` and `/api/admin/partners/stores/:id/shopify/…`. The WooCommerce connector
+(`docs/partner-api/WOOCOMMERCE_RUNBOOK.md`) adds `POST /api/partner/connect/woocommerce/callback`, `GET …/return`,
+`POST …/webhooks/:connection` and the admin routes `/api/admin/partners/stores/:id/woocommerce/{connect,keys}`.

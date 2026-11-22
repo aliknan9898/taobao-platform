@@ -84,8 +84,7 @@ function startWorkers() {
         }
       }
       if (n % 4 === 0) {
-        const S = require('./connectors/shopify');
-        if (S.enabled()) await S.syncAll().catch(log('shopify'));
+        await require('./connectors/core').syncAll().catch(log('connectors'));
       }
       if (++n % 5760 === 0) await o.purgeIdempotency().catch(() => {});
     } finally { busy = false; }
