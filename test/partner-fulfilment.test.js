@@ -98,7 +98,7 @@ test('partner fulfilment (PostgreSQL)', { skip: !RUN && 'set KINAN_TEST_PG=1 wit
   const ret = (id, body, key, k = kA) => call(k, 'POST', `${V}/orders/${id}/returns`, body, key ? { 'idempotency-key': key } : {});
 
   await t.test('migrations: 002 applied on top of 001, additive', async () => {
-    assert.deepStrictEqual(pgm.migrations(), ['001_partner_core.sql', '002_partner_fulfilment.sql']);
+    assert.deepStrictEqual(pgm.migrations().slice(0, 2), ['001_partner_core.sql', '002_partner_fulfilment.sql']);
     await pgm.ensureSchema();
     assert.strictEqual(await n('SELECT count(*) n FROM partner_schema WHERE version IN (1,2)'), 2);
   });
