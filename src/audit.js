@@ -10,16 +10,20 @@
  */
 const db = require('./db');
 
-const SENSITIVE_READ = /^\/api\/admin\/(backup(\/|$)|sellers\/[^/]+\/verification|users$|.*(export|csv)(\/|$|\?))/;
+const SENSITIVE_READ = /^\/api\/admin\/(backup(\/|$)|mailbox\/(inbox|messages\/[^/]+)$|team-orders$|sellers\/[^/]+\/verification|users$|.*(export|csv)(\/|$|\?))/;
 const SECRET_KEY = /pass|secret|token|key|card|iban|account_number|cvc|otp|code$/i;
 
-function wanted(method, path) {
+function wanted(method, path, user) {
+  if (path === '/api/admin/team/presence') return false;
+  // restricted employees: every Admin API call, allowed or refused, so the owner sees what they tried
+  if (user?.role === 'operator' && /^\/api\/admin(\/|$)/.test(path)) return true;
+  if (method === 'POST' && /^\/api\/auth\/(login|logout)$/.test(path)) return true;
   if (!/^\/api\/(admin|warehouse)(\/|$)/.test(path)) return false;
   return method !== 'GET' && method !== 'HEAD' ? true : SENSITIVE_READ.test(path);
 }
 
 function record({ req, path, user, status, params, error }) {
-  if (!user || !wanted(req.method, path)) return null; // anonymous calls are refused before any work; not worth a record
+  if (!user || !wanted(req.method, path, user)) return null; // anonymous calls are refused before any work; not worth a record
   const body = req._json && typeof req._json === 'object' && !Array.isArray(req._json) ? req._json : null;
   const reason = body && ['reason', 'note', 'why', 'comment'].map((k) => body[k]).find((v) => typeof v === 'string' && v.trim());
   return db.audit.insert({
@@ -27,7 +31,9 @@ function record({ req, path, user, status, params, error }) {
     actor: user ? { id: user.id, email: user.email || null, role: user.role, owner: Boolean(user.owner) } : null,
     ip: String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim().slice(0, 64),
     fields: body ? Object.keys(body).filter((k) => !SECRET_KEY.test(k)).slice(0, 30) : [],
-    ...(reason ? { reason: reason.slice(0, 200) } : {}),
+    ...(req.auditMailbox ? { mailbox: req.auditMailbox } : {}),
+    ...(req.auditMailId ? { message_id: req.auditMailId } : {}),
+    ...(reason && !path.startsWith('/api/admin/mailbox/') ? { reason: reason.slice(0, 200) } : {}),
     ...(error ? { error: String(error).slice(0, 200) } : {})
   });
 }

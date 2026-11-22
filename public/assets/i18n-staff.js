@@ -11,6 +11,22 @@
     'Sections': 'الأقسام', 'Loading…': 'جارٍ التحميل…', 'Open': 'فتح', 'Close': 'إغلاق', 'Cancel': 'إلغاء', 'OK': 'حسناً', 'Link': 'ربط', 'Next': 'التالي', 'Steps': 'الخطوات',
     'Sign in to the admin dashboard': 'تسجيل الدخول إلى لوحة الإدارة', 'Sign in to the warehouse': 'تسجيل الدخول إلى المستودع',
     'Procurement': 'المشتريات', 'Finance': 'المالية', 'Support': 'الدعم',
+    // ---- employee workspace ----
+    'Staff & activity': 'الموظفون وسجل النشاط', 'Operator': 'موظف عمليات', 'Add an employee': 'إضافة موظف',
+    'Login email': 'بريد تسجيل الدخول', 'Initial password': 'كلمة المرور الأولية',
+    'Allowed business email addresses': 'عناوين بريد العمل المسموح بها', 'Create employee': 'إنشاء حساب الموظف',
+    'Employees': 'الموظفون', 'Employee': 'الموظف', 'Presence': 'التواجد', 'Account': 'الحساب',
+    'Online means Admin reported activity in the last 90 seconds.': 'متصل يعني أن لوحة الإدارة سجّلت تواجده خلال آخر 90 ثانية.',
+    'Online': 'متصل', 'Offline': 'غير متصل', 'Activity log': 'سجل النشاط', 'Mailboxes': 'صناديق البريد',
+    'Save mailboxes': 'حفظ صلاحيات البريد', 'Suspend access': 'إيقاف الوصول', 'Reactivate': 'إعادة التفعيل',
+    'No employee accounts yet.': 'لا توجد حسابات موظفين بعد.', 'Employee created.': 'تم إنشاء حساب الموظف.',
+    'Access updated.': 'تم تحديث الصلاحيات.', 'No activity recorded yet.': 'لا يوجد نشاط مسجل بعد.',
+    'Latest order statuses': 'حالة أحدث الطلبات', 'Reference': 'المرجع',
+    'A KINAN mailbox must be connected and assigned to your account.': 'يجب ربط صندوق بريد كنان وتخصيص عنوان لحسابك.',
+    'Access': 'الصلاحيات', 'Limited': 'محدودة', 'Broad access': 'صلاحيات واسعة', 'Order status and assigned business email only': 'حالة الطلبات وبريد العمل المخصص فقط',
+    'Older staff roles keep broad access. Review them below:': 'أدوار الموظفين القديمة ما زالت بصلاحيات واسعة. راجعها أدناه:', 'Order status': 'حالة الطلبات',
+    // ---- KINAN Email (employees use it too) ----
+    'Actions': 'الإجراءات', 'Choose an address to read or send mail.': 'اختر عنواناً لقراءة البريد أو إرساله.', 'Company information and partnerships': 'معلومات الشركة والشراكات', 'Copy address': 'نسخ العنوان', 'Customer support': 'دعم العملاء', 'Email sent.': 'تم إرسال البريد.', 'Forwarding': 'تحويل', 'General enquiries': 'استفسارات عامة', 'Loading inbox…': 'جارٍ تحميل البريد الوارد…', 'Loading message…': 'جارٍ تحميل الرسالة…', 'New email': 'رسالة جديدة', 'Next page': 'الصفحة التالية', 'No matching messages.': 'لا توجد رسائل.', 'Open in Gmail': 'فتح في Gmail', 'Open inbox': 'فتح البريد الوارد', 'Purpose': 'الغرض', 'Select the address in the table to copy it.': 'حدّد العنوان في الجدول لنسخه.', 'Seller enquiries': 'استفسارات البائعين', 'Send email': 'إرسال البريد', 'Sending…': 'جارٍ الإرسال…', 'Setup': 'الإعداد', 'To': 'إلى',
     // ---- admin navigation ----
     'Waiting for KINAN': 'بانتظار كنان', 'Request': 'الطلب', 'Cancellation': 'إلغاء', 'Accept': 'قبول', 'Reject': 'رفض', 'Approve': 'موافقة', 'Mark received': 'تأكيد الاستلام', 'Credit': 'إضافة رصيد',
     'Nothing is waiting.': 'لا شيء بانتظارك.', 'Hand off (test)': 'تسليم للتنفيذ (اختبار)', 'Ship (test)': 'شحن (اختبار)', 'Deliver (test)': 'تسليم للزبون (اختبار)', 'Done (sandbox)': 'تم (تجريبي)', 'Queued again': 'أُعيد إلى قائمة الإرسال',

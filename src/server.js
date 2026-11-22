@@ -326,12 +326,21 @@ r('POST', '/api/auth/login', null, async ({ req, res }) => {
   const { email, password, app } = await readJson(req);
   const which = app || (auth.sellerContext(req) ? 'seller' : undefined);
   let out;
-  try { out = auth.login(email, password, which); } catch (e) { if (e.status === 401) recordFailure(clientIp(req)); throw e; }
+  try { out = auth.login(email, password, which); } catch (e) {
+    if (e.status === 401) recordFailure(clientIp(req));
+    // a failed sign-in to an employee account goes into that employee's activity log (no password is stored)
+    const employee = auth.usersByEmail(email).find((u) => u.role === 'operator');
+    if (employee) req.auditStaffUser = employee;
+    throw e;
+  }
   setSession(res, out.token, which === 'seller' || (!which && out.user.role === 'seller') ? 'seller' : 'buyer');
+  if (out.user.role === 'operator') req.auditStaffUser = out.user;
   return out;
 });
 r('POST', '/api/auth/logout', null, async ({ req, res }) => {
   const t = auth.tokenFromRequest(req);
+  const user = t && auth.authenticate(req);
+  if (user?.role === 'operator') req.auditStaffUser = user;
   if (t) auth.logout(t);
   res.setHeader('Set-Cookie', `${auth.sellerContext(req) ? 'ssid' : 'sid'}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
   return { ok: true };
@@ -723,14 +732,56 @@ r('POST', '/api/admin/orders/:id/nss', PROC, async ({ req, params, user }) => {
 const bgs = require('./services/banggood');
 // Ownership files for other platforms (e.g. Banggood's domain check): stored here, served at https://kinan.shop/<name>
 const adminMail = require('./services/adminMail');
-r('GET', '/api/admin/mailbox/status', ADMIN, async () => ({ configured: adminMail.enabled() }));
-r('GET', '/api/admin/mailbox/inbox', ADMIN, async ({ url }) =>
-  adminMail.inbox(url.searchParams.get('address'), url.searchParams.get('page')));
-r('GET', '/api/admin/mailbox/messages/:id', ADMIN, async ({ url, params }) =>
-  adminMail.read(url.searchParams.get('address'), params.id));
-r('POST', '/api/admin/mailbox/send', ADMIN, async ({ req }) => {
-  throttleLight(req);
-  return adminMail.send(await readJson(req));
+const OPERATOR = ['admin', 'operator'];
+const requireOwner = (user) => {
+  if (!user.owner) throw httpError(403, 'Only the project owner can access this');
+};
+const assignedMailboxes = (user) => {
+  if (user.owner) return adminMail.addresses;
+  if (user.role !== 'operator') throw httpError(403, 'Business email access has not been granted');
+  return db.users.get(user.id)?.mailboxes || [];
+};
+async function checkMailbox({ user, req }, address) {
+  if (!assignedMailboxes(user).includes(address)) throw httpError(403, 'This mailbox is not assigned to your account');
+  if (!user.owner && !await adminMail.staffEnabled()) throw httpError(503, 'Connect the dedicated KINAN business mailbox');
+  req.auditMailbox = address;
+}
+r('GET', '/api/admin/mailbox/status', OPERATOR, async ({ user }) => {
+  const addresses = assignedMailboxes(user);
+  return { addresses, configured: user.owner ? adminMail.enabled() : addresses.length > 0 && await adminMail.staffEnabled() };
+});
+r('GET', '/api/admin/mailbox/inbox', OPERATOR, async (ctx) => {
+  const address = ctx.url.searchParams.get('address');
+  await checkMailbox(ctx, address);
+  return adminMail.inbox(address, ctx.url.searchParams.get('page'));
+});
+r('GET', '/api/admin/mailbox/messages/:id', OPERATOR, async (ctx) => {
+  const address = ctx.url.searchParams.get('address');
+  await checkMailbox(ctx, address);
+  return adminMail.read(address, ctx.params.id);
+});
+// A send carries client_send_id (one per message written in Admin): a retry or a double click with the same id returns
+// the first result instead of sending the email twice. Kept 24 hours.
+const mailSendsInFlight = new Map();
+r('POST', '/api/admin/mailbox/send', OPERATOR, async (ctx) => {
+  throttleLight(ctx.req);
+  const body = await readJson(ctx.req);
+  await checkMailbox(ctx, body?.from);
+  const sendId = String(body?.client_send_id || '');
+  if (sendId && !/^[A-Za-z0-9_-]{8,80}$/.test(sendId)) throw httpError(400, 'Invalid send id');
+  const keyHash = sendId ? require('crypto').createHash('sha256').update(`${ctx.user.id}|${sendId}`).digest('hex') : null;
+  const earlier = () => keyHash && db.tokens.find((t) => t.kind === 'mail-send' && t.token_hash === keyHash && t.expires_at > Date.now());
+  if (keyHash && mailSendsInFlight.has(keyHash)) await mailSendsInFlight.get(keyHash).catch(() => null);
+  const done = earlier();
+  if (done) { ctx.req.auditMailId = done.message_id; return { id: done.message_id, thread_id: done.thread_id, duplicate: true }; }
+  const run = adminMail.send(body);
+  if (keyHash) mailSendsInFlight.set(keyHash, run);
+  try {
+    const sent = await run;
+    ctx.req.auditMailId = sent.id;
+    if (keyHash) db.tokens.insert({ kind: 'mail-send', token_hash: keyHash, user_id: ctx.user.id, message_id: sent.id, thread_id: sent.thread_id || null, expires_at: Date.now() + 86400e3 });
+    return sent;
+  } finally { if (keyHash) mailSendsInFlight.delete(keyHash); }
 });
 
 r('GET', '/api/admin/verify-files', ADMIN, async () => ({ files: Object.keys(db.settings.get('verify_files')?.files || {}) }));
@@ -977,8 +1028,72 @@ r('POST', '/api/admin/partners/orders/:id/settle', ADMIN, async ({ req, user, pa
 r('POST', '/api/admin/partners/sandbox/simulate', ADMIN, async ({ req }) => { const b = await readJson(req); return b.reset ? require('./partner/catalog').resetSandbox() : require('./partner/catalog').simulate(b.product, b); });
 r('GET', '/api/admin/exceptions', STAFF, async ({ url, user }) => require('./services/exceptions').list({ area: url.searchParams.get('area') || '', provider: url.searchParams.get('provider') || '', result: url.searchParams.get('result') || '', mine: url.searchParams.get('mine') || '' }, user));
 r('POST', '/api/admin/exceptions/assign', STAFF, async ({ req, user }) => { const b = await readJson(req); return require('./services/exceptions').assign(b.key, { assignee_id: b.assignee_id, note: b.note }, user); });
-r('GET', '/api/admin/audit', ADMIN, async ({ url }) => require('./audit').list({ limit: url.searchParams.get('limit'), actor: url.searchParams.get('actor') || '', path: url.searchParams.get('path') || '' }));
-r('POST', '/api/admin/staff', ADMIN, async ({ req }) => auth.createStaff(await readJson(req)));
+r('GET', '/api/admin/audit', ADMIN, async ({ user, url }) => {
+  requireOwner(user);
+  return require('./audit').list({ limit: url.searchParams.get('limit'), actor: url.searchParams.get('actor') || '', path: url.searchParams.get('path') || '' });
+});
+function teamMailboxes(mailboxes = []) {
+  if (!Array.isArray(mailboxes) || !mailboxes.every((address) => adminMail.addresses.includes(address))) {
+    throw httpError(400, 'Choose KINAN business addresses');
+  }
+  return [...new Set(mailboxes)];
+}
+r('POST', '/api/admin/staff', ADMIN, async ({ user, req }) => {
+  requireOwner(user);
+  const body = await readJson(req);
+  const mailboxes = teamMailboxes(body?.mailboxes);
+  if (body?.role === 'operator' && (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 100 || auth.ownerEmail(body.email))) {
+    throw httpError(400, 'Enter an employee name and a separate login email');
+  }
+  return auth.createStaff({ ...body, mailboxes });
+});
+
+const teamPresence = new Map();
+const onlineFor = 90_000;
+r('POST', '/api/admin/team/presence', [...STAFF, 'operator'], async ({ user }) => {
+  if (!user.owner) teamPresence.set(user.id, Date.now());
+  return { ok: true };
+});
+r('GET', '/api/admin/team', ADMIN, async ({ user }) => {
+  requireOwner(user);
+  const now = Date.now();
+  return db.users.all((record) => STAFF.concat('operator').includes(record.role) && !auth.isOwner(record)).map((record) => {
+    const lastSeen = teamPresence.get(record.id);
+    return {
+      ...auth.publicUser(record), mailboxes: record.mailboxes || [],
+      online: record.status === 'active' && lastSeen != null && now - lastSeen <= onlineFor,
+      last_seen: lastSeen ?? null
+    };
+  });
+});
+function requireOperator(id) {
+  const record = db.users.get(id);
+  if (!record || record.role !== 'operator' || auth.isOwner(record)) throw httpError(404, 'Employee not found');
+  return record;
+}
+r('PATCH', '/api/admin/team/:id', ADMIN, async ({ user, params, req }) => {
+  requireOwner(user);
+  const record = requireOperator(params.id);
+  const body = await readJson(req);
+  if (!['active', 'suspended'].includes(body.status)) throw httpError(400, 'Choose a valid employee status');
+  const mailboxes = teamMailboxes(body.mailboxes ?? record.mailboxes);
+  const updated = db.users.update(record.id, { status: body.status, mailboxes });
+  if (body.status === 'suspended') {
+    for (const session of db.sessions.all((item) => item.user_id === record.id)) db.sessions.remove(session.id);
+    teamPresence.delete(record.id);
+  }
+  return auth.publicUser(updated);
+});
+r('GET', '/api/admin/team/:id/activity', ADMIN, async ({ user, params }) => {
+  requireOwner(user);
+  const record = db.users.get(params.id);
+  if (!record || !STAFF.concat('operator').includes(record.role) || auth.isOwner(record)) throw httpError(404, 'Employee not found');
+  return require('./audit').list({ actor: params.id, limit: 100 });
+});
+r('GET', '/api/admin/team-orders', OPERATOR, async () =>
+  db.orders.all().sort((a, b) => b.created_at - a.created_at).slice(0, 100)
+    .map(({ id, status, created_at }) => ({ id, status, created_at })));
+
 // products by platform (AliExpress, CJ, Taobao, Banggood, Kinan catalogue, sellers' own, any new source)
 r('GET', '/api/admin/platforms', ADMIN, async () => require('./services/platforms').summary());
 r('GET', '/api/admin/platforms/:id', ADMIN, async ({ params, url }) => require('./services/platforms').products(params.id, { status: url.searchParams.get('status') || '', q: url.searchParams.get('q') || '', page: url.searchParams.get('page') || 1 }));
@@ -1085,7 +1200,9 @@ const server = http.createServer(async (req, res) => {
         let user = null; try { user = auth.authenticate(req); } catch { user = null; }
         const o = db.orders.get(inv[1]);
         if (!user) { res.writeHead(302, { Location: `/#/orders/${inv[1]}` }); return res.end(); }
-        if (!o || !(o.buyer_id === user.id || (auth.STAFF_ROLES || {})[user.role] || user.role === 'admin') || o.status === 'pending_payment') return send(res, 404, 'Invoice not found');
+        // Operators (restricted employees) see only an order's reference, status and date — never its invoice
+        const staffInvoice = user.role !== 'operator' && ((auth.STAFF_ROLES || {})[user.role] || user.role === 'admin');
+        if (!o || !(o.buyer_id === user.id || staffInvoice) || o.status === 'pending_payment') return send(res, 404, 'Invoice not found');
         if (inv[2]) { const f = ops.invoicePdf(o); res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${f.name}"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); return res.end(f.body); }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" });
         return res.end(ops.invoiceHtml(o));
@@ -1258,6 +1375,7 @@ const server = http.createServer(async (req, res) => {
         auditCtx.user = ctx.user || user;
       }
       const out = await rt.handler(ctx);
+      if (req.auditStaffUser) auditCtx = { user: req.auditStaffUser, params: {} };
       if (auditCtx) { try { require('./audit').record({ req, path: p, user: auditCtx.user, status: res.statusCode >= 300 && res.writableEnded ? res.statusCode : 200, params: auditCtx.params }); } catch (e) { console.error('[audit]', e.message); } }
       if (res.writableEnded) return; // handler wrote its own response (e.g. a CSV download)
       return send(res, req.method === 'POST' && /register|checkout|products$|manual$|products\/aliexpress$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
@@ -1265,6 +1383,7 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     const status = e.status || (e.name === 'TaobaoApiError' ? 502 : 500);
+    if (!auditCtx && req.auditStaffUser) auditCtx = { user: req.auditStaffUser, params: {} };
     if (auditCtx) { try { require('./audit').record({ req, path: p, user: auditCtx.user, status, params: auditCtx.params, error: e.message }); } catch { /* never block the answer */ } }
     const errorId = status >= 500 ? require('crypto').randomBytes(4).toString('hex') : undefined;
     if (status >= 500) { console.error('[error]', errorId, req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message} (${errorId})`); }
