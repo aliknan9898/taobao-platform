@@ -92,6 +92,8 @@ Register a URL scheme in the app (e.g. `myseller://`) and pass it as `return_to`
 | POST | `/api/push/devices` | signed in | `{token: "ExponentPushToken[…]", platform: ios\|android, app_version?}` |
 | DELETE | `/api/push/devices` | signed in | `{token}` — call before signing out |
 
+- `POST /api/shipping/quote` `{country_code, items[]}` → `{fee, days, zone, …}` in the base `currency` of `/api/config/public`. When an item cannot be delivered to that country the answer also has `undeliverable: [listing_id…]` (absent otherwise).
+- `POST /api/buyer/checkout` refuses (409) an item that cannot be delivered to the address country — the same rule that hides it from `GET /api/catalog?country=`. Products list such countries in `no_delivery`.
 - Variant ids in buyer views are public ids (`v_…`); every buyer route accepts them and the old ids.
 - `direct[].state` in orders: `ordering | preparing | shipped | delivered | review` (use it instead of `status`).
 - `GET /api/catalog/:id/delivery` gives `known: true` with `basis: GB|EU` when delivery to that market was measured.

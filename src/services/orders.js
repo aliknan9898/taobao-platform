@@ -97,6 +97,9 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     if (!l || !(l.status === 'active' || (l.status === 'private' && l.private_for === buyer.id))) throw httpError(409, 'An item in the cart is no longer available');
     const seller = db.sellers.get(l.seller_id);
     if (!seller || seller.status !== 'active') throw httpError(409, 'The shop of one of the items is unavailable');
+    // Same rule as the catalog for this country: a product the supplier cannot deliver there is not sold there,
+    // even when a client posts it directly (the catalog already hides it for that country).
+    if (address.country_code && cj.noDelivery(l, address.country_code)) throw httpError(409, `“${String(l.title).slice(0, 60)}” cannot be delivered to ${address.country}`);
     // Fresh stock/cost before taking money
     if (now() - (l.last_synced_at || 0) > 10 * 60e3) {
       let why = '';
