@@ -644,7 +644,7 @@ async function importBestSellers(opts = {}, by = 'auto') {
         have.add(pid);
         try {
           const l = await publish(kinan, { ref: { pid }, category: guessCategory(`${x.threeCategoryName || x.categoryName || ''} ${title}`) });
-          if (!l.skus.some((k) => k.stock >= Math.min(p.min_stock, 1)) || BLOCK.test(`${l.title} ${l.description}`)) { db.listings.update(l.id, { status: 'paused', sync_error: 'Added automatically but out of stock or not suitable' }); reject(pid, l.title, 'out of stock or not suitable'); continue; }
+          if (!l.skus.some((k) => k.stock >= Math.max(1, p.min_stock)) || BLOCK.test(`${l.title} ${l.description}`)) { db.listings.update(l.id, { status: 'paused', sync_error: 'Added automatically but out of stock or not suitable' }); reject(pid, l.title, 'out of stock or not suitable'); continue; }
           db.listings.update(l.id, { cj_auto: true, cj_listed: Number(x.listedNum) || null, auto_added_at: now() });
           added.push({ id: l.id, pid, title: l.title, status: l.status, from: l.cj_from, cost, price: Math.min(...l.skus.map((sku) => Number(sku.price) || Infinity)) });
           st.added++; st.added_titles = [...st.added_titles, l.title].slice(-50);
