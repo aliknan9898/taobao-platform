@@ -156,6 +156,33 @@ Batch 1 was built on the development branch `fix/chatgpt-security-db-ci-20261118
   - The test client (`test/support/minipg.js`) now serialises arrays the way `pg` does, so this class of bug fails the tests.
   - Production was not affected: ordering has never been switched on.
 
+## Batch 4 — delivered (sandbox, behind `PARTNER_SHOPIFY_ENABLED=1`)
+
+**KINAN for Shopify**, run by KINAN (`src/partner/connectors/`). Setup, dev-store round trip and support are in `SHOPIFY_RUNBOOK.md`.
+
+- **Admin GraphQL `2026-10`** (pinned, `SHOPIFY_API_VERSION`).
+- **Install:**
+  - Authorization code grant with expiring offline tokens; refresh tokens rotate.
+  - Client credentials grant for KINAN's own development stores.
+- **Migration** `003_partner_connectors.sql` (additive): connections, OAuth state, product, variant, order and fulfilment mappings, webhook de-duplication and privacy requests.
+- **What it does:**
+  - Catalogue → draft products (`productSet` keyed by handle) with stock (`inventorySetQuantities` + `@idempotent`). Merchant price and content are kept.
+  - Paid orders → Partner API orders exactly once (webhook + polling share one claim row).
+  - Shopify cancellations → KINAN cancellations.
+  - KINAN shipments → Shopify fulfilments with tracking (never twice).
+  - Uninstall, revoked access and privacy webhooks are handled.
+- **Admin → Partner API → Shopify stores** (EN/AR): install link, dev-store connect, sync now, pause/resume, disconnect, settings, orders that need attention, privacy requests.
+- **Tests:** `test/partner-shopify.test.js` (real PostgreSQL + a fake Shopify that enforces tokens, idempotency keys and remaining quantities). It covers:
+  - install checks, sealed tokens, webhook registration
+  - drafts with stock and metafields
+  - the merchant publishes and reprices; stock still syncs and price and status are kept
+  - withdraw/restore, and a crash during creation
+  - a repeated webhook, parallel imports and polling all give one order; unsigned webhooks are refused
+  - a lost webhook is picked up by polling
+  - split tracking write-back, and a crash after fulfilment
+  - cancellation, an order KINAN cannot accept, token refresh, revoked access and reinstall
+  - settings, privacy and uninstall webhooks, the dev store and the off switch
+
 ## Known limits (honest list)
 
 - **Batches 2–3:**
@@ -181,7 +208,7 @@ Batch 1 was built on the development branch `fix/chatgpt-security-db-ci-20261118
 - **Lookups:** `db.get` is a linear scan. Fine for the sandbox (12 products) and a pilot assortment. It needs an index or SQL before thousands of live products.
 - **Not built yet:**
   - Partner portal (self-service keys, endpoints and logs)
-  - Shopify and WooCommerce adapters (Batch 4)
+  - WooCommerce adapter (Shopify delivered in Batch 4, tested against a fake Shopify only; see `SHOPIFY_RUNBOOK.md` §5)
   - Live fulfilment handoff
   - Partner ledger and settlement
 - **No production effect:** there are no live keys and no live catalogue, and nothing is merged to `main` without owner approval.

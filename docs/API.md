@@ -107,4 +107,6 @@ and orders; Batch 3 shipments, cancellations, returns, documents, signed webhook
 the catalogue is sandbox only and needs `PARTNER_ORDERS_ENABLED=1` plus PostgreSQL.
 Admin management lives under `/api/admin/partners…` (admin role only, audited), including
 `POST /api/admin/partners/orders/:id/simulate`, `…/cancellations/:id/decide`, `…/returns/:id/decide` and
-`…/webhooks/deliveries/:id/replay`.
+`…/webhooks/deliveries/:id/replay`. Batch 4 adds the KINAN-run Shopify connector (`docs/partner-api/SHOPIFY_RUNBOOK.md`):
+Shopify calls `GET /api/partner/connect/shopify/callback` and `POST /api/partner/connect/shopify/webhooks`; admin routes
+are under `/api/admin/partners/connections…` and `/api/admin/partners/stores/:id/shopify/…`.

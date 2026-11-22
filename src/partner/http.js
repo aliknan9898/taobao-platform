@@ -83,6 +83,10 @@ function startWorkers() {
           await o.fulfilmentWorker(env).catch(log('worker')); await F().handoffWorker(env).catch(log('handoff')); await o.sweepExpired(env).catch(log('sweep'));
         }
       }
+      if (n % 4 === 0) {
+        const S = require('./connectors/shopify');
+        if (S.enabled()) await S.syncAll().catch(log('shopify'));
+      }
       if (++n % 5760 === 0) await o.purgeIdempotency().catch(() => {});
     } finally { busy = false; }
   }, 15e3);
@@ -174,4 +178,4 @@ async function handle(req, res, p, url) {
   return true;
 }
 
-module.exports = { handle, BASE, _buckets: buckets };
+module.exports = { handle, BASE, startWorkers, _buckets: buckets };

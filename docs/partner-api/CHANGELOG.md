@@ -2,6 +2,10 @@
 
 Within v1 changes are additive only. Handle unknown fields, enum values and event types.
 
+## Batch 4 — KINAN for Shopify (sandbox)
+- No change to the Partner API contract.
+- New KINAN-run Shopify connector. Shopify calls KINAN on `/api/partner/connect/shopify/callback` and `/webhooks`. See `SHOPIFY_RUNBOOK.md`.
+
 ## 1.2.0 — Batch 3 (sandbox)
 - New endpoints:
   - `GET /orders/{order_id}/shipments`

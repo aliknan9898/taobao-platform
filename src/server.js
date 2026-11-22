@@ -957,6 +957,16 @@ r('POST', '/api/admin/partners/orders/:id/simulate', ADMIN, async ({ req, user, 
 });
 r('POST', '/api/admin/partners/cancellations/:id/decide', ADMIN, async ({ req, user, params }) => { const b = await readJson(req); return require('./partner/fulfilment').decideCancellation(params.id, { accept: b.accept === true, reason: b.reason, actor: user.email || user.id }); });
 r('POST', '/api/admin/partners/returns/:id/decide', ADMIN, async ({ req, user, params }) => { const b = await readJson(req); return require('./partner/fulfilment').decideReturn(params.id, { action: b.action, reason: b.reason, actor: user.email || user.id }); });
+// Shopify connector (Batch 4)
+const shopifyOn = () => { const pgm = require('./partner/pg'); if (!pgm.enabled() || !pgm.pool()) throw httpError(503, 'Partner ordering is switched off (PARTNER_ORDERS_ENABLED)'); if (!require('./partner/connectors/shopify').enabled()) throw httpError(503, 'The Shopify connector is switched off (PARTNER_SHOPIFY_ENABLED)'); return require('./partner/connectors/shopify'); };
+r('GET', '/api/admin/partners/connections', ADMIN, async () => { const pgm = require('./partner/pg'); const S = require('./partner/connectors/shopify'); if (!pgm.enabled() || !pgm.pool()) return { enabled: false, ordering: false, connections: [] }; const out = await S.adminList(); return { ...out, ordering: true }; });
+r('POST', '/api/admin/partners/stores/:id/shopify/install', ADMIN, async ({ req, params }) => shopifyOn().installUrl(params.id, (await readJson(req)).shop));
+r('POST', '/api/admin/partners/stores/:id/shopify/dev-store', ADMIN, async ({ req, params }) => shopifyOn().connectDevStore(params.id, (await readJson(req)).shop));
+r('POST', '/api/admin/partners/connections/:id', ADMIN, async ({ req, params }) => shopifyOn().adminUpdate(params.id, await readJson(req)));
+r('POST', '/api/admin/partners/connections/:id/sync', ADMIN, async ({ params }) => shopifyOn().syncOnce(params.id));
+r('POST', '/api/admin/partners/connections/:id/orders/:oid/retry', ADMIN, async ({ params }) => shopifyOn().adminRetryOrder(params.id, params.oid));
+r('POST', '/api/admin/partners/connections/:id/disconnect', ADMIN, async ({ params }) => shopifyOn().adminDisconnect(params.id));
+r('POST', '/api/admin/partners/privacy/:id/done', ADMIN, async ({ params }) => shopifyOn().adminPrivacyDone(params.id));
 r('POST', '/api/admin/partners/webhooks/deliveries/:id/replay', ADMIN, async ({ params }) => require('./partner/webhooks').adminReplay(params.id));
 r('POST', '/api/admin/partners/orders/:id/settle', ADMIN, async ({ req, user, params }) => { const b = await readJson(req); const o = await require('./partner/orders').settle(params.id, { mode: b.mode || 'settled', actor: user.email || user.id }); return { id: o.id, payment_state: o.payment_state }; });
 r('POST', '/api/admin/partners/sandbox/simulate', ADMIN, async ({ req }) => { const b = await readJson(req); return b.reset ? require('./partner/catalog').resetSandbox() : require('./partner/catalog').simulate(b.product, b); });
@@ -1225,6 +1235,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Partner API v1 (B2B, server-to-server keys): handled separately with problem+json errors
+    if (p.startsWith('/api/partner/connect/') && await require('./partner/connectors/http').handle(req, res, p, url)) return;
     if (p.startsWith('/api/partner/') && await require('./partner/http').handle(req, res, p, url)) return;
 
     for (const rt of routes) {
@@ -1273,6 +1284,8 @@ function cleanup(now = Date.now()) {
 }
 
 function startJobs() {
+  // Partner API upkeep (fulfilment, webhooks, Shopify connector) when the owner has switched ordering on
+  if (require('./partner/pg').enabled()) { try { require('./partner/pg').pool() && require('./partner/http').startWorkers(); } catch (e) { console.warn('[partner] workers not started:', e.message); } }
   // Scheduled jobs are background work: their CJ calls wait behind anything a person is doing
   const every = (ms, fn) => setInterval(() => Promise.resolve(require('./cj/client').background(fn)).catch(() => {}), ms).unref();
   every(30e3, webhooks.processInbox);
