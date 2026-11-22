@@ -102,5 +102,9 @@ Register a URL scheme in the app (e.g. `myseller://`) and pass it as `return_to`
 
 Approved partner stores use `/api/partner/v1` with their own store keys (`Authorization: Bearer knp_test_…`), not Buyer
 or Seller sessions. Contract: `docs/partner-api/openapi.json` (also `GET /api/partner/v1/openapi.json`); quickstart:
-`docs/partner-api/README.md`; status and limits: `docs/partner-api/STATUS.md`. Batch 1 is the catalogue (sandbox only).
-Admin management lives under `/api/admin/partners…` (admin role only, audited).
+`docs/partner-api/README.md`; status and limits: `docs/partner-api/STATUS.md`. Batch 1 is the catalogue; Batch 2 quotes
+and orders; Batch 3 shipments, cancellations, returns, documents, signed webhooks and a sandbox simulator. Everything after
+the catalogue is sandbox only and needs `PARTNER_ORDERS_ENABLED=1` plus PostgreSQL.
+Admin management lives under `/api/admin/partners…` (admin role only, audited), including
+`POST /api/admin/partners/orders/:id/simulate`, `…/cancellations/:id/decide`, `…/returns/:id/decide` and
+`…/webhooks/deliveries/:id/replay`.

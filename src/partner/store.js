@@ -11,7 +11,8 @@ const db = require('../db');
 const { httpError } = require('../auth');
 
 const SCOPES = ['catalog:read', 'quotes:write', 'orders:write', 'orders:read', 'returns:write', 'returns:read', 'documents:read', 'webhooks:manage'];
-const BATCH1_SCOPES = ['catalog:read', 'quotes:write', 'orders:write', 'orders:read']; // scopes with endpoints today (Batches 1–2)
+const BATCH1_SCOPES = ['catalog:read', 'quotes:write', 'orders:write', 'orders:read']; // Batches 1–2 (kept for keys issued before Batch 3)
+const AVAILABLE_SCOPES = SCOPES; // every scope has endpoints since Batch 3
 const MARKETS = ['DE', 'GB', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'MT', 'PL', 'SE'];
 const B62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
@@ -55,7 +56,7 @@ function updateStore(storeId, patch = {}, by) {
   return out;
 }
 
-function issueKey(storeId, { env = 'sandbox', scopes = BATCH1_SCOPES, label = '' } = {}, by) {
+function issueKey(storeId, { env = 'sandbox', scopes = AVAILABLE_SCOPES, label = '' } = {}, by) {
   const st = db.partner_stores.get(String(storeId)); if (!st) throw httpError(404, 'Store not found');
   if (!['sandbox', 'live'].includes(env)) throw httpError(400, 'Environment must be sandbox or live');
   if (env === 'live' && !liveEnabled()) throw httpError(403, 'Live partner keys are switched off until the owner approves production (PARTNER_LIVE_ENABLED)');
@@ -91,9 +92,9 @@ function resolve(secret) {
 function overview() {
   const keys = db.partner_keys.all();
   return {
-    live_enabled: liveEnabled(), markets: MARKETS, scopes: SCOPES, available_scopes: BATCH1_SCOPES,
+    live_enabled: liveEnabled(), markets: MARKETS, scopes: SCOPES, available_scopes: AVAILABLE_SCOPES,
     orgs: db.partner_orgs.all().map((o) => ({ ...o, stores: db.partner_stores.all((s) => s.org_id === o.id).map((s) => ({ ...s, keys: keys.filter((k) => k.store_id === s.id).map(({ hash, ...k }) => k) })) }))
   };
 }
 
-module.exports = { SCOPES, BATCH1_SCOPES, MARKETS, createOrg, createStore, updateStore, issueKey, revokeKey, resolve, overview, liveEnabled, _sha: sha };
+module.exports = { SCOPES, BATCH1_SCOPES, AVAILABLE_SCOPES, MARKETS, createOrg, createStore, updateStore, issueKey, revokeKey, resolve, overview, liveEnabled, _sha: sha };

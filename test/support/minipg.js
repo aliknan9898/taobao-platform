@@ -2,7 +2,7 @@
 /* Test-only PostgreSQL client (wire protocol v3, extended query, trust auth) with the small part of the `pg` API the
    partner order code uses: pool.connect() → client.query(text, params) → { rows, rowCount }, client.release(), pool.query().
    Production uses the real `pg` package; this exists because test machines may not have node_modules.
-   Types are parsed like `pg`: int2/int4 → number, int8/numeric → string, bool, json/jsonb → object, timestamp → Date. */
+   Parameters are serialised like `pg` (arrays → PostgreSQL arrays, objects → JSON). Types are parsed like `pg`: int2/int4 → number, int8/numeric → string, bool, json/jsonb → object, timestamp → Date. */
 const net = require('net');
 
 function connectRaw({ host = '127.0.0.1', port = 5432, user, database }) {
@@ -36,7 +36,12 @@ const cstr = (s) => Buffer.from(`${s}\0`);
 function msg(type, ...parts) { const body = Buffer.concat(parts); const h = Buffer.alloc(5); h.write(type, 0); h.writeInt32BE(body.length + 4, 1); return Buffer.concat([h, body]); }
 const i16 = (n) => { const b = Buffer.alloc(2); b.writeInt16BE(n); return b; };
 const i32 = (n) => { const b = Buffer.alloc(4); b.writeInt32BE(n); return b; };
-function toText(v) { if (v === null || v === undefined) return null; if (v instanceof Date) return v.toISOString(); if (typeof v === 'object') return JSON.stringify(v); if (typeof v === 'boolean') return v ? 'true' : 'false'; return String(v); }
+// Like `pg`: arrays become PostgreSQL array literals (so a JS array sent to a jsonb column fails, as in production),
+// other objects become JSON.
+function arrayLiteral(a) {
+  return `{${a.map((x) => { if (x === null || x === undefined) return 'NULL'; if (Array.isArray(x)) return arrayLiteral(x); const t = x instanceof Date ? x.toISOString() : typeof x === 'object' ? JSON.stringify(x) : String(x); return `"${t.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`; }).join(',')}}`;
+}
+function toText(v) { if (v === null || v === undefined) return null; if (v instanceof Date) return v.toISOString(); if (Array.isArray(v)) return arrayLiteral(v); if (typeof v === 'object') return JSON.stringify(v); if (typeof v === 'boolean') return v ? 'true' : 'false'; return String(v); }
 function parse(oid, s) {
   if (s === null) return null;
   switch (oid) { case 16: return s === 't'; case 21: case 23: case 26: return Number(s); case 114: case 3802: return JSON.parse(s); case 1114: case 1184: return new Date(s.replace(' ', 'T').replace(/\+(\d\d)$/, '+$1:00')); default: return s; }

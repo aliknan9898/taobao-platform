@@ -2,9 +2,9 @@
  "openapi": "3.1.1",
  "info": {
   "title": "KINAN Partner API",
-  "version": "1.1.0-batch2",
+  "version": "1.2.0-batch3",
   "summary": "Server-to-server API for approved partner stores.",
-  "description": "Batch 1: identity and the catalogue (snapshot + change feed). Batch 2: quotes and orders (sandbox; switched on by KINAN). Shipments, shipments, cancellations, returns, documents and webhooks follow in later batches under the same /api/partner/v1 base path; additive changes only within v1.\n\nConventions: JSON over HTTPS, ISO 8601 UTC times, ISO 4217 currencies, ISO 3166-1 alpha-2 countries, money as integer minor units with an explicit currency. Every response has an X-Request-Id header. Errors use RFC 9457 application/problem+json. The sandbox (knp_test_ keys) serves a synthetic catalogue only.",
+  "description": "Batch 1: identity and the catalogue (snapshot + change feed). Batch 2: quotes and orders. Batch 3: fulfilment progress, shipments, cancellations, returns (RMA), documents and signed webhooks, plus a sandbox simulator. Quotes, orders and everything after them are switched on by KINAN and are sandbox only for now. Additive changes only within v1.\n\nWebhooks: every POST carries KINAN-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of \"<t>.<raw body>\" with your endpoint secret>. Reject requests older than 5 minutes and compare in constant time. Answer 2xx within 10 seconds; anything else is retried with backoff for 24 hours, then the delivery is dead and can be replayed. Delivery order is not guaranteed: apply data only if data.version is newer than yours, and treat GET /orders/{order_id} as the truth.\n\nConventions: JSON over HTTPS, ISO 8601 UTC times, ISO 4217 currencies, ISO 3166-1 alpha-2 countries, money as integer minor units with an explicit currency. Every response has an X-Request-Id header. Errors use RFC 9457 application/problem+json. The sandbox (knp_test_ keys) serves a synthetic catalogue only.",
   "contact": {
    "name": "KINAN partner support",
    "url": "https://kinan.shop/legal"
@@ -30,6 +30,21 @@
   },
   {
    "name": "Orders"
+  },
+  {
+   "name": "Fulfilment"
+  },
+  {
+   "name": "Returns"
+  },
+  {
+   "name": "Documents"
+  },
+  {
+   "name": "Webhooks"
+  },
+  {
+   "name": "Sandbox"
   }
  ],
  "paths": {
@@ -540,6 +555,936 @@
      },
      "404": {
       "$ref": "#/components/responses/NotFound"
+     }
+    }
+   }
+  },
+  "/orders/{order_id}/shipments": {
+   "get": {
+    "tags": [
+     "Fulfilment"
+    ],
+    "operationId": "listShipments",
+    "summary": "Shipments of an order",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ShipmentList"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    },
+    "description": "One shipment per ship-from origin, with carrier, tracking number and events. Scope: orders:read."
+   }
+  },
+  "/orders/{order_id}/cancellations": {
+   "post": {
+    "tags": [
+     "Fulfilment"
+    ],
+    "operationId": "requestCancellation",
+    "summary": "Cancel an order",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/idem"
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Cancellation recorded (or replayed)",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       },
+       "Location": {
+        "schema": {
+         "type": "string"
+        }
+       },
+       "Idempotent-Replayed": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Cancellation"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "413": {
+      "$ref": "#/components/responses/TooLarge"
+     },
+     "415": {
+      "$ref": "#/components/responses/UnsupportedMedia"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     }
+    },
+    "description": "Needs an Idempotency-Key. Before handoff the cancellation is accepted at once: reservations are released and a settled payment is credited. After handoff it is requested and KINAN decides. Shipped orders answer 409 ORDER_NOT_CANCELLABLE: request a return after delivery. A second cancellation while one is open is 409 CANCELLATION_PENDING. Scope: orders:write.",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CancellationRequest"
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "Fulfilment"
+    ],
+    "operationId": "listCancellations",
+    "summary": "Cancellations of an order",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CancellationList"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    },
+    "description": "Scope: orders:read."
+   }
+  },
+  "/orders/{order_id}/returns": {
+   "post": {
+    "tags": [
+     "Returns"
+    ],
+    "operationId": "requestReturn",
+    "summary": "Request a return (RMA)",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "$ref": "#/components/parameters/idem"
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Return requested (or replayed)",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       },
+       "Location": {
+        "schema": {
+         "type": "string"
+        }
+       },
+       "Idempotent-Replayed": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Return"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "413": {
+      "$ref": "#/components/responses/TooLarge"
+     },
+     "415": {
+      "$ref": "#/components/responses/UnsupportedMedia"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     }
+    },
+    "description": "Needs an Idempotency-Key. Only delivered items, within 30 days of delivery, up to the quantity not already returned; otherwise 409 RETURN_NOT_ALLOWED with per-line errors. KINAN approves (with return instructions and the RMA number) or rejects, then marks it received and credits the goods value. Scope: returns:write.",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReturnRequest"
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "Returns"
+    ],
+    "operationId": "listReturns",
+    "summary": "Returns of an order",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReturnList"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    },
+    "description": "Scope: returns:read."
+   }
+  },
+  "/orders/{order_id}/documents": {
+   "get": {
+    "tags": [
+     "Documents"
+    ],
+    "operationId": "listDocuments",
+    "summary": "Documents for an order",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentList"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    },
+    "description": "Pro-forma invoice always; packing slip once handed off; a credit note per credited return or credited cancellation. Sandbox documents are test data, not tax documents. Live answers 503 until KINAN’s invoicing entity is set up. Scope: documents:read."
+   }
+  },
+  "/orders/{order_id}/documents/{document_id}": {
+   "get": {
+    "tags": [
+     "Documents"
+    ],
+    "operationId": "getDocument",
+    "summary": "Download a document (PDF)",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "document_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "PDF",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/pdf": {
+        "schema": {
+         "type": "string",
+         "format": "binary"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    },
+    "description": "Scope: documents:read."
+   }
+  },
+  "/sandbox/orders/{order_id}/simulate": {
+   "post": {
+    "tags": [
+     "Sandbox"
+    ],
+    "operationId": "simulate",
+    "summary": "Move a sandbox order forward",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Order"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "413": {
+      "$ref": "#/components/responses/TooLarge"
+     },
+     "415": {
+      "$ref": "#/components/responses/UnsupportedMedia"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     }
+    },
+    "description": "Sandbox keys only (403 otherwise). Lets you test every state and webhook without waiting for KINAN: handoff, ship (one origin or all), deliver, exception, and KINAN’s decisions on cancellations and returns. Payment is still marked by KINAN in the sandbox. Scope: orders:write.",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SimulateRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/webhook-endpoints": {
+   "post": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "createEndpoint",
+    "summary": "Register a webhook endpoint",
+    "parameters": [],
+    "responses": {
+     "201": {
+      "description": "Created; copy the secret now",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       },
+       "Location": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WebhookEndpointCreated"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "413": {
+      "$ref": "#/components/responses/TooLarge"
+     },
+     "415": {
+      "$ref": "#/components/responses/UnsupportedMedia"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     }
+    },
+    "description": "HTTPS on a public address only (private, loopback and link-local addresses are refused, also after DNS). At most 5 per store. The endpoint receives nothing until it passes verification. Scope: webhooks:manage.",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WebhookEndpointRequest"
+       }
+      }
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "listEndpoints",
+    "summary": "Webhook endpoints",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WebhookEndpointList"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    },
+    "description": "Scope: webhooks:manage."
+   }
+  },
+  "/webhook-endpoints/{endpoint_id}": {
+   "delete": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "deleteEndpoint",
+    "summary": "Delete (disable) an endpoint",
+    "parameters": [
+     {
+      "name": "endpoint_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WebhookEndpoint"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    },
+    "description": "Queued deliveries to it are dropped. To rotate a secret, create a new endpoint, verify it, then delete the old one. Scope: webhooks:manage."
+   }
+  },
+  "/webhook-endpoints/{endpoint_id}/verify": {
+   "post": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "verifyEndpoint",
+    "summary": "Verify an endpoint",
+    "parameters": [
+     {
+      "name": "endpoint_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WebhookEndpoint"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "413": {
+      "$ref": "#/components/responses/TooLarge"
+     },
+     "415": {
+      "$ref": "#/components/responses/UnsupportedMedia"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     }
+    },
+    "description": "KINAN POSTs a signed endpoint.verification event; answer 2xx with {\"challenge\": data.challenge}. Otherwise 422 ENDPOINT_VERIFICATION_FAILED. Scope: webhooks:manage."
+   }
+  },
+  "/webhook-endpoints/{endpoint_id}/deliveries": {
+   "get": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "listDeliveries",
+    "summary": "Recent deliveries to an endpoint",
+    "parameters": [
+     {
+      "name": "endpoint_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "state",
+      "in": "query",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "pending",
+        "delivered",
+        "dead"
+       ]
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 100,
+       "default": 50
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WebhookDeliveryList"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    },
+    "description": "Scope: webhooks:manage."
+   }
+  },
+  "/webhook-endpoints/{endpoint_id}/replay": {
+   "post": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "replay",
+    "summary": "Send an event again",
+    "parameters": [
+     {
+      "name": "endpoint_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReplayResult"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "413": {
+      "$ref": "#/components/responses/TooLarge"
+     },
+     "415": {
+      "$ref": "#/components/responses/UnsupportedMedia"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     }
+    },
+    "description": "Queues the event again with the same event id (for example a dead delivery, or one you lost). Your handler must be idempotent on the event id. Scope: webhooks:manage.",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReplayRequest"
+       }
+      }
      }
     }
    }
@@ -1132,7 +2077,12 @@
        "IDEMPOTENCY_CONFLICT",
        "ORDER_REFERENCE_CONFLICT",
        "BASKET_NOT_ELIGIBLE",
-       "INVALID_STATE"
+       "INVALID_STATE",
+       "ORDER_NOT_CANCELLABLE",
+       "CANCELLATION_PENDING",
+       "RETURN_NOT_ALLOWED",
+       "ENDPOINT_VERIFICATION_FAILED",
+       "LIMIT_REACHED"
       ]
      },
      "request_id": {
@@ -1590,6 +2540,18 @@
       "properties": {
        "self": {
         "type": "string"
+       },
+       "shipments": {
+        "type": "string"
+       },
+       "cancellations": {
+        "type": "string"
+       },
+       "returns": {
+        "type": "string"
+       },
+       "documents": {
+        "type": "string"
        }
       },
       "additionalProperties": false
@@ -1618,6 +2580,848 @@
      }
     },
     "additionalProperties": false
+   },
+   "ItemQty": {
+    "type": "object",
+    "required": [
+     "variant_id",
+     "quantity"
+    ],
+    "properties": {
+     "variant_id": {
+      "type": "string"
+     },
+     "quantity": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "additionalProperties": false
+   },
+   "Shipment": {
+    "type": "object",
+    "required": [
+     "shipment_id",
+     "order_id",
+     "version",
+     "state",
+     "ship_from",
+     "carrier",
+     "tracking_number",
+     "items",
+     "events",
+     "created_at",
+     "updated_at"
+    ],
+    "properties": {
+     "shipment_id": {
+      "type": "string"
+     },
+     "order_id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "integer"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "label_created",
+       "in_transit",
+       "out_for_delivery",
+       "delivered",
+       "exception",
+       "returned_to_sender"
+      ]
+     },
+     "ship_from": {
+      "type": "string",
+      "description": "ISO country of the origin (one shipment per origin)"
+     },
+     "carrier": {
+      "type": "string"
+     },
+     "service": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "tracking_number": {
+      "type": "string"
+     },
+     "tracking_url": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ItemQty"
+      }
+     },
+     "events": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "at",
+        "state"
+       ],
+       "properties": {
+        "at": {
+         "type": "string",
+         "format": "date-time"
+        },
+        "state": {
+         "type": "string"
+        },
+        "description": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": false
+      }
+     },
+     "shipped_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "delivered_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    },
+    "additionalProperties": false
+   },
+   "ShipmentList": {
+    "type": "object",
+    "required": [
+     "data"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Shipment"
+      }
+     }
+    },
+    "additionalProperties": false
+   },
+   "CancellationRequest": {
+    "type": "object",
+    "required": [
+     "reason_code"
+    ],
+    "properties": {
+     "reason_code": {
+      "type": "string",
+      "enum": [
+       "customer_request",
+       "duplicate_order",
+       "address_issue",
+       "payment_issue",
+       "other"
+      ]
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 500
+     }
+    },
+    "additionalProperties": false
+   },
+   "Cancellation": {
+    "type": "object",
+    "required": [
+     "cancellation_id",
+     "order_id",
+     "version",
+     "state",
+     "reason_code",
+     "created_at",
+     "updated_at"
+    ],
+    "description": "accepted at once before handoff to fulfilment; requested (KINAN decides) after handoff. Shipped orders cannot be cancelled: use a return.",
+    "properties": {
+     "cancellation_id": {
+      "type": "string"
+     },
+     "order_id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "integer"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "requested",
+       "accepted",
+       "rejected"
+      ]
+     },
+     "reason_code": {
+      "type": "string"
+     },
+     "note": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "decision_reason": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "decided_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    },
+    "additionalProperties": false
+   },
+   "CancellationList": {
+    "type": "object",
+    "required": [
+     "data"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Cancellation"
+      }
+     }
+    },
+    "additionalProperties": false
+   },
+   "ReturnRequest": {
+    "type": "object",
+    "required": [
+     "reason_code",
+     "items"
+    ],
+    "properties": {
+     "reason_code": {
+      "type": "string",
+      "enum": [
+       "damaged",
+       "defective",
+       "wrong_item",
+       "not_as_described",
+       "no_longer_needed",
+       "other"
+      ]
+     },
+     "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+       "$ref": "#/components/schemas/ItemQty"
+      }
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 500
+     }
+    },
+    "additionalProperties": false
+   },
+   "Return": {
+    "type": "object",
+    "required": [
+     "return_id",
+     "rma_number",
+     "order_id",
+     "version",
+     "state",
+     "reason_code",
+     "items",
+     "credit_minor",
+     "currency",
+     "created_at",
+     "updated_at"
+    ],
+    "properties": {
+     "return_id": {
+      "type": "string"
+     },
+     "rma_number": {
+      "type": "string"
+     },
+     "order_id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "integer"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "requested",
+       "approved",
+       "rejected",
+       "received",
+       "credited"
+      ]
+     },
+     "reason_code": {
+      "type": "string"
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ItemQty"
+      }
+     },
+     "note": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "decision_reason": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "instructions": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "description": "Set when approved: where and how to send the parcel back",
+      "properties": {
+       "method": {
+        "type": "string"
+       },
+       "reference": {
+        "type": "string"
+       },
+       "note": {
+        "type": "string"
+       },
+       "return_to": {
+        "type": [
+         "object",
+         "null"
+        ],
+        "properties": {
+         "name": {
+          "type": "string"
+         },
+         "line1": {
+          "type": "string"
+         },
+         "city": {
+          "type": "string"
+         },
+         "postal_code": {
+          "type": "string"
+         },
+         "country": {
+          "type": "string"
+         }
+        },
+        "additionalProperties": false
+       }
+      },
+      "additionalProperties": false
+     },
+     "credit_minor": {
+      "type": "integer",
+      "description": "Goods value ex tax credited when the return is credited; shipping is not credited"
+     },
+     "currency": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    },
+    "additionalProperties": false
+   },
+   "ReturnList": {
+    "type": "object",
+    "required": [
+     "data"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Return"
+      }
+     }
+    },
+    "additionalProperties": false
+   },
+   "Document": {
+    "type": "object",
+    "required": [
+     "document_id",
+     "type",
+     "title",
+     "created_at",
+     "content_type",
+     "links"
+    ],
+    "properties": {
+     "document_id": {
+      "type": "string"
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "proforma_invoice",
+       "packing_slip",
+       "credit_note"
+      ]
+     },
+     "title": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "content_type": {
+      "type": "string"
+     },
+     "links": {
+      "type": "object",
+      "required": [
+       "download"
+      ],
+      "properties": {
+       "download": {
+        "type": "string"
+       }
+      },
+      "additionalProperties": false
+     }
+    },
+    "additionalProperties": false
+   },
+   "DocumentList": {
+    "type": "object",
+    "required": [
+     "data",
+     "sandbox"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Document"
+      }
+     },
+     "sandbox": {
+      "type": "boolean",
+      "description": "Sandbox documents are test data and not tax documents"
+     }
+    },
+    "additionalProperties": false
+   },
+   "SimulateRequest": {
+    "type": "object",
+    "required": [
+     "action"
+    ],
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "handoff",
+       "ship",
+       "deliver",
+       "exception",
+       "accept_cancellation",
+       "reject_cancellation",
+       "approve_return",
+       "reject_return",
+       "receive_return",
+       "credit_return"
+      ]
+     },
+     "ship_from": {
+      "type": "string",
+      "description": "Only this origin (ship, deliver, exception)"
+     }
+    },
+    "additionalProperties": false
+   },
+   "WebhookEndpointRequest": {
+    "type": "object",
+    "required": [
+     "url"
+    ],
+    "properties": {
+     "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "https:// on a public host. No credentials in the URL."
+     },
+     "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "string",
+       "enum": [
+        "order.updated",
+        "shipment.updated",
+        "cancellation.updated",
+        "return.updated"
+       ]
+      },
+      "description": "Default: all"
+     }
+    },
+    "additionalProperties": false
+   },
+   "WebhookEndpoint": {
+    "type": "object",
+    "required": [
+     "endpoint_id",
+     "url",
+     "events",
+     "state",
+     "consecutive_failures",
+     "disabled_reason",
+     "verified_at",
+     "created_at"
+    ],
+    "properties": {
+     "endpoint_id": {
+      "type": "string"
+     },
+     "url": {
+      "type": "string"
+     },
+     "events": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "order.updated",
+        "shipment.updated",
+        "cancellation.updated",
+        "return.updated"
+       ]
+      }
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "pending_verification",
+       "active",
+       "disabled"
+      ]
+     },
+     "consecutive_failures": {
+      "type": "integer"
+     },
+     "disabled_reason": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "verified_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    },
+    "additionalProperties": false
+   },
+   "WebhookEndpointCreated": {
+    "type": "object",
+    "required": [
+     "endpoint_id",
+     "url",
+     "events",
+     "state",
+     "consecutive_failures",
+     "disabled_reason",
+     "verified_at",
+     "created_at",
+     "secret"
+    ],
+    "properties": {
+     "endpoint_id": {
+      "type": "string"
+     },
+     "url": {
+      "type": "string"
+     },
+     "events": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "order.updated",
+        "shipment.updated",
+        "cancellation.updated",
+        "return.updated"
+       ]
+      }
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "pending_verification",
+       "active",
+       "disabled"
+      ]
+     },
+     "consecutive_failures": {
+      "type": "integer"
+     },
+     "disabled_reason": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "verified_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "secret": {
+      "type": "string",
+      "description": "Signing secret (whsec_…). Shown once."
+     },
+     "note": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "WebhookEndpointList": {
+    "type": "object",
+    "required": [
+     "data"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/WebhookEndpoint"
+      }
+     }
+    },
+    "additionalProperties": false
+   },
+   "WebhookDelivery": {
+    "type": "object",
+    "required": [
+     "delivery_id",
+     "event_id",
+     "type",
+     "state",
+     "attempts",
+     "created_at"
+    ],
+    "properties": {
+     "delivery_id": {
+      "type": "string"
+     },
+     "event_id": {
+      "type": "string"
+     },
+     "type": {
+      "type": "string"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "delivered",
+       "dead"
+      ]
+     },
+     "attempts": {
+      "type": "integer"
+     },
+     "last_status": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "last_error": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "next_attempt_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "delivered_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    },
+    "additionalProperties": false
+   },
+   "WebhookDeliveryList": {
+    "type": "object",
+    "required": [
+     "data"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/WebhookDelivery"
+      }
+     }
+    },
+    "additionalProperties": false
+   },
+   "ReplayRequest": {
+    "type": "object",
+    "required": [
+     "event_id"
+    ],
+    "properties": {
+     "event_id": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "ReplayResult": {
+    "type": "object",
+    "required": [
+     "replayed",
+     "delivery_id",
+     "event_id"
+    ],
+    "properties": {
+     "replayed": {
+      "type": "boolean"
+     },
+     "delivery_id": {
+      "type": "string"
+     },
+     "event_id": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "WebhookEvent": {
+    "type": "object",
+    "description": "Body of each webhook POST (see the signature rules above). data is the Order (status part), Shipment, Cancellation or Return, never recipient data.",
+    "required": [
+     "id",
+     "type",
+     "api_version",
+     "environment",
+     "created_at",
+     "store_id",
+     "data"
+    ],
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "order.updated",
+       "shipment.updated",
+       "cancellation.updated",
+       "return.updated",
+       "endpoint.verification"
+      ]
+     },
+     "api_version": {
+      "const": "v1"
+     },
+     "environment": {
+      "type": "string",
+      "enum": [
+       "sandbox",
+       "live"
+      ]
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "store_id": {
+      "type": "string"
+     },
+     "data": {
+      "type": "object"
+     }
+    }
    }
   },
   "responses": {
@@ -1745,7 +3549,7 @@
     }
    },
    "Conflict": {
-    "description": "Quote expired or mismatched, stock changed, idempotency or order-reference conflict: fetch a fresh quote or use the right key",
+    "description": "Conflict: quote expired or mismatched, stock changed, idempotency or order-reference conflict, an order that can no longer be cancelled or returned, or a state that does not allow this step. Read the code.",
     "headers": {
      "X-Request-Id": {
       "$ref": "#/components/headers/RequestId"
@@ -1786,6 +3590,61 @@
       "schema": {
        "$ref": "#/components/schemas/Problem"
       }
+     }
+    }
+   }
+  }
+ },
+ "webhooks": {
+  "partnerEvent": {
+   "post": {
+    "summary": "Event sent to your endpoint",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WebhookEvent"
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "KINAN-Signature",
+      "in": "header",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "KINAN-Event-Id",
+      "in": "header",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "KINAN-Event-Type",
+      "in": "header",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "KINAN-Delivery-Attempt",
+      "in": "header",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Any 2xx within 10 seconds acknowledges the event"
      }
     }
    }

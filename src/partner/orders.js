@@ -8,8 +8,8 @@
  *                store + external_order_ref) → stock reservations for stock KINAN controls → outbox event → history →
  *                the response. Same key + same body returns the stored answer; same key + another body is 409.
  * Settlement is simulated in the sandbox (admin). Settled orders get exactly one fulfilment intent from a worker
- * that uses FOR UPDATE SKIP LOCKED, so several processes can run it. Supplier and warehouse calls come in Batch 3
- * and never run inside these transactions. */
+ * that uses FOR UPDATE SKIP LOCKED, so several processes can run it. Handoff to suppliers or the warehouse,
+ * shipments, cancellations and returns are in fulfilment.js (Batch 3); external calls never run inside these transactions. */
 'use strict';
 const crypto = require('crypto');
 const pg = require('./pg');
@@ -35,6 +35,8 @@ const shipping = (from, country, grams) => { const t = (TARIFF[from] || TARIFF.C
 /** Stable JSON (sorted keys) for request hashing. */
 function canon(v) { if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`; if (v && typeof v === 'object') return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`; return JSON.stringify(v); }
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+/** jsonb parameter: `pg` sends JS arrays as PostgreSQL arrays, so every jsonb value goes as JSON text. */
+const J = (v) => (v === null || v === undefined ? null : JSON.stringify(v));
 
 // Recipient data is encrypted at rest (AES-256-GCM). Live needs PARTNER_PII_KEY; the sandbox derives a key.
 function piiKey(env) {
@@ -100,7 +102,7 @@ async function createQuote(ctx, body = {}) {
   const id = rid('pq'); const expires = new Date(Date.now() + TTL_MIN() * 60e3);
   await pg.q(`INSERT INTO partner_quote (id, env, store_id, price_list_version, currency, dest_country, dest_postal, lines, totals, charges, contribution_minor, margin_bp, expires_at)
               VALUES ($1,$2,$3,$4,'EUR',$5,$6,$7,$8,$9,$10,$11,$12)`,
-  [id, ctx.env, ctx.store.id, pl.version || 1, country, postal, lines, totals, charges, k.contribution_minor, Math.floor(k.margin * 10000), expires]);
+  [id, ctx.env, ctx.store.id, pl.version || 1, country, postal, J(lines), J(totals), J(charges), k.contribution_minor, Math.floor(k.margin * 10000), expires]);
   return quoteView({ id, dest_country: country, dest_postal: postal, lines, totals, charges, price_list_version: pl.version || 1, expires_at: expires, created_at: new Date() }, ship.days, parcels.map((x) => x.from));
 }
 function quoteView(r, days, origins = ['DE']) {
@@ -134,13 +136,36 @@ function orderView(r, env) {
     currency: 'EUR', items: c.items, totals: c.totals,
     ship_to: { recipient: to.recipient, city: to.city, postal_code: to.postal_code, country: to.country },
     created_at: new Date(r.created_at).toISOString(), updated_at: new Date(r.updated_at).toISOString(),
-    links: { self: `/api/partner/v1/orders/${r.id}` }
+    links: { self: `/api/partner/v1/orders/${r.id}`, shipments: `/api/partner/v1/orders/${r.id}/shipments`, cancellations: `/api/partner/v1/orders/${r.id}/cancellations`, returns: `/api/partner/v1/orders/${r.id}/returns`, documents: `/api/partner/v1/orders/${r.id}/documents` }
   };
 }
 
-async function outbox(c, env, storeId, type, orderRow) {
+/** Write one event to the outbox in the caller's transaction. Payloads never carry recipient data. */
+async function emit(c, env, storeId, type, resourceId, version, payload) {
   await c.query(`INSERT INTO partner_outbox (env, store_id, event_id, type, resource_id, resource_version, payload) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [env, storeId, rid('evt'), type, orderRow.id, orderRow.version, { order_id: orderRow.id, external_order_ref: orderRow.external_order_ref, payment: orderRow.payment_state, fulfillment: orderRow.fulfillment_state }]);
+    [env, storeId, rid('evt'), type, resourceId, version, J(payload)]);
+}
+const orderEvent = (o) => ({ order_id: o.id, external_order_ref: o.external_order_ref, version: o.version, payment: o.payment_state, fulfillment: o.fulfillment_state });
+async function outbox(c, env, storeId, type, orderRow) { await emit(c, env, storeId, type, orderRow.id, orderRow.version, orderEvent(orderRow)); }
+
+/**
+ * Run fn(client) once per (store, operation, Idempotency-Key) in one transaction with the stored answer.
+ * Same key + same body → the stored answer (replayed); same key + another body → 409. Errors leave nothing behind.
+ */
+async function idempotent(ctx, operation, idemKey, body, fn) {
+  if (typeof idemKey !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(idemKey)) throw new PartnerError(400, 'INVALID_INPUT', 'Idempotency-Key header required', 'Send a unique Idempotency-Key (8–128 characters) for every new request and reuse it for retries.', { errors: [{ field: 'Idempotency-Key', code: 'required' }] });
+  const hash = sha(canon(body)); const env = ctx.env; const storeId = ctx.store.id;
+  return pg.tx(async (c) => {
+    const ins = await c.query(`INSERT INTO partner_idempotency (env, store_id, operation, key, request_hash) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING key`, [env, storeId, operation, idemKey, hash]);
+    if (!ins.rowCount) {
+      const prev = (await c.query('SELECT request_hash, status, response FROM partner_idempotency WHERE env=$1 AND store_id=$2 AND operation=$3 AND key=$4 FOR UPDATE', [env, storeId, operation, idemKey])).rows[0];
+      if (prev.request_hash !== hash) throw new PartnerError(409, 'IDEMPOTENCY_CONFLICT', 'Idempotency key reused with a different body', 'Use a new Idempotency-Key for a different request.');
+      return { status: prev.status, body: prev.response, replayed: true };
+    }
+    const out = await fn(c);
+    await c.query('UPDATE partner_idempotency SET status = $5, response = $6, resource_id = $7 WHERE env=$1 AND store_id=$2 AND operation=$3 AND key=$4', [env, storeId, operation, idemKey, out.status, J(out.body), out.id || null]);
+    return { status: out.status, body: out.body, replayed: false };
+  });
 }
 const history = (c, orderId, field, from, to, reason, actor) => c.query('INSERT INTO partner_order_history (order_id, field, from_state, to_state, reason_code, actor) VALUES ($1,$2,$3,$4,$5,$6)', [orderId, field, from, to, reason, actor]);
 
@@ -179,7 +204,7 @@ async function createOrder(ctx, body = {}, idemKey, hooks = {}) {
       const commercial = { quote_id: q.id, price_list_version: q.price_list_version, items: q.lines.map((l) => ({ variant_id: l.variant_id, product_id: l.product_id, quantity: l.quantity, unit_ex_tax_minor: l.unit_ex_tax_minor, line_ex_tax_minor: l.line_ex_tax_minor })), totals: q.totals, charges: q.charges, margin_bp: q.margin_bp };
       const shipTo = { ...a, country: q.dest_country, postal_code: a.postal_code.trim() };
       const row = (await c.query(`INSERT INTO partner_order (id, env, store_id, external_order_ref, quote_id, commercial, ship_to) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [id, env, storeId, body.external_order_ref, q.id, commercial, seal(env, shipTo)])).rows[0];
+        [id, env, storeId, body.external_order_ref, q.id, J(commercial), J(seal(env, shipTo))])).rows[0];
       for (const l of q.lines.filter((x) => x.controlled)) {
         const up = await c.query('UPDATE partner_stock SET reserved = reserved + $3 WHERE env = $1 AND variant_id = $2 AND on_hand - reserved >= $3', [env, l.variant_id, l.quantity]);
         if (!up.rowCount) throw new PartnerError(409, 'STOCK_CHANGED', 'Stock changed', `There is no longer enough stock of ${l.variant_id}. Request a fresh quote.`);
@@ -189,7 +214,7 @@ async function createOrder(ctx, body = {}, idemKey, hooks = {}) {
       await history(c, id, 'fulfillment', null, 'received', 'created', `store:${storeId}`);
       await outbox(c, env, storeId, 'order.updated', row);
       const view = orderView(row, env);
-      await c.query(`UPDATE partner_idempotency SET status = 201, response = $4, resource_id = $5 WHERE env=$1 AND store_id=$2 AND operation='orders.create' AND key=$3`, [env, storeId, idemKey, view, id]);
+      await c.query(`UPDATE partner_idempotency SET status = 201, response = $4, resource_id = $5 WHERE env=$1 AND store_id=$2 AND operation='orders.create' AND key=$3`, [env, storeId, idemKey, J(view), id]);
       committedRow = row;
       return { status: 201, body: view, replayed: false };
     });
@@ -277,4 +302,9 @@ async function adminList(env = 'sandbox', limit = 50) {
   return { orders: rows.map((r) => ({ ...r, created_at: new Date(r.created_at).getTime() })), ...counts };
 }
 
-module.exports = { createQuote, createOrder, getOrder, listOrders, settle, fulfilmentWorker, sweepExpired, purgeIdempotency, adminList, _canon: canon, _open: open };
+module.exports = {
+  createQuote, createOrder, getOrder, listOrders, settle, fulfilmentWorker, sweepExpired, purgeIdempotency, adminList,
+  // shared with fulfilment.js, documents.js and webhooks.js
+  internal: { rid, sha, J, canon, seal, open, emit, outbox, orderEvent, history, orderView, idempotent, bad },
+  _canon: canon, _open: open
+};

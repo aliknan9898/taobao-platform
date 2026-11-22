@@ -99,14 +99,78 @@ Batch 1 was built on the development branch `fix/chatgpt-security-db-ci-20261118
 
   The test-only wire-protocol client is `test/support/minipg.js`. Production uses `pg`.
 
+## Batch 3 — delivered (sandbox, behind the same `PARTNER_ORDERS_ENABLED=1`)
+
+- **Migration** `002_partner_fulfilment.sql` (additive): shipments, cancellations, returns, webhook endpoints and
+  deliveries, plus new nullable columns on the fulfilment intent and the order. Rollback is
+  `002_partner_fulfilment.down.sql` (owner only; run it before 001's).
+- **Handoff** (`src/partner/fulfilment.js`):
+  - A worker claims confirmed orders with SKIP LOCKED and a 2-minute lease.
+  - It calls the adapter **outside** SQL transactions with a deterministic `handoff_ref` (`kh_` + hash of the order id).
+  - It records `processing`, or the error so the next run retries.
+  - If the order was cancelled while the submission was in flight, the adapter is told to withdraw it.
+  - Sandbox: a simulated adapter. **Live: no adapter.** Live intents stay pending and the admin shows "manual".
+- **Shipments:**
+  - One per ship-from origin, so `partially_shipped` then `shipped`, then `delivered`, plus `exception`.
+  - Controlled reservations are committed (on hand goes down) when an origin ships.
+  - `GET /orders/{id}/shipments`.
+- **Cancellations:**
+  - Before handoff: accepted at once. Reservations are released, the intent is closed, and a settled payment becomes credited.
+  - After handoff: requested, and KINAN accepts or rejects it (admin or sandbox simulator).
+  - After shipping: 409.
+  - At most one open cancellation per order (unique partial index). Idempotency-Key as for orders.
+- **Returns (RMA):**
+  - Only for delivered parcels, within `PARTNER_RETURN_WINDOW_DAYS` (30), up to the delivered quantity minus earlier non-rejected returns.
+  - States: requested → approved (instructions + RMA) / rejected → received → credited. Payment becomes `partially_credited` or `credited`.
+- **Documents** (`src/partner/documents.js`):
+  - PDFs: pro-forma invoice, packing slip (only document with the recipient) and credit notes.
+  - Sandbox banner on every page. Live answers 503.
+- **Webhooks** (`src/partner/webhooks.js`):
+  - Endpoints:
+    - HTTPS on public addresses only. Private, loopback, link-local, CGNAT, multicast and documentation ranges are refused, including IPv4-mapped and NAT64 IPv6.
+    - DNS is checked at creation, at verification and on every delivery, and the connection is pinned to the checked address.
+    - A signed challenge is required before activation. At most 5 per store. The secret is encrypted at rest and shown once.
+  - Delivery:
+    - The outbox is fanned out to one delivery row per endpoint and event (unique), then claimed with a 60 s lease.
+    - Each event is POSTed with `KINAN-Signature: t=…,v1=HMAC-SHA256(secret, "t.body")`.
+    - No redirects, 10 s timeout.
+    - Failed deliveries are retried with backoff and jitter for 24 h, then dead. Replay keeps the event id.
+    - 50 failures in a row disable the endpoint.
+  - The background worker runs every 15 s while ordering is on.
+- **Sandbox simulator:** `POST /sandbox/orders/{id}/simulate` for partners. The admin gets the same buttons:
+  Hand off / Ship / Deliver, cancellation and return decisions, webhook health and "Send again".
+- **Tests:** `test/partner-fulfilment.test.js` (real PostgreSQL 16, 16 checks plus the address-guard unit test). It covers:
+  - handoff exactly once with three workers, and a handoff failure with lease and retry
+  - partial and full shipping with stock commit, and exception
+  - cancellations before and after payment and handoff (reject and accept, supplier withdrawal) and after shipping
+  - returns: window, quantities, full flow, credit states
+  - documents and store isolation
+  - webhooks: SSRF guard, verification, signatures, no PII, exactly one delivery with three dispatchers, backoff, redirect, dead after 24 h, replay, auto-disable, delete
+  - scopes and the off switch
+  - OpenAPI validation of every answer
+
+### Fixed in Batch 2 while building Batch 3
+
+- **jsonb parameters:** `pg` sends JavaScript arrays as PostgreSQL arrays, so writing quote `lines` and `charges` to `jsonb` would have failed the first time ordering was switched on in production.
+  - Every jsonb value is now sent as JSON text.
+  - The test client (`test/support/minipg.js`) now serialises arrays the way `pg` does, so this class of bug fails the tests.
+  - Production was not affected: ordering has never been switched on.
+
 ## Known limits (honest list)
 
-- **Batch 2:**
+- **Batches 2–3:**
   - Live quotes are refused: real tariffs, VAT treatment and duties need owner decisions.
   - Tax is 0 and labelled `sandbox_no_tax`.
-  - Fulfilment intents are recorded but not yet handed to suppliers or the warehouse (Batch 3).
-  - There is no shipment, cancellation, return or document API yet.
-  - The outbox fills but nothing dispatches it yet (webhooks are Batch 3).
+  - **No live handoff adapter:**
+    - Nothing is ever sent to a real supplier or the warehouse.
+    - Connecting `orders.js`/`warehouse.js` or a supplier needs the owner's approval, because it can trigger real purchases.
+  - Shipments are simulated in the sandbox. Live carrier tracking would map from `tracking.js` once the handoff exists.
+  - Return credits and cancellation credits are states and credit-note PDFs only. No money moves, and there is no ledger entry for partners yet.
+  - Live documents (tax invoices, credit notes) wait for the invoicing entity, VAT registration and numbering.
+  - **Webhooks:**
+    - Delivery order is not guaranteed (use `data.version`).
+    - Catalogue changes are not pushed (poll `/catalog/changes`).
+    - Rotating a secret means creating a new endpoint.
 
 - **Restarts and multiple processes:** the change sequence and state live in the document store. A restart keeps them, because they are written to PostgreSQL by the same write-behind as everything else. Two processes writing the feed at once are not supported: the app runs as a single instance (the job owner uses a Postgres advisory lock). Batch 2 moves commands to real SQL tables.
 - **Live projection:**
@@ -116,8 +180,8 @@ Batch 1 was built on the development branch `fix/chatgpt-security-db-ci-20261118
   - Do not enable live keys before that evidence exists.
 - **Lookups:** `db.get` is a linear scan. Fine for the sandbox (12 products) and a pilot assortment. It needs an index or SQL before thousands of live products.
 - **Not built yet:**
-  - Webhooks
-  - Partner portal
-  - Quotes, orders, shipments, returns and documents
-  - Shopify and WooCommerce adapters
+  - Partner portal (self-service keys, endpoints and logs)
+  - Shopify and WooCommerce adapters (Batch 4)
+  - Live fulfilment handoff
+  - Partner ledger and settlement
 - **No production effect:** there are no live keys and no live catalogue, and nothing is merged to `main` without owner approval.

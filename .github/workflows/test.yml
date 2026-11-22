@@ -28,8 +28,8 @@ jobs:
           node-version-file: package.json
       - run: npm install --no-audit --no-fund
       - run: npm test
-      - name: Partner API orders on real PostgreSQL
-        run: node --test test/partner-orders.test.js
+      - name: Partner API orders and fulfilment on real PostgreSQL
+        run: node --test --test-concurrency=1 test/partner-orders.test.js test/partner-fulfilment.test.js
         env:
           KINAN_TEST_PG: '1'
       - run: node --check src/server.js
