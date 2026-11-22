@@ -326,7 +326,13 @@ r('POST', '/api/auth/login', null, async ({ req, res }) => {
   const { email, password, app } = await readJson(req);
   const which = app || (auth.sellerContext(req) ? 'seller' : undefined);
   let out;
-  try { out = auth.login(email, password, which); } catch (e) { if (e.status === 401) recordFailure(clientIp(req)); throw e; }
+  try { out = auth.login(email, password, which); } catch (e) {
+    if (e.status === 401) recordFailure(clientIp(req));
+    // a failed sign-in to an employee account goes into that employee's activity log (no password is stored)
+    const employee = auth.usersByEmail(email).find((u) => u.role === 'operator');
+    if (employee) req.auditStaffUser = employee;
+    throw e;
+  }
   setSession(res, out.token, which === 'seller' || (!which && out.user.role === 'seller') ? 'seller' : 'buyer');
   if (out.user.role === 'operator') req.auditStaffUser = out.user;
   return out;
@@ -754,13 +760,28 @@ r('GET', '/api/admin/mailbox/messages/:id', OPERATOR, async (ctx) => {
   await checkMailbox(ctx, address);
   return adminMail.read(address, ctx.params.id);
 });
+// A send carries client_send_id (one per message written in Admin): a retry or a double click with the same id returns
+// the first result instead of sending the email twice. Kept 24 hours.
+const mailSendsInFlight = new Map();
 r('POST', '/api/admin/mailbox/send', OPERATOR, async (ctx) => {
   throttleLight(ctx.req);
   const body = await readJson(ctx.req);
   await checkMailbox(ctx, body?.from);
-  const sent = await adminMail.send(body);
-  ctx.req.auditMailId = sent.id;
-  return sent;
+  const sendId = String(body?.client_send_id || '');
+  if (sendId && !/^[A-Za-z0-9_-]{8,80}$/.test(sendId)) throw httpError(400, 'Invalid send id');
+  const keyHash = sendId ? require('crypto').createHash('sha256').update(`${ctx.user.id}|${sendId}`).digest('hex') : null;
+  const earlier = () => keyHash && db.tokens.find((t) => t.kind === 'mail-send' && t.token_hash === keyHash && t.expires_at > Date.now());
+  if (keyHash && mailSendsInFlight.has(keyHash)) await mailSendsInFlight.get(keyHash).catch(() => null);
+  const done = earlier();
+  if (done) { ctx.req.auditMailId = done.message_id; return { id: done.message_id, thread_id: done.thread_id, duplicate: true }; }
+  const run = adminMail.send(body);
+  if (keyHash) mailSendsInFlight.set(keyHash, run);
+  try {
+    const sent = await run;
+    ctx.req.auditMailId = sent.id;
+    if (keyHash) db.tokens.insert({ kind: 'mail-send', token_hash: keyHash, user_id: ctx.user.id, message_id: sent.id, thread_id: sent.thread_id || null, expires_at: Date.now() + 86400e3 });
+    return sent;
+  } finally { if (keyHash) mailSendsInFlight.delete(keyHash); }
 });
 
 r('GET', '/api/admin/verify-files', ADMIN, async () => ({ files: Object.keys(db.settings.get('verify_files')?.files || {}) }));
@@ -1179,7 +1200,9 @@ const server = http.createServer(async (req, res) => {
         let user = null; try { user = auth.authenticate(req); } catch { user = null; }
         const o = db.orders.get(inv[1]);
         if (!user) { res.writeHead(302, { Location: `/#/orders/${inv[1]}` }); return res.end(); }
-        if (!o || !(o.buyer_id === user.id || (auth.STAFF_ROLES || {})[user.role] || user.role === 'admin') || o.status === 'pending_payment') return send(res, 404, 'Invoice not found');
+        // Operators (restricted employees) see only an order's reference, status and date — never its invoice
+        const staffInvoice = user.role !== 'operator' && ((auth.STAFF_ROLES || {})[user.role] || user.role === 'admin');
+        if (!o || !(o.buyer_id === user.id || staffInvoice) || o.status === 'pending_payment') return send(res, 404, 'Invoice not found');
         if (inv[2]) { const f = ops.invoicePdf(o); res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${f.name}"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); return res.end(f.body); }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" });
         return res.end(ops.invoiceHtml(o));
@@ -1360,6 +1383,7 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     const status = e.status || (e.name === 'TaobaoApiError' ? 502 : 500);
+    if (!auditCtx && req.auditStaffUser) auditCtx = { user: req.auditStaffUser, params: {} };
     if (auditCtx) { try { require('./audit').record({ req, path: p, user: auditCtx.user, status, params: auditCtx.params, error: e.message }); } catch { /* never block the answer */ } }
     const errorId = status >= 500 ? require('crypto').randomBytes(4).toString('hex') : undefined;
     if (status >= 500) { console.error('[error]', errorId, req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message} (${errorId})`); }

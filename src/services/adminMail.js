@@ -10,11 +10,19 @@ function enabled() {
   return Boolean(process.env.ADMIN_MAIL_GOOGLE_CLIENT_ID && process.env.ADMIN_MAIL_GOOGLE_CLIENT_SECRET && process.env.ADMIN_MAIL_GMAIL_REFRESH_TOKEN);
 }
 
-async function staffEnabled() {
+// Employees may use mail only when the connected Gmail account IS the dedicated KINAN business account
+// (ADMIN_MAIL_STAFF_ACCOUNT, an @kinan.shop address that is not the owner's). Checked against Gmail's own profile;
+// a confirmed match is remembered for 5 minutes, a mismatch is checked again every time.
+let staffCheck = null;
+async function staffEnabled(now = Date.now()) {
   const expected = process.env.ADMIN_MAIL_STAFF_ACCOUNT?.trim().toLowerCase();
   if (!enabled() || !expected?.endsWith('@kinan.shop') || ownerEmail(expected)) return false;
+  const key = `${expected}|${process.env.ADMIN_MAIL_GMAIL_REFRESH_TOKEN}`;
+  if (staffCheck && staffCheck.key === key && now - staffCheck.at < 5 * 60e3) return true;
   const profile = await gmail('profile');
-  return profile.emailAddress?.toLowerCase() === expected;
+  const ok = profile.emailAddress?.toLowerCase() === expected;
+  staffCheck = ok ? { key, at: now } : null; // only a confirmed match is remembered
+  return ok;
 }
 
 function mailbox(value) {
@@ -115,4 +123,4 @@ async function send(body) {
   return { id: (await gmail('messages/send', { raw: Buffer.from(raw).toString('base64url'), ...(reply?.threadId ? { threadId: reply.threadId } : {}) })).id, thread_id: reply?.threadId || null };
 }
 
-module.exports = { addresses, enabled, staffEnabled, inbox, read, send };
+module.exports = { addresses, enabled, staffEnabled, inbox, read, send, _resetStaffCheck() { staffCheck = null; } };
