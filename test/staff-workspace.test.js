@@ -95,6 +95,7 @@ test('provisioning: only the proven owner manages employees', async () => {
     assert.equal((await api('GET', '/api/admin/team', null, T[who])).status, 403, `${who} cannot list staff`);
     assert.equal((await api('PATCH', `/api/admin/team/${ids.b}`, { status: 'suspended' }, T[who])).status, 403, `${who} cannot suspend`);
     assert.equal((await api('GET', `/api/admin/team/${ids.b}/activity`, null, T[who])).status, 403, `${who} cannot read activity`);
+    assert.equal((await api('DELETE', `/api/admin/team/${ids.b}`, null, T[who])).status, 403, `${who} cannot delete`);
   }
   assert.equal((await api('POST', '/api/admin/staff', body)).status, 401, 'anonymous');
   assert.equal((await api('POST', '/api/admin/staff', { ...body, password: 'short-pass' }, T.owner)).status, 400, 'operator password needs 12+');
@@ -232,4 +233,32 @@ test('presence and suspension: online, multiple sessions, suspend revokes, old t
   assert.equal((await api('GET', '/api/admin/team-orders', null, fresh)).status, 200, 'a new sign-in works');
   assert.equal((await api('PATCH', `/api/admin/team/${ids.b}`, { status: 'deleted' }, T.owner)).status, 400);
   assert.equal((await api('PATCH', `/api/admin/team/${db.users.find((u) => u.email === 'legacy.support@x.com').id}`, { status: 'suspended' }, T.owner)).status, 404, 'this screen manages operators only');
+});
+
+test('deletion: only the owner deletes an operator; sessions end, sign-in stops, the email is free again, the audit trail stays', async () => {
+  const body = { email: 'op.d@x.com', password: 'operator-D-pass', name: 'Operator D', role: 'operator', mailboxes: ['info@kinan.shop'] };
+  const id = (await api('POST', '/api/admin/staff', body, T.owner)).body.id;
+  const first = await login(body.email, body.password); const second = await login(body.email, body.password);
+  assert.equal((await api('GET', '/api/admin/team-orders', null, first)).status, 200);
+  assert.equal((await api('POST', '/api/admin/team/presence', null, first)).status, 200);
+  db.tokens.insert({ kind: 'mail-send', token_hash: 'x', user_id: id, expires_at: Date.now() + 1e6 });
+  assert.equal((await api('DELETE', `/api/admin/team/${id}`, null, first)).status, 403, 'an operator cannot delete anyone, not even themself');
+  assert.equal((await api('DELETE', `/api/admin/team/${id}`)).status, 401, 'anonymous');
+  const r = await api('DELETE', `/api/admin/team/${id}`, null, T.owner);
+  assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.deleted, true);
+  for (const tok of [first, second]) assert.equal((await api('GET', '/api/admin/team-orders', null, tok)).status, 401, 'every session ended');
+  assert.equal((await api('POST', '/api/auth/login', { email: body.email, password: body.password, app: 'admin' })).status, 401, 'cannot sign in again');
+  assert.equal(db.users.get(id), undefined); assert.equal(db.sessions.all((s) => s.user_id === id).length, 0);
+  assert.equal(db.tokens.all((t) => t.user_id === id).length, 0, 'pending send keys removed');
+  assert.ok(!(await api('GET', '/api/admin/team', null, T.owner)).body.some((m) => m.id === id), 'gone from the list');
+  const kept = (await api('GET', `/api/admin/audit?actor=${id}`, null, T.owner)).body;
+  assert.ok(kept.some((e) => e.path === '/api/admin/team-orders' && e.actor.email === body.email), 'past activity stays in the audit log');
+  assert.ok(db.audit.all((e) => e.path === `/api/admin/team/${id}` && e.method === 'DELETE' && e.actor?.owner).length, 'the deletion itself is audited');
+  assert.equal((await api('DELETE', `/api/admin/team/${id}`, null, T.owner)).status, 404, 'already deleted');
+  const legacy = db.users.find((u) => u.email === 'legacy.support@x.com').id;
+  assert.equal((await api('DELETE', `/api/admin/team/${legacy}`, null, T.owner)).status, 404, 'operators only: older roles are untouched');
+  const owner = db.users.find((u) => u.email === 'boss@x.com').id;
+  assert.equal((await api('DELETE', `/api/admin/team/${owner}`, null, T.owner)).status, 404, 'never the owner');
+  assert.ok(db.users.get(legacy) && db.users.get(owner));
+  assert.equal((await api('POST', '/api/admin/staff', body, T.owner)).status, 201, 'the email can be used for a new employee');
 });
