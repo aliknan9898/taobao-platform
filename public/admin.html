@@ -59,7 +59,8 @@
   .overview-priority { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
   @media(max-width:1100px) { .overview-priority { grid-template-columns:minmax(0,1fr); } }
   @media(max-width:900px) {
-    .admin-shell { grid-template-columns:minmax(0,1fr); }
+    .admin-shell { grid-template-columns:minmax(0,1fr); align-content:start; } /* short pages: no stretched gap under the menu */
+    table.mail-table thead { display:none; } table.mail-table tr { display:grid; gap:6px; padding:12px 0; border-bottom:1px solid var(--line); } table.mail-table td { border:0; padding:0; } /* addresses stack as cards on phones: actions stay in view */
     .admin-content { padding:14px; }
     .admin-menu { position:static; max-height:none; border-inline-end:0; border-bottom:1px solid var(--line); }
     .admin-menu-toggle { display:block; margin:9px 14px; }
@@ -246,7 +247,7 @@ function boot(user) {
   TABS = ALL_TABS.filter(([, , r]) => can(r));
   if (!TABS.some(([k]) => k === tab)) tab = TABS[0][0];
   $('#app').innerHTML = `<header><a class="brand" href="/admin"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>${user.role === 'admin' ? 'Admin' : esc(user.role.charAt(0).toUpperCase() + user.role.slice(1))}</small></a>
-      <div class="row hdr-actions"><span id="ctlchip"></span><details class="apps"><summary class="btn ghost">Apps</summary><div class="appsmenu"><a href="/" target="_blank" rel="noopener">Kinan Shop</a><a href="/seller" target="_blank" rel="noopener">Seller Center</a><a href="/warehouse">Warehouse</a><a href="/catalogue" target="_blank" rel="noopener">Catalogue</a></div></details>${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted hdr-email">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
+      <div class="row hdr-actions"><span id="ctlchip"></span><details class="apps"><summary class="btn ghost">Apps</summary><div class="appsmenu"><a href="/" target="_blank" rel="noopener">Kinan Shop</a>${user.role === 'operator' ? '' : '<a href="/seller" target="_blank" rel="noopener">Seller Center</a><a href="/warehouse">Warehouse</a>'}<a href="/catalogue" target="_blank" rel="noopener">Catalogue</a></div></details>${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted hdr-email">${esc(user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
     <div class="admin-shell">
       <div class="admin-menu"><button type="button" class="btn ghost admin-menu-toggle" id="menutoggle" aria-controls="adminnav" aria-expanded="false">Sections</button>
         <nav id="adminnav" aria-label="Admin sections">${adminNav()}</nav></div>
@@ -1238,6 +1239,7 @@ VIEWS['team-orders'] = async (v) => {
 };
 
 VIEWS.team = async (v) => {
+  clearInterval(window.__teamPresence);
   const mailboxes = ['hello', 'info', 'sellers', 'support'].map((name) => name + '@kinan.shop');
   const choices = (selected = []) => mailboxes.map((address) =>
     `<label><input type="checkbox" name="mailboxes" value="${address}" ${selected.includes(address) ? 'checked' : ''}> ${address}</label>`).join(' ');
@@ -1255,22 +1257,27 @@ VIEWS.team = async (v) => {
   const notice = v.querySelector('#team-feedback');
   const roster = v.querySelector('#team-roster');
   const activity = v.querySelector('#team-activity');
+  const roleInfo = await api('/api/admin/staff-roles').catch(() => ({}));
+  const access = (member) => member.role === 'operator'
+    ? `<span class="pill">Limited</span><br><small>Order status and assigned business email only</small>`
+    : `<span class="pill warn">Broad access</span><br><small>${esc(roleInfo[member.role] || member.role)}</small>`;
   async function refresh() {
     const team = await api('/api/admin/team');
     if (!v.isConnected) return;
     const editing = roster.querySelector('form:focus-within');
     if (editing) return;
-    roster.innerHTML = team.length ? `<table><thead><tr><th>Employee</th><th>Presence</th><th>Account</th><th>Actions</th></tr></thead>
+    const legacy = team.filter((member) => member.role !== 'operator' && member.status === 'active').length;
+    roster.innerHTML = (legacy ? `<p class="small warn" role="note">Older staff roles keep broad access. Review them below: ${legacy}</p>` : '') + (team.length ? `<table><thead><tr><th>Employee</th><th>Presence</th><th>Account</th><th>Access</th><th>Actions</th></tr></thead>
       <tbody>${team.map((member) => `<tr><td>${esc(member.name || member.email)}<br><small>${esc(member.email)}</small></td>
         <td>${member.online ? 'Online' : 'Offline'}${member.last_seen ? `<br><small>${esc(new Date(member.last_seen).toLocaleString())}</small>` : ''}</td>
-        <td>${esc(member.role)} · ${esc(member.status)}</td><td>
+        <td>${esc(member.role)} · ${esc(member.status)}</td><td>${access(member)}</td><td>
           <button class="btn ghost" type="button" data-activity="${esc(member.id)}">Activity log</button>
           ${member.role === 'operator' ? `<form data-employee="${esc(member.id)}">
             <fieldset><legend>Mailboxes</legend>${choices(member.mailboxes)}</fieldset>
             <button class="btn ghost" name="status" value="${esc(member.status)}">Save mailboxes</button>
             <button class="btn ghost" name="status" value="${member.status === 'active' ? 'suspended' : 'active'}">${member.status === 'active' ? 'Suspend access' : 'Reactivate'}</button>
           </form>` : ''}
-        </td></tr>`).join('')}</tbody></table>` : '<p class="muted">No employee accounts yet.</p>';
+        </td></tr>`).join('')}</tbody></table>` : '<p class="muted">No employee accounts yet.</p>');
   }
   v.querySelector('#staff-create').onsubmit = async (event) => {
     event.preventDefault();
@@ -1311,7 +1318,7 @@ VIEWS.team = async (v) => {
     } catch (err) { notice.textContent = err.message; }
   };
   await refresh();
-  if (v.isConnected) window.__teamPresence = setInterval(() => refresh().catch(() => {}), 15_000);
+  if (v.isConnected) window.__teamPresence = setInterval(() => { if (!v.isConnected) { clearInterval(window.__teamPresence); return; } refresh().catch(() => {}); }, 15_000);
 };
 
 VIEWS.mail = async (v) => {
@@ -1327,7 +1334,7 @@ VIEWS.mail = async (v) => {
   v.innerHTML = `<section class="card">
     <h2>KINAN Email</h2>
     <p class="muted">${status.configured ? 'Choose an address to read or send mail.' : 'A KINAN mailbox must be connected and assigned to your account.'}</p>
-    <div style="overflow-x:auto"><table>
+    <div style="overflow-x:auto"><table class="mail-table">
       <thead><tr><th>Address</th><th>Purpose</th><th>Setup</th><th>Actions</th></tr></thead>
       <tbody>${inboxes.filter(([name]) => status.addresses.includes(name + '@kinan.shop')).map(([name, purpose]) => {
         const address = name + '@kinan.shop';
@@ -1358,6 +1365,7 @@ VIEWS.mail = async (v) => {
       form.elements.to.value = /<([^<>]+)>$/.exec(message.from)?.[1] || message.from;
       form.elements.subject.value = (/^re:/i.test(message.subject) ? message.subject : 'Re: ' + message.subject).slice(0, 140);
     }
+    let sendId = crypto.randomUUID();
     form.onsubmit = async (event) => {
       event.preventDefault();
       const button = form.querySelector('button');
@@ -1366,8 +1374,9 @@ VIEWS.mail = async (v) => {
       result.textContent = 'Sending…';
       try {
         // a reply carries the original message id: the server keeps it in the same Gmail conversation
-        await api('/api/admin/mailbox/send', 'POST', { from: address, ...Object.fromEntries(new FormData(form)), ...(message?.id ? { reply_to_id: message.id } : {}) });
+        await api('/api/admin/mailbox/send', 'POST', { from: address, ...Object.fromEntries(new FormData(form)), client_send_id: sendId, ...(message?.id ? { reply_to_id: message.id } : {}) });
         form.reset();
+        sendId = crypto.randomUUID(); // the next message is a new send
         result.textContent = 'Email sent.';
       } catch (error) { result.textContent = error.message; }
       finally { button.disabled = false; }

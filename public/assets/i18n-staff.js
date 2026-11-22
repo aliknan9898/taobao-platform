@@ -23,6 +23,10 @@
     'Access updated.': 'تم تحديث الصلاحيات.', 'No activity recorded yet.': 'لا يوجد نشاط مسجل بعد.',
     'Latest order statuses': 'حالة أحدث الطلبات', 'Reference': 'المرجع',
     'A KINAN mailbox must be connected and assigned to your account.': 'يجب ربط صندوق بريد كنان وتخصيص عنوان لحسابك.',
+    'Access': 'الصلاحيات', 'Limited': 'محدودة', 'Broad access': 'صلاحيات واسعة', 'Order status and assigned business email only': 'حالة الطلبات وبريد العمل المخصص فقط',
+    'Older staff roles keep broad access. Review them below:': 'أدوار الموظفين القديمة ما زالت بصلاحيات واسعة. راجعها أدناه:', 'Order status': 'حالة الطلبات',
+    // ---- KINAN Email (employees use it too) ----
+    'Actions': 'الإجراءات', 'Choose an address to read or send mail.': 'اختر عنواناً لقراءة البريد أو إرساله.', 'Company information and partnerships': 'معلومات الشركة والشراكات', 'Copy address': 'نسخ العنوان', 'Customer support': 'دعم العملاء', 'Email sent.': 'تم إرسال البريد.', 'Forwarding': 'تحويل', 'General enquiries': 'استفسارات عامة', 'Loading inbox…': 'جارٍ تحميل البريد الوارد…', 'Loading message…': 'جارٍ تحميل الرسالة…', 'New email': 'رسالة جديدة', 'Next page': 'الصفحة التالية', 'No matching messages.': 'لا توجد رسائل.', 'Open in Gmail': 'فتح في Gmail', 'Open inbox': 'فتح البريد الوارد', 'Purpose': 'الغرض', 'Select the address in the table to copy it.': 'حدّد العنوان في الجدول لنسخه.', 'Seller enquiries': 'استفسارات البائعين', 'Send email': 'إرسال البريد', 'Sending…': 'جارٍ الإرسال…', 'Setup': 'الإعداد', 'To': 'إلى',
     // ---- admin navigation ----
     'Waiting for KINAN': 'بانتظار كنان', 'Request': 'الطلب', 'Cancellation': 'إلغاء', 'Accept': 'قبول', 'Reject': 'رفض', 'Approve': 'موافقة', 'Mark received': 'تأكيد الاستلام', 'Credit': 'إضافة رصيد',
     'Nothing is waiting.': 'لا شيء بانتظارك.', 'Hand off (test)': 'تسليم للتنفيذ (اختبار)', 'Ship (test)': 'شحن (اختبار)', 'Deliver (test)': 'تسليم للزبون (اختبار)', 'Done (sandbox)': 'تم (تجريبي)', 'Queued again': 'أُعيد إلى قائمة الإرسال',
