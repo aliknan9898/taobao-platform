@@ -943,7 +943,21 @@ r('POST', '/api/admin/partners/orgs/:id/stores', ADMIN, async ({ req, user, para
 r('POST', '/api/admin/partners/stores/:id', ADMIN, async ({ req, user, params }) => require('./partner/store').updateStore(params.id, await readJson(req), user));
 r('POST', '/api/admin/partners/stores/:id/keys', ADMIN, async ({ req, user, params }) => require('./partner/store').issueKey(params.id, await readJson(req), user));
 r('POST', '/api/admin/partners/keys/:id/revoke', ADMIN, async ({ user, params }) => require('./partner/store').revokeKey(params.id, user));
-r('GET', '/api/admin/partners/orders', ADMIN, async () => { const pgm = require('./partner/pg'); if (!pgm.enabled() || !pgm.pool()) return { enabled: false, orders: [] }; return { enabled: true, ...(await require('./partner/orders').adminList('sandbox')) }; });
+r('GET', '/api/admin/partners/orders', ADMIN, async () => {
+  const pgm = require('./partner/pg'); if (!pgm.enabled() || !pgm.pool()) return { enabled: false, orders: [] };
+  const [list, queues, hooks] = await Promise.all([require('./partner/orders').adminList('sandbox'), require('./partner/fulfilment').adminQueues('sandbox'), require('./partner/webhooks').adminSummary('sandbox')]);
+  return { enabled: true, ...list, queues, webhooks: hooks };
+});
+r('POST', '/api/admin/partners/orders/:id/simulate', ADMIN, async ({ req, user, params }) => {
+  const b = await readJson(req); const o = (await require('./partner/pg').q('SELECT env, store_id FROM partner_order WHERE id = $1', [params.id])).rows[0];
+  if (!o) throw httpError(404, 'Order not found');
+  const st = db.partner_stores.get(o.store_id) || { id: o.store_id };
+  const r2 = await require('./partner/fulfilment').simulate({ env: o.env, store: st, actor: `admin:${user.email || user.id}` }, params.id, { action: b.action, ...(b.ship_from ? { ship_from: b.ship_from } : {}) });
+  return { id: r2.order_id, status: r2.status };
+});
+r('POST', '/api/admin/partners/cancellations/:id/decide', ADMIN, async ({ req, user, params }) => { const b = await readJson(req); return require('./partner/fulfilment').decideCancellation(params.id, { accept: b.accept === true, reason: b.reason, actor: user.email || user.id }); });
+r('POST', '/api/admin/partners/returns/:id/decide', ADMIN, async ({ req, user, params }) => { const b = await readJson(req); return require('./partner/fulfilment').decideReturn(params.id, { action: b.action, reason: b.reason, actor: user.email || user.id }); });
+r('POST', '/api/admin/partners/webhooks/deliveries/:id/replay', ADMIN, async ({ params }) => require('./partner/webhooks').adminReplay(params.id));
 r('POST', '/api/admin/partners/orders/:id/settle', ADMIN, async ({ req, user, params }) => { const b = await readJson(req); const o = await require('./partner/orders').settle(params.id, { mode: b.mode || 'settled', actor: user.email || user.id }); return { id: o.id, payment_state: o.payment_state }; });
 r('POST', '/api/admin/partners/sandbox/simulate', ADMIN, async ({ req }) => { const b = await readJson(req); return b.reset ? require('./partner/catalog').resetSandbox() : require('./partner/catalog').simulate(b.product, b); });
 r('GET', '/api/admin/exceptions', STAFF, async ({ url, user }) => require('./services/exceptions').list({ area: url.searchParams.get('area') || '', provider: url.searchParams.get('provider') || '', result: url.searchParams.get('result') || '', mine: url.searchParams.get('mine') || '' }, user));

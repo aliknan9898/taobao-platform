@@ -12,6 +12,10 @@
     'Sign in to the admin dashboard': 'تسجيل الدخول إلى لوحة الإدارة', 'Sign in to the warehouse': 'تسجيل الدخول إلى المستودع',
     'Procurement': 'المشتريات', 'Finance': 'المالية', 'Support': 'الدعم',
     // ---- admin navigation ----
+    'Waiting for KINAN': 'بانتظار كنان', 'Request': 'الطلب', 'Cancellation': 'إلغاء', 'Accept': 'قبول', 'Reject': 'رفض', 'Approve': 'موافقة', 'Mark received': 'تأكيد الاستلام', 'Credit': 'إضافة رصيد',
+    'Nothing is waiting.': 'لا شيء بانتظارك.', 'Hand off (test)': 'تسليم للتنفيذ (اختبار)', 'Ship (test)': 'شحن (اختبار)', 'Deliver (test)': 'تسليم للزبون (اختبار)', 'Done (sandbox)': 'تم (تجريبي)', 'Queued again': 'أُعيد إلى قائمة الإرسال',
+    'Partner webhooks (sandbox)': 'إشعارات الشركاء (تجريبي)', 'No webhook endpoints yet. Partners can still poll orders.': 'لا توجد عناوين إشعارات بعد. يمكن للشركاء الاستعلام عن الطلبات مباشرة.', 'URL': 'الرابط', 'Failures in a row': 'إخفاقات متتالية',
+    'Event': 'الحدث', 'Type': 'النوع', 'Attempts': 'المحاولات', 'Last error': 'آخر خطأ', 'Send again': 'إرسال مجدداً', 'Cancellation to decide': 'إلغاء بانتظار القرار', 'Live handoff is not connected yet (manual)': 'التسليم الفعلي غير مربوط بعد (يدوي)',
     'Partner orders': 'طلبات الشركاء', 'Partner orders (sandbox)': 'طلبات الشركاء (تجريبي)', 'Mark settled (test)': 'تأكيد الدفع (اختبار)', 'Settled (sandbox)': 'تم تأكيد الدفع (تجريبي)', 'No orders yet.': 'لا طلبات بعد.', 'Reference': 'المرجع', 'Payable': 'المستحق', 'Payment': 'الدفع', 'Fulfilment': 'التنفيذ', 'Created': 'تاريخ الإنشاء', 'Store': 'المتجر',
     'Quotes and orders are switched off. They start when the owner sets PARTNER_ORDERS_ENABLED=1 on the server (needs PostgreSQL).': 'عروض الأسعار والطلبات متوقفة. تبدأ عندما يضبط المالك PARTNER_ORDERS_ENABLED=1 على الخادم (تحتاج PostgreSQL).',
     'Partner API (B2B)': 'واجهة الشركاء (B2B)', 'Issue sandbox key': 'إصدار مفتاح تجريبي', 'Issue live key': 'إصدار مفتاح فعلي', 'Revoke': 'إلغاء', 'Revoked': 'ملغى', 'Pause API': 'إيقاف الواجهة', 'Resume API': 'تشغيل الواجهة',
@@ -75,6 +79,10 @@
     [/^(\d+) (\w+) product\(s\): last price\/stock update failed$/, '$1 منتج من $2: فشل آخر تحديث للسعر أو المخزون'], [/^(\d+) product\(s\) cost more than their selling price$/, '$1 منتج تكلفته أعلى من سعر بيعه'],
     [/^(\d+) seller withdrawal\(s\) to pay$/, '$1 سحب للبائعين بانتظار الدفع'], [/^(\d+) return request\(s\) to review$/, '$1 طلب إرجاع للمراجعة'], [/^Location (\S+)$/, 'الموقع $1'],
     [/^(\d+) urgent · open the queue$/, '$1 عاجل · افتح القائمة'], [/^(.+): paused$/, '$1: متوقف'], [/^(.+): back on$/, '$1: يعمل من جديد'],
+    [/^(\d+) open reservations · (\d+) events waiting$/, '$1 حجز مفتوح · $2 حدث بالانتظار'], [/^Feed position (\d+) · (\d+) events kept$/, 'موضع التغذية $1 · $2 حدث محفوظ'],
+    [/^Today's peak: (\d+) shop · (\d+) seller$/, 'ذروة اليوم: $1 في المتجر · $2 في مركز البائعين'], [/^Return\s*$/, 'إرجاع'],
+    [/^Waiting for handoff: (\d+)$/, 'بانتظار التسليم للتنفيذ: $1'], [/^Handoff failing: (\d+)$/, 'تسليم متعثر: $1'], [/^Return (.+)$/, 'إرجاع $1'],
+    [/^(\d+) queued · (\d+) delivered in 24 h · (\d+) failed for good$/, '$1 بالانتظار · $2 وصلت خلال 24 ساعة · $3 فشلت نهائياً'],
     [/^(\d+) h ago$/, 'منذ $1 ساعة'], [/^(\d+) days ago$/, 'منذ $1 يوم'], [/^less than an hour ago$/, 'منذ أقل من ساعة']
   ]);
 })();

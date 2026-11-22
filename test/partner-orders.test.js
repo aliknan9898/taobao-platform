@@ -19,7 +19,7 @@ test('partner orders (PostgreSQL)', { skip: !RUN && 'set KINAN_TEST_PG=1 with a 
   const { Pool } = require('./support/minipg');
   const pool = Pool({ user: 'kinan_test', database: 'kinan_test', host: process.env.KINAN_TEST_PG_HOST || '127.0.0.1' });
   // fresh partner tables in the dedicated test database
-  await pool.query(fs.readFileSync(path.join(__dirname, '..', 'src', 'partner', 'migrations', '001_partner_core.down.sql'), 'utf8').replace(/--.*$/gm, ''));
+  await require('./support/partner-harness').resetPartnerSchema(pool);
   const pgm = require('../src/partner/pg'); pgm.setPool(pool);
   const db = require('../src/db');
   const S = require('../src/partner/store'); const C = require('../src/partner/catalog'); const O = require('../src/partner/orders'); const P = require('../src/partner/pricing');
