@@ -66,7 +66,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "lamp",
@@ -113,7 +114,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "mug",
@@ -179,7 +181,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "organiser",
@@ -226,7 +229,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "headphones",
@@ -292,7 +296,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "CN"
   },
   {
    "key": "charger",
@@ -339,7 +344,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "CN"
   },
   {
    "key": "backpack",
@@ -386,7 +392,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "tote",
@@ -433,7 +440,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "bottle",
@@ -499,7 +507,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "cushion",
@@ -546,7 +555,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "blanket",
@@ -592,7 +602,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "DE"
   },
   {
    "key": "speaker",
@@ -638,7 +649,8 @@
      "min_order_quantity": 1
     }
    ],
-   "withdrawn": false
+   "withdrawn": false,
+   "ships_from": "CN"
   }
  ]
 }

@@ -2,9 +2,9 @@
  "openapi": "3.1.1",
  "info": {
   "title": "KINAN Partner API",
-  "version": "1.0.0-batch1",
+  "version": "1.1.0-batch2",
   "summary": "Server-to-server API for approved partner stores.",
-  "description": "Batch 1: identity and the catalogue (snapshot + change feed). Quotes, orders, shipments, cancellations, returns, documents and webhooks follow in later batches under the same /api/partner/v1 base path; additive changes only within v1.\n\nConventions: JSON over HTTPS, ISO 8601 UTC times, ISO 4217 currencies, ISO 3166-1 alpha-2 countries, money as integer minor units with an explicit currency. Every response has an X-Request-Id header. Errors use RFC 9457 application/problem+json. The sandbox (knp_test_ keys) serves a synthetic catalogue only.",
+  "description": "Batch 1: identity and the catalogue (snapshot + change feed). Batch 2: quotes and orders (sandbox; switched on by KINAN). Shipments, shipments, cancellations, returns, documents and webhooks follow in later batches under the same /api/partner/v1 base path; additive changes only within v1.\n\nConventions: JSON over HTTPS, ISO 8601 UTC times, ISO 4217 currencies, ISO 3166-1 alpha-2 countries, money as integer minor units with an explicit currency. Every response has an X-Request-Id header. Errors use RFC 9457 application/problem+json. The sandbox (knp_test_ keys) serves a synthetic catalogue only.",
   "contact": {
    "name": "KINAN partner support",
    "url": "https://kinan.shop/legal"
@@ -27,6 +27,9 @@
   },
   {
    "name": "Catalogue"
+  },
+  {
+   "name": "Orders"
   }
  ],
  "paths": {
@@ -272,6 +275,274 @@
      }
     }
    }
+  },
+  "/quotes": {
+   "post": {
+    "tags": [
+     "Orders"
+    ],
+    "operationId": "createQuote",
+    "summary": "Price a basket for a destination",
+    "description": "Validates the destination and every line, prices it from your price list and returns a locked quote that expires (15 minutes by default). A quote does not reserve stock. Check the quote before you take your customer’s payment where you can.",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/QuoteRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Quote",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Quote"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "413": {
+      "$ref": "#/components/responses/TooLarge"
+     },
+     "415": {
+      "$ref": "#/components/responses/UnsupportedMedia"
+     }
+    }
+   }
+  },
+  "/orders": {
+   "post": {
+    "tags": [
+     "Orders"
+    ],
+    "operationId": "createOrder",
+    "summary": "Place a B2B order from a quote",
+    "description": "Exactly once per Idempotency-Key: a retry with the same key and body returns the original answer (header Idempotent-Replayed: true); the same key with another body is 409 IDEMPOTENCY_CONFLICT; a new key with an external_order_ref already used is 409 ORDER_REFERENCE_CONFLICT. Stock KINAN controls is reserved. Fulfilment starts only after settlement or approved terms. Your external_order_ref links your retail order; it never proves payment to KINAN.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idem"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OrderRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Order created (or replayed)",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       },
+       "Location": {
+        "schema": {
+         "type": "string"
+        }
+       },
+       "Idempotent-Replayed": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Order"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     },
+     "413": {
+      "$ref": "#/components/responses/TooLarge"
+     },
+     "415": {
+      "$ref": "#/components/responses/UnsupportedMedia"
+     }
+    }
+   },
+   "get": {
+    "tags": [
+     "Orders"
+    ],
+    "operationId": "listOrders",
+    "summary": "Your orders, newest first",
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 100,
+       "default": 50
+      }
+     },
+     {
+      "name": "cursor",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "external_order_ref",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Orders",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OrderPage"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     }
+    }
+   }
+  },
+  "/orders/{order_id}": {
+   "get": {
+    "tags": [
+     "Orders"
+    ],
+    "operationId": "getOrder",
+    "summary": "One order",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Order",
+      "headers": {
+       "X-Request-Id": {
+        "$ref": "#/components/headers/RequestId"
+       }
+      },
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Order"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "401": {
+      "$ref": "#/components/responses/Unauthorized"
+     },
+     "403": {
+      "$ref": "#/components/responses/Forbidden"
+     },
+     "422": {
+      "$ref": "#/components/responses/Unprocessable"
+     },
+     "429": {
+      "$ref": "#/components/responses/RateLimited"
+     },
+     "503": {
+      "$ref": "#/components/responses/Unavailable"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     }
+    }
+   }
   }
  },
  "components": {
@@ -354,6 +625,16 @@
     "schema": {
      "type": "string"
     }
+   },
+   "idem": {
+    "name": "Idempotency-Key",
+    "in": "header",
+    "required": true,
+    "schema": {
+     "type": "string",
+     "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+    },
+    "description": "Unique per new order; reuse it for retries of the same order. Kept for 30 days."
    }
   },
   "schemas": {
@@ -586,6 +867,13 @@
      },
      "pricing_note": {
       "type": "string"
+     },
+     "ships_from": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Country the goods ship from (fulfilment location)."
      }
     },
     "additionalProperties": false
@@ -837,7 +1125,14 @@
        "UNSUPPORTED_DESTINATION",
        "RATE_LIMITED",
        "TEMPORARILY_UNAVAILABLE",
-       "INTERNAL"
+       "INTERNAL",
+       "QUOTE_EXPIRED",
+       "QUOTE_MISMATCH",
+       "STOCK_CHANGED",
+       "IDEMPOTENCY_CONFLICT",
+       "ORDER_REFERENCE_CONFLICT",
+       "BASKET_NOT_ELIGIBLE",
+       "INVALID_STATE"
       ]
      },
      "request_id": {
@@ -867,6 +1162,459 @@
        },
        "additionalProperties": false
       }
+     }
+    },
+    "additionalProperties": false
+   },
+   "Destination": {
+    "type": "object",
+    "required": [
+     "country",
+     "postal_code"
+    ],
+    "properties": {
+     "country": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$"
+     },
+     "postal_code": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "QuoteRequest": {
+    "type": "object",
+    "required": [
+     "currency",
+     "destination",
+     "items"
+    ],
+    "properties": {
+     "currency": {
+      "type": "string",
+      "const": "EUR"
+     },
+     "destination": {
+      "$ref": "#/components/schemas/Destination"
+     },
+     "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+       "type": "object",
+       "required": [
+        "variant_id",
+        "quantity"
+       ],
+       "properties": {
+        "variant_id": {
+         "type": "string"
+        },
+        "quantity": {
+         "type": "integer",
+         "minimum": 1,
+         "maximum": 999
+        }
+       },
+       "additionalProperties": false
+      }
+     }
+    },
+    "additionalProperties": false
+   },
+   "Line": {
+    "type": "object",
+    "required": [
+     "variant_id",
+     "product_id",
+     "quantity",
+     "unit_ex_tax_minor",
+     "line_ex_tax_minor"
+    ],
+    "properties": {
+     "variant_id": {
+      "type": "string"
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "quantity": {
+      "type": "integer"
+     },
+     "unit_ex_tax_minor": {
+      "type": "integer"
+     },
+     "line_ex_tax_minor": {
+      "type": "integer"
+     }
+    },
+    "additionalProperties": false
+   },
+   "Totals": {
+    "type": "object",
+    "required": [
+     "items_ex_tax_minor",
+     "shipping_ex_tax_minor",
+     "duties_minor",
+     "handling_minor",
+     "tax_minor",
+     "payable_minor"
+    ],
+    "properties": {
+     "items_ex_tax_minor": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "shipping_ex_tax_minor": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "duties_minor": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "handling_minor": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "tax_minor": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "payable_minor": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "additionalProperties": false
+   },
+   "Charge": {
+    "type": "object",
+    "required": [
+     "type",
+     "payer",
+     "included_in_payable"
+    ],
+    "properties": {
+     "type": {
+      "type": "string"
+     },
+     "payer": {
+      "type": "string",
+      "enum": [
+       "merchant",
+       "kinan",
+       "none_expected",
+       "end_customer"
+      ]
+     },
+     "included_in_payable": {
+      "type": "boolean"
+     },
+     "note": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "Quote": {
+    "type": "object",
+    "required": [
+     "quote_id",
+     "version",
+     "currency",
+     "expires_at",
+     "created_at",
+     "destination",
+     "items",
+     "totals",
+     "tax_treatment",
+     "charges",
+     "fulfillment_estimate",
+     "price_list_version"
+    ],
+    "properties": {
+     "quote_id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "integer"
+     },
+     "currency": {
+      "type": "string"
+     },
+     "expires_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "destination": {
+      "$ref": "#/components/schemas/Destination"
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Line"
+      }
+     },
+     "totals": {
+      "$ref": "#/components/schemas/Totals"
+     },
+     "tax_treatment": {
+      "type": "string"
+     },
+     "charges": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Charge"
+      }
+     },
+     "fulfillment_estimate": {
+      "type": "object",
+      "required": [
+       "ship_from",
+       "parcels",
+       "delivery_min_business_days",
+       "delivery_max_business_days"
+      ],
+      "properties": {
+       "ship_from": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "parcels": {
+        "type": "integer"
+       },
+       "delivery_min_business_days": {
+        "type": "integer"
+       },
+       "delivery_max_business_days": {
+        "type": "integer"
+       }
+      },
+      "additionalProperties": false
+     },
+     "price_list_version": {
+      "type": "integer"
+     },
+     "charges_policy": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "Address": {
+    "type": "object",
+    "required": [
+     "recipient",
+     "line1",
+     "city",
+     "postal_code",
+     "country"
+    ],
+    "properties": {
+     "recipient": {
+      "type": "string"
+     },
+     "line1": {
+      "type": "string"
+     },
+     "line2": {
+      "type": "string"
+     },
+     "city": {
+      "type": "string"
+     },
+     "region": {
+      "type": "string"
+     },
+     "postal_code": {
+      "type": "string"
+     },
+     "country": {
+      "type": "string"
+     },
+     "phone": {
+      "type": "string"
+     },
+     "email": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   },
+   "OrderRequest": {
+    "type": "object",
+    "required": [
+     "quote_id",
+     "external_order_ref",
+     "shipping_address"
+    ],
+    "properties": {
+     "quote_id": {
+      "type": "string"
+     },
+     "external_order_ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:#/-]{1,64}$"
+     },
+     "shipping_address": {
+      "$ref": "#/components/schemas/Address"
+     }
+    },
+    "additionalProperties": false
+   },
+   "Order": {
+    "type": "object",
+    "required": [
+     "order_id",
+     "external_order_ref",
+     "quote_id",
+     "version",
+     "status",
+     "currency",
+     "items",
+     "totals",
+     "ship_to",
+     "created_at",
+     "updated_at",
+     "links"
+    ],
+    "properties": {
+     "order_id": {
+      "type": "string"
+     },
+     "external_order_ref": {
+      "type": "string"
+     },
+     "quote_id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "integer"
+     },
+     "status": {
+      "type": "object",
+      "required": [
+       "payment",
+       "fulfillment"
+      ],
+      "properties": {
+       "payment": {
+        "type": "string",
+        "enum": [
+         "pending",
+         "approved_terms",
+         "settled",
+         "failed",
+         "partially_credited",
+         "credited"
+        ]
+       },
+       "fulfillment": {
+        "type": "string",
+        "enum": [
+         "received",
+         "on_hold",
+         "confirmed",
+         "processing",
+         "partially_shipped",
+         "shipped",
+         "delivered",
+         "cancelled",
+         "exception"
+        ]
+       }
+      },
+      "additionalProperties": false
+     },
+     "currency": {
+      "type": "string"
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Line"
+      }
+     },
+     "totals": {
+      "$ref": "#/components/schemas/Totals"
+     },
+     "ship_to": {
+      "type": "object",
+      "properties": {
+       "recipient": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "city": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "postal_code": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "country": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      },
+      "additionalProperties": false
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "links": {
+      "type": "object",
+      "properties": {
+       "self": {
+        "type": "string"
+       }
+      },
+      "additionalProperties": false
+     }
+    },
+    "additionalProperties": false
+   },
+   "OrderPage": {
+    "type": "object",
+    "required": [
+     "data",
+     "next_cursor"
+    ],
+    "properties": {
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Order"
+      }
+     },
+     "next_cursor": {
+      "type": [
+       "string",
+       "null"
+      ]
      }
     },
     "additionalProperties": false
@@ -983,6 +1731,51 @@
    },
    "Unavailable": {
     "description": "Store paused or service unavailable",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "Conflict": {
+    "description": "Quote expired or mismatched, stock changed, idempotency or order-reference conflict: fetch a fresh quote or use the right key",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "TooLarge": {
+    "description": "Body larger than 64 KB",
+    "headers": {
+     "X-Request-Id": {
+      "$ref": "#/components/headers/RequestId"
+     }
+    },
+    "content": {
+     "application/problem+json": {
+      "schema": {
+       "$ref": "#/components/schemas/Problem"
+      }
+     }
+    }
+   },
+   "UnsupportedMedia": {
+    "description": "Send application/json",
     "headers": {
      "X-Request-Id": {
       "$ref": "#/components/headers/RequestId"

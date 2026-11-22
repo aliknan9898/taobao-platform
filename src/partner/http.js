@@ -59,6 +59,38 @@ function marketLocale(ctx, url) {
   return { market, locale, limit: lim, cursor: q.get('cursor') || '' };
 }
 
+/** Quotes and orders need PostgreSQL and the owner's switch (PARTNER_ORDERS_ENABLED=1). */
+function ordering() {
+  const pgm = require('./pg');
+  if (!pgm.enabled()) throw new PartnerError(503, 'TEMPORARILY_UNAVAILABLE', 'Ordering is not enabled yet', 'Quotes and orders are switched off for now. The catalogue works as usual.');
+  try { pgm.pool(); } catch { throw new PartnerError(503, 'TEMPORARILY_UNAVAILABLE', 'Ordering unavailable', 'Ordering needs the PostgreSQL database.'); }
+  if (!pgm.pool()) throw new PartnerError(503, 'TEMPORARILY_UNAVAILABLE', 'Ordering unavailable', 'Ordering needs the PostgreSQL database.');
+  startWorkers();
+  return require('./orders');
+}
+let workers = null;
+/** Background upkeep while ordering is on: fulfilment intents, expired reservations, old idempotency records. */
+function startWorkers() {
+  if (workers || process.env.NODE_ENV === 'test') return;
+  const o = require('./orders'); let n = 0;
+  workers = setInterval(() => {
+    for (const env of ['sandbox', 'live']) { o.fulfilmentWorker(env).catch((e) => console.error('[partner] worker', e.message)); o.sweepExpired(env).catch((e) => console.error('[partner] sweep', e.message)); }
+    if (++n % 1440 === 0) o.purgeIdempotency().catch(() => {});
+  }, 60e3);
+  workers.unref?.();
+}
+function sendTrue(res, status, out, rid, headers) { send(res, status, out, rid, headers); return true; }
+/** JSON body, at most 64 KB, application/json only. */
+function body(req) {
+  if (!/^application\/json\b/i.test(String(req.headers['content-type'] || ''))) return Promise.reject(new PartnerError(415, 'INVALID_INPUT', 'Send application/json'));
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', (c) => { size += c.length; if (size > 65536) { reject(new PartnerError(413, 'INVALID_INPUT', 'Body too large', 'At most 64 KB.')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => { try { const v = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(); resolve(v); } catch { reject(new PartnerError(400, 'INVALID_INPUT', 'Body is not a JSON object')); } });
+    req.on('error', reject);
+  });
+}
+
 /** Handles the request when it is for the Partner API; returns false otherwise. */
 async function handle(req, res, p, url) {
   if (p !== BASE && !p.startsWith(`${BASE}/`)) return false;
@@ -68,7 +100,9 @@ async function handle(req, res, p, url) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'X-Request-Id': rid, 'Cache-Control': 'public, max-age=300' });
       res.end(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'partner-api', 'openapi.json'))); return true;
     }
-    if (req.method !== 'GET') throw new PartnerError(405, 'METHOD_NOT_ALLOWED', 'Method not allowed', 'Batch 1 of the Partner API is read-only (catalogue).');
+    const sub0 = p.slice(BASE.length);
+    const writes = ['/quotes', '/orders'];
+    if (req.method !== 'GET' && !(req.method === 'POST' && writes.includes(sub0))) throw new PartnerError(405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     const ctx = authn(req);
     if (ctx.store.status !== 'active') throw new PartnerError(503, 'TEMPORARILY_UNAVAILABLE', 'Store paused', 'KINAN has paused this store’s API access. Contact your KINAN account manager.');
     const wait = take(ctx.store.id);
@@ -90,6 +124,17 @@ async function handle(req, res, p, url) {
       out = catalog.product(ctx, id, marketLocale(ctx, url));
     } else if (sub === '/catalog/changes') {
       need(ctx, 'catalog:read'); out = catalog.changes(ctx, marketLocale(ctx, url));
+    } else if (sub === '/quotes' || sub === '/orders' || sub.startsWith('/orders/')) {
+      const orders = ordering();
+      if (sub === '/quotes') { need(ctx, 'quotes:write'); return sendTrue(res, 201, await orders.createQuote(ctx, await body(req)), rid); }
+      if (sub === '/orders' && req.method === 'POST') {
+        need(ctx, 'orders:write');
+        const r = await orders.createOrder(ctx, await body(req), req.headers['idempotency-key']);
+        return sendTrue(res, r.status, r.body, rid, { ...(r.replayed ? { 'Idempotent-Replayed': 'true' } : {}), Location: r.body.links?.self || '' });
+      }
+      need(ctx, 'orders:read');
+      if (sub === '/orders') out = await orders.listOrders(ctx, { limit: url.searchParams.get('limit'), cursor: url.searchParams.get('cursor'), external_order_ref: url.searchParams.get('external_order_ref') });
+      else { const id = decodeURIComponent(sub.slice('/orders/'.length)); if (!/^po_[A-Za-z0-9]{6,64}$/.test(id)) throw new PartnerError(404, 'RESOURCE_NOT_FOUND', 'Order not found'); out = await orders.getOrder(ctx, id); }
     } else {
       throw new PartnerError(404, 'RESOURCE_NOT_FOUND', 'Not found', 'Unknown Partner API path. See /api/partner/v1/openapi.json.');
     }

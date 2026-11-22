@@ -10,6 +10,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Isolated PostgreSQL for the Partner API order tests (real transactions, two processes, crash after commit)
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kinan_test
+          POSTGRES_DB: kinan_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U kinan_test" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,6 +28,10 @@ jobs:
           node-version-file: package.json
       - run: npm install --no-audit --no-fund
       - run: npm test
+      - name: Partner API orders on real PostgreSQL
+        run: node --test test/partner-orders.test.js
+        env:
+          KINAN_TEST_PG: '1'
       - run: node --check src/server.js
       - run: node --check src/db.js
       - run: node --check src/auth.js
