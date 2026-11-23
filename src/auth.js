@@ -10,10 +10,11 @@ const db = require('./db');
 const { config } = require('./config');
 
 const SESSION_TTL = 30 * 86400e3;
-const ROLES = ['admin', 'seller', 'buyer', 'warehouse', 'procurement', 'finance', 'support', 'operator'];
+const ROLES = ['admin', 'seller', 'buyer', 'warehouse', 'procurement', 'finance', 'support', 'operator', 'ly_staff'];
 /** Staff roles the admin can create, and what each one is for. */
 const STAFF_ROLES = {
   operator: 'Limited Admin workspace and assigned business email',
+  ly_staff: 'Libya only: the Libya functions the owner grants (catalogue, stock, orders, coverage, finance)',
   admin: 'Everything', procurement: 'Buys orders on Taobao / AliExpress, answers item requests',
   warehouse: 'Receives, checks and ships parcels in China', finance: 'Withdrawals, refunds, wallets and reports',
   support: 'Customer questions: orders, returns, item requests, password links'
@@ -88,12 +89,12 @@ function register({ email, password, name, role, shop_name, lang, accept_terms, 
   return publicUser(user);
 }
 
-function createStaff({ email, password, name, role, mailboxes = [] }) {
+function createStaff({ email, password, name, role, mailboxes = [], ly_perms = [] }) {
   if (!Object.hasOwn(STAFF_ROLES, role)) throw httpError(400, 'Invalid role');
-  if (!validEmail(email) || typeof password !== 'string' || password.length < (role === 'operator' ? 12 : 8)) throw httpError(400, 'Invalid data');
+  if (!validEmail(email) || typeof password !== 'string' || password.length < (['operator', 'ly_staff'].includes(role) ? 12 : 8)) throw httpError(400, 'Invalid data');
   email = email.trim().toLowerCase();
   if (db.users.find((u) => u.email === email)) throw httpError(409, 'Email is already registered');
-  return publicUser(db.users.insert({ email, name, role, status: 'active', pass: hashPassword(password), ...(role === 'operator' ? { mailboxes } : {}) }));
+  return publicUser(db.users.insert({ email, name, role, status: 'active', pass: hashPassword(password), ...(role === 'operator' ? { mailboxes } : {}), ...(role === 'ly_staff' ? { ly_perms: (Array.isArray(ly_perms) ? ly_perms : []).filter((f) => ['catalog', 'stock', 'orders', 'coverage', 'finance'].includes(f)) } : {}) }));
 }
 
 /** Sign in. `app` (shop / seller) picks the right account when the email has both. */

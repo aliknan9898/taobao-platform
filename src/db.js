@@ -18,6 +18,8 @@ const COLLECTIONS = [['users', 'usr'], ['sessions', 'ses'], ['sellers', 'sel'], 
   ['coupons', 'cpn'], ['reviews', 'rev'], ['wishlist', 'wsh'], ['carts', 'crt'], ['push_subs', 'psh'], ['messages', 'chat'], ['views', 'vw'], ['kyc_docs', 'kyc'], ['questions', 'qst'], ['giftcards', 'gc'], ['devices', 'dev'], ['media', 'med'], ['product_review_feedback', 'prf'], ['audit', 'aud'], ['exceptions_meta', 'exm'],
   // delivery eligibility: one document per listing × destination country (services/eligibility.js)
   ['eligibility', 'elg'],
+  // Libya market (services/libya.js)
+  ['ly_offers', 'lyo'], ['ly_cities', 'lyc'], ['ly_locations', 'lyl'], ['ly_stock', 'lys'], ['ly_moves', 'lym'], ['ly_reservations', 'lyr'], ['ly_orders', 'lyord'], ['ly_cash', 'lyk'], ['ly_returns', 'lyt'],
   // Partner API (B2B): organisations, stores, hashed keys, projected state, change feed, synthetic sandbox catalogue
   ['partner_orgs', 'por'], ['partner_stores', 'pst'], ['partner_keys', 'pky'], ['partner_state', 'pps'], ['partner_changes', 'pch'], ['partner_sandbox', 'psb']];
 
