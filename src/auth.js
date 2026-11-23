@@ -41,7 +41,7 @@ const ownerEmail = (e) => Boolean(e && config.adminGoogleEmails.includes(String(
  * Has full access to every app.
  */
 const isOwner = (u) => Boolean(u && u.email && ownerEmail(u.email) && (u.role === 'admin' || u.google_sub));
-const publicUser = (u) => u && { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, seller_id: u.seller_id, owner: isOwner(u) || undefined, ...(u.delivery_country ? { delivery_country: u.delivery_country } : {}) };
+const publicUser = (u) => u && { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, seller_id: u.seller_id, owner: isOwner(u) || undefined, ...(u.delivery_country ? { delivery_country: u.delivery_country } : {}), ...(u.role === 'ly_staff' ? { ly_perms: u.ly_perms || [] } : {}) };
 
 /** The owner's seller shop (created on first use, already approved). */
 function ownerSeller(user) {

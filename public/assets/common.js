@@ -20,7 +20,7 @@ const K = (() => {
     // The shop's delivery country (set once the customer confirms it) goes with every request; catalogue answers
     // that arrive after the customer switched country are dropped (never resolved), so they cannot paint over newer ones.
     const country = window.KinanCountry || '';
-    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(window.KinanLang ? { 'X-Kinan-Lang': window.KinanLang.lang } : {}), ...(country ? { 'X-Kinan-Country': country } : {}), ...(/^\/seller/.test(location.pathname) ? { 'X-Kinan-App': 'seller' } : {}) }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(window.KinanLang ? { 'X-Kinan-Lang': window.KinanLang.lang } : {}), ...(country ? { 'X-Kinan-Country': country } : {}), ...(window.KinanCity ? { 'X-Kinan-City': window.KinanCity } : {}), ...(/^\/seller/.test(location.pathname) ? { 'X-Kinan-App': 'seller' } : {}) }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
     const j = await r.json().catch(() => ({}));
     if (country !== (window.KinanCountry || '') && /^\/api\/(catalog|categories|cart\/check)/.test(path)) return new Promise(() => {});
     if (r.status === 401 && onUnauthorized) onUnauthorized();
