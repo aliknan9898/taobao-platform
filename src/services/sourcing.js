@@ -127,10 +127,18 @@ const NOT_FOR_US = /\b(medical|medicine|pill|supplement|drug|cbd|weight loss|sli
 
 // ---------------- settings & state ----------------
 
+/**
+ * Owner's rule (23 Nov 2026): a product is accepted for any country it reaches within 3 weeks (21 days).
+ * Limits saved before this rule read as 21; a limit the owner sets afterwards (flag delivery_limit_3w) is kept, up to 21.
+ */
+const MAX_DELIVERY_DAYS = 21;
 function deliveryLimit(value, min, updated) {
-  const days = Math.floor(Number(value) || 20);
-  return !updated && days === 15 ? 20 : Math.min(20, Math.max(min, days));
+  if (!updated) return MAX_DELIVERY_DAYS;
+  const days = Math.floor(Number(value) || MAX_DELIVERY_DAYS);
+  return Math.min(MAX_DELIVERY_DAYS, Math.max(min, days));
 }
+/** Owner's rule (23 Nov 2026): demand of at least 99 (CJ: shops listing the product; AliExpress: orders). */
+const MIN_DEMAND = 99;
 
 function prefs() {
   const p = state().prefs || {};
@@ -140,9 +148,9 @@ function prefs() {
     daily: p.daily !== false, per_day: Math.min(1000, Math.max(0, Math.floor(Number(p.per_day ?? 1000)))),
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || 70)),
     min_cost: Math.max(0, Number(p.min_cost ?? 2)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40)),
-    min_listed: Math.max(0, Math.floor(Number(p.min_listed ?? 100))), min_stock: Math.max(1, Math.floor(Number(p.min_stock) || 20)),
-    max_days_eu: deliveryLimit(p.max_days_eu, 2, p.delivery_limit_updated),
-    max_days_gb: deliveryLimit(p.max_days_gb, 2, p.delivery_limit_updated),
+    min_listed: p.demand_rule_99 ? Math.max(0, Math.floor(Number(p.min_listed ?? MIN_DEMAND))) : MIN_DEMAND, min_stock: Math.max(1, Math.floor(Number(p.min_stock) || 20)),
+    max_days_eu: deliveryLimit(p.max_days_eu, 2, p.delivery_limit_3w),
+    max_days_gb: deliveryLimit(p.max_days_gb, 2, p.delivery_limit_3w),
     min_quality: Math.min(10, Math.max(1, Math.floor(Number(p.min_quality) || 7))), per_keyword: Math.min(20, Math.max(1, Math.floor(Number(p.per_keyword) || 4))),
     warehouses: (list(p.warehouses).length ? p.warehouses : EUROPE).map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x) && (EU.has(x) || x === 'GB')),
     // departments added later are switched on even when the owner picked a list before they existed
@@ -154,7 +162,7 @@ function save(patch) { return db.settings.get(SID) ? db.settings.update(SID, typ
 function savePrefs(b = {}) {
   const cur = state().prefs || {};
   const { max_days_eu, max_days_gb } = prefs();
-  const next = { ...cur, max_days_eu, max_days_gb, delivery_limit_updated: true };
+  const next = { ...cur, max_days_eu, max_days_gb, min_listed: prefs().min_listed, delivery_limit_3w: true, demand_rule_99: true };
   for (const k of ['batch', 'per_day', 'markup_pct', 'min_cost', 'max_cost', 'min_listed', 'min_stock', 'max_days_eu', 'max_days_gb', 'min_quality', 'per_keyword']) if (b[k] !== undefined && b[k] !== '') next[k] = Number(b[k]);
   if (b.daily !== undefined) next.daily = Boolean(b.daily);
   if (b.warehouses !== undefined) next.warehouses = (Array.isArray(b.warehouses) ? b.warehouses : String(b.warehouses).split(/[\s,]+/)).filter(Boolean);
@@ -602,4 +610,4 @@ function publicDepartments() {
 
 /** The owner's Telegram: every product added in this run (name, department, AI score, delivery, cost → price,
  *  keywords, link), why the others were skipped, and the CJ points left. Split into messages Telegram accepts. */
-module.exports = { deliveryLimit, reviewRejection, delivery, applyPhotos, SCHEMA, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };
+module.exports = { deliveryLimit, MAX_DELIVERY_DAYS, MIN_DEMAND, reviewRejection, delivery, applyPhotos, SCHEMA, reclassify, ruleFor, DEPARTMENTS, prefs, savePrefs, status, start, stop, run, tick, publicDepartments, queue, curate, _running: () => running };

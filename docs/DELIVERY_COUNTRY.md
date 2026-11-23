@@ -20,6 +20,14 @@ Part 1 of the Delivery Country handoff: covers sections 1–7. The Libya market 
   - The real address decides, whatever country the customer browsed. The server revalidates country, postal code (in enforced markets), variant, quantity, stock and shipping quote before creating an order.
   - The shop sends the total it showed. If the server's total differs, no order is created (`409 TOTAL_CHANGED`); the customer sees the new total and confirms it.
 
+## Owner's acceptance rule (23 Nov 2026)
+
+- **Delivery:** a product is accepted for every country it reaches within **3 weeks (21 days)**. This is the default limit per country and the ceiling for the import settings. A limit saved earlier reads as 21; a shorter limit the owner saves afterwards is kept.
+- **Demand:** at least **99** (shown as "99+").
+  - AliExpress: supplier orders.
+  - CJ: CJ publishes no sales count, so the number of shops listing the product is used.
+- **Import checks:** the AliExpress builder checks GB, US, DE, FR, ES, IT, PL, MT, CA, AU and NZ at import, and one market within the limit is enough. The eligibility queue then checks every other market.
+
 ## Data model
 
 - **Collection `eligibility`** (table `kinan_docs`, so no schema migration): one document per listing × country, with id `<listing_id>|<CC>`.

@@ -33,7 +33,8 @@ const CONFIG_ID = 'eligibility_config';
 const STATE_ID = 'eligibility_state';
 
 // ---------------- configuration ----------------
-const DEFAULTS = { default_max_days: 15, max_days: {}, ttl_days: { eligible: 14, unavailable: 7, over_limit: 7 }, markets: {}, batch: 40 };
+// default transit limit: 3 weeks (owner's rule, 23 Nov 2026)
+const DEFAULTS = { default_max_days: 21, max_days: {}, ttl_days: { eligible: 14, unavailable: 7, over_limit: 7 }, markets: {}, batch: 40 };
 function config() {
   const c = db.settings.get(CONFIG_ID) || {};
   return { ...DEFAULTS, ...c, max_days: { ...(c.max_days || {}) }, ttl_days: { ...DEFAULTS.ttl_days, ...(c.ttl_days || {}) }, markets: { ...(c.markets || {}) } };
@@ -42,7 +43,7 @@ const clampDays = (n) => Math.min(60, Math.max(1, Math.floor(Number(n))));
 function saveConfig(b = {}) {
   const cur = config();
   const next = { ...cur };
-  if (b.default_max_days !== undefined) next.default_max_days = clampDays(b.default_max_days) || 15;
+  if (b.default_max_days !== undefined) next.default_max_days = clampDays(b.default_max_days) || 21;
   if (b.max_days && typeof b.max_days === 'object') {
     for (const [cc, v] of Object.entries(b.max_days)) {
       if (!isMarket(cc)) throw Object.assign(new Error(`Unknown country ${cc}`), { status: 400 });

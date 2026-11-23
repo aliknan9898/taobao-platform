@@ -130,14 +130,14 @@ test('one market passes while other checks are pending: the product appears in t
 });
 
 test('transit limit and freshness: over-limit hidden, missing estimate pending, expired result pending, limit configurable', async () => {
-  ROUTES.vSlow = { ES: { max: 20 } };
+  ROUTES.vSlow = { ES: { max: 25 } }; // the default limit is 3 weeks (21 days)
   L.slow = cjListing('Slow vase', [{ vid: 'vSlow' }]);
   enforce('ES');
   const l = db.listings.get(L.slow.id);
   await E.verifyOne(l, l.skus[0], 'ES');
   assert.equal(E.variantState(l, l.skus[0], 'ES').state, 'over_limit');
   assert.equal((await api('GET', '/api/catalog?q=vase', null, { country: 'ES' })).body.total, 0);
-  E.saveConfig({ max_days: { ES: 21 } });
+  E.saveConfig({ max_days: { ES: 25 } });
   assert.equal(E.variantState(l, l.skus[0], 'ES').state, 'eligible', 'a per-country limit applies without new checks');
   assert.equal((await api('GET', '/api/catalog?q=vase', null, { country: 'ES' })).body.total, 1, 'catalogue cache follows the change');
   E.saveConfig({ max_days: { ES: null } });
@@ -293,7 +293,7 @@ test('delivery country preference: saved for signed-in customers; geo lookup ans
 test('Admin: coverage by country and supplier, variant detail, bounded retries; configuration and data writes are owner-only', async () => {
   const rep = (await api('GET', '/api/admin/eligibility', null, { token: T.owner })).body;
   const nz = rep.markets.find((m) => m.country === 'NZ');
-  assert.equal(nz.mode, 'enforce'); assert.equal(nz.max_days, 15);
+  assert.equal(nz.mode, 'enforce'); assert.equal(nz.max_days, 21, 'default: 3 weeks');
   assert.ok(nz.by_supplier.cj.available >= 1 && nz.by_supplier.cj.unavailable >= 1);
   const det = (await api('GET', `/api/admin/eligibility/listing/${L.mug.id}`, null, { token: T.owner })).body;
   const row = det.rows.find((x) => x.country === 'DE' && x.props === 'Black');

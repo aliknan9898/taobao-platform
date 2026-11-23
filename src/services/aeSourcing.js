@@ -1,7 +1,7 @@
 'use strict';
 /**
  * AliExpress catalog builder — the same rules as the CJ one (sourcing.js):
- *  (delivery: at most `max_days`, 20 days by default)
+ *  (delivery: at most `max_days`, 21 days by default, to any one checked market)
  *  1. searches AliExpress (dropshipping search) with the same department keywords, most-ordered first
  *  2. keeps only products that reach the customer in at most `max_days` days — the fastest delivery option
  *     of each "ships from" option, for the UK and for Germany (EU)
@@ -16,9 +16,11 @@ const now = () => Date.now();
 const list = (v) => (Array.isArray(v) ? v : []);
 const money = (v) => Math.round(Number(v) * 100) / 100;
 const SID = 'ae_sourcing';
-const DELIVERY_MARKETS = ['GB', 'US', 'DE', 'FR', 'ES', 'IT', 'PL', 'MT'];
+// destinations checked at import (any one within the limit is enough); the eligibility queue checks every market afterwards
+const DELIVERY_MARKETS = ['GB', 'US', 'DE', 'FR', 'ES', 'IT', 'PL', 'MT', 'CA', 'AU', 'NZ'];
 const DAILY_TARGET = 1000;
-const MIN_SUPPLIER_ORDERS = 1001;
+// Owner's rule (23 Nov 2026): at least 99 orders ("99+")
+const MIN_SUPPLIER_ORDERS = 99;
 
 function state() { return db.settings.get(SID) || {}; }
 function save(patch) { const s = db.settings.get(SID); return s ? db.settings.update(SID, typeof patch === 'function' ? patch : { ...patch }) : db.settings.insert({ id: SID, ...(typeof patch === 'function' ? patch({}) : patch) }); }
@@ -28,15 +30,15 @@ function prefs() {
     enabled: p.enabled !== false,
     per_run: Math.min(150, Math.max(1, Math.floor(Number(p.per_run) === 50 ? 150 : Number(p.per_run) || 150))),
     per_day: Math.min(DAILY_TARGET, Math.max(0, Math.floor(Number(p.per_day ?? DAILY_TARGET) || 0))),
-    max_days: require('./sourcing').deliveryLimit(p.max_days, 3, p.delivery_limit_updated),
-    min_orders: Math.max(MIN_SUPPLIER_ORDERS, Math.floor(Number(p.min_orders) || 0)),
+    max_days: require('./sourcing').deliveryLimit(p.max_days, 3, p.delivery_limit_3w),
+    min_orders: p.demand_rule_99 ? Math.max(MIN_SUPPLIER_ORDERS, Math.floor(Number(p.min_orders) || 0)) : MIN_SUPPLIER_ORDERS,
     markup_pct: Math.min(400, Math.max(10, Number(p.markup_pct) || require('./sourcing').prefs().markup_pct)),
     min_cost: Math.max(0, Number(p.min_cost ?? 1)), max_cost: Math.min(300, Math.max(2, Number(p.max_cost) || 40))
   };
 }
 function savePrefs(b = {}) {
   const cur = state().prefs || {};
-  const next = { ...cur, max_days: prefs().max_days, delivery_limit_updated: true };
+  const next = { ...cur, max_days: prefs().max_days, min_orders: prefs().min_orders, delivery_limit_3w: true, demand_rule_99: true };
   for (const k of ['per_run', 'per_day', 'max_days', 'min_orders', 'markup_pct', 'min_cost', 'max_cost']) if (b[k] !== undefined && b[k] !== '') next[k] = Number(b[k]);
   if (b.enabled !== undefined) next.enabled = Boolean(b.enabled);
   save({ prefs: next }); return prefs();

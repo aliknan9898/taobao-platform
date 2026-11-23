@@ -188,11 +188,13 @@ test('a malformed CJ photo review does not block the next product', async () => 
   assert.equal(db.listings.find((row) => row.cj_pid === 'D12')?.status, 'active');
 });
 
-test('CJ upgrades the previous 15-day ceiling and keeps explicitly saved shorter limits', () => {
-  db.settings.update('sourcing', (state) => ({ ...state, prefs: { max_days_eu: 15, max_days_gb: 15 } }));
-  assert.equal(sourcing.prefs().max_days_eu, 20);
-  assert.equal(sourcing.prefs().max_days_gb, 20);
-  const saved = sourcing.savePrefs({ max_days_eu: 15, max_days_gb: 21 });
-  assert.equal(saved.max_days_eu, 15);
-  assert.equal(saved.max_days_gb, 20);
+test('CJ: limits and demand saved before the 3-week / 99 rule read as 21 days and 99; later choices are kept', () => {
+  db.settings.update('sourcing', (state) => ({ ...state, prefs: { max_days_eu: 15, max_days_gb: 20, min_listed: 1000, delivery_limit_updated: true } }));
+  assert.equal(sourcing.prefs().max_days_eu, 21);
+  assert.equal(sourcing.prefs().max_days_gb, 21);
+  assert.equal(sourcing.prefs().min_listed, 99);
+  const saved = sourcing.savePrefs({ max_days_eu: 15, max_days_gb: 30, min_listed: 200 });
+  assert.equal(saved.max_days_eu, 15, 'a shorter limit chosen later is kept');
+  assert.equal(saved.max_days_gb, 21, 'never above 3 weeks');
+  assert.equal(saved.min_listed, 200);
 });

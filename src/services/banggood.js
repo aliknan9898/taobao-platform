@@ -23,7 +23,7 @@ const PREFS = 'set_banggood_prefs';
 const enabled = () => bg.enabled();
 
 // ---------------- settings ----------------
-function prefs() { return { markup_pct: 40, warehouse: 'auto', shipping: 'cheapest', max_days: 20, ...(db.settings.get(PREFS) || {}) }; }
+function prefs() { return { markup_pct: 40, warehouse: 'auto', shipping: 'cheapest', max_days: 21, ...(db.settings.get(PREFS) || {}) }; }
 function savePrefs(b = {}) {
   const p = prefs();
   const doc = {

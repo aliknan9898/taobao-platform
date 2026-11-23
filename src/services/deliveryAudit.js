@@ -9,7 +9,7 @@
 const db = require('../db');
 
 const ID = 'delivery_audit';
-const MAX_DAYS = () => Math.min(30, Math.max(3, Number(process.env.MAX_DELIVERY_DAYS) || 15));
+const MAX_DAYS = () => Math.min(30, Math.max(3, Number(process.env.MAX_DELIVERY_DAYS) || 21));
 const now = () => Date.now();
 const state = () => db.settings.get(ID) || {};
 const save = (patch) => (db.settings.get(ID) ? db.settings.update(ID, patch) : db.settings.insert({ id: ID, ...patch }));
