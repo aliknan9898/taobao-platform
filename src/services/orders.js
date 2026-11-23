@@ -104,6 +104,8 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   // Owner's switch while the card payment provider is being changed: no order, no payment attempt
   if (process.env.PAYMENTS_PAUSED === '1') throw httpError(503, 'Checkout is paused for a short while — your cart is saved. Please try again soon.');
   const address = validateAddress(shipping_address);
+  // Libya, once open, has its own catalogue, prices in LYD and checkout (services/libya.js)
+  if (address.country_code === 'LY' && require('./libya').open()) throw Object.assign(httpError(409, 'Orders to Libya use the Libya checkout'), { code: 'USE_LIBYA_CHECKOUT' });
   // Delivery eligibility (enforced markets): the order's real address decides, whatever country the customer browsed
   const E = require('./eligibility');
   const market = address.country_code && E.enforced(address.country_code) ? address.country_code : null;

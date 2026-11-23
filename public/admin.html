@@ -210,13 +210,14 @@ let googleSignin = false; let cfg = {};
 const ALL_TABS = [
   ['overview','Overview','*'],['team-orders','Order status','operator'],['team','Staff & activity','owner'],['control','Control centre','admin'],['partners','Partner API (B2B)','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
   ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','owner operator'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
-  ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['countries','Delivery countries','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
+  ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['countries','Delivery countries','admin'],['libya','Libya (ليبيا)','owner admin procurement finance support ly_staff'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
   ['Today',['overview','exceptions','control','team-orders']],
   ['Orders & delivery',['orders','shipping','countries','returns','requests']],
+  ['Libya',['libya']],
   ['Catalogue',['listings','platforms','imports','ai-tools']],
   ['Suppliers & channels',['cj','ebay','connections','partners']],
   ['People',['sellers','users','reviews','team']],
@@ -231,10 +232,10 @@ function adminNav() {
       `<button type="button" data-t="${key}">${label}</button>`).join('')}</div>` : '';
   }).join('');
 }
-const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support', 'operator'];
+const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support', 'operator', 'ly_staff'];
 const can = (roles) => {
   const allowed = roles.split(' ');
-  return (roles === '*' && me?.role !== 'operator') || allowed.includes(me?.role) || (me?.owner && allowed.includes('owner'));
+  return (roles === '*' && !['operator', 'ly_staff'].includes(me?.role)) || allowed.includes(me?.role) || (me?.owner && allowed.includes('owner'));
 };
 let heartbeatTimer;
 let TABS = ALL_TABS;
@@ -1805,6 +1806,206 @@ VIEWS.countries = async (v) => {
       $('#eretry').onclick = () => act(() => api('/api/admin/eligibility/retry', 'POST', { listing_ids: [id], ...(cc ? { country: cc } : {}) }), (x) => `${x.queued} checks queued.`);
     } catch (err) { box.innerHTML = `<p class="error">${esc(err.message)}</p>`; }
   };
+};
+/* Libya (LY): its own catalogue, stock, coverage, orders, returns and cash on delivery. Every action is checked on the
+   server against the person's Libya functions (catalog · stock · orders · coverage · finance). */
+VIEWS.libya = async (v, sub) => {
+  const cfgL = await api('/api/admin/ly/config');
+  const F = new Set(cfgL.functions); const owner = Boolean(me.owner);
+  const tabs = [['overview', 'Overview', true], ['offers', 'Products', F.has('catalog')], ['stock', 'Stock', F.has('stock')], ['coverage', 'Coverage & shipping', F.has('coverage') || F.has('stock')], ['orders', 'Orders', F.has('orders')], ['returns', 'Returns', F.has('orders')], ['cash', 'Payments & settlement', F.has('finance')], ['settings', 'Settings', owner || F.has('finance') || F.has('coverage')], ['staff', 'Libya staff', owner]].filter((t) => t[2]);
+  sub = tabs.some(([k]) => k === sub) ? sub : (window.__lySub && tabs.some(([k]) => k === window.__lySub) ? window.__lySub : 'overview');
+  window.__lySub = sub;
+  const LYD = (n) => `${(Number(n) || 0).toFixed(3)} LYD`;
+  const when = (t) => (t ? new Date(t).toLocaleString() : '—');
+  const k = (p) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  v.innerHTML = `<div class="card" style="display:grid;gap:12px"><div class="row" style="justify-content:space-between"><h2>Libya</h2><span class="pill ${cfgL.enabled ? 'ok' : ''}">${cfgL.enabled ? 'Open to customers' : 'Closed to customers'}</span></div>
+    <div class="row" role="tablist">${tabs.map(([key, label]) => `<button class="btn ${key === sub ? '' : 'ghost'} sm" data-lysub="${key}" role="tab" aria-selected="${key === sub}">${label}</button>`).join('')}</div>
+    <div class="error" id="lymsg" role="status"></div><div id="lybody"><p class="muted">Loading…</p></div></div>`;
+  v.querySelectorAll('[data-lysub]').forEach((b) => b.onclick = () => VIEWS.libya(v, b.dataset.lysub));
+  const body = $('#lybody'); const msg = (t) => { $('#lymsg').textContent = t || ''; };
+  const run = async (fn, okText) => { try { const r = await fn(); msg(okText ? (typeof okText === 'function' ? okText(r) : okText) : ''); return r; } catch (e) { msg(e.message); return null; } };
+  const [cities, locations] = await Promise.all([api('/api/admin/ly/cities'), api('/api/admin/ly/locations')]);
+  const cityName = (id) => (cities.find((c) => c.id === id) || {}).name_ar || '—';
+
+  if (sub === 'overview') {
+    const q = new URLSearchParams(window.__lyFilter || {});
+    const o = await api(`/api/admin/ly/overview?${q}`);
+    body.innerHTML = `<form class="row" id="lyfilt"><label>City <select name="city"><option value="">All</option>${cities.map((c) => `<option value="${c.id}" ${q.get('city') === c.id ? 'selected' : ''}>${esc(c.name_ar)}</option>`).join('')}</select></label>
+        <label>Route <select name="route"><option value="">All</option>${['local', 'china', 'direct'].map((r) => `<option ${q.get('route') === r ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
+        <label>Location <select name="location_id"><option value="">All</option>${locations.map((l) => `<option value="${l.id}" ${q.get('location_id') === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
+        <label>Seller <input name="seller_id" value="${esc(q.get('seller_id') || '')}" style="width:120px"></label>
+        <label>From <input type="date" name="fromd" value="${esc(q.get('fromd') || '')}"></label><label>To <input type="date" name="tod" value="${esc(q.get('tod') || '')}"></label><button class="btn ghost sm">Filter</button></form>
+      <div class="kpis">
+        ${o.orders_by_status ? Object.entries(o.orders_by_status).map(([st, n]) => `<div class="kpi"><span>${esc(st.replace(/_/g, ' '))}</span><b>${n}</b></div>`).join('') || '<div class="kpi"><span>Orders</span><b>0</b></div>' : ''}
+        ${o.awaiting_shipment !== null ? `<div class="kpi"><span>Awaiting shipment</span><b>${o.awaiting_shipment}</b></div><div class="kpi"><span>Delivery failures</span><b>${o.delivery_failures}</b></div><div class="kpi"><span>Open returns</span><b>${o.returns_open}</b></div>` : ''}
+        ${o.unsettled_cod_lyd !== null ? `<div class="kpi"><span>Unsettled COD</span><b>${LYD(o.unsettled_cod_lyd)}</b></div>` : ''}
+        ${o.offers ? `<div class="kpi"><span>Products published / draft / paused</span><b>${o.offers.published} / ${o.offers.draft} / ${o.offers.paused}</b></div>` : ''}
+      </div>
+      ${o.low_stock ? `<h3>Low stock</h3>${o.low_stock.length ? `<div class="scroll"><table><thead><tr><th>Product</th><th>Variant</th><th>Location</th><th>Free</th><th>Reserved</th></tr></thead><tbody>${o.low_stock.map((x) => `<tr><td>${esc(x.offer_id)}</td><td>${esc(x.variant_id)}</td><td>${esc((locations.find((l) => l.id === x.location_id) || {}).name || x.location_id)}</td><td><b>${x.free}</b></td><td>${x.reserved}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Nothing low.</p>'}` : ''}
+      <p class="muted small">Your Libya access: ${[...F].join(', ') || 'none'}.</p>`;
+    $('#lyfilt').onsubmit = (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); if (d.fromd) d.from = String(new Date(d.fromd).getTime()); if (d.tod) d.to = String(new Date(d.tod).getTime() + 86400e3); window.__lyFilter = Object.fromEntries(Object.entries(d).filter(([, x]) => x)); VIEWS.libya(v, 'overview'); };
+  }
+
+  if (sub === 'offers') {
+    const list = await api(`/api/admin/ly/offers?${new URLSearchParams(window.__lyOfferQ || {})}`);
+    body.innerHTML = `<form class="row" id="lyoq"><input name="q" placeholder="Search Arabic or English title" value="${esc((window.__lyOfferQ || {}).q || '')}"><select name="status"><option value="">Any status</option>${['draft', 'published', 'paused'].map((x) => `<option ${(window.__lyOfferQ || {}).status === x ? 'selected' : ''}>${x}</option>`).join('')}</select><select name="route"><option value="">Any route</option>${['local', 'china', 'direct'].map((x) => `<option>${x}</option>`).join('')}</select><button class="btn ghost sm">Search</button></form>
+      <details class="card"><summary><b>New Libya product</b> (Libya-only, or attach an existing product by its id)</summary>
+        <form class="stack" id="lynew" style="margin-top:10px;display:grid;gap:8px">
+          <div class="row"><input name="title_ar" placeholder="Arabic title" dir="rtl" required><input name="title_en" placeholder="English title"></div>
+          <div class="row"><select name="route"><option value="local">Local stock in Libya</option><option value="china">Import via China warehouse</option><option value="direct">Direct supplier shipping</option></select><input name="product_id" placeholder="Existing product id (optional)"><input name="category" placeholder="Category (e.g. home)"><input name="collections" placeholder="Collections, comma separated"></div>
+          <textarea name="description_ar" placeholder="Arabic description" dir="rtl" rows="3"></textarea>
+          <input name="images" placeholder="Photo URLs (https), comma separated">
+          <input name="variants" placeholder="Variants: name=price LYD${F.has('finance') ? '=cost LYD' : ''}; e.g. أسود=45${F.has('finance') ? '=30' : ''}; أبيض=45" required>
+          <button class="btn">Create draft</button></form></details>
+      <div class="row"><b id="lysel">0 selected</b><select id="lybk"><option value="">Bulk change…</option><option value="publish">Publish</option><option value="pause">Pause</option><option value="feature">Feature</option><option value="price">Change prices by %</option></select><input id="lybpct" type="number" placeholder="%" style="width:80px"><button class="btn ghost sm" id="lybprev">Preview</button><span id="lybres" class="muted small"></span></div>
+      <div class="scroll"><table><thead><tr><th></th><th>Product</th><th>Route</th><th>Status</th><th>Prices (LYD)</th><th>Ready to publish</th><th></th></tr></thead><tbody>
+      ${list.map((o) => `<tr><td><input type="checkbox" data-sel="${o.id}" style="width:auto"></td><td><b dir="rtl">${esc(o.title_ar)}</b><div class="muted small">${esc(o.title_en || '')} · ${esc(o.id)}${o.product_id ? ` · linked ${esc(o.product_id)}` : ''}</div></td><td>${esc(o.route)}</td><td><span class="pill ${o.status === 'published' ? 'ok' : ''}">${esc(o.status)}</span>${o.featured ? ' ★' : ''}</td>
+        <td class="small">${o.variants.map((x) => `${esc(x.props)}: ${x.price_lyd}${x.cost_lyd != null && F.has('finance') ? ` <span class="muted">(cost ${x.cost_lyd})</span>` : ''}`).join('<br>')}</td>
+        <td class="small">${o.publishable.ok ? '✓' : esc(o.publishable.why.join(', '))}</td>
+        <td><div class="row" style="gap:4px">${o.approved_content ? '' : `<button class="btn ghost sm" data-appr="${o.id}">Approve content</button>`}
+          ${o.status !== 'published' ? `<button class="btn sm" data-st="${o.id}" data-to="published">Publish</button>` : `<button class="btn ghost sm" data-st="${o.id}" data-to="paused">Pause</button>`}
+          ${o.route === 'china' ? `<button class="btn ghost sm" data-cq="${o.id}">${o.china ? 'Update' : 'Add'} China quote</button>` : ''}${o.route === 'direct' ? `<button class="btn ghost sm" data-dq="${o.id}">Supplier confirmation</button>` : ''}
+          <button class="btn ghost sm" data-price="${o.id}">Prices</button></div></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No Libya products yet.</td></tr>'}</tbody></table></div>`;
+    $('#lyoq').onsubmit = (e) => { e.preventDefault(); window.__lyOfferQ = Object.fromEntries([...new FormData(e.target)].filter(([, x]) => x)); VIEWS.libya(v, 'offers'); };
+    $('#lynew').onsubmit = async (e) => {
+      e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); const split = (x) => String(x || '').split(',').map((y) => y.trim()).filter(Boolean);
+      const variants = String(d.variants).split(';').map((x) => x.trim()).filter(Boolean).map((x) => { const [props, price, cost] = x.split('='); return { props: props.trim(), price_lyd: Number(price), ...(cost ? { cost_lyd: Number(cost) } : {}) }; });
+      if (await run(() => api('/api/admin/ly/offers', 'POST', { title_ar: d.title_ar, title_en: d.title_en, route: d.route, product_id: d.product_id || undefined, category: d.category || undefined, collections: split(d.collections), description_ar: d.description_ar, ...(d.images ? { images: split(d.images) } : {}), variants }), 'Draft created. Approve its content and publish when ready.')) VIEWS.libya(v, 'offers');
+    };
+    const sel = () => [...v.querySelectorAll('[data-sel]:checked')].map((x) => x.dataset.sel);
+    v.querySelectorAll('[data-sel]').forEach((c) => c.onchange = () => { $('#lysel').textContent = `${sel().length} selected`; });
+    const bulkBody = (apply) => { const kind = $('#lybk').value; const patch = kind === 'publish' ? { status: 'published' } : kind === 'pause' ? { status: 'paused' } : kind === 'feature' ? { featured: true } : kind === 'price' ? { price_pct: Number($('#lybpct').value) } : null; return patch && { ids: sel(), patch, apply }; };
+    $('#lybprev').onclick = async () => {
+      const b = bulkBody(false); if (!b || !b.ids.length) return msg('Choose products and a change first');
+      const r = await run(() => api('/api/admin/ly/offers-bulk', 'POST', b)); if (!r) return;
+      $('#lybres').innerHTML = `${r.affected} product(s) will change${r.blocked ? `, ${r.blocked} blocked (not ready)` : ''}. <button class="btn sm" id="lybgo">Apply to ${r.affected}</button>`;
+      $('#lybgo').onclick = async () => { if (await run(() => api('/api/admin/ly/offers-bulk', 'POST', bulkBody(true)), (x) => `${x.affected} changed.`)) VIEWS.libya(v, 'offers'); };
+    };
+    v.querySelectorAll('[data-appr]').forEach((b) => b.onclick = async () => { if (await run(() => api(`/api/admin/ly/offers/${b.dataset.appr}/review`, 'POST', { approve_content: true }))) VIEWS.libya(v, 'offers'); });
+    v.querySelectorAll('[data-st]').forEach((b) => b.onclick = async () => { if (await run(() => api(`/api/admin/ly/offers/${b.dataset.st}/status`, 'POST', { status: b.dataset.to }))) VIEWS.libya(v, 'offers'); });
+    v.querySelectorAll('[data-cq]').forEach((b) => b.onclick = async () => { const amount = prompt('China route: quoted shipping to Libya per unit (LYD)'); if (!amount) return; const evidence = prompt('Where does this quote come from (rate card, carrier, date)?'); const includes = prompt('What the quote includes (shown to customers)') || ''; if (await run(() => api(`/api/admin/ly/offers/${b.dataset.cq}/review`, 'POST', { china_quote: { quote_lyd: Number(amount), evidence, includes } }), 'China quote saved.')) VIEWS.libya(v, 'offers'); });
+    v.querySelectorAll('[data-dq]').forEach((b) => b.onclick = async () => { const amount = prompt('Supplier shipping to Libya per unit (LYD)'); if (!amount) return; const evidence = prompt('Supplier confirmation (message, order test, date)'); if (await run(() => api(`/api/admin/ly/offers/${b.dataset.dq}/review`, 'POST', { direct_confirmation: { quote_lyd: Number(amount), evidence } }), 'Supplier confirmation saved.')) VIEWS.libya(v, 'offers'); });
+    v.querySelectorAll('[data-price]').forEach((b) => b.onclick = async () => {
+      const o = list.find((x) => x.id === b.dataset.price);
+      const next = o.variants.map((x) => { const p = prompt(`Price in LYD for “${x.props}”`, x.price_lyd); return p === null ? x : { ...x, price_lyd: Number(p) }; });
+      if (await run(() => api(`/api/admin/ly/offers/${o.id}`, 'PATCH', { variants: next }), 'Prices saved (recorded with your name).')) VIEWS.libya(v, 'offers');
+    });
+  }
+
+  if (sub === 'stock') {
+    const [stock, offers, moves] = await Promise.all([api('/api/admin/ly/stock'), F.has('catalog') ? api('/api/admin/ly/offers') : Promise.resolve([]), api('/api/admin/ly/moves')]);
+    const offerName = (id) => (offers.find((o) => o.id === id) || {}).title_ar || id;
+    body.innerHTML = `<form class="row" id="lyadj"><input name="offer_id" placeholder="Product id (lyo_…)" required list="lyoffers"><datalist id="lyoffers">${offers.map((o) => `<option value="${o.id}">${esc(o.title_ar)}</option>`).join('')}</datalist>
+        <input name="variant_id" placeholder="Variant id (lyv_…)" required><select name="location_id" required>${locations.map((l) => `<option value="${l.id}">${esc(l.name)} · ${esc(cityName(l.city_id))}</option>`).join('')}</select>
+        <input name="delta" type="number" placeholder="+ / − units" required style="width:110px"><input name="reason" placeholder="Reason (received, count, damaged…)" required><button class="btn sm">Record</button></form>
+      <div class="scroll"><table><thead><tr><th>Product</th><th>Variant</th><th>Location</th><th>Available</th><th>Reserved</th><th>Free</th></tr></thead><tbody>
+        ${stock.map((x) => `<tr><td>${esc(offerName(x.offer_id))}</td><td class="small">${esc(x.variant_id)}</td><td>${esc((locations.find((l) => l.id === x.location_id) || {}).name || x.location_id)}</td><td>${x.available}</td><td>${x.reserved}</td><td><b>${x.free}</b></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No stock recorded.</td></tr>'}</tbody></table></div>
+      <h3>Recent stock movements</h3><div class="scroll"><table><thead><tr><th>When</th><th>Stock</th><th>Change</th><th>Reason</th><th>By</th></tr></thead><tbody>${moves.slice(0, 50).map((m) => `<tr><td class="small">${when(m.at)}</td><td class="small">${esc(offerName(m.offer_id))}</td><td><b>${m.delta > 0 ? '+' : ''}${m.delta}</b></td><td>${esc(m.reason)}</td><td class="small">${esc(m.actor?.email || m.actor?.id || '')}</td></tr>`).join('')}</tbody></table></div>`;
+    $('#lyadj').onsubmit = async (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); if (await run(() => api('/api/admin/ly/stock', 'POST', { ...d, delta: Number(d.delta) }), 'Stock recorded.')) VIEWS.libya(v, 'stock'); };
+  }
+
+  if (sub === 'coverage') {
+    const routeRow = (c, r) => { const x = (c.routes || {})[r] || {}; return `<fieldset class="opts"><legend>${r === 'local' ? 'Local delivery' : r === 'china' ? 'China → Libya' : 'Direct supplier'}</legend><div class="row">
+      <label class="row" style="gap:6px"><input type="checkbox" name="${r}.enabled" ${x.enabled ? 'checked' : ''} style="width:auto"> Enabled</label>
+      ${r !== 'local' ? `<label class="row" style="gap:6px"><input type="checkbox" name="${r}.verified" ${x.verified ? 'checked' : ''} style="width:auto"> Route and cost verified</label>` : ''}
+      <label>Fee LYD <input name="${r}.fee_lyd" type="number" step="0.001" min="0" value="${x.fee_lyd ?? ''}" style="width:100px"></label>
+      <label>Days <input name="${r}.min_days" type="number" min="0" value="${x.min_days ?? ''}" style="width:64px">–<input name="${r}.max_days" type="number" min="0" value="${x.max_days ?? ''}" style="width:64px"></label>
+      <label class="row" style="gap:6px"><input type="checkbox" name="${r}.cod" ${x.cod ? 'checked' : ''} style="width:auto"> COD</label>
+      <label>COD max LYD <input name="${r}.cod_max_lyd" type="number" min="0" value="${x.cod_max_lyd ?? ''}" style="width:100px"></label>
+      <label>Carrier <input name="${r}.carrier" value="${esc(x.carrier || '')}" style="width:130px"></label>
+      <label>Includes <input name="${r}.includes" value="${esc(x.includes || '')}"></label>
+      <label>Payable on delivery LYD <input name="${r}.due_on_delivery_lyd" type="number" step="0.001" min="0" value="${x.due_on_delivery_lyd ?? ''}" style="width:90px"></label>
+      ${r === 'local' ? `<label>Serving locations <select name="local.locations" multiple size="2">${locations.map((l) => `<option value="${l.id}" ${(x.locations || []).includes(l.id) ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>` : ''}</div></fieldset>`; };
+    const cityForm = (c) => `<form class="card" data-city="${c ? c.id : ''}" style="display:grid;gap:8px"><div class="row"><input name="name_ar" placeholder="Arabic name" dir="rtl" value="${esc(c?.name_ar || '')}" required><input name="name_en" placeholder="English name" value="${esc(c?.name_en || '')}" required><input name="aliases" placeholder="Aliases, comma separated" value="${esc((c?.aliases || []).join(', '))}"><input name="carrier_ref" placeholder="Carrier reference" value="${esc(c?.carrier_ref || '')}"></div>
+      <div class="row"><label class="row" style="gap:6px"><input type="checkbox" name="require_pin" ${c?.require_pin ? 'checked' : ''} style="width:auto"> Map pin required</label><label class="row" style="gap:6px"><input type="checkbox" name="active" ${!c || c.active !== false ? 'checked' : ''} style="width:auto"> Active</label></div>
+      <textarea name="areas" rows="2" placeholder="Service areas, one per line: Arabic name | English name | no-cod">${esc((c?.areas || []).map((a) => [a.name_ar, a.name_en, a.cod === false ? 'no-cod' : ''].filter(Boolean).join(' | ')).join('\n'))}</textarea>
+      ${['local', 'china', 'direct'].map((r) => routeRow(c || {}, r)).join('')}${F.has('coverage') ? `<button class="btn sm">${c ? 'Save city' : 'Add city'}</button>` : ''}</form>`;
+    body.innerHTML = `${F.has('stock') ? `<h3>Stock locations</h3><form class="row" id="lyloc"><input name="name" placeholder="Location name" required><select name="city_id">${cities.map((c) => `<option value="${c.id}">${esc(c.name_ar)}</option>`).join('')}</select><input name="seller_id" placeholder="Seller id (seller-owned, optional)"><button class="btn sm">Add location</button></form>
+      <p class="small">${locations.map((l) => `${esc(l.name)} · ${esc(cityName(l.city_id))}${l.seller_id ? ` · seller ${esc(l.seller_id)}` : ''}`).join(' — ') || 'No locations yet.'}</p>` : ''}
+      <h3>Cities, areas and delivery routes</h3><p class="muted small">Manual operation first: enter the courier and fees you have agreed. A China or direct route only sells once “verified” is ticked; carrier APIs come later, after their credentials and behaviour are checked.</p>
+      ${cities.map(cityForm).join('')}${F.has('coverage') ? `<details><summary><b>Add a city</b></summary>${cityForm(null)}</details>` : ''}`;
+    if ($('#lyloc')) $('#lyloc').onsubmit = async (e) => { e.preventDefault(); if (await run(() => api('/api/admin/ly/locations', 'POST', Object.fromEntries(new FormData(e.target))), 'Location added.')) VIEWS.libya(v, 'coverage'); };
+    v.querySelectorAll('form[data-city]').forEach((f) => f.onsubmit = async (e) => {
+      e.preventDefault(); const fd = new FormData(f); const g = (n) => fd.get(n);
+      const routes = Object.fromEntries(['local', 'china', 'direct'].map((r) => [r, { enabled: Boolean(g(`${r}.enabled`)), verified: Boolean(g(`${r}.verified`)), fee_lyd: Number(g(`${r}.fee_lyd`) || 0), min_days: Number(g(`${r}.min_days`) || 0), max_days: Number(g(`${r}.max_days`) || 0), cod: Boolean(g(`${r}.cod`)), cod_max_lyd: g(`${r}.cod_max_lyd`) === '' ? null : Number(g(`${r}.cod_max_lyd`)), carrier: g(`${r}.carrier`) || '', includes: g(`${r}.includes`) || '', due_on_delivery_lyd: Number(g(`${r}.due_on_delivery_lyd`) || 0), ...(r === 'local' ? { locations: fd.getAll('local.locations') } : {}) }]));
+      const areas = String(g('areas') || '').split('\n').map((x) => x.split('|').map((y) => y.trim())).filter((x) => x[0]).map(([name_ar, name_en, flag]) => { const old = (cities.find((c) => c.id === f.dataset.city)?.areas || []).find((a) => a.name_ar === name_ar); return { ...(old ? { id: old.id } : {}), name_ar, name_en: name_en || name_ar, cod: flag !== 'no-cod' }; });
+      const b = { name_ar: g('name_ar'), name_en: g('name_en'), aliases: String(g('aliases') || '').split(',').map((x) => x.trim()).filter(Boolean), carrier_ref: g('carrier_ref') || '', require_pin: Boolean(g('require_pin')), active: Boolean(g('active')), areas, routes };
+      if (await run(() => api(f.dataset.city ? `/api/admin/ly/cities/${f.dataset.city}` : '/api/admin/ly/cities', f.dataset.city ? 'PATCH' : 'POST', b), 'Coverage saved (recorded with your name).')) VIEWS.libya(v, 'coverage');
+    });
+  }
+
+  if (sub === 'orders') {
+    const q = window.__lyOrdQ || {};
+    const list = await api(`/api/admin/ly/orders?${new URLSearchParams(q)}`);
+    const NEXT = { pending_confirmation: ['confirm', 'cancel'], confirmed: ['pack', 'cancel'], packed: ['dispatch', 'cancel'], dispatched: ['attempt', 'deliver', 'refuse', 'reschedule', 'return_to_sender'], delivery_attempted: ['deliver', 'refuse', 'reschedule', 'return_to_sender'], rescheduled: ['attempt', 'deliver', 'refuse', 'return_to_sender'], refused: ['return_to_sender'], delivered: [], returned_to_sender: [] };
+    body.innerHTML = `<form class="row" id="lyord"><input name="q" placeholder="Order, customer, phone, city or tracking" value="${esc(q.q || '')}"><select name="status"><option value="">Any status</option>${Object.keys(NEXT).concat(['cancelled', 'returned']).map((x) => `<option ${q.status === x ? 'selected' : ''}>${x}</option>`).join('')}</select><select name="city"><option value="">Any city</option>${cities.map((c) => `<option value="${c.id}" ${q.city === c.id ? 'selected' : ''}>${esc(c.name_ar)}</option>`).join('')}</select><button class="btn ghost sm">Search</button><a class="btn ghost sm" href="/api/admin/ly/orders/export?${new URLSearchParams(q)}">Export CSV</a></form>
+      <div class="scroll"><table><thead><tr><th>Order</th><th>Customer</th><th>City / area</th><th>Lines</th><th>Status</th><th>Payment</th><th>Actions</th></tr></thead><tbody>
+      ${list.map((o) => `<tr><td><b>${esc(o.id.slice(-8).toUpperCase())}</b><div class="small muted">${when(o.created_at)}</div></td><td>${esc(o.recipient.name)}<div class="small" dir="ltr">${esc(o.recipient.phone)}</div></td><td>${esc(o.recipient.city)}${o.recipient.area ? ` / ${esc(o.recipient.area)}` : ''}<div class="small muted">${esc(o.recipient.address)}${o.recipient.landmark ? ` · ${esc(o.recipient.landmark)}` : ''}${o.recipient.pin ? ` · <a target="_blank" rel="noopener" href="https://www.openstreetmap.org/?mlat=${o.recipient.pin.lat}&mlon=${o.recipient.pin.lon}">pin</a>` : ''}</div></td>
+        <td class="small">${o.lines.map((l) => `${l.qty} × ${esc(l.title)} (${esc(l.route)})`).join('<br>')}</td><td><span class="pill">${esc(o.delivery_status)}</span>${o.deliveries.map((d) => d.tracking ? `<div class="small">${esc(d.tracking)}</div>` : '').join('')}</td>
+        <td class="small">${esc(o.payment.method)} · ${esc(o.payment.status)}<br>${LYD(o.totals.total_lyd)}<br>settlement: ${esc(o.settlement_status)}</td>
+        <td><div class="row" style="gap:4px">${(NEXT[o.delivery_status] || []).map((t) => `<button class="btn ghost sm" data-ev="${o.id}" data-t="${t}">${t.replace(/_/g, ' ')}</button>`).join('')}${['delivered', 'returned_to_sender', 'refused'].includes(o.delivery_status) ? `<button class="btn ghost sm" data-ret="${o.id}">Return</button>` : ''}</div></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No Libya orders.</td></tr>'}</tbody></table></div>`;
+    $('#lyord').onsubmit = (e) => { e.preventDefault(); window.__lyOrdQ = Object.fromEntries([...new FormData(e.target)].filter(([, x]) => x)); VIEWS.libya(v, 'orders'); };
+    v.querySelectorAll('[data-ev]').forEach((b) => b.onclick = async () => {
+      const t = b.dataset.t; const extra = {};
+      if (['cancel', 'refuse'].includes(t)) { extra.reason = prompt('Reason'); if (!extra.reason) return; }
+      if (t === 'dispatch') { extra.tracking = prompt('Tracking or courier reference') || ''; extra.carrier = prompt('Courier') || ''; }
+      if (t === 'attempt') extra.note = prompt('What happened?') || '';
+      if (t === 'reschedule') extra.date = prompt('New delivery date (YYYY-MM-DD)') || '';
+      if (t === 'deliver') { const o = list.find((x) => x.id === b.dataset.ev); if (o.payment.method === 'cod') { extra.cod_collected_lyd = Number(prompt('Cash collected (LYD)', o.totals.total_lyd)); extra.carrier_fee_lyd = Number(prompt('Courier COD fee (LYD)', '0')); } }
+      if (await run(() => api(`/api/admin/ly/orders/${b.dataset.ev}/events`, 'POST', { type: t, key: k(t), ...extra }), (r) => (r.duplicate ? 'Already recorded.' : 'Updated.'))) VIEWS.libya(v, 'orders');
+    });
+    v.querySelectorAll('[data-ret]').forEach((b) => b.onclick = async () => { const o = list.find((x) => x.id === b.dataset.ret); const lines = o.lines.map((l, i) => { const n = Number(prompt(`Units of “${l.title}” returned (0–${l.qty})`, '0')); return { line: i, qty: n }; }).filter((x) => x.qty > 0); const reason = prompt('Return reason'); if (!lines.length || !reason) return; if (await run(() => api(`/api/admin/ly/orders/${o.id}/returns`, 'POST', { lines, reason }), 'Return opened.')) VIEWS.libya(v, 'returns'); });
+  }
+
+  if (sub === 'returns') {
+    const list = await api('/api/admin/ly/returns');
+    body.innerHTML = `<div class="scroll"><table><thead><tr><th>Return</th><th>Order</th><th>Reason</th><th>Status</th><th>Inspection</th><th>Refund</th><th></th></tr></thead><tbody>
+      ${list.map((r) => `<tr><td class="small">${esc(r.id)}<br>${when(r.created_at)}</td><td>${esc(r.order_id.slice(-8).toUpperCase())}</td><td>${esc(r.reason)}</td><td>${esc(r.status)}</td>
+        <td class="small">${(r.inspection || []).map((x) => `line ${x.line}: ${x.approved_qty} back to stock, ${x.rejected_qty} rejected${x.note ? ` (${esc(x.note)})` : ''}`).join('<br>') || '—'}</td><td class="small">${r.refund ? `${LYD(r.refund.amount_lyd)} · ${esc(r.refund.method)}` : '—'}</td>
+        <td><div class="row" style="gap:4px">${!r.restocked && F.has('stock') ? `<button class="btn ghost sm" data-insp="${r.id}">Inspect</button>` : ''}${!r.refund && F.has('finance') ? `<button class="btn ghost sm" data-rf="${r.id}">Refund</button>` : ''}</div></td></tr>`).join('') || '<tr><td colspan="7" class="muted">No returns.</td></tr>'}</tbody></table></div>`;
+    v.querySelectorAll('[data-insp]').forEach((b) => b.onclick = async () => { const r = list.find((x) => x.id === b.dataset.insp); const results = r.lines.map((l) => ({ line: l.line, approved_qty: Number(prompt(`Line ${l.line}: units fit to sell again (0–${l.qty})`, '0')), note: prompt('Inspection note') || '' })); if (await run(() => api(`/api/admin/ly/returns/${r.id}/inspect`, 'POST', { results }), 'Inspection recorded; approved units are back in stock.')) VIEWS.libya(v, 'returns'); });
+    v.querySelectorAll('[data-rf]').forEach((b) => b.onclick = async () => { const amount = Number(prompt('Refund amount (LYD)')); if (!amount) return; const method = prompt('Method (cash, transfer…)', 'cash'); const ref = prompt('Reference') || ''; if (await run(() => api(`/api/admin/ly/returns/${b.dataset.rf}/refund`, 'POST', { amount_lyd: amount, method, ref }), 'Refund recorded in the audit log.')) VIEWS.libya(v, 'returns'); });
+  }
+
+  if (sub === 'cash') {
+    const c = await api('/api/admin/ly/cash');
+    body.innerHTML = `<div class="kpis"><div class="kpi"><span>Expected</span><b>${LYD(c.expected_lyd)}</b></div><div class="kpi"><span>Collected</span><b>${LYD(c.collected_lyd)}</b></div><div class="kpi"><span>Courier fees</span><b>${LYD(c.carrier_fees_lyd)}</b></div><div class="kpi"><span>Remitted</span><b>${LYD(c.remitted_lyd)}</b></div><div class="kpi"><span>Unsettled</span><b>${LYD(c.unsettled_lyd)}</b></div></div>
+      ${c.discrepancies.length ? `<div class="card warn small">Discrepancies: ${c.discrepancies.map(esc).join(', ')}</div>` : ''}
+      <form class="row" id="lyremit"><input name="order_ids" placeholder="Order ids (comma separated)" required><input name="settlement_ref" placeholder="Courier statement reference" required><button class="btn sm">Record remittance</button><a class="btn ghost sm" href="/api/admin/ly/cash/export">Export CSV</a></form>
+      <div class="scroll"><table><thead><tr><th>When</th><th>Order</th><th>Kind</th><th>Amount</th><th>Courier fee</th><th>Reference</th></tr></thead><tbody>${c.entries.slice(0, 200).map((e) => `<tr><td class="small">${when(e.at)}</td><td class="small">${esc(e.order_id)}</td><td>${esc(e.kind)}</td><td>${LYD(e.amount_lyd)}</td><td>${e.carrier_fee_lyd ? LYD(e.carrier_fee_lyd) : ''}</td><td class="small">${esc(e.settlement_ref || e.ref || '')}</td></tr>`).join('')}</tbody></table></div>`;
+    $('#lyremit').onsubmit = async (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); if (await run(() => api('/api/admin/ly/cash/remit', 'POST', { order_ids: d.order_ids.split(',').map((x) => x.trim()).filter(Boolean), settlement_ref: d.settlement_ref, key: k('remit') }), (r) => `Recorded for ${r.orders.length} order(s).`)) VIEWS.libya(v, 'cash'); };
+  }
+
+  if (sub === 'settings') {
+    const c = cfgL;
+    body.innerHTML = `<form class="stack" id="lyset" style="display:grid;gap:10px">
+      ${owner ? `<label class="row" style="gap:6px"><input type="checkbox" name="enabled" ${c.enabled ? 'checked' : ''} style="width:auto"> <b>Open Libya to customers</b> (owner only; keep closed until one complete order and return have been tested)</label>` : ''}
+      ${owner || F.has('finance') ? `<label class="row" style="gap:6px"><input type="checkbox" name="cod" ${c.cod ? 'checked' : ''} style="width:auto"> Cash on delivery where areas, routes and couriers allow it</label>
+      <label class="row" style="gap:6px"><input type="checkbox" name="cod_imported" ${c.cod_imported ? 'checked' : ''} style="width:auto"> Allow COD for imported (China / direct) orders</label>
+      <label>COD limit per order (LYD) <input name="cod_max_lyd" type="number" min="0" value="${c.cod_max_lyd}" style="width:120px"></label>
+      <label class="row" style="gap:6px"><input type="checkbox" name="online_payment" ${c.online_payment ? 'checked' : ''} style="width:auto"> Online payment (only after a provider is verified for Libya)</label>` : ''}
+      ${owner || F.has('coverage') ? `<label>Hold stock for unconfirmed orders (hours) <input name="reservation_hours" type="number" min="1" value="${c.reservation_hours}" style="width:90px"></label>
+      ${['local', 'china', 'direct'].map((r) => `<label class="row" style="gap:6px">${r} delivery limit <input name="lim.${r}" type="number" min="1" value="${c.route_limits[r].max_days}" style="width:70px"> days <input type="checkbox" name="apply.${r}" ${c.route_limits[r].apply ? 'checked' : ''} style="width:auto"> apply</label>`).join('')}` : ''}
+      <button class="btn">Save</button></form>`;
+    $('#lyset').onsubmit = async (e) => {
+      e.preventDefault(); const fd = new FormData(e.target); const b = {};
+      if (owner) b.enabled = Boolean(fd.get('enabled'));
+      if (owner || F.has('finance')) Object.assign(b, { cod: Boolean(fd.get('cod')), cod_imported: Boolean(fd.get('cod_imported')), online_payment: Boolean(fd.get('online_payment')), cod_max_lyd: Number(fd.get('cod_max_lyd')) });
+      if (owner || F.has('coverage')) Object.assign(b, { reservation_hours: Number(fd.get('reservation_hours')), route_limits: Object.fromEntries(['local', 'china', 'direct'].map((r) => [r, { max_days: Number(fd.get(`lim.${r}`)), apply: Boolean(fd.get(`apply.${r}`)) }])) });
+      if (b.enabled && !c.enabled && !confirm('Open Libya to customers now? Libya offers and the Libya checkout become live.')) return;
+      if (await run(() => api('/api/admin/ly/config', 'PATCH', b), 'Saved.')) VIEWS.libya(v, 'settings');
+    };
+  }
+
+  if (sub === 'staff') {
+    const users = (await api('/api/admin/users')).filter((u) => u.role === 'ly_staff');
+    const FN = ['catalog', 'stock', 'orders', 'coverage', 'finance'];
+    body.innerHTML = `<p class="muted">Libya staff sign in to Admin and see only the Libya section, with the functions you tick. Finance covers margins, cash settlement, refunds, payment settings and financial exports.</p>
+      <form class="row" id="lystf"><input name="name" placeholder="Name" required><input name="email" type="email" placeholder="Login email" required><input name="password" type="password" placeholder="Password (12+)" minlength="12" required>${FN.map((f) => `<label class="row" style="gap:4px"><input type="checkbox" name="ly_perms" value="${f}" style="width:auto">${f}</label>`).join('')}<button class="btn sm">Create</button></form>
+      <div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Functions</th><th></th></tr></thead><tbody>${users.map((u) => `<tr><td>${esc(u.name || '')}</td><td>${esc(u.email)}</td><td>${FN.map((f) => `<label class="row" style="gap:4px;display:inline-flex"><input type="checkbox" data-u="${u.id}" value="${f}" ${(u.ly_perms || []).includes(f) ? 'checked' : ''} style="width:auto">${f}</label>`).join(' ')}</td><td><button class="btn ghost sm" data-save="${u.id}">Save</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No Libya staff yet.</td></tr>'}</tbody></table></div>`;
+    $('#lystf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); if (await run(() => api('/api/admin/staff', 'POST', { name: fd.get('name'), email: fd.get('email'), password: fd.get('password'), role: 'ly_staff', ly_perms: fd.getAll('ly_perms') }), 'Libya employee created.')) VIEWS.libya(v, 'staff'); };
+    v.querySelectorAll('[data-save]').forEach((b) => b.onclick = () => run(() => api(`/api/admin/ly/staff/${b.dataset.save}`, 'PATCH', { ly_perms: [...v.querySelectorAll(`[data-u="${b.dataset.save}"]:checked`)].map((x) => x.value) }), 'Access saved.'));
+  }
 };
 VIEWS.shipping = async (v) => {
   const s = await api('/api/admin/settings/shipping');
