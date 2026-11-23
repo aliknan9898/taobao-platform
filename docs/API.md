@@ -14,6 +14,7 @@
 | POST | `/api/auth/logout` | — |
 | GET | `/api/me` | Current user |
 | GET | `/api/config/public` | `{currency, shipping_flat, payments:"stripe"|"demo"}` |
+| POST | `/api/client-error` | `{message, stack?, page?, app?}` → `{ok:true}`. Browser script errors (sent by `assets/common.js`, at most 5 per page view), forwarded to Sentry when `SENTRY_DSN` is set; throttled per visitor, query strings dropped, personal data scrubbed. |
 
 ## Buyer app
 

@@ -254,7 +254,9 @@ function throttleLight(req) {
 /** Server errors reach the owner on Telegram, at most one every 10 minutes. */
 let lastErrAlert = 0;
 function errorAlert(text) { if (Date.now() - lastErrAlert < 10 * 60e3) return; lastErrAlert = Date.now(); require('./push').telegram(`🔴 Kinan server error\n${String(text).slice(0, 400)}`); }
-process.on('unhandledRejection', (e) => { console.error('[unhandled]', e?.message || e); errorAlert(`Unhandled: ${e?.message || e}`); });
+process.on('unhandledRejection', (e) => { console.error('[unhandled]', e?.message || e); errorAlert(`Unhandled: ${e?.message || e}`); require('./sentry').captureException(e, { tags: { kind: 'unhandledRejection' } }); });
+// best effort: the process may exit before the report leaves (behaviour on a crash is unchanged)
+process.on('uncaughtExceptionMonitor', (e) => { require('./sentry').captureException(e, { tags: { kind: 'uncaughtException' } }); });
 
 /** Send a stored photo ({ type, body }) as an image response. */
 /** Languages Kinan Shop supports; emails and notifications not yet translated fall back to English. */
@@ -366,6 +368,13 @@ r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
 });
 
 // Catalog (public for browsing)
+/** Errors from shoppers' browsers (assets/common.js), forwarded to Sentry when SENTRY_DSN is set. Small, throttled, no auth. */
+r('POST', '/api/client-error', null, async ({ req }) => {
+  throttleLight(req);
+  const b = await readJson(req);
+  require('./sentry').captureBrowser({ message: String(b.message || '').slice(0, 1000), stack: String(b.stack || '').slice(0, 8000), page: String(b.page || '').slice(0, 300), app: String(b.app || '').slice(0, 20) });
+  return { ok: true };
+});
 r('GET', '/api/catalog', null, async ({ url }) => {
   const out = await cached(`catalog?${url.searchParams}|${db.version('listings')}|${db.version('sellers')}`, 30e3, () => catalog.browse(Object.fromEntries(url.searchParams)));
   // what customers look for (free trends engine): only real searches, first page
@@ -1267,7 +1276,7 @@ const server = http.createServer(async (req, res) => {
     const status = e.status || (e.name === 'TaobaoApiError' ? 502 : 500);
     if (auditCtx) { try { require('./audit').record({ req, path: p, user: auditCtx.user, status, params: auditCtx.params, error: e.message }); } catch { /* never block the answer */ } }
     const errorId = status >= 500 ? require('crypto').randomBytes(4).toString('hex') : undefined;
-    if (status >= 500) { console.error('[error]', errorId, req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message} (${errorId})`); }
+    if (status >= 500) { console.error('[error]', errorId, req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message} (${errorId})`); require('./sentry').captureException(e, { method: req.method, path: p, tags: { error_id: errorId, status } }); }
     // Customers never see internal or supplier error text (it can name a supplier or a system): a plain message and an id
     // that matches the server log. Staff and seller pages keep the full message, which they need to act on it.
     if (CUSTOMER_PATH.test(p) && (status === 500 || status === 502 || e.name === 'TaobaoApiError')) {
