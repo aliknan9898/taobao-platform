@@ -23,12 +23,14 @@
   --r-sm: 6px; --r-md: 10px; --r-lg: 16px;
   --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --font-body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --soft: #f3f1ec; /* quiet panels (assistant replies, free-delivery bar) */
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
   --paper: #0f1428; --surface: #171d36; --ink: #eef0f7; --ink-2: #c1c6da; --muted: #9097b3;
   --line: #2a3150; --jade: #2fb293; --jade-ink: #04221b; --jade-soft: #123a33; --chip: #222a47;
+  --soft: #1d2441;
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
   color-scheme: dark;
 }
