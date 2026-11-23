@@ -16,7 +16,7 @@ const SECRET_KEY = /pass|secret|token|key|card|iban|account_number|cvc|otp|code$
 function wanted(method, path, user) {
   if (path === '/api/admin/team/presence') return false;
   // restricted employees: every Admin API call, allowed or refused, so the owner sees what they tried
-  if (user?.role === 'operator' && /^\/api\/admin(\/|$)/.test(path)) return true;
+  if (['operator', 'ly_staff'].includes(user?.role) && /^\/api\/admin(\/|$)/.test(path)) return true;
   if (method === 'POST' && /^\/api\/auth\/(login|logout)$/.test(path)) return true;
   if (!/^\/api\/(admin|warehouse)(\/|$)/.test(path)) return false;
   return method !== 'GET' && method !== 'HEAD' ? true : SENSITIVE_READ.test(path);

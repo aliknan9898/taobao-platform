@@ -383,6 +383,7 @@ function countryOf(req, url) {
   return require('./countries').isMarket(raw) ? raw : null;
 }
 const eligibility = require('./services/eligibility');
+const libya = require('./services/libya');
 /** Errors from shoppers' browsers (assets/common.js), forwarded to Sentry when SENTRY_DSN is set. Small, throttled, no auth. */
 r('POST', '/api/client-error', null, async ({ req }) => {
   throttleLight(req);
@@ -392,6 +393,8 @@ r('POST', '/api/client-error', null, async ({ req }) => {
 });
 r('GET', '/api/catalog', null, async ({ req, url }) => {
   const cc = countryOf(req, url);
+  // Libya open: its own catalogue (Libya offers in LYD), never other markets' products
+  if (cc === 'LY' && libya.open()) return libya.browse({ ...Object.fromEntries(url.searchParams), city: url.searchParams.get('city') || req.headers['x-kinan-city'] || '' });
   const params = { ...Object.fromEntries(url.searchParams), ...(cc ? { country: cc } : {}) };
   // the delivery country and the eligibility data are part of the key: a change in either gives fresh results
   const out = await cached(`catalog?${new URLSearchParams(params)}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}`, 30e3, () => catalog.browse(params));
@@ -401,18 +404,31 @@ r('GET', '/api/catalog', null, async ({ req, url }) => {
 });
 r('GET', '/api/catalog/lines', null, async ({ url }) => require('./services/testOrder').lines(url.searchParams.get('items')));
 r('GET', '/api/admin/test-basket', ADMIN, async ({ url }) => require('./services/testOrder').basket(Object.fromEntries(url.searchParams)));
-r('GET', '/api/catalog/many', null, async ({ req, url }) => catalog.many(url.searchParams.get('ids'), countryOf(req, url)));
-r('GET', '/api/catalog/:id/similar', null, async ({ req, url, params }) => { const cc = countryOf(req, url); return cached(`similar:${params.id}|${cc}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}`, 60e3, () => catalog.similar(params.id, 12, cc)); });
+r('GET', '/api/catalog/many', null, async ({ req, url }) => {
+  const cc = countryOf(req, url);
+  if (cc === 'LY' && libya.open()) return { items: String(url.searchParams.get('ids') || '').split(',').slice(0, 30).map((id) => { try { const v = libya.offerView(id.trim(), req.headers['x-kinan-city']); return v.availability.available ? v : null; } catch { return null; } }).filter(Boolean) };
+  return catalog.many(url.searchParams.get('ids'), cc);
+});
+r('GET', '/api/catalog/:id/similar', null, async ({ req, url, params }) => { const cc = countryOf(req, url); if (cc === 'LY' && libya.open()) { const o = db.ly_offers.get(params.id); return { items: o ? libya.browse({ category: o.category, city: req.headers['x-kinan-city'] || '', limit: 13 }).items.filter((x) => x.id !== o.id).slice(0, 12) : [] }; } return cached(`similar:${params.id}|${cc}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}`, 60e3, () => catalog.similar(params.id, 12, cc)); });
 r('GET', '/api/catalog/:id/questions', null, async ({ params }) => require('./services/assistant').questionsFor(params.id));
 r('POST', '/api/catalog/:id/questions', BUYER, async ({ req, params, user }) => { throttleLight(req); return require('./services/assistant').ask(db.users.get(user.id), params.id, (await readJson(req)).question); });
 r('POST', '/api/assistant', null, async ({ req, url }) => { throttleLight(req); photoLimit(req); const b = await readJson(req); return require('./services/assistant').chat({ messages: b.messages, currency: b.currency, lang: b.lang, country: countryOf(req, url) }); });
 r('GET', '/api/admin/questions', ADMIN, async () => require('./services/assistant').pending());
 r('POST', '/api/admin/questions/:id', ADMIN, async ({ req, params }) => require('./services/assistant').answer(params.id, (await readJson(req)).answer));
-r('GET', '/api/catalog/:id', null, async ({ req, url, params }) => { const out = catalog.buyerListing(params.id, countryOf(req, url)); try { ops.countView(db.listings.get(params.id), clientIp(req)); } catch { /* stats are best effort */ } return out; });
+r('GET', '/api/catalog/:id', null, async ({ req, url, params }) => {
+  const cc = countryOf(req, url);
+  // Libya offers exist only in the Libya market; shared products seen from Libya point to their Libya offer if any
+  if (String(params.id).startsWith('lyo_')) { if (cc !== 'LY') throw httpError(404, 'Product not available'); return libya.offerView(params.id, url.searchParams.get('city') || req.headers['x-kinan-city'] || ''); }
+  if (cc === 'LY' && libya.open()) {
+    const offer = db.ly_offers.find((o) => o.product_id === params.id && o.status === 'published');
+    const base = catalog.buyerListing(params.id);
+    return { ...base, skus: [], option_groups: null, availability: { country: 'LY', available: false, reason: offer ? 'see_libya_offer' : 'market_not_open', ...(offer ? { ly_offer: offer.id } : {}) } };
+  }
+  const out = catalog.buyerListing(params.id, cc); try { ops.countView(db.listings.get(params.id), clientIp(req)); } catch { /* stats are best effort */ } return out; });
 r('GET', '/api/catalog/:id/reviews', null, async ({ params }) => growth.reviewsFor(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
-r('GET', '/api/categories', null, async ({ req, url }) => { const cc = countryOf(req, url); return cached(`categories|${cc}|${db.version('listings')}|${eligibility.version()}`, 60e3, () => {
+r('GET', '/api/categories', null, async ({ req, url }) => { const cc = countryOf(req, url); if (cc === 'LY' && libya.open()) { const counts = Object.fromEntries(libya.shopInfo().categories.map((c) => [c.id, c.count])); return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 })); } return cached(`categories|${cc}|${db.version('listings')}|${eligibility.version()}`, 60e3, () => {
   const counts = {}; for (const p of catalog.browse({ limit: 100000, ...(cc ? { country: cc } : {}) }).items) counts[p.category] = (counts[p.category] || 0) + 1;
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
 }); });
@@ -425,8 +441,16 @@ r('POST', '/api/cart/check', null, async ({ req, url }) => {
   const b = await readJson(req);
   const cc = require('./countries').isMarket(String(b.country || '').toUpperCase()) ? String(b.country).toUpperCase() : countryOf(req, url);
   if (!cc) throw httpError(400, 'Choose a delivery country');
+  if (cc === 'LY' && libya.open()) {
+    const city = String(b.city || req.headers['x-kinan-city'] || '');
+    const raw = Array.isArray(b.items) ? b.items.slice(0, 100) : [];
+    if (city) { try { const q = libya.quote({ items: raw, city_id: city, area_id: b.area || undefined }); return { country: cc, enforced: true, ok: q.ok, lines: q.lines.map((l) => ({ listing_id: raw[l.i].listing_id, mp_sku_id: raw[l.i].mp_sku_id, ok: l.ok, ...(l.ok ? {} : { reason: l.reason }) })) }; } catch (e) { if (!['AREA_REQUIRED'].includes(e.code)) throw e; } }
+    const lines = raw.map((it) => { const o = db.ly_offers.get(String(it.listing_id || '')); const ok = Boolean(o && o.status === 'published' && (o.variants || []).some((v) => v.id === it.mp_sku_id && v.active !== false)); return { listing_id: it.listing_id, mp_sku_id: it.mp_sku_id, ok, ...(ok ? {} : { reason: 'not_available_in_libya' }) }; });
+    return { country: cc, enforced: true, ok: lines.every((x) => x.ok), lines };
+  }
   const items = require('./services/publicIds').itemsIn(Array.isArray(b.items) ? b.items.slice(0, 100) : []);
   const lines = items.map((it, i) => {
+    if (String(it.listing_id || '').startsWith('lyo_')) return { listing_id: it.listing_id, mp_sku_id: (b.items[i] || {}).mp_sku_id, ok: false, reason: 'libya_only' };
     const l = db.listings.get(it.listing_id);
     const seller = l && db.sellers.get(l.seller_id);
     const pub = (Array.isArray(b.items) && b.items[i]) || {};
@@ -958,6 +982,59 @@ r('PUT', '/api/admin/ebay/icon', ADMIN, async ({ req }) => {
 });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
 r('GET', '/api/admin/delivery-audit', ADMIN, async () => require('./services/deliveryAudit').status());
+// ---------------- Libya market (services/libya.js) ----------------
+r('GET', '/api/ly/info', null, async () => libya.shopInfo());
+r('POST', '/api/ly/quote', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return libya.quote({ items: b.items, city_id: b.city_id, area_id: b.area_id }); });
+r('POST', '/api/ly/checkout', BUYER, async ({ req, user }) => { const o = libya.checkout(user, await readJson(req)); await db.flush(); return o; });
+r('GET', '/api/ly/orders', BUYER, async ({ user }) => libya.buyerOrders(user));
+// Libya Admin: every route is scoped to Libya data; libya.need() checks the function (catalog, stock, orders, coverage, finance)
+const LYR = ['admin', 'procurement', 'warehouse', 'support', 'finance', 'ly_staff'];
+r('GET', '/api/admin/ly/overview', LYR, async ({ user, url }) => libya.overview(user, Object.fromEntries(url.searchParams)));
+r('GET', '/api/admin/ly/config', LYR, async ({ user }) => { if (!libya.funcsOf(user).length) throw httpError(403, 'No Libya access'); return { ...libya.config(), functions: libya.funcsOf(user) }; });
+r('PATCH', '/api/admin/ly/config', LYR, async ({ req, user }) => {
+  const b = await readJson(req);
+  if (!libya.funcsOf(user).some((f) => ['coverage', 'finance'].includes(f))) throw httpError(403, 'Your account cannot change Libya settings');
+  // opening Libya to customers and payment rules: the owner; COD/payment settings: owner or authorised finance
+  if (b.enabled !== undefined) requireOwner(user);
+  if (['online_payment', 'cod', 'cod_imported', 'cod_max_lyd'].some((k) => b[k] !== undefined)) libya.need(user, 'finance');
+  if (['reservation_hours', 'route_limits'].some((k) => b[k] !== undefined)) libya.need(user, 'coverage');
+  return libya.saveConfig(b);
+});
+r('GET', '/api/admin/ly/offers', LYR, async ({ user, url }) => { libya.need(user, 'catalog'); return libya.searchOffers(Object.fromEntries(url.searchParams)).slice(0, 500).map((o) => libya.viewForStaff(o, user)); });
+r('POST', '/api/admin/ly/offers', LYR, async ({ req, user }) => libya.saveOffer(user, await readJson(req)));
+r('GET', '/api/admin/ly/offers/:id', LYR, async ({ user, params }) => { libya.need(user, 'catalog'); const o = db.ly_offers.get(params.id); if (!o) throw httpError(404, 'Offer not found'); return libya.viewForStaff(o, user); });
+r('PATCH', '/api/admin/ly/offers/:id', LYR, async ({ req, user, params }) => libya.saveOffer(user, await readJson(req), params.id));
+r('POST', '/api/admin/ly/offers/:id/review', LYR, async ({ req, user, params }) => libya.reviewOffer(user, params.id, await readJson(req)));
+r('POST', '/api/admin/ly/offers/:id/status', LYR, async ({ req, user, params }) => libya.setStatus(user, params.id, (await readJson(req)).status));
+r('POST', '/api/admin/ly/offers-bulk', LYR, async ({ req, user }) => libya.bulk(user, await readJson(req)));
+r('GET', '/api/admin/ly/cities', LYR, async ({ user }) => { if (!libya.funcsOf(user).length) throw httpError(403, 'No Libya access'); return db.ly_cities.all(); });
+r('POST', '/api/admin/ly/cities', LYR, async ({ req, user }) => libya.saveCity(user, await readJson(req)));
+r('PATCH', '/api/admin/ly/cities/:id', LYR, async ({ req, user, params }) => libya.saveCity(user, await readJson(req), params.id));
+r('GET', '/api/admin/ly/locations', LYR, async ({ user }) => { if (!libya.funcsOf(user).length) throw httpError(403, 'No Libya access'); return db.ly_locations.all(); });
+r('POST', '/api/admin/ly/locations', LYR, async ({ req, user }) => libya.saveLocation(user, await readJson(req)));
+r('PATCH', '/api/admin/ly/locations/:id', LYR, async ({ req, user, params }) => libya.saveLocation(user, await readJson(req), params.id));
+r('GET', '/api/admin/ly/stock', LYR, async ({ user, url }) => { libya.need(user, 'stock'); const off = url.searchParams.get('offer_id'); return db.ly_stock.all((x) => !off || x.offer_id === off).map((x) => ({ ...x, free: libya.free(x) })); });
+r('POST', '/api/admin/ly/stock', LYR, async ({ req, user }) => libya.adjustStock(user, await readJson(req)));
+r('GET', '/api/admin/ly/moves', LYR, async ({ user, url }) => { libya.need(user, 'stock'); const sid = url.searchParams.get('stock_id'); return db.ly_moves.all((m) => !sid || m.stock_id === sid).sort((a, b) => b.at - a.at).slice(0, 500); });
+r('GET', '/api/admin/ly/orders', LYR, async ({ user, url }) => libya.searchOrders(user, Object.fromEntries(url.searchParams)));
+r('GET', '/api/admin/ly/orders/export', LYR, async ({ user, url, res }) => { const csv = libya.exportOrders(user, Object.fromEntries(url.searchParams)); res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="kinan-libya-orders.csv"' }); res.end(csv); });
+r('GET', '/api/admin/ly/orders/:id', LYR, async ({ user, params }) => { libya.need(user, 'orders'); const o = db.ly_orders.get(params.id); if (!o) throw httpError(404, 'Order not found'); return libya.staffOrder(o, user); });
+r('POST', '/api/admin/ly/orders/:id/events', LYR, async ({ req, user, params }) => libya.orderEvent(user, params.id, await readJson(req)));
+r('POST', '/api/admin/ly/orders/:id/returns', LYR, async ({ req, user, params }) => libya.openReturn(user, params.id, await readJson(req)));
+r('GET', '/api/admin/ly/returns', LYR, async ({ user }) => { libya.need(user, 'orders'); return db.ly_returns.all().sort((a, b) => b.created_at - a.created_at); });
+r('POST', '/api/admin/ly/returns/:id/inspect', LYR, async ({ req, user, params }) => libya.inspectReturn(user, params.id, await readJson(req)));
+r('POST', '/api/admin/ly/returns/:id/refund', LYR, async ({ req, user, params }) => libya.refund(user, params.id, await readJson(req)));
+r('GET', '/api/admin/ly/cash', LYR, async ({ user, url }) => libya.cashSummary(user, { from: Number(url.searchParams.get('from')) || 0, to: Number(url.searchParams.get('to')) || Infinity }));
+r('POST', '/api/admin/ly/cash/remit', LYR, async ({ req, user }) => libya.remit(user, await readJson(req)));
+r('GET', '/api/admin/ly/cash/export', LYR, async ({ user, res }) => { const s = libya.cashSummary(user); const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`; res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="kinan-libya-cash.csv"' }); res.end(['order,kind,amount_lyd,carrier_fee_lyd,settlement_ref,at', ...s.entries.map((e) => [e.order_id, e.kind, e.amount_lyd, e.carrier_fee_lyd, e.settlement_ref || '', new Date(e.at).toISOString()].map(esc).join(','))].join('\n')); });
+// Owner: what each Libya employee may do
+r('PATCH', '/api/admin/ly/staff/:id', ADMIN, async ({ req, user, params }) => {
+  requireOwner(user);
+  const u = db.users.get(params.id); if (!u || u.role !== 'ly_staff') throw httpError(404, 'Libya employee not found');
+  const perms = (Array.isArray((await readJson(req)).ly_perms) ? req._json.ly_perms : []).filter((f) => libya.FUNCS.includes(f));
+  db.users.update(u.id, { ly_perms: perms });
+  return { id: u.id, ly_perms: perms };
+});
 // Delivery eligibility per country (variant × country × route): coverage, variant detail, retries, shadow backfill, rollout
 r('GET', '/api/admin/eligibility', ADMIN, async () => ({ ...eligibility.report(), config: eligibility.config() }));
 r('GET', '/api/admin/eligibility/listing/:id', ADMIN, async ({ params }) => eligibility.detail(params.id));
@@ -1121,7 +1198,7 @@ r('POST', '/api/admin/staff', ADMIN, async ({ user, req }) => {
   requireOwner(user);
   const body = await readJson(req);
   const mailboxes = teamMailboxes(body?.mailboxes);
-  if (body?.role === 'operator' && (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 100 || auth.ownerEmail(body.email))) {
+  if (['operator', 'ly_staff'].includes(body?.role) && (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 100 || auth.ownerEmail(body.email))) {
     throw httpError(400, 'Enter an employee name and a separate login email');
   }
   return auth.createStaff({ ...body, mailboxes });
@@ -1530,6 +1607,8 @@ function startJobs() {
   every(30 * 60e3, () => require('./services/deliveryAudit').tick());
   // delivery eligibility per variant × country: a bounded, quota-aware pass of the verification queue every 5 minutes
   every(5 * 60e3, () => require('./services/eligibility').tick());
+  // Libya: stock held by unconfirmed orders goes back once their hold expires
+  every(15 * 60e3, async () => require('./services/libya').releaseExpired());
   // AliExpress catalog builder (same rules as CJ: ≤10 days delivery, AI review, clean photos) — every 30 minutes, first run 4 minutes after start
   setTimeout(() => require('./services/aeSourcing').tick(), 4 * 60e3).unref?.(); every(15 * 60e3, () => require('./services/aeSourcing').tick()); // as fast as possible (owner, 17 Nov)
   every(5 * 60e3, () => require('./services/deals').tick());

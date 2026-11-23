@@ -336,6 +336,19 @@ dialog.cdlg { width: min(520px, 100vw); max-height: min(720px, 100dvh); border-r
 .unavail h3 { font-size: 17px; }
 .cline-why { color: var(--bad, #b42318); font-size: 13px; font-weight: 600; }
 .cartblock { display: grid; gap: 8px; justify-items: start; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--bad, #b42318) 8%, var(--surface)); color: var(--ink); font-size: 14px; }
+
+/* ---------- Libya market ---------- */
+.lybar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; font-size: 13.5px; }
+.lybar select { width: auto; min-height: 36px; padding: 6px 10px; border-radius: 10px; }
+.lybar .lyhint { color: var(--ink-2); }
+.lyroute { display: inline-flex; align-items: center; gap: 6px; font: 600 12px var(--font-body); padding: 3px 9px; border-radius: 99px; background: var(--jade-soft, #e3f3ec); color: var(--jade); }
+.lyroute.imp { background: color-mix(in srgb, var(--marigold, #f2bb03) 22%, var(--surface)); color: var(--ink); }
+.lychips { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+.lychips button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 99px; padding: 7px 14px; font: 600 13px var(--font-body); cursor: pointer; }
+.lychips button[aria-pressed="true"] { background: var(--jade); border-color: var(--jade); color: var(--jade-ink, #fff); }
+.lydel { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 6px; }
+.lydel h4 { margin: 0; font-size: 14.5px; display: flex; justify-content: space-between; gap: 8px; }
+.lysum > div:not(.lydel) { display: flex; justify-content: space-between; gap: 10px; }
 </style>
 </head>
 <body class="has-tabbar">
@@ -359,7 +372,7 @@ dialog.cdlg { width: min(520px, 100vw); max-height: min(720px, 100dvh); border-r
     <button class="iconbtn" data-theme-toggle aria-label="Dark mode"></button>
     <a class="iconbtn" href="#/cart" aria-label="Cart" id="nav-cart"></a>
   </div>
-  <div class="deliverbar"><div class="wrap"><button type="button" class="cchip" id="cchip" aria-haspopup="dialog" data-no-tr></button></div></div>
+  <div class="deliverbar"><div class="wrap"><button type="button" class="cchip" id="cchip" aria-haspopup="dialog" data-no-tr></button><span id="lybar" class="lybar" hidden data-no-tr></span></div></div>
 </header>
 <main id="view" class="wrap"></main>
 <div id="foot"></div>
@@ -580,7 +593,21 @@ const CSTR = {
   cartBlocked: ['Some items can’t be delivered to %s. Remove them or change the country to check out.', 'بعض المنتجات لا يمكن توصيلها إلى %s. احذفها أو غيّر البلد لإتمام الطلب.'],
   changed: ['Delivery country: %s', 'بلد التوصيل: %s'],
   totalChanged: ['The total is now %s after we checked your address. Confirm to continue.', 'أصبح الإجمالي %s بعد التحقق من عنوانك. أكّد للمتابعة.'],
-  confirmTotal: ['Confirm and continue', 'تأكيد ومتابعة']
+  confirmTotal: ['Confirm and continue', 'تأكيد ومتابعة'],
+  lyCity: ['Your city', 'مدينتك'], lyCityPrompt: ['Choose your city to check local delivery', 'اختر مدينتك للتحقق من التوصيل المحلي'], lyAll: ['All', 'الكل'],
+  lyLocal: ['In stock in Libya', 'متوفر داخل ليبيا'], lyChina: ['Ships from China', 'يُشحن من الصين'], lyDirect: ['Ships direct from the supplier', 'شحن مباشر من المورد'],
+  lyArea: ['Area', 'المنطقة'], lyLandmark: ['Landmark (optional)', 'علامة مميزة (اختياري)'], lyAddress: ['Street and building', 'الشارع والمبنى'], lyName: ['Recipient name', 'اسم المستلم'], lyPhone: ['Mobile number', 'رقم الهاتف المحمول'],
+  lyPin: ['Add a map pin', 'إضافة موقع على الخريطة'], lyPinOk: ['Pin added', 'تمت إضافة الموقع'], lyPinNeeded: ['This city needs a map pin for delivery.', 'هذه المدينة تتطلب تحديد الموقع على الخريطة للتوصيل.'],
+  lyDelivery: ['Delivery', 'التوصيل'], lyDays: ['%s days', '%s أيام'], lyItems: ['Items', 'المنتجات'], lyTotal: ['Total', 'الإجمالي'], lyIncludes: ['Includes: %s', 'يشمل: %s'], lyDue: ['Payable on delivery in addition: %s', 'يُدفع عند الاستلام إضافةً: %s'],
+  lyCod: ['Cash on delivery', 'الدفع عند الاستلام'], lyCodNo: ['Cash on delivery is not available for this order (%s).', 'الدفع عند الاستلام غير متاح لهذا الطلب (%s).'], lyOnlineSoon: ['Online payment for Libya is coming soon.', 'الدفع الإلكتروني في ليبيا قريبًا.'],
+  lyPlace: ['Place order', 'تأكيد الطلب'], lyPlaced: ['Your order is placed. We will call you to confirm it.', 'تم تسجيل طلبك. سنتصل بك لتأكيده.'], lyOrders: ['Libya orders', 'طلبات ليبيا'], lyCheckout: ['Delivery details', 'بيانات التوصيل'],
+  lyClosed: ['Kinan Libya is opening soon.', 'متجر كنان في ليبيا يفتح قريبًا.'], lyNoCity: ['We don’t deliver this product to your city yet.', 'لا نوصل هذا المنتج إلى مدينتك حاليًا.'],
+  lySeparate: ['Each delivery arrives separately, with its own charge.', 'كل شحنة تصل بشكل منفصل وبرسوم خاصة بها.'],
+  why_not_delivered_to_city: ['We don’t deliver this product to your city yet.', 'لا نوصل هذا المنتج إلى مدينتك حاليًا.'], why_libya_only: ['Available only in Libya.', 'متاح في ليبيا فقط.'],
+  why_not_available_in_libya: ['Not available in Libya.', 'غير متاح في ليبيا.'], why_see_libya_offer: ['Available in Libya as a local offer.', 'متاح في ليبيا كعرض محلي.'],
+  why_route_not_covered: ['No delivery to this city for this product.', 'لا يوجد توصيل لهذا المنتج إلى هذه المدينة.'], why_route_not_verified: ['Delivery route not confirmed yet.', 'مسار التوصيل غير مؤكد بعد.'],
+  why_missing_china_quote: ['Shipping price not confirmed yet.', 'سعر الشحن غير مؤكد بعد.'], why_invalid_quantity: ['Check the quantity.', 'تحقق من الكمية.'],
+  cod_off: ['off', 'غير مفعّل'], cod_not_in_area: ['not in your area', 'غير متاح في منطقتك'], cod_not_on_route: ['not for this delivery', 'غير متاح لهذه الشحنة'], cod_not_for_imports: ['not for imported items', 'غير متاح للمنتجات المستوردة'], cod_over_limit: ['order too large', 'قيمة الطلب كبيرة'], cod_no_carrier: ['no courier yet', 'لا توجد شركة توصيل بعد']
 };
 const cs = (k, arg) => { const v = (CSTR[k] || [k, k])[KinanLang.lang === 'ar' ? 1 : 0]; return arg === undefined ? v : v.replace('%s', arg); };
 const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
@@ -601,7 +628,7 @@ const DeliveryCountry = {
     if (me && me.role === 'buyer' && me.delivery_country !== code) { me.delivery_country = code; api('/api/buyer/profile', 'PATCH', { delivery_country: code }).catch(() => {}); }
     api('/api/country/confirm', 'POST', { country: code }).catch(() => {});
     renderCountryChip(); renderLocaleChip();
-    if (prev !== code && !quiet) { toast(cs('changed', marketName(code))); route(); }
+    loadLibya().then(() => { if (prev !== code && !quiet) { toast(cs('changed', marketName(code))); route(); } });
   },
   /** Choices made before this feature (an explicit country, or the account's) count as confirmed. */
   migrate() {
@@ -612,6 +639,28 @@ const DeliveryCountry = {
     if (code && known(code)) { try { localStorage.setItem(DeliveryCountry.KEY, JSON.stringify({ code, at: Date.now(), v: 1, migrated: true })); } catch {} }
   }
 };
+// ---------- Libya: own catalogue in LYD, city choice, route labels ----------
+let lyInfo = null;
+const isLY = () => DeliveryCountry.get() === 'LY' && lyInfo && lyInfo.open;
+const lyCity = () => { try { return localStorage.getItem('kinan_ly_city') || ''; } catch { return ''; } };
+const lyCityObj = () => (lyInfo?.cities || []).find((c) => c.id === lyCity()) || null;
+const lyName = (x) => (x ? (KinanLang.lang === 'ar' ? x.name_ar : x.name_en || x.name_ar) : '');
+async function loadLibya() {
+  if (DeliveryCountry.get() !== 'LY') { lyInfo = null; window.KinanCity = undefined; renderLyBar(); return; }
+  lyInfo = await api('/api/ly/info').catch(() => null);
+  window.KinanCity = lyCity() || undefined;
+  // Arabic by default for Libya, unless the customer chose a language themselves
+  if (lyInfo && lyInfo.open && KinanLang.mode && KinanLang.mode() === 'auto' && KinanLang.lang !== 'ar') { try { if (!sessionStorage.getItem('ly_ar')) { sessionStorage.setItem('ly_ar', '1'); KinanLang.set('ar'); } } catch {} }
+  renderLyBar();
+}
+function renderLyBar() {
+  const bar = $('#lybar'); if (!bar) return;
+  if (!isLY()) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML = `<label class="lyhint" for="lycity">${esc(lyCity() ? cs('lyCity') : cs('lyCityPrompt'))}</label><select id="lycity"><option value="">—</option>${lyInfo.cities.map((c) => `<option value="${esc(c.id)}" ${c.id === lyCity() ? 'selected' : ''}>${esc(lyName(c))}</option>`).join('')}</select>`;
+  bar.querySelector('#lycity').onchange = (e) => { try { localStorage.setItem('kinan_ly_city', e.target.value); } catch {} window.KinanCity = e.target.value || undefined; route(); };
+}
+const lyRouteBadge = (p) => (p.route_label ? `<span class="lyroute ${p.route === 'local' ? '' : 'imp'}" data-no-tr>${esc(KinanLang.lang === 'ar' ? p.route_label.ar : p.route_label.en)}</span>` : '');
 function renderCountryChip() {
   const b = $('#cchip'); if (!b) return;
   const code = DeliveryCountry.get();
@@ -854,7 +903,7 @@ function trackResult(t) {
 }
 const routes = [
   [/^#\/?$/, home], [/^#\/search\/(.+)$/, (q) => home(decodeURIComponent(q))], [/^#\/s\/([\w-]+)$/, shopPage],
-  [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/add\/(.+)$/, addLink], [/^#\/checkout$/, checkout], [/^#\/pay\/([\w-]+)$/, pay],
+  [/^#\/p\/([\w-]+)$/, product], [/^#\/cart$/, cart], [/^#\/add\/(.+)$/, addLink], [/^#\/checkout$/, checkout], [/^#\/ly-checkout$/, lyCheckout], [/^#\/pay\/([\w-]+)$/, pay],
   [/^#\/shops$/, shopsList], [/^#\/c\/([\w-]+)$/, (c) => home('', c)], [/^#\/x\/([\w-]+)(?:\/([\w-]+))?$/, (c, g) => collectionPage(c, g || '')], [/^#\/wallet$/, walletPage], [/^#\/points$/, pointsPage], [/^#\/deals$/, dealsPage], [/^#\/giftcards(?:\/([\w-]+))?$/, (c) => giftcardsPage(c || '')], [/^#\/photo$/, photoPage], [/^#\/request$/, requestPage], [/^#\/saved$/, savedPage],
   [/^#\/track(?:\/([\w%-]+))?$/, trackPage], [/^#\/orders$/, ordersList], [/^#\/orders\/([\w-]+)$/, orderDetail], [/^#\/account$/, account], [/^#\/signin(?:\/(.+))?$/, (next) => signin(next)]
 ];
@@ -904,7 +953,7 @@ function productCard(p) {
   const img = p.images[0];
   return `<a class="card" href="#/p/${esc(p.id)}" data-pid="${esc(p.id)}">
     <div class="ph">${img ? `${K.img(img, 350, 'alt="" loading="lazy"')}` : noImg}${p.deal ? `<span class="dealbadge">−${p.deal.pct}%</span>` : ''}<span class="tag" data-price>${money(p.delivered_price ?? p.min_price, p.currency)}</span></div>
-    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.deal && p.was_min_price ? `<div class="small"><s class="muted">${money(p.was_min_price, p.currency)}</s> <b class="dealtxt">${KinanLang.t('Deal')}</b></div>` : ''}${p.rating ? stars(p.rating, p.reviews) : ''}<div class="muted small" data-shipnote>${p.delivered_price != null ? 'Incl. shipping' : p.ship_pending ? 'Calculating shipping…' : '+ shipping'}</div>${p.ships_from && EU_WH.has(p.ships_from) ? '<div class="small euship">Ships from Europe</div>' : p.ships_from === 'GB' ? '<div class="small euship">Ships from the UK</div>' : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
+    <div class="body"><div class="t" dir="auto">${esc(T(p))}</div>${p.deal && p.was_min_price ? `<div class="small"><s class="muted">${money(p.was_min_price, p.currency)}</s> <b class="dealtxt">${KinanLang.t('Deal')}</b></div>` : ''}${p.rating ? stars(p.rating, p.reviews) : ''}${p.route_label ? `<div>${lyRouteBadge(p)}</div>` : `<div class="muted small" data-shipnote>${p.delivered_price != null ? 'Incl. shipping' : p.ship_pending ? 'Calculating shipping…' : '+ shipping'}</div>`}${p.ships_from && EU_WH.has(p.ships_from) ? '<div class="small euship">Ships from Europe</div>' : p.ships_from === 'GB' ? '<div class="small euship">Ships from the UK</div>' : ''}${p.shop ? `<div class="muted row" style="gap:6px">${shopLogo(p.shop, 'sm')}<span>${esc(p.shop.name)}</span></div>` : ''}</div></a>`;
 }
 const EU_WH = new Set(['DE', 'FR', 'ES', 'IT', 'PL', 'CZ', 'NL', 'BE', 'AT', 'HU', 'PT', 'IE', 'SE', 'DK']);
 const depts = () => (cfg.collections || []).filter((c) => c.kind === 'department');
@@ -927,8 +976,9 @@ function wireToolbar(reload) {
   f.onsubmit = (e) => { e.preventDefault(); filters = { sort: f.sort.value, min_price: f.min_price.value, max_price: f.max_price.value }; reload(); };
 }
 const toBase = (v) => { const r = (cfg.fx && cfg.fx.rates && cfg.fx.rates[Locale.get().currency]) || 1; return String(Math.round((Number(v) / r) * 100) / 100); };
+let lyRoute = '';
 // view=card: every list below renders product cards only, so the server sends just what a card shows
-const catalogQuery = (extra) => new URLSearchParams({ limit: 100, view: 'card', sort: filters.sort, ...(hasAddress() ? { country: Locale.get().country } : {}), ...(filters.min_price ? { min_price: toBase(filters.min_price) } : {}), ...(filters.max_price ? { max_price: toBase(filters.max_price) } : {}), ...extra }).toString();
+const catalogQuery = (extra) => new URLSearchParams({ limit: 100, view: 'card', sort: filters.sort, ...(isLY() && lyRoute ? { route: lyRoute } : {}), ...(hasAddress() ? { country: Locale.get().country } : {}), ...(filters.min_price ? { min_price: toBase(filters.min_price) } : {}), ...(filters.max_price ? { max_price: toBase(filters.max_price) } : {}), ...extra }).toString();
 const emptyFiltered = () => filters.min_price || filters.max_price;
 
 /** Calls next() once when `el` comes within about two screens of view (endless scrolling). Browsers without
@@ -960,8 +1010,10 @@ async function home(q = '', category = '') {
     ${!q && !category && depts().length ? `<div class="sechead"><h2>${KinanLang.t('Shop by department')}</h2></div><div class="depts">${depts().map((d) => `<a class="dept" href="#/x/${esc(d.id)}"><span class="di">${d.image ? `${K.img(d.image, 350, 'alt="" loading="lazy"')}` : d.emoji}</span><b>${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</b><span class="n">${d.count}</span></a>`).join('')}</div>${depts().slice(0, 4).map((d) => `<section class="aisle"><div class="sechead"><h2>${d.emoji} ${esc(KinanLang.lang === 'ar' && d.name_ar ? d.name_ar : d.name)}</h2><a href="#/x/${esc(d.id)}">${KinanLang.t('See all')} →</a></div><div class="xstrip" data-aisle="${esc(d.id)}"></div></section>`).join('')}` : ''}
     <div class="cats" id="cats"></div>
     <div class="sechead"><h2>${q ? 'Products' : category ? esc((cfg.categories || []).find((c) => c.id === category)?.en || 'Products') : 'All products'}</h2></div>
+    ${isLY() ? `<div class="lychips" role="group" data-no-tr>${[['', cs('lyAll')], ['local', cs('lyLocal')], ['china', cs('lyChina')]].map(([r, t]) => `<button type="button" data-lyroute="${r}" aria-pressed="${lyRoute === r}">${esc(t)}</button>`).join('')}</div>${!lyCity() ? `<p class="muted small" data-no-tr>${esc(cs('lyCityPrompt'))}</p>` : ''}` : ''}
     ${toolbar()}
     <div id="results">${skeletonGrid()}</div>`;
+  $$('[data-lyroute]').forEach((b) => b.onclick = () => { lyRoute = b.dataset.lyroute; home(q, category); });
   Search.set(q);
   // The catalog API is paginated; keep fetching subsequent pages on demand.
   // Reset the cursor when search, category or toolbar filters change.
@@ -1156,7 +1208,34 @@ function unavailableProduct(p) {
   $('#uchange').onclick = () => countrySelector();
   api(`/api/catalog/${encodeURIComponent(p.id)}/similar`).then((d) => { const el = $('#similar'); if (el && d.items.length) el.innerHTML = `<div class="sechead"><h2>${KinanLang.t('You may also like')}</h2></div><div class="grid">${d.items.slice(0, 8).map(productCard).join('')}</div>`; }).catch(() => {});
 }
+/** A Libya offer: LYD price, route, delivery for the chosen city, options, add to cart. */
+async function lyProduct(id) {
+  const v = $('#view');
+  if (!isLY()) { v.innerHTML = `<div class="empty" data-no-tr><h3>${esc(cs('why_libya_only'))}</h3><button class="btn" id="lyswitch">${esc(cs('changeCountry'))}</button></div>`; $('#lyswitch').onclick = () => countrySelector(); return; }
+  const p = await api(`/api/catalog/${encodeURIComponent(id)}`);
+  const ok = p.availability?.available !== false;
+  let sku = (p.skus || []).find((x) => x.in_stock) || null; let qty = 1;
+  const title = KinanLang.lang === 'ar' ? (p.title_ar || p.title) : (p.title || p.title_ar);
+  const desc = KinanLang.lang === 'ar' ? (p.description_ar || p.description) : (p.description || p.description_ar);
+  const d = p.delivery;
+  v.innerHTML = `<a class="back" href="#/">${ICONS.back} ${esc(KinanLang.t('All products'))}</a>
+    <div class="pdp" data-no-tr><div class="gallery"><div class="main">${p.images[0] ? K.img(p.images[0], 700, 'alt=""') : noImg}</div></div>
+      <div class="stack-lg" style="align-content:start">
+        <div class="stack">${lyRouteBadge(p)}<h1 style="font-size:clamp(22px,3.4vw,30px)" dir="auto">${esc(title)}</h1><div><span class="tag lg" id="lyprice">${money(sku ? sku.price : p.min_price, 'LYD')}</span></div></div>
+        ${!ok ? `<div class="unavail" role="status"><p style="margin:0">${esc(cs(`why_${p.availability.reason}`))}</p></div>` : ''}
+        ${(p.skus || []).length > 1 ? `<div class="variants" id="lyvars">${p.skus.map((x) => `<button type="button" data-v="${esc(x.mp_sku_id)}" ${x.in_stock ? '' : 'disabled'} class="${sku && x.mp_sku_id === sku.mp_sku_id ? 'on' : ''}">${esc(x.props)}</button>`).join('')}</div>` : ''}
+        <div class="row"><div class="qty"><button type="button" id="qm" aria-label="−">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="+">+</button></div></div>
+        <div class="row"><button class="btn" id="add" style="flex:1" ${ok && sku ? '' : 'disabled'}>${esc(KinanLang.t('Add to cart'))}</button></div>
+        <div class="lydel small">${d ? `<h4><span>${esc(cs('lyDelivery'))} · ${esc(lyName(lyCityObj()))}</span><b>${money(d.fee_lyd, 'LYD')}</b></h4><div>${esc(cs('lyDays', d.min_days && d.max_days ? `${d.min_days}–${d.max_days}` : d.max_days || '—'))}</div>${d.includes ? `<div class="muted">${esc(cs('lyIncludes', d.includes))}</div>` : ''}${d.due_on_delivery_lyd ? `<div class="muted">${esc(cs('lyDue', money(d.due_on_delivery_lyd, 'LYD')))}${d.due_on_delivery_note ? ` — ${esc(d.due_on_delivery_note)}` : ''}</div>` : ''}` : `<div>${esc(cs('lyCityPrompt'))}</div>`}</div>
+        ${desc ? `<p class="desc" dir="auto">${esc(plain(desc))}</p>` : ''}
+      </div></div>`;
+  $$('#lyvars [data-v]').forEach((b) => b.onclick = () => { sku = p.skus.find((x) => x.mp_sku_id === b.dataset.v); $$('#lyvars [data-v]').forEach((y) => y.classList.toggle('on', y === b)); $('#lyprice').textContent = money(sku.price, 'LYD'); });
+  const setQ = (n) => { qty = Math.max(1, Math.min(sku?.stock || 1, n)); $('#qv').value = qty; };
+  $('#qm').onclick = () => setQ(qty - 1); $('#qp').onclick = () => setQ(qty + 1); $('#qv').onchange = (e) => setQ(Math.floor(Number(e.target.value)) || 1);
+  $('#add').onclick = () => { if (!sku) return; Cart.add({ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty, title, props: p.skus.length > 1 ? sku.props : '', price: sku.price, currency: 'LYD', image: p.images[0] || null, ly: true, route: p.route }); toast(KinanLang.t('Added to cart')); };
+}
 async function product(id) {
+  if (String(id).startsWith('lyo_')) return lyProduct(id);
   const v = $('#view'); v.innerHTML = `<div class="pdp"><div class="skeleton" style="aspect-ratio:1"></div><div class="stack"><div class="skeleton" style="height:32px"></div><div class="skeleton" style="height:120px"></div></div></div>`;
   const p = await api(`/api/catalog/${encodeURIComponent(id)}`);
   if (p.availability && p.availability.available === false) { unavailableProduct(p); return; }
@@ -1366,7 +1445,7 @@ async function cart() {
         <div class="total"><span>Total</span><span id="ctot">${money(sub, cur)}${savedAddress().country_code ? '' : ' + shipping'}</span></div>
         ${items.some((x) => x.direct) && items.some((x) => !x.direct) ? '<p class="muted small">Items marked “Ships separately” arrive in their own parcel. Everything else is packed together.</p>' : new Set(items.map((x) => x.shop_id).filter(Boolean)).size > 1 && !items.some((x) => x.direct) ? '<p class="muted small">Items from different shops are packed together and arrive in one parcel.</p>' : ''}
         ${blocked.length ? `<div class="cartblock" role="alert" data-no-tr>${esc(cs('cartBlocked', marketName(country)))} <button type="button" class="btn sm ghost" id="cartcc">${esc(cs('changeCountry'))}</button></div>` : ''}
-        <a class="btn block" href="#/checkout" ${items.length && !blocked.length ? '' : 'aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:.5"'}>Check out</a>
+        <a class="btn block" href="${items.some((x) => String(x.listing_id).startsWith('lyo_')) ? '#/ly-checkout' : '#/checkout'}" ${items.length && !blocked.length ? '' : 'aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:.5"'}>Check out</a>
         <a class="btn block ghost" href="#/">Keep shopping</a>
       </aside>
     </div>`;
@@ -1384,6 +1463,77 @@ async function cart() {
   $$('[data-rm]').forEach((b) => b.onclick = () => upd(+b.dataset.rm, 0));
 }
 
+/** Libya checkout: recipient, city and area, landmark, optional map pin; one delivery per route; cash on delivery. */
+async function lyCheckout() {
+  if (!requireBuyer('/ly-checkout')) return;
+  const v = $('#view');
+  if (!isLY()) { location.hash = '#/cart'; return; }
+  const items = Cart.get().filter((x) => String(x.listing_id).startsWith('lyo_'));
+  if (!items.length) { location.hash = '#/cart'; return; }
+  const prev = (() => { try { return JSON.parse(localStorage.getItem('kinan_ly_addr') || '{}'); } catch { return {}; } })();
+  let cityId = lyCity() || prev.city_id || ''; let pin = null; let lastTotal = null; let qseq = 0;
+  const cities = lyInfo.cities;
+  v.innerHTML = `<div class="pagehead" data-no-tr><div><a class="back" href="#/cart">${ICONS.back} ${esc(KinanLang.t('Cart'))}</a><h1 style="margin-top:6px">${esc(cs('lyCheckout'))}</h1></div></div>
+    <div class="two" data-no-tr><form class="panel stack" id="lyf" novalidate>
+      <div class="grid-2"><label class="field">${esc(cs('lyName'))}<input name="name" required autocomplete="name" value="${esc(prev.name || me.name || '')}"></label>
+      <label class="field">${esc(cs('lyPhone'))}<input name="phone" type="tel" required autocomplete="tel" inputmode="tel" placeholder="09X XXX XXXX" dir="ltr" value="${esc(prev.phone || '')}"></label></div>
+      <div class="grid-2"><label class="field">${esc(cs('lyCity'))}<select name="city_id" required><option value="">—</option>${cities.map((c) => `<option value="${esc(c.id)}" ${c.id === cityId ? 'selected' : ''}>${esc(lyName(c))}</option>`).join('')}</select></label>
+      <label class="field">${esc(cs('lyArea'))}<select name="area_id"></select></label></div>
+      <label class="field">${esc(cs('lyAddress'))}<input name="address" required autocomplete="address-line1" value="${esc(prev.address || '')}"></label>
+      <label class="field">${esc(cs('lyLandmark'))}<input name="landmark" value="${esc(prev.landmark || '')}"></label>
+      <div id="lypinrow" hidden><p class="small muted">${esc(cs('lyPinNeeded'))}</p><button type="button" class="btn ghost sm" id="lypin">${esc(cs('lyPin'))}</button> <span class="small" id="lypinmsg"></span></div>
+      <fieldset class="opts" id="lypay"></fieldset>
+      <div class="error" id="lye" role="alert"></div>
+      <button class="btn" id="lygo" disabled>${esc(cs('lyPlace'))}</button>
+    </form>
+    <aside class="panel sum lysum" id="lysum" aria-live="polite"><div class="skeleton" style="height:120px"></div></aside></div>`;
+  const f = $('#lyf');
+  const paintAreas = () => { const c = cities.find((x) => x.id === f.city_id.value); f.area_id.innerHTML = c && c.areas.length ? c.areas.map((a) => `<option value="${esc(a.id)}" ${a.id === prev.area_id ? 'selected' : ''}>${esc(lyName(a))}</option>`).join('') : '<option value="">—</option>'; f.area_id.disabled = !(c && c.areas.length); $('#lypinrow').hidden = !(c && c.require_pin); };
+  const reasonText = (r) => cs(`why_${r}`) !== `why_${r}` ? cs(`why_${r}`) : r;
+  const requote = async () => {
+    const seq = ++qseq; $('#lygo').disabled = true;
+    if (!f.city_id.value) { $('#lysum').innerHTML = `<p>${esc(cs('lyCityPrompt'))}</p>`; return; }
+    try {
+      const q = await api('/api/ly/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ offer_id: listing_id, variant_id: mp_sku_id, qty })), city_id: f.city_id.value, area_id: f.area_id.value || undefined });
+      if (seq !== qseq) return;
+      lastTotal = q.ok ? q.totals.total_lyd : null;
+      const bad = q.lines.filter((l) => !l.ok);
+      $('#lysum').innerHTML = `${q.deliveries.map((d) => `<div class="lydel"><h4><span>${esc(KinanLang.lang === 'ar' ? d.label.ar : d.label.en)}</span><b>${money(d.fee_lyd, 'LYD')}</b></h4>
+          ${d.lines.map((i) => `<div class="small">${items[i].qty} × ${esc(items[i].title)}</div>`).join('')}
+          <div class="small muted">${esc(cs('lyDays', d.min_days && d.max_days ? `${d.min_days}–${d.max_days}` : d.max_days || '—'))}${d.includes ? ` · ${esc(cs('lyIncludes', d.includes))}` : ''}</div>
+          ${d.due_on_delivery_lyd ? `<div class="small">${esc(cs('lyDue', money(d.due_on_delivery_lyd, 'LYD')))}${d.due_on_delivery_note ? ` — ${esc(d.due_on_delivery_note)}` : ''}</div>` : ''}</div>`).join('')}
+        ${q.deliveries.length > 1 ? `<p class="small muted">${esc(cs('lySeparate'))}</p>` : ''}
+        ${bad.length ? `<div class="cartblock">${bad.map((l) => `${esc(items[l.i]?.title || '')}: ${esc(reasonText(l.reason))}`).join('<br>')}</div>` : ''}
+        <div><span>${esc(cs('lyItems'))}</span><span>${money(q.totals.items_lyd, 'LYD')}</span></div>
+        <div><span>${esc(cs('lyDelivery'))}</span><span>${money(q.totals.delivery_lyd, 'LYD')}</span></div>
+        <div class="total"><span>${esc(cs('lyTotal'))}</span><span>${money(q.totals.total_lyd, 'LYD')}</span></div>
+        ${q.totals.due_on_delivery_extra_lyd ? `<p class="small">${esc(cs('lyDue', money(q.totals.due_on_delivery_extra_lyd, 'LYD')))}</p>` : ''}`;
+      $('#lypay').innerHTML = `${q.payment.cod ? `<label class="opt"><input type="radio" name="payment" value="cod" checked><span><b>${esc(cs('lyCod'))}</b></span><span>${money(q.totals.total_lyd, 'LYD')}</span></label>` : `<p class="small">${esc(cs('lyCodNo', cs(q.payment.cod_reason)))}</p>`}${q.payment.online ? '' : `<p class="small muted">${esc(cs('lyOnlineSoon'))}</p>`}`;
+      $('#lygo').disabled = !(q.ok && q.payment.cod);
+    } catch (e) { if (seq === qseq) { $('#lysum').innerHTML = `<p class="error">${esc(e.message)}</p>`; } }
+  };
+  f.city_id.onchange = () => { try { localStorage.setItem('kinan_ly_city', f.city_id.value); } catch {} window.KinanCity = f.city_id.value || undefined; renderLyBar(); paintAreas(); requote(); };
+  f.area_id.onchange = requote;
+  $('#lypin').onclick = () => { const m = $('#lypinmsg'); if (!navigator.geolocation) { m.textContent = cs('failed'); return; } navigator.geolocation.getCurrentPosition((pos) => { pin = { lat: pos.coords.latitude, lon: pos.coords.longitude }; m.textContent = cs('lyPinOk'); }, () => { m.textContent = cs('denied'); }, { timeout: 10000 }); };
+  paintAreas(); requote();
+  f.onsubmit = async (e) => {
+    e.preventDefault(); $('#lye').textContent = '';
+    const b = Object.fromEntries(new FormData(f));
+    try { localStorage.setItem('kinan_ly_addr', JSON.stringify({ name: b.name, phone: b.phone, city_id: b.city_id, area_id: b.area_id, address: b.address, landmark: b.landmark })); } catch {}
+    $('#lygo').disabled = true;
+    const send = async (expected) => api('/api/ly/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ offer_id: listing_id, variant_id: mp_sku_id, qty })), recipient: { name: b.name, phone: b.phone, city_id: b.city_id, area_id: b.area_id || undefined, address: b.address, landmark: b.landmark, ...(pin ? { lat: pin.lat, lon: pin.lon } : {}) }, payment: 'cod', ...(expected != null ? { expected_total_lyd: expected } : {}) });
+    const done = (o) => { Cart.set(Cart.get().filter((x) => !String(x.listing_id).startsWith('lyo_'))); toast(cs('lyPlaced')); location.hash = '#/orders'; };
+    try { done(await send(lastTotal)); }
+    catch (err) {
+      if (err.code === 'TOTAL_CHANGED' && err.details) {
+        $('#lye').innerHTML = `${esc(cs('totalChanged', money(err.details.total_lyd, 'LYD')))} <button type="button" class="btn sm" id="lyok">${esc(cs('confirmTotal'))}</button>`;
+        $('#lyok').onclick = async () => { try { done(await send(err.details.total_lyd)); } catch (e2) { $('#lye').textContent = e2.message; } };
+        requote();
+      } else if (err.code === 'NOT_DELIVERABLE' && err.details) { $('#lye').innerHTML = err.details.lines.map((l) => `${esc(items.find((x) => x.listing_id === l.offer_id)?.title || '')}: ${esc(reasonText(l.reason))}`).join('<br>'); requote(); }
+      else { $('#lye').textContent = err.message; $('#lygo').disabled = false; }
+    }
+  };
+}
 async function checkout() {
   if (!requireBuyer('/checkout')) return;
   const items = Cart.get(); if (!items.length) { location.hash = '#/cart'; return; }
@@ -1586,12 +1736,15 @@ async function pay(id) {
 async function ordersList() {
   if (!requireBuyer('/orders')) return;
   const v = $('#view'); v.innerHTML = '<div class="pagehead"><h1>Your orders</h1></div><div class="skeleton" style="height:160px"></div>';
-  const list = await api('/api/buyer/orders');
-  v.innerHTML = `<div class="pagehead"><h1>Your orders</h1></div>${list.length ? `<div class="panel">${list.map((o) => {
+  const [list, ly] = await Promise.all([api('/api/buyer/orders'), api('/api/ly/orders').catch(() => [])]);
+  const LY_STATUS = { pending_confirmation: ['بانتظار التأكيد', 'Awaiting confirmation'], confirmed: ['تم التأكيد', 'Confirmed'], packed: ['تم التجهيز', 'Packed'], dispatched: ['في الطريق', 'On its way'], delivery_attempted: ['محاولة توصيل', 'Delivery attempted'], rescheduled: ['أعيدت جدولة التوصيل', 'Rescheduled'], delivered: ['تم التسليم', 'Delivered'], refused: ['رُفض الاستلام', 'Refused'], returned_to_sender: ['أعيد للمرسل', 'Returned to sender'], cancelled: ['أُلغي', 'Cancelled'], returned: ['مُرتجع', 'Returned'] };
+  const lyHtml = ly.length ? `<h2 style="margin:18px 0 8px" data-no-tr>${esc(cs('lyOrders'))}</h2><div class="panel" data-no-tr>${ly.map((o) => `<div class="orderrow"><div><b>${esc(o.id.slice(-8).toUpperCase())}</b><div class="muted">${date(o.created_at, false)} · ${esc(o.recipient.city || '')} · ${o.lines.reduce((a, l) => a + l.qty, 0)}</div>${o.deliveries.map((d) => `<div class="small">${esc(KinanLang.lang === 'ar' ? d.label.ar : d.label.en)}${d.tracking ? ` · ${esc(d.tracking)}` : ''}</div>`).join('')}</div>
+      <div style="text-align:end"><b>${money(o.totals.total_lyd, 'LYD')}</b><div>${pill((LY_STATUS[o.delivery_status] || [o.delivery_status, o.delivery_status])[KinanLang.lang === 'ar' ? 0 : 1], '')}</div><div class="small muted">${esc(o.payment.method === 'cod' ? cs('lyCod') : '')}</div></div></div>`).join('')}</div>` : '';
+  v.innerHTML = `<div class="pagehead"><h1>Your orders</h1></div>${lyHtml}${list.length ? `<div class="panel">${list.map((o) => {
     const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
     return `<a class="orderrow" href="#/orders/${esc(o.id)}"><div><b>Order ${esc(o.id.slice(-8).toUpperCase())}</b><div class="muted">${date(o.created_at, false)} · ${o.lines.reduce((a, l) => a + l.qty, 0)} item(s)</div></div>
       <div style="text-align:end"><b>${money(o.total, o.currency)}</b><div>${pill(label, cls)}</div>${o.hold ? `<div>${pill('Stored', 'warn')}</div>` : ''}</div></a>`; }).join('')}</div>`
-    : `<div class="empty"><h3>No orders yet</h3><p>When you place an order, you can follow it here.</p><a class="btn" href="#/">Start shopping</a></div>`}`;
+    : ly.length ? '' : `<div class="empty"><h3>No orders yet</h3><p>When you place an order, you can follow it here.</p><a class="btn" href="#/">Start shopping</a></div>`}`;
 }
 
 const STEPS = [['paid', 'Order confirmed'], ['procuring', 'Preparing your order'], ['awaiting_parcels', 'Quality check'], ['ready_to_ship', 'Checked and packed'], ['shipped', 'Dispatched — in transit to you'], ['delivered', 'Delivered']];
@@ -2255,6 +2408,7 @@ function wireInstall() {
   if (!DeliveryCountry.get() && sessionReady) { await Promise.race([sessionReady, new Promise((r) => setTimeout(r, 1500))]); DeliveryCountry.migrate(); }
   window.KinanCountry = DeliveryCountry.get() || undefined;
   renderCountryChip();
+  await loadLibya();
   const catalogRoute = () => /^#?\/?(?:$|search\/|c\/|x\/|p\/|deals|s\/)/.test((location.hash || '#/').replace(/^#/, '#'));
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
   K.analyticsConsent(cfg.analytics);
