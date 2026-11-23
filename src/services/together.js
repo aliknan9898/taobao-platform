@@ -64,10 +64,10 @@ function forListing(id) {
 }
 
 /** Shop view: the products plus the bundle saving. */
-function view(id) {
+function view(id, country = null) {
   const ids = forListing(id);
   if (!ids.length) return { items: [], pct: PCT() };
-  const items = require('./catalog').many(ids).items;
+  const items = require('./catalog').many(ids, country).items;
   return { items, pct: PCT() };
 }
 

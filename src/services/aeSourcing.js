@@ -140,7 +140,7 @@ async function run({ count } = {}, by = 'auto') {
   const kinan = require('./buyforme').systemSeller();
   const have = new Set(db.listings.all((l) => l.ae_product_id).map((l) => String(l.ae_product_id)));
   // products refused under different rules (delivery days, price range) get a second look when the rules change
-  const rules = `v3|${DELIVERY_MARKETS.join(",")}|${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`;
+  const rules = `v4-any-market|${DELIVERY_MARKETS.join(",")}|${p.max_days}|${p.min_cost}|${p.max_cost}|${p.min_orders}`;
   const tried = new Set(s0.rules === rules ? list(s0.tried) : []);
   if (s0.rules !== rules) save({ rules, tried: [] });
   const st = { started_at: now(), by, target, added: 0, checked: 0, skipped: 0, reasons: {}, by_dept: {}, last: [], running: true };
@@ -206,24 +206,26 @@ async function run({ count } = {}, by = 'auto') {
         let failedMarket = 'GB';
         let gb = null;
         try {
-          // Keep a single stocked option verified in every market. Stop each
-          // check at its first failed destination to limit supplier API usage.
+          // Each destination is checked on its own (no all-markets rule): an option is kept when it reaches at least one
+          // market within the limit. Every answer is stored per country (services/eligibility.js), so the product can
+          // appear in the markets it reaches as soon as it is approved, and nowhere else.
           for (const sku of inStock.slice(0, 4)) {
             if (!sku.ae_sku_id) continue;
-            const quotes = {};
+            const quotes = {}; const results = {};
             for (const country of DELIVERY_MARKETS) {
-              const quote = await freight(c.id, sku.ae_sku_id, country);
+              const quote = await freight(c.id, sku.ae_sku_id, require('../countries').supplierCode('aliexpress', country));
+              results[country] = quote || null;
               if (country === 'GB' && quote && (!gb || quote.days < gb.days)) gb = quote;
               // per-destination qualification (Admin + daily report): how many reach each market within the limit
               st.markets = st.markets || {}; const mk = st.markets[country] || (st.markets[country] = { checked: 0, passed: 0, failed: 0 });
               mk.checked++;
-              if (!quote || quote.days > p.max_days) { mk.failed++; failedMarket = country; break; }
+              if (!quote || quote.days > p.max_days) { mk.failed++; failedMarket = country; continue; }
               mk.passed++;
               quotes[country] = quote;
             }
-            if (Object.keys(quotes).length === DELIVERY_MARKETS.length) {
-              verified = { skuId: sku.ae_sku_id, quotes };
-              gb = quotes.GB;
+            if (Object.keys(quotes).length) {
+              verified = { skuId: sku.ae_sku_id, quotes, results };
+              gb = quotes.GB || Object.values(quotes)[0];
               break;
             }
           }
@@ -234,8 +236,8 @@ async function run({ count } = {}, by = 'auto') {
         }
         cur.days = gb?.days || null;
         if (gb) { const b = gb.days <= 10 ? '≤10' : gb.days <= 14 ? '11-14' : gb.days <= 20 ? '15-20' : gb.days <= 30 ? '21-30' : '30+'; st.days = st.days || {}; st.days[b] = (st.days[b] || 0) + 1; } else { st.days = st.days || {}; st.days.none = (st.days.none || 0) + 1; }
-        if (!verified) { skip(`no ${failedMarket === 'GB' ? 'UK' : failedMarket} delivery in ${p.max_days} days`, c.id); continue; }
-        const eu = verified.quotes.DE;
+        if (!verified) { skip(`no delivery in ${p.max_days} days to any checked market`, c.id); continue; }
+        const eu = verified.quotes.DE || null;
         // add (not visible until the AI keeps it)
         let l;
         try { l = await aes.publish(kinan, { link: c.id }); } catch (e) { skip(`import failed: ${e.message.slice(0, 60)}`, c.id); continue; }
@@ -270,14 +272,23 @@ async function run({ count } = {}, by = 'auto') {
         db.listings.update(l.id, (x) => ({
           ...x, status: 'active', review: { state: 'approved', decided_at: now(), decided_by: 'ai' }, collections: [dept], collection_group: sec, category: D[dept].category, ae_auto: true, auto_added_at: now(),
           ...(list(d.keywords).length ? { keywords: list(d.keywords).slice(0, 12) } : {}),
-          sourcing: { source: 'aliexpress', dept, group: sec, keyword: item.kw, orders: c.orders, rating: c.rating, from: gb.from, cost, at: now(), gb_days: gb.days, gb_min: gb.min || null, gb_fee: gb.fee, eu_days: eu?.days || null, eu_min: eu?.min || null, eu_fee: eu.fee, delivery_by_country: Object.fromEntries(Object.entries(verified.quotes).map(([country, quote]) => [country, { min: quote.min, days: quote.days, fee: quote.fee }])),
+          sourcing: { source: 'aliexpress', dept, group: sec, keyword: item.kw, orders: c.orders, rating: c.rating, from: gb.from, cost, at: now(), gb_days: verified.quotes.GB?.days || null, gb_min: verified.quotes.GB?.min || null, gb_fee: verified.quotes.GB?.fee ?? null, eu_days: eu?.days || null, eu_min: eu?.min || null, eu_fee: eu?.fee ?? null, delivery_by_country: Object.fromEntries(Object.entries(verified.quotes).map(([country, quote]) => [country, { min: quote.min, days: quote.days, fee: quote.fee }])),
             ai: 'ok', quality: Number(d.quality) || null, reason: String(d.reason || '').slice(0, 200), ebay_ok: false, ebay_title: String(d.ebay_title || '').slice(0, 80) }
         }));
+        // the delivery answers become eligibility records for this option, one per checked country
+        try {
+          const E = require('./eligibility'); const kept = db.listings.get(l.id); const ks = kept.skus.find((x) => x.ae_sku_id === verified.skuId) || kept.skus[0];
+          const life = E.config().ttl_days;
+          for (const [country, q] of Object.entries(verified.results)) {
+            const ok = q && Number(q.days) > 0;
+            E.writeRecord(l.id, country, ks.mp_sku_id, 'ae_direct', { state: ok ? 'eligible' : 'unavailable', reason: ok ? 'verified' : 'no_route', supplier: 'aliexpress', origin: q?.from || null, method: q?.method || null, min_days: ok ? (Number(q.min) || Number(q.days)) : null, max_days: ok ? Number(q.days) : null, fee: q?.fee ?? null, currency: String(config.currency || 'usd').toUpperCase(), verified_at: now(), expires_at: now() + (ok ? life.eligible : life.unavailable) * 86400e3, attempts: 0, next_retry_at: now() + ((ok ? life.eligible : life.unavailable) - 1) * 86400e3, last_error: null });
+          }
+        } catch (e) { console.warn('[ae-sourcing] eligibility', e.message); }
         require('./translate').translateListing(l.id).catch(() => {});
-        console.log(`[ae-sourcing] ✓ ${c.id} added · cost ${cost} · ${gb.days} days`);
+        console.log(`[ae-sourcing] ✓ ${c.id} added · cost ${cost} · ${gb.days} days (${Object.keys(verified.quotes).join(', ')})`);
         have.add(c.id); st.added++; st.by_dept[dept] = (st.by_dept[dept] || 0) + 1;
         const fresh = db.listings.get(l.id);
-        added.push({ id: l.id, title: d.ebay_title || fresh.title, dept, from: gb.from || 'AE', quality: Number(d.quality) || null, eu: eu?.days || null, gb: gb.days, cost, price: Math.min(...fresh.skus.map((s) => s.price)), kw: list(d.keywords).slice(0, 4), listed: null });
+        added.push({ id: l.id, title: d.ebay_title || fresh.title, dept, from: gb.from || 'AE', quality: Number(d.quality) || null, eu: eu?.days || null, gb: verified.quotes.GB?.days || null, cost, price: Math.min(...fresh.skus.map((s) => s.price)), kw: list(d.keywords).slice(0, 4), listed: null });
         st.last = [{ id: l.id, title: fresh.title }, ...st.last].slice(0, 12);
         const addedDay = new Date().toISOString().slice(0, 10);
         save((x) => ({ ...x, day: addedDay, day_added: (x.day === addedDay ? x.day_added || 0 : 0) + 1 }));

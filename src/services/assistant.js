@@ -36,8 +36,8 @@ const PICK = {
   required: ['reply', 'picks']
 };
 
-function find(searches, { min = 0, max = 0, rate = 1 } = {}) {
-  const items = require('./catalog').browse({ limit: 100000 }).items;
+function find(searches, { min = 0, max = 0, rate = 1, country = null } = {}) {
+  const items = require('./catalog').browse({ limit: 100000, country: country || undefined }).items;
   const qs = searches.map((s) => words(s)).filter((w) => w.length);
   const scored = [];
   for (const p of items) {
@@ -54,7 +54,7 @@ function find(searches, { min = 0, max = 0, rate = 1 } = {}) {
 }
 
 /** messages: [{ role: 'user'|'assistant', text }]; currency: the shopper's display currency (EUR, GBP, USD…). */
-async function chat({ messages, currency = 'EUR', lang = 'en' } = {}) {
+async function chat({ messages, currency = 'EUR', lang = 'en', country = null } = {}) {
   const ai = require('./ai');
   if (!ai.enabled()) throw httpError(503, 'The shopping assistant is not available right now');
   const msgs = (Array.isArray(messages) ? messages : []).slice(-8).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', text: str(m.text, 600) })).filter((m) => m.text);
@@ -66,7 +66,7 @@ async function chat({ messages, currency = 'EUR', lang = 'en' } = {}) {
   const plan = await ai.structured({ system: sys, name: 'shopping_plan', schema: PLAN, kind: 'assistant', maxTokens: 500, timeoutMs: 30000, text: `Prices are in ${cur}.\n${convo}` });
   const searches = (plan.searches || []).map((s) => str(s, 60)).filter(Boolean).slice(0, 6);
   if (!searches.length) return { reply: str(plan.reply_if_no_products, 900) || 'How can I help you find something today?', items: [] };
-  const found = find(searches, { min: Number(plan.min_price) || 0, max: Number(plan.max_price) || 0, rate });
+  const found = find(searches, { min: Number(plan.min_price) || 0, max: Number(plan.max_price) || 0, rate, country });
   if (!found.length) {
     return { reply: str(plan.reply_if_no_products, 900) || 'I could not find a good match yet — try other words, or browse the departments.', items: [], searches };
   }

@@ -65,6 +65,22 @@ function validateAddress(a) {
   return out;
 }
 
+/** Postal codes: required and checked in markets where carriers need them (only once a market is enforced). */
+const POSTAL = {
+  GB: /^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$/i, US: /^\d{5}(-\d{4})?$/, CA: /^[A-Z]\d[A-Z] ?\d[A-Z]\d$/i, AU: /^\d{4}$/, NZ: /^\d{4}$/,
+  DE: /^\d{5}$/, FR: /^\d{5}$/, IT: /^\d{5}$/, ES: /^\d{5}$/, NL: /^\d{4} ?[A-Z]{2}$/i, BE: /^\d{4}$/, AT: /^\d{4}$/, CH: /^\d{4}$/, PL: /^\d{2}-?\d{3}$/,
+  PT: /^\d{4}-?\d{3}$/, SE: /^\d{3} ?\d{2}$/, DK: /^\d{4}$/, NO: /^\d{4}$/, FI: /^\d{5}$/, CZ: /^\d{3} ?\d{2}$/, SK: /^\d{3} ?\d{2}$/, GR: /^\d{3} ?\d{2}$/,
+  HU: /^\d{4}$/, RO: /^\d{6}$/, BG: /^\d{4}$/, HR: /^\d{5}$/, SI: /^\d{4}$/, LU: /^\d{4}$/, MT: /^[A-Z]{3} ?\d{4}$/i, CY: /^\d{4}$/, EE: /^\d{5}$/, LV: /^(LV-)?\d{4}$/i, LT: /^(LT-)?\d{5}$/i
+};
+const POSTAL_OPTIONAL = new Set(['IE', 'AE', 'QA', 'HK', 'LY', 'SY', 'YE', 'BH', 'PS', 'MR', 'SD', 'IQ', 'LB', 'JO', 'KW', 'OM']);
+function checkPostal(address) {
+  const cc = address.country_code; const pc = String(address.postal_code || '').trim();
+  if (POSTAL_OPTIONAL.has(cc)) return;
+  if (!pc) throw Object.assign(httpError(400, `Add the postal code of your ${address.country} address`), { code: 'POSTAL_CODE_REQUIRED' });
+  const re = POSTAL[cc];
+  if (re ? !re.test(pc) : !/^[A-Za-z0-9 -]{3,10}$/.test(pc)) throw Object.assign(httpError(400, `Check the postal code (${address.country})`), { code: 'POSTAL_CODE_INVALID' });
+}
+
 /** Customers pay in the currency they chose in the app (USD, EUR or GBP), otherwise the one for their country (UK GBP,
  *  Europe EUR); the order itself stays in the sale currency (USD). */
 const PAY_CURRENCIES = ['USD', 'EUR', 'GBP'];
@@ -80,7 +96,7 @@ function chargeFor(total, country, chosen) {
 const PACKAGING = { standard: 0, no_boxes: 0, protect: Number(process.env.PACKAGING_PROTECT_FEE ?? 2) };
 const STORAGE_DAYS = Number(process.env.STORAGE_DAYS || 30);
 
-async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false, coupon = '', currency = '' }, { idem_key_hash = null, idem_body_hash = null } = {}) {
+async function checkout(buyer, { items, shipping_address, packaging = 'standard', hold = false, coupon = '', currency = '', expected_total }, { idem_key_hash = null, idem_body_hash = null } = {}) {
   const payCur = PAY_CURRENCIES.includes(String(currency).toUpperCase()) ? String(currency).toUpperCase() : null;
   if (!Object.prototype.hasOwnProperty.call(PACKAGING, packaging)) throw httpError(400, 'Unknown packaging option');
   if (!Array.isArray(items) || !items.length) throw httpError(400, 'Cart is empty');
@@ -88,6 +104,11 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   // Owner's switch while the card payment provider is being changed: no order, no payment attempt
   if (process.env.PAYMENTS_PAUSED === '1') throw httpError(503, 'Checkout is paused for a short while — your cart is saved. Please try again soon.');
   const address = validateAddress(shipping_address);
+  // Delivery eligibility (enforced markets): the order's real address decides, whatever country the customer browsed
+  const E = require('./eligibility');
+  const market = address.country_code && E.enforced(address.country_code) ? address.country_code : null;
+  if (market) checkPostal(address);
+  const undeliverable = [];
 
   const lines = [];
   for (const it of items) {
@@ -112,8 +133,13 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     }
     let sku = l.skus.find((s) => s.mp_sku_id === require('./publicIds').skuIn(l, it.mp_sku_id));
     if (!sku) throw httpError(409, 'Variant not found');
+    if (market) {
+      const st = E.lineStatus(l, sku.mp_sku_id, market);
+      if (!st.ok) { undeliverable.push({ listing_id: it.listing_id, mp_sku_id: it.mp_sku_id, title: String(l.title).slice(0, 80), reason: st.reason }); continue; }
+    }
     // AliExpress warehouse ("Ships From") chosen for this address: in the customer's region if possible, else the cheapest
-    sku = require('./shipsFrom').pick(l, sku, address.country_code, qty);
+    // (in an enforced market, only among the warehouse copies that can deliver there)
+    sku = require('./shipsFrom').pick(l, sku, address.country_code, qty, market ? (s) => E.variantState(l, s, market).state === 'eligible' : null);
     if (sku.stock < qty) throw httpError(409, `Not enough stock: ${l.title} (${sku.props})`);
     if (qty < (l.begin_amount || 1)) throw httpError(400, `Minimum order quantity is ${l.begin_amount}`);
     lines.push({
@@ -128,6 +154,9 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       ...(l.last_synced_at ? { checked_at: l.last_synced_at } : {}), // when stock and price were last confirmed with the supplier
       qty, price: require('./deals').priceOf(l, sku), ...(require('./deals').dealFor(l) ? { deal_pct: require('./deals').dealFor(l).pct, list_price: sku.price } : {}), cost_cny: sku.cost_cny
     });
+  }
+  if (undeliverable.length) {
+    throw Object.assign(httpError(409, `${undeliverable.length === 1 ? `“${undeliverable[0].title}” cannot` : `${undeliverable.length} items cannot`} be delivered to ${address.country}. Remove ${undeliverable.length === 1 ? 'it' : 'them'} to continue.`), { code: 'NOT_DELIVERABLE', details: { country: market, lines: undeliverable } });
   }
   // Never sell at a loss: Kinan's own supplier products are repriced to the 20%-net price, sellers' are refused
   const landed = require('./landed');
@@ -156,6 +185,12 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   // Bought together: the bundle saving on items that go with another item in the cart
   const bundle = require('./together').discount(lines);
   const discount = money((disc ? disc.discount : 0) + bundle.amount);
+  // The shop sends the total it showed: if the revalidated total for the real address differs, nothing is ordered and
+  // the customer sees the new figures and confirms again
+  const total = money(Math.max(0, subtotal + shipping + packagingFee - discount));
+  if (expected_total !== undefined && expected_total !== null && expected_total !== '' && Math.abs(Number(expected_total) - total) > 0.009) {
+    throw Object.assign(httpError(409, 'The total changed after we checked your address and items. Please review it and confirm again.'), { code: 'TOTAL_CHANGED', details: { total, subtotal, shipping_fee: shipping, packaging_fee: packagingFee, discount, currency: config.currency, expected_total: Number(expected_total) } });
+  }
   const order = db.orders.insert({
     buyer_id: buyer.id, lines, currency: config.currency, subtotal, shipping_fee: shipping,
     ...(disc || bundle.amount ? { discount } : {}), ...(disc ? { coupon_code: disc.code, coupon_id: disc.coupon_id, coupon_discount: disc.discount } : {}),

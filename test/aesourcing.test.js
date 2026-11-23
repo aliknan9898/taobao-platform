@@ -48,11 +48,17 @@ test('AliExpress builder: only fast, AI-approved products with clean photos are 
   assert.strictEqual(A.prefs().per_day, 1000);
   const st = await A.run({ count: 5 }, 'test');
   assert.ok(!fetched.has('1005000000000010') && !fetched.has('1005000000000011'), 'rejects boundary and unverified sales before product fetch');
-  assert.strictEqual(st.added, 1, JSON.stringify(st.reasons));
+  // each destination is checked on its own: the US-slow and Malta-slow lamps reach the other markets and are added
+  assert.strictEqual(st.added, 3, JSON.stringify(st.reasons));
   assert.strictEqual(db.listings.find((x) => x.ae_product_id === '1005000000000001').sourcing.keyword, 'DS_UK_FastDelivery', 'found first in the fast feed');
-  assert.ok(st.reasons['no UK delivery in 15 days'] >= 1);
-  assert.equal(st.reasons['no US delivery in 15 days'], 1);
-  assert.equal(st.reasons['no MT delivery in 15 days'], 1);
+  assert.ok(st.reasons['no delivery in 15 days to any checked market'] >= 1, 'the slow lamp reaches no market in time');
+  assert.equal(st.reasons['no US delivery in 15 days'], undefined, 'no all-markets rule any more');
+  // the answers became per-country eligibility: the US-slow lamp is over the limit in the US only
+  const E = require('../src/services/eligibility');
+  const us = db.listings.find((x) => x.ae_product_id === '1005000000000005');
+  assert.equal(E.variantState(us, us.skus[0], 'US').state, 'over_limit');
+  assert.equal(E.variantState(us, us.skus[0], 'GB').state, 'eligible');
+  assert.deepEqual(Object.keys(us.sourcing.delivery_by_country), ['GB', 'DE', 'FR', 'ES', 'IT', 'PL', 'MT'], 'only the markets it reaches in time');
   // per-destination qualification: the Malta-slow lamp passed seven markets and failed Malta
   assert.ok(st.markets.MT.failed >= 1 && st.markets.MT.checked >= st.markets.MT.failed);
   assert.ok(st.markets.GB.checked >= st.markets.US.checked);
@@ -75,6 +81,8 @@ test('AliExpress builder: only fast, AI-approved products with clean photos are 
     ['aliexpress:full:1005000000000001', 'ok'],
     ['aliexpress:full:1005000000000003', 'stopped'],
     ['aliexpress:full:1005000000000004', 'stopped'],
+    ['aliexpress:full:1005000000000005', 'ok'],
+    ['aliexpress:full:1005000000000006', 'ok'],
   ]);
 });
 
@@ -105,7 +113,8 @@ test('AliExpress imports previously skipped products at the 20-day ceiling', asy
   }));
   assert.equal(A.prefs().max_days, 20);
   const result = await A.run({ count: 5 }, 'test');
-  assert.equal(result.added, 3);
+  // only the 18-day lamp is new: the US- and Malta-slow lamps were already added on the markets they reach
+  assert.equal(result.added, 1);
   assert.equal(db.listings.find((row) => row.ae_product_id === '1005000000000002').status, 'active');
   assert.equal(A.savePrefs({ max_days: 21 }).max_days, 20);
 });

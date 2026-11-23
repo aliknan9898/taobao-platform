@@ -37,6 +37,12 @@ function updateProfile(user, b = {}) {
     if (!LANGS.includes(b.lang)) throw httpError(400, `Language must be one of ${LANGS.join(', ')}`);
     patch.lang = b.lang;
   }
+  if (b.delivery_country !== undefined) {
+    // the delivery country the customer confirmed in the shop (kept with their other preferences)
+    const cc = String(b.delivery_country || '').toUpperCase();
+    if (!require('../countries').isMarket(cc)) throw httpError(400, 'Choose one of Kinan\'s delivery countries');
+    patch.delivery_country = cc;
+  }
   if (!Object.keys(patch).length) throw httpError(400, 'Nothing to change');
   return auth.publicUser(db.users.update(u.id, patch));
 }

@@ -83,12 +83,13 @@ test('catalog builder: picks best sellers in EU/UK warehouses, fast delivery, AI
   const st = await sourcing.run({ count: 10 });
   const added = db.listings.all((l) => l.sourcing);
   const titles = added.map((l) => l.sourcing.supplier_title).sort();
-  assert.deepStrictEqual(titles, ['Dog Grooming Brush Self Cleaning', 'Dog Harness No Pull Reflective'], JSON.stringify(st.reasons));
-  assert.equal(st.reasons['no UK delivery in 10 days'], 1);
-  assert.equal(st.reasons['no delivery in 7 days to DE'], 1);
-  assert.ok(!db.listings.all((l) => ['D7', 'D8'].includes(l.cj_pid)).length);
+  // each destination on its own: D7 (slow to the UK only) and D8 (slow to the EU only) are kept for the market they reach
+  assert.deepStrictEqual(titles, ['Dog Grooming Brush Self Cleaning', 'Dog Harness No Pull Reflective', 'Dog Travel Mat', 'Dog Water Bowl'], JSON.stringify(st.reasons));
+  assert.equal(st.reasons['no UK delivery in 10 days'], undefined, 'no all-markets rule any more');
+  const d7 = db.listings.find((l) => l.cj_pid === 'D7'); const d8 = db.listings.find((l) => l.cj_pid === 'D8');
+  assert.ok(d7.sourcing.eu_days && !d7.sourcing.gb_days, 'D7: EU only'); assert.ok(d8.sourcing.gb_days && !d8.sourcing.eu_days, 'D8: UK only');
   assert.ok(st.reasons['AI: photos not good enough'] >= 1, JSON.stringify(st.reasons));
-  assert.ok(Object.keys(st.reasons).some((k) => /no delivery in 7 days/.test(k)), JSON.stringify(st.reasons));
+  assert.ok(Object.keys(st.reasons).some((k) => /no delivery in time/.test(k)), JSON.stringify(st.reasons));
   // cost per approved product is reported
   assert.ok(Number.isFinite(st.cj_calls) && st.cj_calls > 0, `cj_calls ${st.cj_calls}`);
   assert.ok(st.ai_reviews >= st.added);
@@ -105,7 +106,7 @@ test('catalog builder: picks best sellers in EU/UK warehouses, fast delivery, AI
   const brush = added.find((l) => /Brush/.test(l.sourcing.supplier_title));
   assert.strictEqual(brush.collection_group, 'care');
   assert.ok(aiCalls >= 3);
-  assert.strictEqual(freightCalls.filter((id) => id === 'D3').length, 1, 'does not quote UK shipping for a rejected EU product');
+  assert.strictEqual(freightCalls.filter((id) => id === 'D3').length, 2, 'each destination is quoted once (EU and UK), no more');
 
   // the shop shows departments with live products only
   for (const l of added) db.listings.update(l.id, { status: 'pending_review' });
@@ -118,7 +119,7 @@ test('catalog builder: picks best sellers in EU/UK warehouses, fast delivery, AI
 
   // eBay uses the AI's eBay title
   const s = sourcing.status();
-  assert.strictEqual(s.total, 2);
+  assert.strictEqual(s.total, 4);
   assert.strictEqual(s.departments.find((d) => d.id === 'pets').live, 1);
 
   // a second run does not add the same products again

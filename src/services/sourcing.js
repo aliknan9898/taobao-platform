@@ -402,10 +402,11 @@ async function run(opts = {}, by = 'admin') {
               try { photos = await reviewPhotos(product, p.min_quality, c.pid); }
               catch (e) { photoReviewError = true; throw e; }
             }
+            // Each destination on its own: the product is kept when it reaches the EU or the UK in time; the
+            // per-country eligibility queue (services/eligibility.js) then checks every variant and market.
             eu = await delivery(cj, product, euCountry, p.max_days_eu);
-            if (!eu) throw httpError(422, `no delivery in ${p.max_days_eu} days to ${euCountry}`);
             gb = await delivery(cj, product, 'GB', p.max_days_gb);
-            if (!gb) throw httpError(422, `no UK delivery in ${p.max_days_gb} days`);
+            if (!eu && !gb) throw httpError(422, `no delivery in time to ${euCountry} (${p.max_days_eu} days) or the UK (${p.max_days_gb} days)`);
             return photos;
           } });
           busy = 0;

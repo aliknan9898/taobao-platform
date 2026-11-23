@@ -274,11 +274,16 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
   const ccx = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
   const cjs = ccx ? require('./cj') : null;
   // Products CJ cannot deliver to the shopper's country are left out (they could not be ordered there anyway)
-  const listings = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id) && !(cjs && cjs.noDelivery(l, ccx))
+  const E = require('./eligibility');
+  // Enforced market: only listings with at least one eligible, in-stock variant, each reduced to those variants —
+  // filtered here, before sorting, counting and paging
+  const market = ccx && E.enforced(ccx);
+  const listings = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id) && !(cjs && !market && cjs.noDelivery(l, ccx))
     && (!seller_id || l.seller_id === seller_id)
     && (!category || (l.category || 'other') === category)
     && (!collection || (l.collections || []).includes(collection)) && (!group || l.collection_group === group || l.sourcing?.group === group)
-    && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (l.keywords || []).some((k) => k.includes(needle) || needle.includes(k)) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)));
+    && (!needle || l.title.toLowerCase().includes(needle) || (l.title_ar || '').includes(needle) || (l.keywords || []).some((k) => k.includes(needle) || needle.includes(k)) || (activeSellers.get(l.seller_id).shop_name || '').toLowerCase().includes(needle)))
+    .map((l) => (market ? E.forMarket(l, ccx) : l)).filter(Boolean);
   const start = Number(offset) || 0;
   const count = limit === 100000 ? listings.length : Math.min(Number(limit) || 40, 100);
   const newest = (l) => l.review?.decided_at || l.created_at;
@@ -389,11 +394,20 @@ function toBuyerViewRaw(l, seller) {
   };
 }
 
-function buyerListing(id) {
+function buyerListing(id, country = null) {
   const l = db.listings.get(id);
   const s = l && db.sellers.get(l.seller_id);
   if (!l || !['active', 'private'].includes(l.status) || !s || s.status !== 'active') throw httpError(404, 'Product not available');
-  return { ...toBuyerView(l, s), return_policy: s.return_policy || null, safety: require('./gpsr').forListing(l) };
+  const extra = { return_policy: s.return_policy || null, safety: require('./gpsr').forListing(l) };
+  const E = require('./eligibility');
+  const cc = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
+  if (!cc || !E.enforced(cc)) return { ...toBuyerView(l, s), ...extra };
+  // Enforced market: only the variants that can be delivered there. A direct link to a product that cannot be delivered
+  // still opens, with the reason and no purchasable variant (the shop offers to change the country).
+  const m = E.forMarket(l, cc);
+  if (m) return { ...toBuyerView(m, s), ...extra, availability: { country: cc, available: true } };
+  const view = toBuyerView(l, s);
+  return { ...view, ...extra, skus: [], option_groups: null, availability: { country: cc, available: false, reason: E.reasonFor(l, cc) || 'unavailable' } };
 }
 
 /** Admin moderation. Only approved listings can ever become visible to buyers. */
@@ -428,10 +442,10 @@ function sellerSetStatus(l, status) {
 }
 
 /** Live products in the order of `ids` (recently viewed). */
-function many(ids) {
+function many(ids, country = null) {
   const want = [...new Set(String(ids || '').split(',').map((x) => x.trim()).filter((x) => /^[\w-]{3,40}$/.test(x)))].slice(0, 30);
   if (!want.length) return { items: [] };
-  const all = new Map(browse({ limit: 100000 }).items.filter((p) => want.includes(p.id)).map((p) => [p.id, p]));
+  const all = new Map(browse({ limit: 100000, country: country || undefined }).items.filter((p) => want.includes(p.id)).map((p) => [p.id, p]));
   return { items: want.map((id) => all.get(id)).filter(Boolean) };
 }
 
@@ -457,7 +471,13 @@ function delivery(id, country, now = Date.now()) {
   const cc = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
   if (!cc) return { country: null };
   let d;
-  if (l.source === 'cj') {
+  const E = require('./eligibility');
+  if (E.enforced(cc) && ['cj', 'aliexpress'].includes(l.source)) {
+    const ok = E.eligibleSkus(l, cc) || [];
+    const recs = ok.map((s) => E.variantState(l, s, cc)).filter((r) => Number(r.max_days) > 0).sort((a, b) => a.max_days - b.max_days);
+    if (!recs.length) return { country: cc, none: true, reason: E.reasonFor(l, cc) || 'unavailable' };
+    d = { min: Number(recs[0].min_days) || recs[0].max_days, max: recs[0].max_days, known: true };
+  } else if (l.source === 'cj') {
     const cj = require('./cj');
     if (cj.noDelivery(l, cc)) return { country: cc, none: true };
     d = cj.deliveryDays(l, cc);
@@ -475,8 +495,10 @@ function delivery(id, country, now = Date.now()) {
   };
 }
 /** Products like this one: same section/collection first, then shared title words and keywords, same category. */
-function similar(id, limit = 12) {
+function similar(id, limit = 12, country = null) {
   const l = db.listings.get(id);
+  const E = require('./eligibility');
+  const cc = /^[A-Z]{2}$/.test(String(country || '')) && E.enforced(country) ? country : null;
   if (!l) return { items: [] };
   const words = (t) => new Set(String(t || '').toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').split(/\s+/).filter((w) => w.length > 2 && !['the', 'and', 'for', 'with', 'set', 'pcs', 'new'].includes(w)));
   const mine = words(`${l.title} ${(l.keywords || []).join(' ')}`);
@@ -485,7 +507,9 @@ function similar(id, limit = 12) {
   const activeSellers = new Map(db.sellers.all((s) => s.status === 'active').map((s) => [s.id, s]));
   const newest = (x) => x.review?.decided_at || x.created_at;
   const out = [];
-  for (const o of db.listings.all((x) => x.status === 'active' && activeSellers.has(x.seller_id) && x.id !== id)) {
+  for (const raw of db.listings.all((x) => x.status === 'active' && activeSellers.has(x.seller_id) && x.id !== id)) {
+    const o = cc ? E.forMarket(raw, cc) : raw;
+    if (!o) continue;
     let sc = 0;
     if (l.collection_group && o.collection_group === l.collection_group && (o.collections || []).some((c) => (l.collections || []).includes(c))) sc += 4;
     else if ((o.collections || []).some((c) => (l.collections || []).includes(c))) sc += 1;

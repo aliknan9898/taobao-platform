@@ -40,6 +40,9 @@ let running = false;
 /** One pass (resumes from the last product checked). */
 async function run({ restart = false } = {}) {
   if (running) return { skipped: 'running' };
+  // Once any market enforces per-country delivery eligibility (services/eligibility.js), products are no longer paused
+  // for the whole shop because of their UK/EU delivery time: each country decides for itself.
+  if (require('./eligibility').anyEnforced()) return { skipped: 'per-country eligibility is enforced' };
   running = true;
   const max = MAX_DAYS();
   const st0 = state();
