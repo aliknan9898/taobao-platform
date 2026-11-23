@@ -501,9 +501,9 @@ function checkout(buyer, b = {}) {
 const TRACKING_STAGES = {
   china_inbound: ['On the way to KINAN’s fulfilment centre', 'طلبك في الطريق إلى مركز تجهيز KINAN'],
   china_received: ['Received at KINAN’s fulfilment centre', 'وصل طلبك إلى مركز تجهيز KINAN'],
-  international_transit: ['On the way to Libya', 'طلبك في الطريق إلى ليبيا'],
-  libya_partial: ['Part of your order reached KINAN Libya', 'وصل جزء من طلبك إلى مستودع KINAN في ليبيا'],
-  libya_received: ['Received at KINAN Libya', 'وصل طلبك إلى مستودع KINAN في ليبيا'],
+  international_transit: ['Your order has left the country of origin and is on its way to the destination country', 'غادر طلبك بلد المنشأ وهو في الطريق إلى بلد الوجهة'],
+  libya_partial: ['Part of your order has reached the KINAN warehouse in the destination country', 'وصل جزء من طلبك إلى مستودع KINAN في بلد الوجهة'],
+  libya_received: ['Your order has reached the KINAN warehouse in the destination country', 'وصل طلبك إلى مستودع KINAN في بلد الوجهة'],
   dispatched: ['Out for delivery', 'خرج طلبك للتوصيل'],
   delivery_attempted: ['Delivery attempt unsuccessful', 'تعذّر تسليم طلبك. تابع التحديثات لمعرفة موعد المحاولة التالية'],
   rescheduled: ['Delivery rescheduled', 'أُعيدت جدولة توصيل طلبك'],
