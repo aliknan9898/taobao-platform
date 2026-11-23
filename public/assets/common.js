@@ -17,11 +17,15 @@ const K = (() => {
 
   let onUnauthorized = null;
   async function api(path, method = 'GET', body) {
-    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(window.KinanLang ? { 'X-Kinan-Lang': window.KinanLang.lang } : {}), ...(/^\/seller/.test(location.pathname) ? { 'X-Kinan-App': 'seller' } : {}) }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+    // The shop's delivery country (set once the customer confirms it) goes with every request; catalogue answers
+    // that arrive after the customer switched country are dropped (never resolved), so they cannot paint over newer ones.
+    const country = window.KinanCountry || '';
+    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(window.KinanLang ? { 'X-Kinan-Lang': window.KinanLang.lang } : {}), ...(country ? { 'X-Kinan-Country': country } : {}), ...(/^\/seller/.test(location.pathname) ? { 'X-Kinan-App': 'seller' } : {}) }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
     const j = await r.json().catch(() => ({}));
+    if (country !== (window.KinanCountry || '') && /^\/api\/(catalog|categories|cart\/check)/.test(path)) return new Promise(() => {});
     if (r.status === 401 && onUnauthorized) onUnauthorized();
     if (r.status === 503 && j.maintenance) maintenanceScreen(j);
-    if (!r.ok) throw Object.assign(new Error(j.error || r.statusText || 'Request failed'), { status: r.status });
+    if (!r.ok) throw Object.assign(new Error(j.error || r.statusText || 'Request failed'), { status: r.status, code: j.code, details: j.details });
     return j;
   }
 

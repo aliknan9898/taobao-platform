@@ -440,6 +440,14 @@ r('POST', '/api/cart/check', null, async ({ req, url }) => {
  * OpenStreetMap's reverse geocoder at country level. Nothing is stored. Falls back to the visitor's network country
  * (Cloudflare CF-IPCountry) when the lookup fails. Answers only Kinan markets; otherwise { country: null }.
  */
+/** A shopper confirmed a delivery country: that market moves up the verification queue (counted, nothing else kept). */
+r('POST', '/api/country/confirm', null, async ({ req }) => {
+  throttleLight(req);
+  const cc = String((await readJson(req)).country || '').toUpperCase();
+  if (!require('./countries').isMarket(cc)) throw httpError(400, 'Unknown delivery country');
+  eligibility.noteDemand(cc);
+  return { ok: true, country: cc, enforced: eligibility.enforced(cc) };
+});
 const geoCache = new Map();
 r('GET', '/api/geo/country', null, async ({ req, url }) => {
   throttleLight(req);
