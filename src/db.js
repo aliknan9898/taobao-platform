@@ -125,6 +125,8 @@ const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
 function collection(name, prefix) {
   return {
     all: (pred) => clone(pred ? load(name).filter(pred) : load(name)),
+    /** Like all(), without copying: the live documents. READ ONLY — never modify what this returns (hot read paths only). */
+    peek: (pred) => (pred ? load(name).filter(pred) : load(name).slice()),
     get: (key) => clone(load(name).find((d) => d.id === key)),
     find: (pred) => clone(load(name).find(pred)),
     insert(doc) {

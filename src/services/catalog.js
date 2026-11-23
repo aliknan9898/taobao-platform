@@ -267,14 +267,16 @@ function imageData(kind, id, n) {
 }
 
 /** Buyer catalog: only active listings of active sellers. Cost is never exposed to buyers. */
-function browse({ q = '', seller_id, category, collection, group, sort = 'new', min_price, max_price, limit = 40, offset = 0, country } = {}) {
-  const activeSellers = new Map(db.sellers.all((s) => s.status === 'active').map((s) => [s.id, s]));
+function browse({ q = '', seller_id, category, collection, group, sort = 'new', min_price, max_price, limit = 40, offset = 0, country, view } = {}) {
+  const activeSellers = new Map(db.sellers.peek((s) => s.status === 'active').map((s) => [s.id, s]));
   const needle = String(q).toLowerCase().trim();
   const lo = Number(min_price) || 0; const hi = Number(max_price) || Infinity;
   const ccx = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
   const cjs = ccx ? require('./cj') : null;
   // Products CJ cannot deliver to the shopper's country are left out (they could not be ordered there anyway)
-  const listings = db.listings.all((l) => l.status === 'active' && activeSellers.has(l.seller_id) && !(cjs && cjs.noDelivery(l, ccx))
+  // read without copying: copying every product (descriptions, options) on each request was most of the time spent here.
+  // Nothing below modifies a listing; the views built for the page are new objects.
+  const listings = db.listings.peek((l) => l.status === 'active' && activeSellers.has(l.seller_id) && !(cjs && cjs.noDelivery(l, ccx))
     && (!seller_id || l.seller_id === seller_id)
     && (!category || (l.category || 'other') === category)
     && (!collection || (l.collections || []).includes(collection)) && (!group || l.collection_group === group || l.sourcing?.group === group)
@@ -323,7 +325,15 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
       else if (['cj', 'banggood'].includes(l.source)) p.ship_pending = true;
     }
   }
-  return { total, items: page };
+  return { total, items: view === 'card' ? page.map(cardView) : page };
+}
+
+/** Only what a product card in a grid shows (view=card): a fraction of the full product, so lists load fast. */
+const CARD_FIELDS = ['id', 'title', 'title_ar', 'currency', 'shop', 'listed_at', 'category', 'min_price', 'delivered_price', 'ship_fee', 'ship_pending', 'ship_extra', 'ships_from', 'rating', 'reviews', 'deal', 'was_min_price', 'no_delivery'];
+function cardView(p) {
+  const out = {}; for (const k of CARD_FIELDS) if (p[k] !== undefined) out[k] = p[k];
+  out.images = (p.images || []).slice(0, 1);
+  return out;
 }
 
 /**
