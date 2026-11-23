@@ -771,7 +771,7 @@ const Search = (() => {
   async function suggest(q) {
     const my = ++seq;
     try {
-      const d = await api(`/api/catalog?${new URLSearchParams({ q, limit: 6 })}`);
+      const d = await api(`/api/catalog?${new URLSearchParams({ q, limit: 6, view: 'card' })}`);
       if (my !== seq || input.value.trim() !== q) return;
       open(`<a href="#/search/${encodeURIComponent(q)}" data-q="${esc(q)}"><span class="si">${ICONS.search}</span><span>Search for “${esc(q)}”</span></a>` +
         d.items.map((p) => `<a href="#/p/${esc(p.id)}">${p.images[0] ? `<img class="si" src="${esc(p.images[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="si">${ICONS.box}</span>`}<span dir="auto">${esc(T(p))}</span><small>${money(p.min_price, p.currency)}</small></a>`).join(''));
@@ -927,8 +927,26 @@ function wireToolbar(reload) {
   f.onsubmit = (e) => { e.preventDefault(); filters = { sort: f.sort.value, min_price: f.min_price.value, max_price: f.max_price.value }; reload(); };
 }
 const toBase = (v) => { const r = (cfg.fx && cfg.fx.rates && cfg.fx.rates[Locale.get().currency]) || 1; return String(Math.round((Number(v) / r) * 100) / 100); };
-const catalogQuery = (extra) => new URLSearchParams({ limit: 100, sort: filters.sort, ...(hasAddress() ? { country: Locale.get().country } : {}), ...(filters.min_price ? { min_price: toBase(filters.min_price) } : {}), ...(filters.max_price ? { max_price: toBase(filters.max_price) } : {}), ...extra }).toString();
+// view=card: every list below renders product cards only, so the server sends just what a card shows
+const catalogQuery = (extra) => new URLSearchParams({ limit: 100, view: 'card', sort: filters.sort, ...(hasAddress() ? { country: Locale.get().country } : {}), ...(filters.min_price ? { min_price: toBase(filters.min_price) } : {}), ...(filters.max_price ? { max_price: toBase(filters.max_price) } : {}), ...extra }).toString();
 const emptyFiltered = () => filters.min_price || filters.max_price;
+
+/** Calls next() once when `el` comes within about two screens of view (endless scrolling). Browsers without
+    IntersectionObserver get a plain button instead. */
+function watchMore(el, next) {
+  if (!el) return;
+  if (!('IntersectionObserver' in window)) {
+    el.innerHTML = `<button type="button" class="btn">${KinanLang.t('Show more products')}</button>`;
+    el.querySelector('button').onclick = () => { void next(); };
+    return;
+  }
+  const io = new IntersectionObserver((entries) => {
+    if (!entries.some((e) => e.isIntersecting)) return;
+    io.disconnect();
+    if (el.isConnected) void next();
+  }, { rootMargin: '0px 0px 1600px 0px' });
+  io.observe(el);
+}
 
 async function home(q = '', category = '') {
   const v = $('#view');
@@ -957,8 +975,8 @@ async function home(q = '', category = '') {
     const existing = append ? (results.querySelector('.grid')?.children.length || 0) : 0;
     if (!append) results.innerHTML = skeletonGrid();
     else {
-      const more = results.querySelector('#catalog-more');
-      if (more) { more.disabled = true; more.textContent = 'Loading…'; }
+      const wrap = results.querySelector('#catalog-more-wrap');
+      if (wrap) wrap.innerHTML = `<p class="muted">${KinanLang.t('Loading more products…')}</p>`;
     }
     const query = catalogQuery({ q, limit: pageSize, offset: existing, ...(category ? { category } : {}) });
     let timeout;
@@ -983,14 +1001,18 @@ async function home(q = '', category = '') {
       results.querySelector('#catalog-more-wrap')?.remove();
       const shown = existing + items.length;
       if (items.length && shown < total) {
-        results.insertAdjacentHTML('beforeend', `<div id="catalog-more-wrap" style="text-align:center;padding:24px 0"><p class="muted">${shown} of ${total} products</p><button type="button" class="btn" id="catalog-more">Load more products</button></div>`);
-        results.querySelector('#catalog-more')?.addEventListener('click', () => { void load(true); });
+        // Endless scrolling: the next products load by themselves well before the shopper reaches the end
+        results.insertAdjacentHTML('beforeend', '<div id="catalog-more-wrap" style="text-align:center;padding:24px 0;min-height:60px"></div>');
+        watchMore(results.querySelector('#catalog-more-wrap'), () => load(true));
       }
     } catch (e) {
       if (version !== requestVersion || !v.isConnected || $('#view') !== v) return;
       if (append) {
-        const more = results.querySelector('#catalog-more');
-        if (more) { more.disabled = false; more.textContent = 'Try loading more'; }
+        const wrap = results.querySelector('#catalog-more-wrap');
+        if (wrap) {
+          wrap.innerHTML = `<button type="button" class="btn ghost">${KinanLang.t('Try again')}</button>`;
+          wrap.querySelector('button').onclick = () => { void load(true); };
+        }
       } else {
         results.innerHTML = '<div class="empty" role="alert"><h3>Products could not load</h3><p>Please check your connection and try again.</p><button type="button" class="btn" id="retry-catalog">Try again</button></div>';
         results.querySelector('#retry-catalog')?.addEventListener('click', () => { void load(); });
