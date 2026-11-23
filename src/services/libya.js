@@ -498,8 +498,50 @@ function checkout(buyer, b = {}) {
   if (method === 'cod') cashEntry(null, { order_id: id, kind: 'expected', amount_lyd: q.totals.total_lyd, key: `expected:${id}` });
   return buyerOrder(order);
 }
+const TRACKING_STAGES = {
+  china_inbound: ['On the way to KINAN’s China centre', 'طلبك في الطريق إلى مركز تجهيز KINAN في الصين'],
+  china_received: ['Received at KINAN’s China centre', 'وصل طلبك إلى مركز تجهيز KINAN في الصين'],
+  international_transit: ['On the way to Libya', 'طلبك في الطريق إلى ليبيا'],
+  libya_partial: ['Part of your order reached KINAN Libya', 'وصل جزء من طلبك إلى مستودع KINAN في ليبيا'],
+  libya_received: ['Received at KINAN Libya', 'وصل طلبك إلى مستودع KINAN في ليبيا'],
+  dispatched: ['Out for delivery', 'خرج طلبك للتوصيل'],
+  delivery_attempted: ['Delivery attempt unsuccessful', 'تعذّر تسليم طلبك. تابع التحديثات لمعرفة موعد المحاولة التالية'],
+  rescheduled: ['Delivery rescheduled', 'أُعيدت جدولة توصيل طلبك'],
+  delivered: ['Delivered', 'تم تسليم طلبك'],
+  refused: ['Delivery refused', 'رُفض استلام طلبك'],
+  returned_to_sender: ['Returned to KINAN', 'أُعيد طلبك إلى مستودع KINAN']
+};
+const IMPORT_STAGES = ['china_inbound', 'china_received', 'international_transit'];
+
+function recordTracking(id, stage, key) {
+  const order = db.ly_orders.get(id);
+  const labels = TRACKING_STAGES[stage];
+  if (!order || !labels) return;
+  const tracking = order.customer_tracking || [];
+  if (tracking.some((e) => e.key === key)) return;
+  const event = { key, stage, at: now(), en: labels[0], ar: labels[1] };
+  db.ly_orders.update(id, { customer_tracking: [...tracking, event] });
+  require('../notify').libyaTracking(order, event);
+}
+
+function inboundReceived(parcel) {
+  for (const id of new Set(parcel.items.map((item) => item.order_id))) {
+    const order = db.ly_orders.get(id);
+    if (!order || ['cancelled', 'returned', 'delivered', 'refused', 'returned_to_sender'].includes(order.delivery_status)) continue;
+    const received = new Map();
+    for (const carton of db.ly_inbound.peek((p) => Boolean(p.received_at))) {
+      for (const item of carton.items) {
+        if (item.order_id === id) received.set(item.line_index, (received.get(item.line_index) || 0) + item.qty);
+      }
+    }
+    const complete = order.lines.every((line, index) => line.route !== 'china' || (received.get(index) || 0) >= line.qty);
+    const stage = complete ? 'libya_received' : 'libya_partial';
+    recordTracking(id, stage, stage);
+  }
+}
+
 function buyerOrder(o) {
-  return { id: o.id, market: LY, currency: 'LYD', created_at: o.created_at, recipient: o.recipient, lines: o.lines.map(({ location_id, seller_id, ...l }) => l), deliveries: o.deliveries.map(({ history, carrier, ...d }) => ({ ...d, tracking: d.tracking || null })), totals: o.totals, payment: { method: o.payment.method, status: o.payment.status }, delivery_status: o.delivery_status };
+  return { id: o.id, market: LY, currency: 'LYD', tracking_history: (o.customer_tracking || []).map(({ stage, at, en, ar }) => ({ stage, at, en, ar })), created_at: o.created_at, recipient: o.recipient, lines: o.lines.map(({ location_id, seller_id, ...l }) => l), deliveries: o.deliveries.map(({ history, carrier, ...d }) => ({ ...d, tracking: d.tracking || null })), totals: o.totals, payment: { method: o.payment.method, status: o.payment.status }, delivery_status: o.delivery_status };
 }
 const buyerOrders = (user) => db.ly_orders.all((o) => o.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(buyerOrder);
 
@@ -507,7 +549,7 @@ const buyerOrders = (user) => db.ly_orders.all((o) => o.buyer_id === user.id).so
 const DELIVERY_FLOW = {
   pending_confirmation: ['confirmed', 'cancelled'], confirmed: ['packed', 'cancelled'], packed: ['dispatched', 'cancelled'],
   dispatched: ['delivery_attempted', 'delivered', 'refused', 'rescheduled', 'returned_to_sender'], delivery_attempted: ['delivered', 'refused', 'rescheduled', 'returned_to_sender'],
-  rescheduled: ['delivery_attempted', 'delivered', 'refused', 'returned_to_sender'], refused: ['returned_to_sender'], returned_to_sender: ['returned'], delivered: ['returned'], cancelled: [], returned: []
+  rescheduled: ['dispatched', 'delivery_attempted', 'delivered', 'refused', 'returned_to_sender'], refused: ['returned_to_sender'], returned_to_sender: ['returned'], delivered: ['returned'], cancelled: [], returned: []
 };
 function updateOrderStatus(id, to, data, user) {
   const o = db.ly_orders.get(id); if (!o) return null;
@@ -529,6 +571,17 @@ function orderEvent(user, id, b = {}) {
   if (!/^[\w:.-]{6,100}$/.test(key)) throw httpError(400, 'Every update needs a unique key (6–100 letters, digits, : . - _)');
   const o = db.ly_orders.get(id); if (!o) throw httpError(404, 'Order not found');
   if (list(o.events).some((e) => e.key === key)) return { duplicate: true, order: staffOrder(db.ly_orders.get(id), user) };
+  if (IMPORT_STAGES.includes(b.type)) {
+    if (!o.lines.some((line) => line.route === 'china') || !['pending_confirmation', 'confirmed', 'packed'].includes(o.delivery_status)) throw httpError(409, 'This order cannot receive import tracking updates');
+    const stage = b.type;
+    const history = o.customer_tracking || [];
+    if (history.some((event) => event.stage === stage)) return { duplicate: true, order: staffOrder(o, user) };
+    const previous = IMPORT_STAGES[IMPORT_STAGES.indexOf(stage) - 1];
+    if ((previous && !history.some((event) => event.stage === previous)) || history.some((event) => ['libya_received', 'libya_partial', 'dispatched'].includes(event.stage))) throw httpError(409, 'Record import stages in order');
+    recordTracking(id, stage, stage);
+    note(user, 'import_tracking', id, { stage });
+    return { duplicate: false, order: staffOrder(db.ly_orders.get(id), user) };
+  }
   const map = { confirm: 'confirmed', pack: 'packed', dispatch: 'dispatched', attempt: 'delivery_attempted', reschedule: 'rescheduled', deliver: 'delivered', refuse: 'refused', return_to_sender: 'returned_to_sender', cancel: 'cancelled' };
   const to = map[b.type]; if (!to) throw httpError(400, 'Unknown update type');
   if (!(DELIVERY_FLOW[o.delivery_status] || []).includes(to)) throw httpError(409, `An order that is ${o.delivery_status} cannot become ${to}`);
@@ -536,6 +589,8 @@ function orderEvent(user, id, b = {}) {
   if (['cancelled', 'refused'].includes(to) && !reason) throw httpError(400, 'Give the reason');
   const ev = { key, at: now(), type: b.type, from: o.delivery_status, to, actor: actorOf(user), ...(reason ? { reason } : {}), ...(b.tracking ? { tracking: str(b.tracking, 80) } : {}), ...(b.date ? { date: str(b.date, 30) } : {}) };
   const patch = { delivery_status: to, events: [...list(o.events), ev].slice(-500) };
+  if (to === 'dispatched' && (o.customer_tracking || []).some((event) => IMPORT_STAGES.includes(event.stage) || event.stage === 'libya_partial') &&
+      !(o.customer_tracking || []).some((event) => event.stage === 'libya_received')) throw httpError(409, 'Receive all import cartons in Libya before dispatch');
   if (to === 'dispatched') { consume(o.reservation_id, user); patch.deliveries = o.deliveries.map((d) => ({ ...d, status: 'dispatched', tracking: str(b.tracking, 80) || d.tracking || null, carrier: str(b.carrier, 60) || d.carrier || null })); }
   if (to === 'cancelled') release(o.reservation_id, reason, user);
   if (to === 'delivered') patch.deliveries = o.deliveries.map((d) => ({ ...d, status: 'delivered' }));
@@ -547,6 +602,7 @@ function orderEvent(user, id, b = {}) {
     db.ly_orders.update(id, { payment: { ...o.payment, status: 'collected' }, settlement_status: 'collected' });
   }
   if (['cancelled', 'refused'].includes(to) && o.payment.method === 'cod') db.ly_orders.update(id, { settlement_status: 'none' });
+  recordTracking(id, to, 'delivery:' + key);
   return { duplicate: false, order: staffOrder(db.ly_orders.get(id), user) };
 }
 /** Cash on delivery ledger entries, idempotent by key. */
@@ -674,6 +730,6 @@ module.exports = {
   saveCity, findCity, publicCities, routeOk, saveLocation, adjustStock, stockOf, free,
   saveOffer, reviewOffer, setStatus, publishable, bulk, searchOffers, viewForStaff,
   browse, offerView, shopInfo, quote, checkout, buyerOrders, phone,
-  orderEvent, remit, cashSummary, searchOrders, overview, exportOrders, staffOrder,
+  inboundReceived, orderEvent, remit, cashSummary, searchOrders, overview, exportOrders, staffOrder,
   openReturn, inspectReturn, refund, release, releaseExpired, reserve
 };
