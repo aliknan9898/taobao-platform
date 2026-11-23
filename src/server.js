@@ -1282,6 +1282,15 @@ r('POST', '/api/admin/listings/bulk', ADMIN, async ({ req, user }) => {
 r('POST', '/api/admin/listings/:id/approve', ADMIN, async ({ params, user }) => catalog.approve(params.id, user));
 r('POST', '/api/admin/listings/:id/reject', ADMIN, async ({ req, params, user }) => catalog.reject(params.id, (await readJson(req)).reason, user));
 
+// Libya inbound cartons
+const lyInbound = require('./services/libyaInbound');
+r('POST', '/api/admin/ly/inbound', LYR, async ({ req, user }) => lyInbound.register(user, await readJson(req)));
+r('GET', '/api/admin/ly/inbound/scan', LYR, async ({ user, url }) => lyInbound.scan(user, url.searchParams.get('code')));
+r('POST', '/api/admin/ly/inbound/receive', LYR, async ({ req, user }) => {
+  const body = await readJson(req);
+  return lyInbound.receive(user, body.code, body.quantities);
+});
+
 // Warehouse
 r('GET', '/api/warehouse/overview', WH, async () => ({ ...warehouse.inventory(), ...warehouse.lists() }));
 r('POST', '/api/warehouse/receive', WH, async ({ req, user }) => warehouse.receive(await readJson(req), user));
@@ -1385,6 +1394,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/christmas' || p === '/xmas') return page(res, 'shop.html', { stripe: true, title: 'Christmas Shop — decorations, lights & gifts | Kinan', body: seo.ssrList({ title: 'Kinan Christmas Shop', intro: 'Christmas decorations, fairy lights, Christmas jumpers, gifts and baking tools — shipped from European warehouses so they arrive before Christmas. Code XMAS10 gives 10% off.', collection: 'christmas' }), head: seo.listJsonLd('Kinan Christmas Shop', seo.liveProducts().filter(({ l }) => (l.collections || []).includes('christmas')), '/christmas') + shareHead({ title: 'Kinan Christmas Shop 🎄 — decorations, lights & gifts', description: 'Christmas decorations, lights, jumpers and gifts — shipped from European warehouses so they arrive before Christmas. Use code XMAS10 for 10% off.', image: '/assets/xmas-og.png', url: '/christmas', hash: '#/x/christmas' }) });
       if (p === '/seller') return page(res, 'seller.html');
       if (p === '/admin') return page(res, 'admin.html');
+      if (p === '/warehouse/libya') return page(res, 'warehouse-libya.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
       if (p === '/download' || p === '/apps') return page(res, 'download.html');
       if (p === '/catalogue' || p === '/catalog') return page(res, 'catalogue.html');
