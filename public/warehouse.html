@@ -161,7 +161,7 @@ function wireCams(root) {
   });
 }
 function boot(user) {
-  $('#app').innerHTML = `<header><a class="brand" href="/warehouse"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>Warehouse · China</small></a><div class="row">${user.role === 'admin' ? '<a href="/admin"><button class="btn ghost">Admin dashboard</button></a>' : ''}${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.name || user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
+  $('#app').innerHTML = `<header><a class="brand" href="/warehouse"><img class="brand-mark" src="/assets/logo-main.png" width="32" height="32" alt=""><span dir="ltr">KINAN</span><small>Warehouse · China</small></a><a class="btn ghost" href="/warehouse/libya">استلام ليبيا</a><div class="row">${user.role === 'admin' ? '<a href="/admin"><button class="btn ghost">Admin dashboard</button></a>' : ''}${KinanLang.button('btn ghost')}${KinanTheme.button('btn ghost')}<span class="muted">${esc(user.name || user.email)}</span><button class="btn ghost" id="lo">Sign out</button></div></header>
   <main>
     <section class="card"><h2>Receive parcel</h2>
       <form class="scan" id="scan">

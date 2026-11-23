@@ -201,4 +201,16 @@ function returnUpdate(r) {
     button: { text: 'View order', url: `${base()}/#/orders/${r.order_id}` } }));
 }
 
-module.exports = { trackingStage, STAGES, priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerUnderReview, customerWelcome, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, payoutMethodChanged, payoutMethodUpdate, returnUpdate, qcPhotos };
+function libyaTracking(order, event) {
+  const path = '/#/orders';
+  const key = 'ly-track:' + order.id + ':' + event.key;
+  const body = 'KINAN order ' + ref(order);
+  const arabicBody = 'طلب KINAN ' + ref(order);
+  push.toUser(order.buyer_id, { title: event.en, body, url: path, tag: key, ar: { title: event.ar, body: arabicBody } });
+  fire(mailer.send({ to: emailOf(order.buyer_id), key, kind: 'order',
+    subject: event.en + ' — ' + body, title: event.en, lines: [body],
+    ar: { subject: event.ar + ' — ' + arabicBody, title: event.ar, lines: [arabicBody], button: { text: 'تتبع طلبك', url: base() + path } },
+    button: { text: 'Track your order', url: base() + path } }));
+}
+
+module.exports = { libyaTracking, trackingStage, STAGES, priceAlert, orderPaid, orderShipped, orderDelivered, sellerApproved, sellerUnderReview, customerWelcome, sellerKycRejected, listingDecision, requestAnswered, passwordReset, payoutUpdate, payoutMethodChanged, payoutMethodUpdate, returnUpdate, qcPhotos };

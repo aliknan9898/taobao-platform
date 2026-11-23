@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KINAN — استلام ليبيا</title>
+<style>
+body{margin:2rem auto;padding:0 1rem;max-width:48rem;font:1rem system-ui} input,button{font:inherit;padding:.5rem;margin:.25rem} input[type=number]{width:5rem} #label{direction:ltr;text-align:center}
+@media print{body>*{display:none} #label{display:block} #print{display:none}}
+</style>
+<h1>استلام ليبيا</h1>
+<a href="/admin">لوحة الإدارة وتسجيل الدخول</a>
+<form id="scan">
+<label for="code">امسح أو أدخل رقم التتبع</label>
+<input id="code" dir="ltr" required maxlength="100" autofocus>
+<button>بحث</button>
+</form>
+<p id="status" role="status"></p>
+<form id="receipt" hidden>
+<div id="items"></div>
+<button>تأكيد الاستلام</button>
+</form>
+<section id="label" hidden>
+<strong>KINAN · LY</strong><p id="reference"></p><button id="print" type="button">طباعة الملصق</button>
+</section>
+<script>
+const el = (id) => document.getElementById(id);
+let current;
+async function request(path, body) {
+  const response = await fetch('/api/admin/ly/inbound/' + path, body ? {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  } : {});
+  if (response.status === 401 || response.status === 403) throw Error('سجّل الدخول بحساب لديه صلاحية مخزون ليبيا.');
+  const result = await response.json();
+  if (!response.ok) throw Error(result.message || result.error?.message || 'تعذرت العملية.');
+  return result;
+}
+function show(parcel) {
+  current = parcel;
+  el('receipt').hidden = parcel.status !== 'expected';
+  el('label').hidden = !parcel.label;
+  el('reference').textContent = parcel.label || '';
+  el('status').textContent = { expected: 'طرد متوقع. افحص المحتويات وأدخل الكميات المستلمة.', unmatched: 'بانتظار المطابقة مع طلب.', received: 'وصل إلى مخزن ليبيا.' }[parcel.status];
+  el('items').replaceChildren();
+  for (const item of parcel.items || []) {
+    const row = document.createElement('p');
+    const label = document.createElement('label');
+    label.textContent = [item.order_id, item.title, item.props, 'الكمية المتوقعة ' + item.qty].filter(Boolean).join(' · ');
+    const input = document.createElement('input');
+    Object.assign(input, { type: 'number', required: true, min: '0', step: '1' });
+    label.append(input);
+    row.append(label);
+    el('items').append(row);
+  }
+}
+for (const [id, action] of [
+  ['scan', async () => {
+    current = null;
+    el('receipt').hidden = true;
+    el('label').hidden = true;
+    show(await request('scan?code=' + encodeURIComponent(el('code').value)));
+    el('code').select();
+  }],
+  ['receipt', async () => {
+    const quantities = [...el('items').querySelectorAll('input')].map((input) => input.valueAsNumber);
+    show(await request('receive', { code: current.tracking, quantities }));
+  }]
+]) {
+  el(id).addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = el(id).querySelector('button');
+    button.disabled = true;
+    try { await action(); } catch (error) { el('status').textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+}
+el('print').onclick = () => window.print();
+</script>
+</html>
