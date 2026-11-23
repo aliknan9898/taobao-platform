@@ -11,6 +11,8 @@
 <script src="/assets/i18n.js"></script>
 <link rel="icon" href="/assets/favicon-48.png" type="image/png" sizes="48x48">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<!-- Kinan Shop's manifest: on Android, Chrome then offers the install here, so "Download" installs in one tap -->
+<link rel="manifest" href="/assets/shop.webmanifest">
 <link rel="stylesheet" href="/assets/fonts.css">
 <link rel="stylesheet" href="/assets/kinan.css">
 <style>
@@ -136,6 +138,20 @@
   // Highlight the button for this phone
   var android = /Android/.test(ua);
   $$('[data-os-link]').forEach(function (a) { if ((ios && a.dataset.osLink === 'ios') || (android && a.dataset.osLink === 'android')) a.classList.add('mine'); });
+  // Android: Kinan Shop installs straight from this page (the browser's own install dialog, one tap).
+  // Without that offer (iPhone, Firefox, already installed) the button opens the app's guided install as before.
+  var shopInstall = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); shopInstall = e; });
+  window.addEventListener('appinstalled', function () { shopInstall = null; K.toast('Kinan Shop installed'); });
+  $$('[data-app-key="shop"][data-os-link="android"]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      if (!shopInstall || a.hasAttribute('download') || !/install=1/.test(a.getAttribute('href'))) return; // store / APK link wins
+      e.preventDefault();
+      var ev = shopInstall; shopInstall = null;
+      ev.prompt();
+      ev.userChoice.then(function (r) { if (r && r.outcome !== 'accepted') shopInstall = null; }).catch(function () {});
+    });
+  });
   // Store / APK links when they exist (set in the server settings); otherwise one-tap install from the site
   fetch('/api/config/public').then(function (r) { return r.json(); }).then(function (c) {
     K.analyticsConsent(c.analytics);
