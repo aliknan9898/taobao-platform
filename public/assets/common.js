@@ -301,3 +301,26 @@ const K = (() => {
   }
   return { journey, sized, img, presence, googleButton, takeLoginError, $, $$, esc, money, num, date, plain, api, toast, brand, LOGO, ORDER_STATUS, pill, ICONS, registerSW, footer, SOCIAL, offerInstall, installSheet, isIOS, isStandalone, pushPanel, enablePush, pushState, analyticsConsent, track, set onUnauthorized(f) { onUnauthorized = f; } };
 })();
+
+/* Script errors on this page go to the server (and from there to Sentry, when it is set up): at most 5 per page view,
+   each message once. Expected failures (offline, a refused request) are not reported. Never breaks the page. */
+(() => {
+  let n = 0; const seen = new Set();
+  const NOISE = /^Script error\.?$|Failed to fetch|NetworkError|Load failed|network connection was lost|The operation was aborted|AbortError|ResizeObserver loop/i;
+  function report(message, stack) {
+    try {
+      message = String(message || '').slice(0, 1000);
+      if (!message || n >= 5 || seen.has(message) || NOISE.test(message)) return;
+      seen.add(message); n += 1;
+      const body = JSON.stringify({ message, stack: String(stack || '').slice(0, 8000), page: location.pathname + location.hash, app: location.pathname.split('/')[1] || 'shop' });
+      if (navigator.sendBeacon && navigator.sendBeacon('/api/client-error', new Blob([body], { type: 'application/json' }))) return;
+      fetch('/api/client-error', { method: 'POST', body, headers: { 'Content-Type': 'application/json' }, keepalive: true }).catch(() => {});
+    } catch { /* reporting must never break the page */ }
+  }
+  window.addEventListener('error', (e) => { if (e.error || e.message) report(e.error ? `${e.error.name}: ${e.error.message}` : e.message, e.error && e.error.stack); });
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e.reason;
+    if (r && r.status) return; // an API answer the page already shows (4xx/5xx with a message)
+    report(r instanceof Error ? `${r.name}: ${r.message}` : `Unhandled rejection: ${String(r)}`, r && r.stack);
+  });
+})();
