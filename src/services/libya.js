@@ -499,8 +499,8 @@ function checkout(buyer, b = {}) {
   return buyerOrder(order);
 }
 const TRACKING_STAGES = {
-  china_inbound: ['On the way to KINAN’s China centre', 'طلبك في الطريق إلى مركز تجهيز KINAN في الصين'],
-  china_received: ['Received at KINAN’s China centre', 'وصل طلبك إلى مركز تجهيز KINAN في الصين'],
+  china_inbound: ['On the way to KINAN’s fulfilment centre', 'طلبك في الطريق إلى مركز تجهيز KINAN'],
+  china_received: ['Received at KINAN’s fulfilment centre', 'وصل طلبك إلى مركز تجهيز KINAN'],
   international_transit: ['On the way to Libya', 'طلبك في الطريق إلى ليبيا'],
   libya_partial: ['Part of your order reached KINAN Libya', 'وصل جزء من طلبك إلى مستودع KINAN في ليبيا'],
   libya_received: ['Received at KINAN Libya', 'وصل طلبك إلى مستودع KINAN في ليبيا'],
@@ -541,7 +541,7 @@ function inboundReceived(parcel) {
 }
 
 function buyerOrder(o) {
-  return { id: o.id, market: LY, currency: 'LYD', tracking_history: (o.customer_tracking || []).map(({ stage, at, en, ar }) => ({ stage, at, en, ar })), created_at: o.created_at, recipient: o.recipient, lines: o.lines.map(({ location_id, seller_id, ...l }) => l), deliveries: o.deliveries.map(({ history, carrier, ...d }) => ({ ...d, tracking: d.tracking || null })), totals: o.totals, payment: { method: o.payment.method, status: o.payment.status }, delivery_status: o.delivery_status };
+  return { id: o.id, market: LY, currency: 'LYD', tracking_history: (o.customer_tracking || []).map(({ stage, at, en, ar }) => ({ stage, at, en: TRACKING_STAGES[stage]?.[0] || en, ar: TRACKING_STAGES[stage]?.[1] || ar })), created_at: o.created_at, recipient: o.recipient, lines: o.lines.map(({ location_id, seller_id, ...l }) => l), deliveries: o.deliveries.map(({ history, carrier, ...d }) => ({ ...d, label: d.route === 'china' ? { ar: 'شحن دولي عبر KINAN', en: 'International shipping via KINAN' } : d.label, tracking: d.tracking || null })), totals: o.totals, payment: { method: o.payment.method, status: o.payment.status }, delivery_status: o.delivery_status };
 }
 const buyerOrders = (user) => db.ly_orders.all((o) => o.buyer_id === user.id).sort((a, b) => b.created_at - a.created_at).map(buyerOrder);
 
