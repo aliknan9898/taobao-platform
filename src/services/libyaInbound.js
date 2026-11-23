@@ -59,12 +59,17 @@ function receive(user, code, quantities) {
   libya.need(user, 'stock');
   const parcel = lookup(code);
   if (!parcel) throw httpError(404, 'Carton is awaiting matching');
-  if (parcel.received_at) return view(parcel);
+  if (parcel.received_at) {
+    libya.inboundReceived(parcel);
+    return view(parcel);
+  }
   if (!Array.isArray(quantities) || quantities.length !== parcel.items.length ||
       parcel.items.some((item, index) => quantities[index] !== item.qty)) {
     throw httpError(409, 'Quantity discrepancy: hold the carton for manual review');
   }
-  return view(db.ly_inbound.update(parcel.id, { received_at: Date.now(), received_by: user.id }));
+  const received = db.ly_inbound.update(parcel.id, { received_at: Date.now(), received_by: user.id });
+  libya.inboundReceived(received);
+  return view(received);
 }
 
 module.exports = { register, scan, receive };
