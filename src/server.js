@@ -377,6 +377,12 @@ r('GET', '/api/me', auth.ROLES, async ({ req, user }) => {
 });
 
 // Catalog (public for browsing)
+/** The shopper's delivery country: ?country= or the X-Kinan-Country header the shop sends; only Kinan markets. */
+function countryOf(req, url) {
+  const raw = String((url && url.searchParams.get('country')) || req.headers['x-kinan-country'] || '').trim().toUpperCase();
+  return require('./countries').isMarket(raw) ? raw : null;
+}
+const eligibility = require('./services/eligibility');
 /** Errors from shoppers' browsers (assets/common.js), forwarded to Sentry when SENTRY_DSN is set. Small, throttled, no auth. */
 r('POST', '/api/client-error', null, async ({ req }) => {
   throttleLight(req);
@@ -384,29 +390,85 @@ r('POST', '/api/client-error', null, async ({ req }) => {
   require('./sentry').captureBrowser({ message: String(b.message || '').slice(0, 1000), stack: String(b.stack || '').slice(0, 8000), page: String(b.page || '').slice(0, 300), app: String(b.app || '').slice(0, 20) });
   return { ok: true };
 });
-r('GET', '/api/catalog', null, async ({ url }) => {
-  const out = await cached(`catalog?${url.searchParams}|${db.version('listings')}|${db.version('sellers')}`, 30e3, () => catalog.browse(Object.fromEntries(url.searchParams)));
+r('GET', '/api/catalog', null, async ({ req, url }) => {
+  const cc = countryOf(req, url);
+  const params = { ...Object.fromEntries(url.searchParams), ...(cc ? { country: cc } : {}) };
+  // the delivery country and the eligibility data are part of the key: a change in either gives fresh results
+  const out = await cached(`catalog?${new URLSearchParams(params)}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}`, 30e3, () => catalog.browse(params));
   // what customers look for (free trends engine): only real searches, first page
   const q = url.searchParams.get('q'); if (q && !Number(url.searchParams.get('offset'))) { try { require('./services/trends').logSearch(q, out.total); } catch { /* never block the shop */ } }
   return out;
 });
 r('GET', '/api/catalog/lines', null, async ({ url }) => require('./services/testOrder').lines(url.searchParams.get('items')));
 r('GET', '/api/admin/test-basket', ADMIN, async ({ url }) => require('./services/testOrder').basket(Object.fromEntries(url.searchParams)));
-r('GET', '/api/catalog/many', null, async ({ url }) => catalog.many(url.searchParams.get('ids')));
-r('GET', '/api/catalog/:id/similar', null, async ({ params }) => cached(`similar:${params.id}|${db.version('listings')}|${db.version('sellers')}`, 60e3, () => catalog.similar(params.id)));
+r('GET', '/api/catalog/many', null, async ({ req, url }) => catalog.many(url.searchParams.get('ids'), countryOf(req, url)));
+r('GET', '/api/catalog/:id/similar', null, async ({ req, url, params }) => { const cc = countryOf(req, url); return cached(`similar:${params.id}|${cc}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}`, 60e3, () => catalog.similar(params.id, 12, cc)); });
 r('GET', '/api/catalog/:id/questions', null, async ({ params }) => require('./services/assistant').questionsFor(params.id));
 r('POST', '/api/catalog/:id/questions', BUYER, async ({ req, params, user }) => { throttleLight(req); return require('./services/assistant').ask(db.users.get(user.id), params.id, (await readJson(req)).question); });
-r('POST', '/api/assistant', null, async ({ req }) => { throttleLight(req); photoLimit(req); const b = await readJson(req); return require('./services/assistant').chat({ messages: b.messages, currency: b.currency, lang: b.lang }); });
+r('POST', '/api/assistant', null, async ({ req, url }) => { throttleLight(req); photoLimit(req); const b = await readJson(req); return require('./services/assistant').chat({ messages: b.messages, currency: b.currency, lang: b.lang, country: countryOf(req, url) }); });
 r('GET', '/api/admin/questions', ADMIN, async () => require('./services/assistant').pending());
 r('POST', '/api/admin/questions/:id', ADMIN, async ({ req, params }) => require('./services/assistant').answer(params.id, (await readJson(req)).answer));
-r('GET', '/api/catalog/:id', null, async ({ req, params }) => { const out = catalog.buyerListing(params.id); try { ops.countView(db.listings.get(params.id), clientIp(req)); } catch { /* stats are best effort */ } return out; });
+r('GET', '/api/catalog/:id', null, async ({ req, url, params }) => { const out = catalog.buyerListing(params.id, countryOf(req, url)); try { ops.countView(db.listings.get(params.id), clientIp(req)); } catch { /* stats are best effort */ } return out; });
 r('GET', '/api/catalog/:id/reviews', null, async ({ params }) => growth.reviewsFor(params.id));
 r('GET', '/api/shops', null, async () => shopSvc.listShops());
 r('GET', '/api/shops/:id', null, async ({ params }) => shopSvc.getShop(params.id));
-r('GET', '/api/categories', null, async () => cached(`categories|${db.version('listings')}`, 60e3, () => {
-  const counts = {}; for (const p of catalog.browse({ limit: 100000 }).items) counts[p.category] = (counts[p.category] || 0) + 1;
+r('GET', '/api/categories', null, async ({ req, url }) => { const cc = countryOf(req, url); return cached(`categories|${cc}|${db.version('listings')}|${eligibility.version()}`, 60e3, () => {
+  const counts = {}; for (const p of catalog.browse({ limit: 100000, ...(cc ? { country: cc } : {}) }).items) counts[p.category] = (counts[p.category] || 0) + 1;
   return shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar, count: counts[id] || 0 }));
-}));
+}); });
+/**
+ * Cart check for a delivery country: each line is deliverable there, or the reason it is not. The shop keeps the lines
+ * and blocks checkout until they are removed or become eligible.
+ */
+r('POST', '/api/cart/check', null, async ({ req, url }) => {
+  throttleLight(req);
+  const b = await readJson(req);
+  const cc = require('./countries').isMarket(String(b.country || '').toUpperCase()) ? String(b.country).toUpperCase() : countryOf(req, url);
+  if (!cc) throw httpError(400, 'Choose a delivery country');
+  const items = require('./services/publicIds').itemsIn(Array.isArray(b.items) ? b.items.slice(0, 100) : []);
+  const lines = items.map((it, i) => {
+    const l = db.listings.get(it.listing_id);
+    const seller = l && db.sellers.get(l.seller_id);
+    const pub = (Array.isArray(b.items) && b.items[i]) || {};
+    if (!l || !['active', 'private'].includes(l.status) || !seller || seller.status !== 'active') return { listing_id: pub.listing_id, mp_sku_id: pub.mp_sku_id, ok: false, reason: 'not_available' };
+    return { listing_id: pub.listing_id, mp_sku_id: pub.mp_sku_id, ...eligibility.lineStatus(l, it.mp_sku_id, cc) };
+  });
+  return { country: cc, enforced: eligibility.enforced(cc), ok: lines.every((x) => x.ok), lines };
+});
+/**
+ * "Use my location": the browser's coordinates (rounded to about 10 km before they leave Kinan) → country, using
+ * OpenStreetMap's reverse geocoder at country level. Nothing is stored. Falls back to the visitor's network country
+ * (Cloudflare CF-IPCountry) when the lookup fails. Answers only Kinan markets; otherwise { country: null }.
+ */
+/** A shopper confirmed a delivery country: that market moves up the verification queue (counted, nothing else kept). */
+r('POST', '/api/country/confirm', null, async ({ req }) => {
+  throttleLight(req);
+  const cc = String((await readJson(req)).country || '').toUpperCase();
+  if (!require('./countries').isMarket(cc)) throw httpError(400, 'Unknown delivery country');
+  eligibility.noteDemand(cc);
+  return { ok: true, country: cc, enforced: eligibility.enforced(cc) };
+});
+const geoCache = new Map();
+r('GET', '/api/geo/country', null, async ({ req, url }) => {
+  throttleLight(req);
+  const C = require('./countries');
+  const lat = Number(url.searchParams.get('lat')); const lon = Number(url.searchParams.get('lon'));
+  let found = null; let detected = null;
+  if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+    const key = `${lat.toFixed(1)},${lon.toFixed(1)}`;
+    if (geoCache.has(key)) detected = geoCache.get(key);
+    else {
+      try {
+        const r2 = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=3&lat=${lat.toFixed(1)}&lon=${lon.toFixed(1)}`, { headers: { 'User-Agent': `KinanShop/1.0 (${config.operator.email || 'support@kinan.shop'})`, 'Accept-Language': 'en' }, signal: AbortSignal.timeout(4000) });
+        if (r2.ok) { const j = await r2.json(); detected = String(j?.address?.country_code || '').toUpperCase() || null; }
+      } catch { /* fall back below */ }
+      if (detected) { geoCache.set(key, detected); if (geoCache.size > 2000) geoCache.delete(geoCache.keys().next().value); }
+    }
+  }
+  if (!detected) detected = String(req.headers['cf-ipcountry'] || '').toUpperCase() || null;
+  found = detected === 'UK' ? 'GB' : detected;
+  return { country: C.isMarket(found) ? found : null, detected: found || null, in_scope: C.isMarket(found) };
+});
 r('POST', '/api/shipping/prepare', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return cjs.prepareCountry(String(b.country_code || '').toUpperCase()); });
 r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const b = await readJson(req); const items = require('./services/publicIds').itemsIn(Array.isArray(b.items) ? b.items.slice(0, 100) : []);
@@ -423,7 +485,7 @@ r('POST', '/api/shipping/quote', null, async ({ req }) => {
   const extra = (c?.fee || 0) - fe.free + (g?.fee || 0) + imp.fee;
   return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), ...impOut, days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
 });
-r('GET', '/api/config/public', null, async () => ({ payments_paused: process.env.PAYMENTS_PAUSED === '1' || appControl.get().checkout === false, signups_paused: appControl.get().signups === false, currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), google_native: require('./nativeAuth').googleEnabled(), apple_signin: require('./nativeAuth').appleEnabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
+r('GET', '/api/config/public', null, async () => ({ payments_paused: process.env.PAYMENTS_PAUSED === '1' || appControl.get().checkout === false, signups_paused: appControl.get().signups === false, currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), google_native: require('./nativeAuth').googleEnabled(), apple_signin: require('./nativeAuth').appleEnabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...require('./countries').MARKETS].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
 // Buyer
 // Idempotency-Key (optional, sent by the apps): the same key from the same customer returns the same order instead of a new one,
@@ -866,7 +928,7 @@ r('POST', '/api/admin/keywords/run', ADMIN, async () => { const k = require('./s
 r('POST', '/api/admin/keywords/ideas', ADMIN, async ({ req }) => { const b = await readJson(req); return { ideas: (await require('./services/keywords').ideas(String(b.seeds || '').split(/[,\n]+/))).sort((a, c) => c.volume - a.volume).slice(0, 100) }; });
 r('POST', '/api/admin/keywords/product/:id', ADMIN, async ({ params }) => require('./services/keywords').improve(params.id));
 r('GET', '/api/catalog/:id/delivery', null, async ({ params, url }) => catalog.delivery(params.id, url.searchParams.get('country')));
-r('GET', '/api/catalog/:id/together', null, async ({ params }) => require('./services/together').view(params.id));
+r('GET', '/api/catalog/:id/together', null, async ({ req, url, params }) => require('./services/together').view(params.id, countryOf(req, url)));
 r('GET', '/api/admin/media', ADMIN, async () => require('./services/media').status());
 r('GET', '/api/admin/telegram', ADMIN, async () => require('./services/telegram').status());
 r('POST', '/api/admin/telegram/check', ADMIN, async () => { await require('./services/telegram').poll(); return require('./services/telegram').status(); });
@@ -896,6 +958,14 @@ r('PUT', '/api/admin/ebay/icon', ADMIN, async ({ req }) => {
 });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
 r('GET', '/api/admin/delivery-audit', ADMIN, async () => require('./services/deliveryAudit').status());
+// Delivery eligibility per country (variant × country × route): coverage, variant detail, retries, shadow backfill, rollout
+r('GET', '/api/admin/eligibility', ADMIN, async () => ({ ...eligibility.report(), config: eligibility.config() }));
+r('GET', '/api/admin/eligibility/listing/:id', ADMIN, async ({ params }) => eligibility.detail(params.id));
+r('POST', '/api/admin/eligibility/retry', ADMIN, async ({ req }) => eligibility.retry(await readJson(req)));
+r('POST', '/api/admin/eligibility/run', ADMIN, async () => { require('./cj/client').background(() => eligibility.tick()).catch((e) => console.warn('[eligibility]', e.message)); return { started: true }; });
+// Owner only: the backfill writes data, the configuration switches what customers see
+r('POST', '/api/admin/eligibility/backfill', ADMIN, async ({ req, user }) => { const b = await readJson(req); if (b.apply) requireOwner(user); return eligibility.backfill({ apply: b.apply === true }); });
+r('PATCH', '/api/admin/eligibility/config', ADMIN, async ({ req, user }) => { requireOwner(user); return eligibility.saveConfig(await readJson(req)); });
 r('POST', '/api/admin/delivery-audit', ADMIN, async () => { require('./cj/client').background(() => require('./services/deliveryAudit').run({ restart: true })).catch(() => {}); return { started: true }; });
 r('GET', '/api/admin/ae-sourcing', ADMIN, async () => require('./services/aeSourcing').status());
 r('PUT', '/api/admin/ae-sourcing', ADMIN, async ({ req }) => require('./services/aeSourcing').savePrefs(await readJson(req)));
@@ -1413,7 +1483,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, status, { error: status === 502 ? 'A service we rely on did not answer. Please try again in a moment.' : 'Something went wrong on our side. Please try again.', error_id: errorId });
     }
     const TB_MSG = { SETTLE_NOT_FINISH: 'Your Taobao (TaoWorld) distributor account has not finished onboarding yet. Complete the registration at distributor.taobao.global, then try again.' };
-    send(res, status, { error: TB_MSG[e.code] || e.message || 'Error', code: e.code, request_id: e.requestId, ...(errorId ? { error_id: errorId } : {}) });
+    send(res, status, { error: TB_MSG[e.code] || e.message || 'Error', code: e.code, request_id: e.requestId, ...(e.details && status < 500 ? { details: e.details } : {}), ...(errorId ? { error_id: errorId } : {}) });
   }
 });
 
@@ -1458,6 +1528,8 @@ function startJobs() {
   }, 150e3).unref?.();
   setTimeout(() => { if (!db.settings.get('delivery_audit_v1')) { db.settings.insert({ id: 'delivery_audit_v1', at: Date.now() }); require('./cj/client').background(() => require('./services/deliveryAudit').run({ restart: true })).catch((e) => console.warn('[delivery-audit]', e.message)); } }, 90e3).unref?.();
   every(30 * 60e3, () => require('./services/deliveryAudit').tick());
+  // delivery eligibility per variant × country: a bounded, quota-aware pass of the verification queue every 5 minutes
+  every(5 * 60e3, () => require('./services/eligibility').tick());
   // AliExpress catalog builder (same rules as CJ: ≤10 days delivery, AI review, clean photos) — every 30 minutes, first run 4 minutes after start
   setTimeout(() => require('./services/aeSourcing').tick(), 4 * 60e3).unref?.(); every(15 * 60e3, () => require('./services/aeSourcing').tick()); // as fast as possible (owner, 17 Nov)
   every(5 * 60e3, () => require('./services/deals').tick());

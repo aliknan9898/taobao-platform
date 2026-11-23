@@ -210,13 +210,13 @@ let googleSignin = false; let cfg = {};
 const ALL_TABS = [
   ['overview','Overview','*'],['team-orders','Order status','operator'],['team','Staff & activity','owner'],['control','Control centre','admin'],['partners','Partner API (B2B)','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
   ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','owner operator'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
-  ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
+  ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['countries','Delivery countries','admin'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
   ['Today',['overview','exceptions','control','team-orders']],
-  ['Orders & delivery',['orders','shipping','returns','requests']],
+  ['Orders & delivery',['orders','shipping','countries','returns','requests']],
   ['Catalogue',['listings','platforms','imports','ai-tools']],
   ['Suppliers & channels',['cj','ebay','connections','partners']],
   ['People',['sellers','users','reviews','team']],
@@ -415,8 +415,8 @@ function sourcingCard() {
         <label>Markup % <input type="number" name="markup_pct" min="10" max="400" value="${p.markup_pct}" style="width:64px"></label>
         <label>CJ cost $ <input type="number" name="min_cost" min="0" step="0.5" value="${p.min_cost}" style="width:60px"> – <input type="number" name="max_cost" min="2" value="${p.max_cost}" style="width:60px"></label>
         <label title="How many shops already sell it on CJ: a sign of demand">Min. demand <input type="number" name="min_listed" min="0" value="${p.min_listed}" style="width:64px"></label>
-        <label>Max delivery days EU <input type="number" name="max_days_eu" min="2" max="20" value="${p.max_days_eu}" style="width:56px"></label>
-        <label>UK <input type="number" name="max_days_gb" min="2" max="20" value="${p.max_days_gb}" style="width:56px"></label>
+        <label>Max delivery days EU <input type="number" name="max_days_eu" min="2" max="21" value="${p.max_days_eu}" style="width:56px"></label>
+        <label>UK <input type="number" name="max_days_gb" min="2" max="21" value="${p.max_days_gb}" style="width:56px"></label>
         <label title="The AI's score of the product and its photos">Min. AI quality <input type="number" name="min_quality" min="1" max="10" value="${p.min_quality}" style="width:52px">/10</label>
         <label>Min. stock <input type="number" name="min_stock" min="1" value="${p.min_stock}" style="width:64px"></label>
         <label>Warehouses <input name="warehouses" value="${esc(p.warehouses.join(','))}" style="width:190px"></label>
@@ -1743,6 +1743,69 @@ VIEWS.reports = async (v) => {
   f.onsubmit = (e) => { e.preventDefault(); v.dataset.rq = JSON.stringify(f.days.value === 'custom' ? { from: f.from.value, to: f.to.value, include_test: f.include_test.checked ? '1' : '' } : { days: f.days.value, include_test: f.include_test.checked ? '1' : '' }); render(); };
 };
 
+/* Delivery countries: per-country coverage (variant × country × route), variant detail, retries, rollout. */
+VIEWS.countries = async (v) => {
+  const d = await api('/api/admin/eligibility');
+  const when = (t) => (t ? new Date(t).toLocaleString() : '—');
+  const owner = Boolean(me.owner);
+  const paused = Object.entries(d.paused || {}).filter(([, p]) => p.until > Date.now());
+  const sum = (k) => d.markets.reduce((a, m) => a + m.totals[k], 0);
+  const enforcedN = d.markets.filter((m) => m.mode === 'enforce').length;
+  const regions = { europe: 'Europe', americas: 'North America', oceania: 'Oceania', libya: 'Libya', other: 'Other markets' };
+  const rows = (filter) => d.markets.filter(filter).map((m) => {
+    const sup = Object.entries(m.by_supplier).map(([k, b]) => `<span class="small" title="available / unavailable / over limit / pending">${esc(k)} ${b.available}/${b.unavailable}/${b.over_limit}/${b.pending}</span>`).join('<br>');
+    return `<tr><td><b>${esc(m.name)}</b> <span class="muted small">${m.country}</span></td>
+      <td>${m.mode === 'enforce' ? '<span class="pill ok">Enforced</span>' : '<span class="pill">Shadow</span>'}</td>
+      <td>${m.totals.listed_now}</td><td><b>${m.totals.available}</b></td><td>${m.totals.unavailable}</td><td>${m.totals.over_limit}</td><td>${m.totals.pending}</td>
+      <td>${m.max_days} d</td><td>${m.demand || 0}</td><td>${sup}</td>
+      <td>${owner ? `<button class="btn sm ghost" data-mode="${m.country}" data-to="${m.mode === 'enforce' ? 'shadow' : 'enforce'}">${m.mode === 'enforce' ? 'Back to shadow' : 'Enforce'}</button>` : ''}</td></tr>`;
+  }).join('');
+  v.innerHTML = `<div class="card" style="display:grid;gap:12px"><h2>Delivery countries</h2>
+    <p class="muted">Each product variant is checked for each country. <b>Shadow</b>: results are collected and shown here, the shop is unchanged. <b>Enforced</b>: customers who choose that country see only products with at least one eligible, in-stock variant, and checkout checks the real address. “Shown today” is what that country sees now; “Available” is what it would see when enforced.</p>
+    <div class="kpis"><div class="kpi"><span>Markets enforced</span><b>${enforcedN} / ${d.markets.length}</b></div><div class="kpi"><span>Available (all markets)</span><b>${sum('available')}</b></div><div class="kpi"><span>Pending checks</span><b>${sum('pending')}</b></div><div class="kpi"><span>Default transit limit</span><b>${d.default_max_days} days</b></div></div>
+    ${paused.length ? `<div class="card warn small">${paused.map(([k, p]) => `<b>${esc(k)}</b> paused (${esc(p.kind)}) until ${when(p.until)} — ${esc(p.message || '')}`).join('<br>')}</div>` : ''}
+    <div class="muted small">Last queue pass: ${d.last_run ? `${when(d.last_run.finished_at)} · ${d.last_run.checked} checked · ${esc(JSON.stringify(d.last_run.errors || {}))}` : 'not yet'} · Legacy backfill: ${d.backfill ? `${when(d.backfill.at)}, ${d.backfill.written} written` : 'not run'}</div>
+    <div class="row">
+      <button class="btn ghost" id="erun">Run a check pass now</button>
+      <button class="btn ghost" id="eshadow">Shadow backfill report</button>
+      ${owner ? '<button class="btn ghost" id="eapply">Apply legacy backfill</button><button class="btn ghost danger" id="eroll">Roll back: all markets to shadow</button>' : ''}
+    </div>
+    ${owner ? `<form class="row" id="elimit"><label>Default limit (days) <input name="default_max_days" type="number" min="1" max="60" value="${d.default_max_days}" style="width:90px"></label><label>Country <input name="cc" maxlength="2" placeholder="GB" style="width:70px;text-transform:uppercase"></label><label>Limit for it <input name="days" type="number" min="1" max="60" style="width:90px" placeholder="empty = default"></label><button class="btn ghost">Save limits</button></form>` : ''}
+    <div class="error" id="emsg" role="status"></div>
+    ${Object.entries(regions).map(([r, name]) => `<h3>${name}</h3><div class="scroll"><table><thead><tr><th>Country</th><th>Mode</th><th>Shown today</th><th>Available</th><th>Unavailable</th><th>Over limit</th><th>Pending</th><th>Limit</th><th>Chosen by customers</th><th>By supplier (A/U/O/P)</th><th></th></tr></thead><tbody>${rows((m) => m.region === r)}</tbody></table></div>`).join('')}
+    <h3>One product</h3>
+    <form class="row" id="efind"><input name="id" placeholder="Product id (lst_…)" style="max-width:280px"><input name="cc" maxlength="2" placeholder="Country (optional)" style="width:150px;text-transform:uppercase"><button class="btn ghost">Show variants</button></form>
+    <div id="edetail"></div></div>`;
+  const msg = (t) => { $('#emsg').textContent = t; };
+  const act = async (fn, ok) => { try { const r = await fn(); msg(ok(r)); } catch (e) { msg(e.message); } };
+  v.querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => {
+    const to = b.dataset.to;
+    if (to === 'enforce' && !confirm(`Enforce delivery eligibility for ${b.dataset.mode}? Customers there will only see products verified for that country.`)) return;
+    act(() => api('/api/admin/eligibility/config', 'PATCH', { markets: { [b.dataset.mode]: to } }), () => { VIEWS.countries(v); return ''; });
+  });
+  $('#erun').onclick = () => act(() => api('/api/admin/eligibility/run', 'POST'), () => 'Check pass started (bounded, uses the same quota-aware queue).');
+  $('#eshadow').onclick = () => act(() => api('/api/admin/eligibility/backfill', 'POST', { apply: false }), (r) => `${r.reusable} earlier results can be reused for the exact variant and country. Nothing was written.`);
+  if ($('#eapply')) $('#eapply').onclick = () => { if (confirm('Write the reusable earlier results as eligibility records? Newer checks are never overwritten.')) act(() => api('/api/admin/eligibility/backfill', 'POST', { apply: true }), (r) => `${r.written} records written.`); };
+  if ($('#eroll')) $('#eroll').onclick = () => { if (confirm('Set every market back to shadow? Customers’ country choices and all verification data are kept.')) act(() => api('/api/admin/eligibility/config', 'PATCH', { rollback: true }), () => { VIEWS.countries(v); return ''; }); };
+  if ($('#elimit')) $('#elimit').onsubmit = (e) => {
+    e.preventDefault(); const f = e.target; const cc = f.cc.value.trim().toUpperCase();
+    const body = { default_max_days: Number(f.default_max_days.value) };
+    if (cc) body.max_days = { [cc]: f.days.value === '' ? null : Number(f.days.value) };
+    act(() => api('/api/admin/eligibility/config', 'PATCH', body), () => { VIEWS.countries(v); return ''; });
+  };
+  $('#efind').onsubmit = async (e) => {
+    e.preventDefault(); const id = e.target.id.value.trim(); const cc = e.target.cc.value.trim().toUpperCase(); const box = $('#edetail');
+    if (!id) return;
+    try {
+      const r = await api(`/api/admin/eligibility/listing/${encodeURIComponent(id)}`);
+      const list = r.rows.filter((x) => !cc || x.country === cc).filter((x) => cc || x.state !== 'pending_verification' || x.verified_at || x.last_error);
+      box.innerHTML = `<p><b>${esc(r.title)}</b> · ${esc(r.source)} · route ${esc(r.route)} <button class="btn sm ghost" id="eretry">Check again${cc ? ` (${cc})` : ''}</button></p>
+        <div class="scroll"><table><thead><tr><th>Country</th><th>Variant</th><th>State</th><th>Reason</th><th>Days</th><th>Fee</th><th>Verified</th><th>Expires</th><th>Next retry</th><th>Last error</th></tr></thead><tbody>
+        ${list.map((x) => `<tr><td>${x.country}</td><td>${esc(x.props || x.variant)}${x.in_stock ? '' : ' <span class="muted">(no stock)</span>'}</td><td>${esc(x.state)}</td><td class="muted small">${esc(x.reason || '')}</td><td>${x.max_days ?? '—'}</td><td>${x.fee ?? '—'}</td><td class="small">${when(x.verified_at)}</td><td class="small">${when(x.expires_at)}</td><td class="small">${when(x.next_retry_at)}</td><td class="small">${x.last_error ? esc(`${x.last_error.kind}: ${x.last_error.message}`) : ''}</td></tr>`).join('') || '<tr><td colspan="10" class="muted">No checks recorded yet (enter a country to see pending ones).</td></tr>'}</tbody></table></div>`;
+      $('#eretry').onclick = () => act(() => api('/api/admin/eligibility/retry', 'POST', { listing_ids: [id], ...(cc ? { country: cc } : {}) }), (x) => `${x.queued} checks queued.`);
+    } catch (err) { box.innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+  };
+};
 VIEWS.shipping = async (v) => {
   const s = await api('/api/admin/settings/shipping');
   v.innerHTML = `<form class="card" id="shf" style="display:grid;gap:12px"><h2>Shipping prices</h2>

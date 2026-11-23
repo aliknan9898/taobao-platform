@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Ali Almadhoun Mohammed Kinan. All rights reserved.
 // Proprietary and confidential. See LICENSE.
 'use strict';
-/* Delivery check of live products: over 15 days → paused (not deleted); known times reused; unknown asked. */
+/* Delivery check of live products: over 21 days (3 weeks) → paused (not deleted); known times reused; unknown asked. */
 const test = require('node:test');
 const assert = require('node:assert');
 const os = require('os'); const fs = require('fs'); const path = require('path');
@@ -16,7 +16,7 @@ const asked = [];
 cj.freightOptions = async (dest, items) => { asked.push(dest); return items[0].vid === 'FAST' ? [{ fee: 3, method: 'CJPacket', days: '4-6', min: 4, max: 6 }] : [{ fee: 2, method: 'Slow', max: 25 }]; };
 A.freight = async (pid, sku, c) => ({ days: pid === '1005SLOW00000001' ? 22 : 9 });
 
-test('live CJ / AliExpress products over 15 days are hidden; fast and known-fast ones stay', async () => {
+test('live CJ / AliExpress products over 3 weeks (21 days) are hidden; fast and known-fast ones stay', async () => {
   const mk = (x) => db.listings.insert({ seller_id: 'sel_kinan', status: 'active', title: x.title, skus: [{ cj_vid: x.vid, ae_sku_id: 'S1', price: 10, stock: 9 }], ...x });
   const known = mk({ title: 'Known fast', source: 'cj', vid: 'X', sourcing: { gb_days: 5, eu_days: 7 } });
   const fastCj = mk({ title: 'CJ fast', source: 'cj', vid: 'FAST', cj_from: 'CN' });
@@ -27,7 +27,7 @@ test('live CJ / AliExpress products over 15 days are hidden; fast and known-fast
   assert.strictEqual(st.checked, 4);
   assert.strictEqual(db.listings.get(known.id).status, 'active');
   assert.strictEqual(db.listings.get(fastCj.id).status, 'active'); assert.strictEqual(db.listings.get(fastCj.id).sourcing.gb_days, 6);
-  assert.strictEqual(db.listings.get(slowCj.id).status, 'paused'); assert.match(db.listings.get(slowCj.id).paused_reason, /15 days/);
+  assert.strictEqual(db.listings.get(slowCj.id).status, 'paused'); assert.match(db.listings.get(slowCj.id).paused_reason, /21 days/);
   assert.strictEqual(db.listings.get(slowAe.id).status, 'paused');
   assert.strictEqual(db.listings.get(other.id).status, 'active', 'only CJ / AliExpress products');
   assert.ok(db.listings.get(slowAe.id), 'hidden, not deleted');

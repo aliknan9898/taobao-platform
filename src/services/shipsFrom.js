@@ -62,10 +62,11 @@ function visibleSkus(l) {
 }
 
 /** The warehouse copy to order for this customer: in their region if possible, else the cheapest in stock. */
-function pick(l, sku, cc, qty = 1) {
+function pick(l, sku, cc, qty = 1, ok = null) {
   if (!applies(l) || !sku) return sku;
   const key = split(sku).props;
-  const sibs = (groups(l).get(key) || [sku]).filter((s) => s.stock >= qty);
+  // ok(): optional filter (delivery eligibility for the customer's country) applied before choosing a warehouse
+  const sibs = (groups(l).get(key) || [sku]).filter((s) => s.stock >= qty && (!ok || ok(s)));
   if (!sibs.length) return sku;
   cc = String(cc || '').toUpperCase();
   const local = (s) => { const f = split(s).from; return f === cc || (EU.has(cc) && EU.has(f)); };
@@ -73,7 +74,10 @@ function pick(l, sku, cc, qty = 1) {
   return sibs.filter(local).sort(cheap)[0] || sibs.slice().sort(cheap)[0];
 }
 
+/** Every warehouse copy of the same customer choice (just [sku] for other products). */
+function siblings(l, sku) { return applies(l) && sku ? groups(l).get(split(sku).props) || [sku] : [sku]; }
+
 /** Warehouse of one option (2-letter country) or null. */
 const originOfSku = (s) => (s ? split(s).from : null);
 
-module.exports = { split, applies, groups, visibleSkus, pick, originOfSku, ccOf, EU };
+module.exports = { split, applies, groups, visibleSkus, pick, siblings, originOfSku, ccOf, EU };

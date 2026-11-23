@@ -290,6 +290,52 @@
   [data-theme="dark"] .euship { color: #5fd3a3; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .euship { color: #5fd3a3; } }
 .trk{border-top:1px solid var(--line,#e5e7eb);padding-top:10px;display:grid;gap:8px}.trkl{list-style:none;margin:0;padding:0 0 0 14px;border-inline-start:2px solid var(--brand,#0f766e);display:grid;gap:10px}.trkl li{position:relative}.trkl li:before{content:'';position:absolute;inset-inline-start:-20px;top:5px;width:10px;height:10px;border-radius:50%;background:var(--brand,#0f766e)}
+
+/* ---------- delivery country (first-launch selector, header, availability) ---------- */
+.deliverbar { border-top: 1px solid var(--line); }
+.deliverbar .wrap { min-height: 36px !important; gap: 8px; }
+.cchip { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--ink-2); font: 500 13.5px var(--font-body); padding: 6px 2px; cursor: pointer; border-radius: 8px; }
+.cchip svg { width: 16px; height: 16px; color: var(--jade); flex: none; }
+.cchip b { color: var(--ink); font-weight: 650; }
+.cchip .chev { width: 12px; height: 12px; color: var(--muted); }
+.cchip:focus-visible { outline: 2px solid var(--jade); outline-offset: 2px; }
+.ccode { display: inline-grid; place-items: center; min-width: 30px; height: 22px; padding: 0 5px; border-radius: 6px; background: var(--jade-soft, #e3f3ec); color: var(--jade); font: 700 11px/1 var(--font-body); letter-spacing: .04em; direction: ltr; }
+dialog.cdlg { width: min(520px, 100vw); max-height: min(720px, 100dvh); border-radius: 22px; overflow: hidden; }
+@media (max-width: 560px) { dialog.cdlg { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; } }
+.cdlg form { display: grid; grid-template-rows: auto auto 1fr auto; height: 100%; max-height: inherit; }
+.cdlg .chead { padding: 26px 24px 14px; display: grid; gap: 10px; background: linear-gradient(160deg, var(--jade-soft, #e3f3ec), transparent 70%); }
+.cdlg .cemblem { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: var(--jade); color: var(--jade-ink, #fff); box-shadow: 0 6px 18px color-mix(in srgb, var(--jade) 35%, transparent); }
+.cdlg .cemblem svg { width: 24px; height: 24px; }
+.cdlg h2 { font-size: clamp(21px, 4.6vw, 25px); }
+.cdlg .csub { margin: 0; color: var(--ink-2); }
+.cdlg .cclose { position: absolute; inset-inline-end: 14px; top: 14px; width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--surface); color: var(--ink); font-size: 20px; cursor: pointer; }
+.cdlg .ctools { padding: 4px 24px 10px; display: grid; gap: 10px; }
+.cdlg .cloc { justify-self: start; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 99px; padding: 9px 16px; font: 600 14px var(--font-body); cursor: pointer; min-height: 42px; }
+.cdlg .cloc svg { width: 18px; height: 18px; color: var(--jade); }
+.cdlg .cloc[aria-busy="true"] { opacity: .65; cursor: progress; }
+.cdlg .cstatus { min-height: 20px; font-size: 13.5px; color: var(--ink-2); }
+.cdlg .cstatus.err { color: var(--bad, #b42318); }
+.cdlg .cfield { display: grid; gap: 6px; font: 600 13px var(--font-body); color: var(--ink-2); }
+.cdlg .csearch { position: relative; }
+.cdlg .csearch svg { position: absolute; inset-inline-start: 12px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--muted); pointer-events: none; }
+.cdlg .csearch input { padding-inline-start: 38px; border-radius: 12px; }
+.cdlg .clist { overflow: auto; padding: 0 12px 8px; margin: 0; list-style: none; border-top: 1px solid var(--line); overscroll-behavior: contain; }
+.cdlg .cgroup { position: sticky; top: 0; z-index: 1; background: var(--surface); padding: 12px 12px 6px; font: 700 11.5px var(--font-body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.cdlg .copt { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px; cursor: pointer; }
+.cdlg .copt .cn { flex: 1; min-width: 0; }
+.cdlg .copt .cn small { display: block; color: var(--muted); font-size: 12px; }
+.cdlg .copt .tick { width: 20px; height: 20px; border-radius: 50%; border: 1.6px solid var(--line); display: grid; place-items: center; color: transparent; }
+.cdlg .copt[aria-selected="true"] { background: var(--jade-soft, #e3f3ec); }
+.cdlg .copt[aria-selected="true"] .tick { background: var(--jade); border-color: var(--jade); color: var(--jade-ink, #fff); }
+.cdlg .copt.active { outline: 2px solid var(--jade); outline-offset: -2px; }
+.cdlg .cnone { padding: 22px 12px; color: var(--muted); text-align: center; }
+.cdlg .cfoot { padding: 14px 24px calc(16px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); display: grid; gap: 8px; background: var(--surface); }
+.cdlg .cfoot .btn { width: 100%; min-height: 48px; font-size: 15px; }
+.cdlg .cfoot p { margin: 0; text-align: center; font-size: 12.5px; color: var(--muted); }
+.unavail { display: grid; gap: 10px; padding: 16px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--marigold, #f2bb03) 55%, var(--line)); background: color-mix(in srgb, var(--marigold, #f2bb03) 10%, var(--surface)); }
+.unavail h3 { font-size: 17px; }
+.cline-why { color: var(--bad, #b42318); font-size: 13px; font-weight: 600; }
+.cartblock { display: grid; gap: 8px; justify-items: start; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--bad, #b42318) 8%, var(--surface)); color: var(--ink); font-size: 14px; }
 </style>
 </head>
 <body class="has-tabbar">
@@ -313,6 +359,7 @@
     <button class="iconbtn" data-theme-toggle aria-label="Dark mode"></button>
     <a class="iconbtn" href="#/cart" aria-label="Cart" id="nav-cart"></a>
   </div>
+  <div class="deliverbar"><div class="wrap"><button type="button" class="cchip" id="cchip" aria-haspopup="dialog" data-no-tr></button></div></div>
 </header>
 <main id="view" class="wrap"></main>
 <div id="foot"></div>
@@ -396,12 +443,15 @@ function tzCountry() {
   } catch { /* old browser */ }
   return '';
 }
+/** The delivery country the customer confirmed (see DeliveryCountry below), or null. */
+function confirmedCountry() { try { const v = JSON.parse(localStorage.getItem('kinan_country') || 'null'); return v && /^[A-Z]{2}$/.test(v.code) ? v.code : null; } catch { return null; } }
 const Locale = {
   get() {
     let s = {}; try { s = JSON.parse(localStorage.getItem('kinan_locale') || '{}'); } catch {}
     if (s.v !== 2) s = {}; // older versions saved a guess from the phone language (often "US"): guess again
     const guess = savedAddress().country_code || tzCountry() || (navigator.language.split('-')[1] || '').toUpperCase() || 'US';
-    const country = savedAddress().country_code || s.country || guess;
+    // the delivery country the customer confirmed wins; then a saved address, an earlier choice, a guess
+    const country = confirmedCountry() || savedAddress().country_code || s.country || guess;
     // the currency chosen in Account (USD / EUR / GBP) wins over the country's
     const own = ['USD', 'EUR', 'GBP'].includes(s.cur) && (s.cur === String(cfg.currency || 'usd').toUpperCase() || (cfg.fx && cfg.fx.rates && cfg.fx.rates[s.cur])) ? s.cur : null;
     return { country, currency: own || currencyFor(country), cur: own, chosen: Boolean(s.country || savedAddress().country_code) };
@@ -446,8 +496,10 @@ const Book = {
     if (push && me && me.role === 'buyer') api('/api/buyer/addresses', 'PUT', { addresses: list.map((a) => Object.fromEntries([['id', a.id], ...ADDR_KEYS.map((k) => [k, a[k] || ''])])), selected: sel ? sel.id : null }).catch(() => {});
     if (sel) api('/api/shipping/prepare', 'POST', { country_code: sel.country_code }).catch(() => {});
   },
-  upsert(a) { const list = Book.list(); const id = a.id || Book.newId(); const i = list.findIndex((x) => x.id === id); const v = { ...(i >= 0 ? list[i] : {}), ...a, id }; if (i >= 0) list[i] = v; else list.push(v); Book.store(list.slice(-10), id); return id; },
-  select(id) { Book.store(Book.list(), id); },
+  upsert(a) { const list = Book.list(); const id = a.id || Book.newId(); const i = list.findIndex((x) => x.id === id); const v = { ...(i >= 0 ? list[i] : {}), ...a, id }; if (i >= 0) list[i] = v; else list.push(v); Book.store(list.slice(-10), id); Book.follow(); return id; },
+  select(id) { Book.store(Book.list(), id); Book.follow(); },
+  /** The customer chose or saved an address in another country: that becomes the delivery country (quietly). */
+  follow() { const c = savedAddress().country_code; if (c && c !== DeliveryCountry.get() && markets().some((m) => m.code === c)) DeliveryCountry.set(c, { quiet: true }); },
   remove(id) { const list = Book.list().filter((x) => x.id !== id); Book.store(list, Book.selectedId() === id ? list[0]?.id : Book.selectedId()); },
   /** Signed-in customers: addresses saved on another phone appear here too (and this phone's ones are kept). */
   async sync() {
@@ -495,6 +547,169 @@ function addressDialog(after, { first = false, edit = null } = {}) {
 }
 function localeLabel() { const l = Locale.get(); const a = savedAddress(); return `<span>${esc(hasAddress() ? `${a.city}, ${countryName(l.country)}` : countryName(l.country))}</span> · ${esc({ USD: '$ USD', EUR: '€ EUR', GBP: '£ GBP' }[l.currency] || l.currency)}`; }
 function renderLocaleChip() { $$('.locchip').forEach((b) => { b.innerHTML = `${PIN_IC}<span>Deliver to</span> <b>${localeLabel()}</b>`; b.onclick = () => addressDialog(route); }); }
+
+// ---------- delivery country: first-launch selector, header chip, change flow ----------
+const CSTR = {
+  title: ['Where should we deliver your order?', 'أين تريد استلام طلبك؟'],
+  sub: ['We’ll show products that ship to your country.', 'نعرض المنتجات المتاحة للشحن إلى بلدك'],
+  loc: ['Use my location', 'استخدام موقعي'],
+  field: ['Delivery country', 'بلد التوصيل'],
+  confirm: ['Confirm delivery country', 'تأكيد بلد التوصيل'],
+  foot: ['You can change your country at any time.', 'يمكنك تغيير البلد في أي وقت'],
+  empty: ['No products currently ship to this country.', 'لا توجد منتجات متاحة للشحن إلى هذا البلد حاليًا'],
+  deliverTo: ['Deliver to', 'التوصيل إلى'],
+  search: ['Search countries', 'ابحث عن بلد'],
+  noMatch: ['No country matches your search.', 'لا يوجد بلد يطابق البحث'],
+  locating: ['Finding your country…', 'جارٍ تحديد بلدك…'],
+  denied: ['Location is off. Choose your country from the list.', 'الموقع غير مفعّل. اختر بلدك من القائمة'],
+  failed: ['We couldn’t find your country. Choose it from the list.', 'تعذّر تحديد بلدك. اختره من القائمة'],
+  outside: ['We don’t deliver to %s yet. Choose another country.', 'لا نوصل إلى %s حاليًا. اختر بلدًا آخر'],
+  found: ['Is this right? We found: %s', 'هل هذا صحيح؟ وجدنا: %s'],
+  suggested: ['Suggested', 'مقترح'],
+  europe: ['Europe', 'أوروبا'], americas: ['North America', 'أمريكا الشمالية'], oceania: ['Oceania', 'أوقيانوسيا'], libya: ['Libya', 'ليبيا'], other: ['More countries', 'دول أخرى'],
+  close: ['Close', 'إغلاق'],
+  changeCountry: ['Change country', 'تغيير البلد'],
+  unavailTitle: ['Not available in %s', 'غير متاح في %s'],
+  why_unavailable: ['This product can’t be shipped to this country.', 'لا يمكن شحن هذا المنتج إلى هذا البلد.'],
+  why_over_limit: ['Delivery to this country takes longer than we allow.', 'التوصيل إلى هذا البلد يستغرق أطول من المدة التي نسمح بها.'],
+  why_pending_verification: ['We’re still checking delivery to this country.', 'ما زلنا نتحقق من التوصيل إلى هذا البلد.'],
+  why_out_of_stock: ['This product is out of stock.', 'هذا المنتج غير متوفر حاليًا.'],
+  why_market_not_open: ['We don’t sell to this country yet.', 'لا نبيع في هذا البلد بعد.'],
+  why_not_available: ['This product is no longer available.', 'هذا المنتج لم يعد متاحًا.'],
+  why_variant_not_found: ['This option is no longer available.', 'هذا الخيار لم يعد متاحًا.'],
+  cartBlocked: ['Some items can’t be delivered to %s. Remove them or change the country to check out.', 'بعض المنتجات لا يمكن توصيلها إلى %s. احذفها أو غيّر البلد لإتمام الطلب.'],
+  changed: ['Delivery country: %s', 'بلد التوصيل: %s'],
+  totalChanged: ['The total is now %s after we checked your address. Confirm to continue.', 'أصبح الإجمالي %s بعد التحقق من عنوانك. أكّد للمتابعة.'],
+  confirmTotal: ['Confirm and continue', 'تأكيد ومتابعة']
+};
+const cs = (k, arg) => { const v = (CSTR[k] || [k, k])[KinanLang.lang === 'ar' ? 1 : 0]; return arg === undefined ? v : v.replace('%s', arg); };
+const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+const LOC_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>';
+const SEARCH_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+const markets = () => (cfg.countries || []).map(([code, en, ar, region]) => ({ code, en, ar: ar || en, region: region || 'other' }));
+const marketName = (code) => { const m = markets().find((x) => x.code === code); return m ? (KinanLang.lang === 'ar' ? m.ar : m.en) : code; };
+const DeliveryCountry = {
+  KEY: 'kinan_country',
+  get: () => confirmedCountry(),
+  /** Confirm a country: kept on this device (and the account), the catalogue reloads, the cart is checked again. */
+  set(code, { quiet = false } = {}) {
+    if (!/^[A-Z]{2}$/.test(code || '')) return;
+    const prev = DeliveryCountry.get();
+    try { localStorage.setItem(DeliveryCountry.KEY, JSON.stringify({ code, at: Date.now(), v: 1 })); } catch {}
+    window.KinanCountry = code;
+    Locale.set({ country: code });
+    if (me && me.role === 'buyer' && me.delivery_country !== code) { me.delivery_country = code; api('/api/buyer/profile', 'PATCH', { delivery_country: code }).catch(() => {}); }
+    api('/api/country/confirm', 'POST', { country: code }).catch(() => {});
+    renderCountryChip(); renderLocaleChip();
+    if (prev !== code && !quiet) { toast(cs('changed', marketName(code))); route(); }
+  },
+  /** Choices made before this feature (an explicit country, or the account's) count as confirmed. */
+  migrate() {
+    if (DeliveryCountry.get()) return;
+    let old = {}; try { old = JSON.parse(localStorage.getItem('kinan_locale') || '{}'); } catch {}
+    const known = (c) => markets().some((m) => m.code === c);
+    const code = (me && me.delivery_country) || (old.v === 2 && old.country) || savedAddress().country_code;
+    if (code && known(code)) { try { localStorage.setItem(DeliveryCountry.KEY, JSON.stringify({ code, at: Date.now(), v: 1, migrated: true })); } catch {} }
+  }
+};
+function renderCountryChip() {
+  const b = $('#cchip'); if (!b) return;
+  const code = DeliveryCountry.get();
+  b.innerHTML = code ? `${PIN_IC}<span>${esc(cs('deliverTo'))}</span> <b>${esc(marketName(code))}</b>${CHEV}` : `${PIN_IC}<b>${esc(cs('field'))}</b>${CHEV}`;
+  b.setAttribute('aria-label', code ? `${cs('deliverTo')} ${marketName(code)}. ${cs('changeCountry')}` : cs('field'));
+  b.onclick = () => countrySelector();
+}
+/**
+ * The country selector. first = shown before the catalogue when no country is confirmed (cannot be dismissed).
+ * Searchable list (combobox + listbox), keyboard: arrows, Home/End, Enter; location only on request.
+ */
+function countrySelector({ first = false, after = null } = {}) {
+  document.querySelector('dialog.cdlg')?.remove();
+  const all = markets();
+  const guess = (() => { const t = tzCountry(); return all.some((m) => m.code === t) ? t : null; })();
+  // the suggestion (this phone's time zone) is preselected; nothing is saved until the customer confirms
+  let chosen = DeliveryCountry.get() || guess || null; let suggested = chosen; let active = -1; let shown = [];
+  const ar = KinanLang.lang === 'ar';
+  const d = document.createElement('dialog'); d.className = 'cdlg'; d.setAttribute('data-no-tr', ''); d.setAttribute('aria-labelledby', 'ctitle'); d.dir = ar ? 'rtl' : 'ltr';
+  d.innerHTML = `<form method="dialog" novalidate>
+    <div class="chead">${first ? '' : `<button type="button" class="cclose" aria-label="${esc(cs('close'))}">×</button>`}
+      <div class="cemblem" aria-hidden="true">${PIN_IC}</div>
+      <h2 id="ctitle">${esc(cs('title'))}</h2><p class="csub">${esc(cs('sub'))}</p></div>
+    <div class="ctools">
+      <button type="button" class="cloc" id="cloc">${LOC_IC}<span>${esc(cs('loc'))}</span></button>
+      <div class="cstatus" id="cstatus" role="status" aria-live="polite"></div>
+      <label class="cfield" for="cq">${esc(cs('field'))}</label>
+      <div class="csearch">${SEARCH_IC}<input id="cq" type="search" autocomplete="off" spellcheck="false" placeholder="${esc(cs('search'))}" role="combobox" aria-expanded="true" aria-controls="clist" aria-autocomplete="list"></div>
+    </div>
+    <ul class="clist" id="clist" role="listbox" aria-label="${esc(cs('field'))}"></ul>
+    <div class="cfoot"><button class="btn" id="cok" type="button" disabled>${esc(cs('confirm'))}</button><p>${esc(cs('foot'))}</p></div>
+  </form>`;
+  document.body.append(d);
+  const list = d.querySelector('#clist'); const q = d.querySelector('#cq'); const ok = d.querySelector('#cok'); const status = d.querySelector('#cstatus');
+  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[إأآا]/g, 'ا');
+  const nameOf = (m) => (ar ? m.ar : m.en);
+  const paint = () => {
+    const term = norm(q.value.trim());
+    const match = (m) => !term || norm(m.en).includes(term) || norm(m.ar).includes(term) || m.code.toLowerCase() === term;
+    const order = ['europe', 'americas', 'oceania', 'libya', 'other'];
+    const sorted = all.filter(match).sort((a, b) => nameOf(a).localeCompare(nameOf(b), ar ? 'ar' : 'en'));
+    const groups = [];
+    if (!term && suggested) { const m = all.find((x) => x.code === suggested); if (m) groups.push(['suggested', [m]]); }
+    for (const g of order) { const items = sorted.filter((m) => m.region === g); if (items.length) groups.push([g, items]); }
+    shown = groups.flatMap(([, items]) => items);
+    if (!shown.length) { list.innerHTML = `<li class="cnone" role="presentation">${esc(cs('noMatch'))}</li>`; q.removeAttribute('aria-activedescendant'); return; }
+    let i = 0;
+    list.innerHTML = groups.map(([g, items]) => `<li role="presentation" class="cgroup" aria-hidden="true">${esc(cs(g))}</li>${items.map((m) => { const id = `copt-${i++}`; return `<li id="${id}" role="option" class="copt" data-code="${m.code}" aria-selected="${m.code === chosen}"><span class="ccode">${m.code}</span><span class="cn">${esc(nameOf(m))}${ar ? '' : m.en !== m.ar ? '' : ''}</span><span class="tick" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span></li>`; }).join('')}`).join('');
+    setActive(Math.max(0, shown.findIndex((m) => m.code === chosen)), false);
+  };
+  const setActive = (n, scroll = true) => {
+    const opts = [...list.querySelectorAll('.copt')]; if (!opts.length) return;
+    active = Math.max(0, Math.min(opts.length - 1, n));
+    opts.forEach((o, k) => o.classList.toggle('active', k === active));
+    q.setAttribute('aria-activedescendant', opts[active].id);
+    if (scroll) opts[active].scrollIntoView({ block: 'nearest' });
+  };
+  const choose = (code) => {
+    chosen = code; ok.disabled = !chosen;
+    list.querySelectorAll('.copt').forEach((o) => o.setAttribute('aria-selected', String(o.dataset.code === chosen)));
+    const m = all.find((x) => x.code === code); if (m) ok.textContent = `${cs('confirm')} · ${nameOf(m)}`;
+  };
+  list.addEventListener('click', (e) => { const o = e.target.closest('.copt'); if (o) { choose(o.dataset.code); setActive([...list.querySelectorAll('.copt')].indexOf(o), false); } });
+  list.addEventListener('dblclick', (e) => { const o = e.target.closest('.copt'); if (o) { choose(o.dataset.code); done(); } });
+  q.addEventListener('input', () => { paint(); setActive(0); });
+  q.addEventListener('keydown', (e) => {
+    const opts = [...list.querySelectorAll('.copt')];
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(active + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active - 1); }
+    else if (e.key === 'Home' && opts.length && !q.value) { e.preventDefault(); setActive(0); }
+    else if (e.key === 'End' && opts.length && !q.value) { e.preventDefault(); setActive(opts.length - 1); }
+    else if (e.key === 'Enter') { e.preventDefault(); const o = opts[active]; if (o) { if (chosen === o.dataset.code) done(); else choose(o.dataset.code); } }
+  });
+  // Location: asked only when the customer taps the button; the country is suggested, not chosen for them
+  let locSeq = 0;
+  d.querySelector('#cloc').onclick = () => {
+    const btn = d.querySelector('#cloc'); const seq = ++locSeq;
+    status.className = 'cstatus'; status.textContent = cs('locating'); btn.setAttribute('aria-busy', 'true');
+    const fail = (key, arg) => { if (seq !== locSeq) return; btn.removeAttribute('aria-busy'); status.className = 'cstatus err'; status.textContent = cs(key, arg); q.focus(); };
+    if (!navigator.geolocation) return fail('failed');
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const r = await api(`/api/geo/country?lat=${pos.coords.latitude.toFixed(2)}&lon=${pos.coords.longitude.toFixed(2)}`);
+        if (seq !== locSeq) return;
+        if (!r.country) return fail(r.detected ? 'outside' : 'failed', r.detected ? (new Intl.DisplayNames([KinanLang.lang], { type: 'region' }).of(r.detected) || r.detected) : undefined);
+        btn.removeAttribute('aria-busy'); suggested = r.country; q.value = ''; paint(); choose(r.country);
+        status.className = 'cstatus'; status.textContent = cs('found', marketName(r.country)); ok.focus();
+      } catch { fail('failed'); }
+    }, (err) => fail(err && err.code === 1 ? 'denied' : 'failed'), { timeout: 10000, maximumAge: 600000 });
+  };
+  const done = () => { if (!chosen) return; const code = chosen; d.close(); d.remove(); DeliveryCountry.set(code, { quiet: first }); if (after) after(code); };
+  ok.onclick = done;
+  if (!first) { d.querySelector('.cclose').onclick = () => { d.close(); d.remove(); }; d.addEventListener('cancel', () => d.remove()); }
+  else d.addEventListener('cancel', (e) => e.preventDefault());
+  paint(); choose(chosen); ok.disabled = !chosen;
+  d.showModal(); setTimeout(() => q.focus(), 30);
+  return d;
+}
 
 const OPT_AR = { color: 'اللون', colour: 'اللون', size: 'المقاس', style: 'النمط', type: 'النوع', model: 'الموديل', material: 'الخامة', capacity: 'السعة', length: 'الطول', option: 'الخيار', pattern: 'النقشة', specification: 'المواصفات', specs: 'المواصفات', quantity: 'الكمية', 'shoe size': 'مقاس الحذاء', 'plug type': 'نوع القابس' };
 function optName(n) { const k = String(n || '').trim(); return KinanLang.lang === 'ar' ? OPT_AR[k.toLowerCase()] || k : k; }
@@ -761,7 +976,9 @@ async function home(q = '', category = '') {
         if (grid) grid.insertAdjacentHTML('beforeend', items.map(productCard).join(''));
       } else {
         results.innerHTML = items.length ? `<div class="grid">${items.map(productCard).join('')}</div>`
+          : !q && !emptyFiltered() && DeliveryCountry.get() ? `<div class="empty" data-no-tr><h3>${esc(cs('empty'))}</h3><p>${esc(marketName(DeliveryCountry.get()))}</p><button type="button" class="btn" id="emptychange">${esc(cs('changeCountry'))}</button></div>`
           : `<div class="empty"><h3>${q || emptyFiltered() ? 'No products match' : 'New products are on the way'}</h3><p>${q || emptyFiltered() ? 'Try a different word or price range — or ask us to find it for you.' : 'Sellers are adding their first items. Check back soon.'}</p><a class="btn ghost" href="#/request">Request an item</a></div>`;
+        results.querySelector('#emptychange')?.addEventListener('click', () => countrySelector());
       }
       results.querySelector('#catalog-more-wrap')?.remove();
       const shown = existing + items.length;
@@ -903,9 +1120,24 @@ async function shopPage(sellerId) {
   wireToolbar(load); await load();
 }
 
+/** A direct link to a product that cannot be delivered to the chosen country: the reason, a country change, no cart. */
+function unavailableProduct(p) {
+  const cc = p.availability.country;
+  $('#view').innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
+    <div class="pdp"><div class="gallery"><div class="main">${p.images[0] ? K.img(p.images[0], 700, 'alt=""') : noImg}</div></div>
+      <div class="stack-lg" style="align-content:start">
+        <h1 style="font-size:clamp(22px,3.4vw,30px)" dir="auto">${esc(T(p))}</h1>
+        <div class="unavail" role="status" data-no-tr><h3>${esc(cs('unavailTitle', marketName(cc)))}</h3><p style="margin:0">${esc(cs(`why_${p.availability.reason}`) || cs('why_unavailable'))}</p>
+          <div class="row"><button class="btn" type="button" id="uchange">${esc(cs('changeCountry'))}</button><a class="btn ghost" href="#/">${KinanLang.t('Keep shopping')}</a></div></div>
+        <div class="row"><button class="btn" disabled aria-disabled="true" style="flex:1">Add to cart</button></div>
+      </div></div><div id="similar"></div>`;
+  $('#uchange').onclick = () => countrySelector();
+  api(`/api/catalog/${encodeURIComponent(p.id)}/similar`).then((d) => { const el = $('#similar'); if (el && d.items.length) el.innerHTML = `<div class="sechead"><h2>${KinanLang.t('You may also like')}</h2></div><div class="grid">${d.items.slice(0, 8).map(productCard).join('')}</div>`; }).catch(() => {});
+}
 async function product(id) {
   const v = $('#view'); v.innerHTML = `<div class="pdp"><div class="skeleton" style="aspect-ratio:1"></div><div class="stack"><div class="skeleton" style="height:32px"></div><div class="skeleton" style="height:120px"></div></div></div>`;
   const p = await api(`/api/catalog/${encodeURIComponent(id)}`);
+  if (p.availability && p.availability.available === false) { unavailableProduct(p); return; }
   let sku = p.skus.find((s) => s.in_stock) || p.skus[0]; let qty = 1; let imgIdx = 0;
   const desc = plain(TD(p));
   v.innerHTML = `<a class="back" href="#/">${ICONS.back} All products</a>
@@ -1076,16 +1308,25 @@ async function cart() {
   if (!items.length) { v.innerHTML = `<div class="empty"><h3>Your cart is empty</h3><p>Find something you like and add it here.</p><a class="btn" href="#/">Browse products</a></div>`; return; }
   v.innerHTML = '<div class="pagehead"><h1>Cart</h1></div><div class="skeleton" style="height:200px"></div>';
   // Refresh prices and availability
-  const fresh = await Promise.all([...new Set(items.map((x) => x.listing_id))].map((id) => api(`/api/catalog/${id}`).catch(() => null)));
+  const country = DeliveryCountry.get();
+  const [fresh, check] = await Promise.all([
+    Promise.all([...new Set(items.map((x) => x.listing_id))].map((id) => api(`/api/catalog/${id}`).catch(() => null))),
+    country ? api('/api/cart/check', 'POST', { country, items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })) }).catch(() => null) : null
+  ]);
   const byId = new Map(fresh.filter(Boolean).map((p) => [p.id, p]));
+  const why = new Map((check?.lines || []).filter((x) => !x.ok && x.reason !== 'not_available').map((x) => [`${x.listing_id}|${x.mp_sku_id}`, x.reason]));
   const notes = [];
   items = items.map((x) => {
     const p = byId.get(x.listing_id); const s = p?.skus.find((k) => k.mp_sku_id === x.mp_sku_id);
+    // not deliverable to the chosen country: the line stays, with the reason, and checkout waits until it is resolved
+    const reason = why.get(`${x.listing_id}|${x.mp_sku_id}`);
+    if (p && reason) return { ...x, why: reason, max: x.qty };
     if (!p || !s || !s.in_stock) { notes.push(`${x.title} is no longer available and was removed.`); return null; }
     if (s.price !== x.price) notes.push(`The price of ${x.title} changed to ${money(s.price, p.currency)}.`);
     return { ...x, price: s.price, qty: Math.min(x.qty, s.stock), max: s.stock };
   }).filter(Boolean);
-  Cart.set(items.map(({ max, ...x }) => x));
+  Cart.set(items.map(({ max, why: _w, ...x }) => x));
+  const blocked = items.filter((x) => x.why);
   const cur = items[0]?.currency || cfg.currency;
   const sub = items.reduce((a, x) => a + x.price * x.qty, 0);
   v.innerHTML = `<div class="pagehead"><h1>Cart</h1><span class="muted">${Cart.count()} item${Cart.count() === 1 ? '' : 's'}</span></div>
@@ -1093,7 +1334,7 @@ async function cart() {
     <div class="two">
       <div class="panel">${items.length ? items.map((x, i) => `<div class="line">
           ${x.image ? `${K.img(x.image, 350, 'alt=""')}` : `<div class="thumb"></div>`}
-          <div class="stack" style="gap:4px"><a href="#/p/${esc(x.listing_id)}" style="text-decoration:none;font-weight:600">${esc(x.title)}</a>${x.props ? `<span class="muted">${esc(x.props)}</span>` : ''}${x.direct ? '<span class="pill" style="justify-self:start">Ships separately</span>' : ''}
+          <div class="stack" style="gap:4px"><a href="#/p/${esc(x.listing_id)}" style="text-decoration:none;font-weight:600">${esc(x.title)}</a>${x.props ? `<span class="muted">${esc(x.props)}</span>` : ''}${x.direct ? '<span class="pill" style="justify-self:start">Ships separately</span>' : ''}${x.why ? `<span class="cline-why" data-no-tr>${esc(cs(`why_${x.why}`))}</span>` : ''}
             <div class="row"><div class="qty"><button data-dec="${i}" aria-label="Less">−</button><input value="${x.qty}" data-q="${i}" inputmode="numeric" aria-label="Quantity"><button data-inc="${i}" aria-label="More">+</button></div><button class="btn sm ghost" data-rm="${i}">Remove</button></div></div>
           <b>${money(x.price * x.qty, x.currency)}</b></div>`).join('') : '<div class="empty"><h3>Nothing left in your cart</h3></div>'}</div>
       <aside class="panel sum">
@@ -1102,7 +1343,8 @@ async function cart() {
         <div><span>Shipping${savedAddress().country_code ? ` to ${esc(countryName(savedAddress().country_code))}` : ''}</span><span id="cship">${savedAddress().country_code ? '…' : 'At checkout'}</span></div>
         <div class="total"><span>Total</span><span id="ctot">${money(sub, cur)}${savedAddress().country_code ? '' : ' + shipping'}</span></div>
         ${items.some((x) => x.direct) && items.some((x) => !x.direct) ? '<p class="muted small">Items marked “Ships separately” arrive in their own parcel. Everything else is packed together.</p>' : new Set(items.map((x) => x.shop_id).filter(Boolean)).size > 1 && !items.some((x) => x.direct) ? '<p class="muted small">Items from different shops are packed together and arrive in one parcel.</p>' : ''}
-        <a class="btn block" href="#/checkout" ${items.length ? '' : 'style="pointer-events:none;opacity:.5"'}>Check out</a>
+        ${blocked.length ? `<div class="cartblock" role="alert" data-no-tr>${esc(cs('cartBlocked', marketName(country)))} <button type="button" class="btn sm ghost" id="cartcc">${esc(cs('changeCountry'))}</button></div>` : ''}
+        <a class="btn block" href="#/checkout" ${items.length && !blocked.length ? '' : 'aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:.5"'}>Check out</a>
         <a class="btn block ghost" href="#/">Keep shopping</a>
       </aside>
     </div>`;
@@ -1112,6 +1354,7 @@ async function cart() {
     if (bd) $('#cship').parentElement.insertAdjacentHTML('afterend', `<div><span>${KinanLang.t('Bought together')}</span><span class="dealtxt">−${money(bd, cur)}</span></div>`);
     $('#ctot').innerHTML = `${money(sub + q.fee - bd, cur)}${localPrice(sub + q.fee - bd) ? `<div class="lp" style="font-weight:400">${localPrice(sub + q.fee - bd)}</div>` : ''}`;
   }).catch(() => {});
+  $('#cartcc')?.addEventListener('click', () => countrySelector());
   const upd = (i, q) => { const c = Cart.get(); if (q <= 0) c.splice(i, 1); else c[i].qty = Math.min(q, items[i].max || 999); Cart.set(c); cart(); };
   $$('[data-dec]').forEach((b) => b.onclick = () => upd(+b.dataset.dec, items[+b.dataset.dec].qty - 1));
   $$('[data-inc]').forEach((b) => b.onclick = () => upd(+b.dataset.inc, items[+b.dataset.inc].qty + 1));
@@ -1122,6 +1365,8 @@ async function cart() {
 async function checkout() {
   if (!requireBuyer('/checkout')) return;
   const items = Cart.get(); if (!items.length) { location.hash = '#/cart'; return; }
+  // lines that cannot be delivered to the chosen country are resolved in the cart first
+  if (DeliveryCountry.get()) { const c = await api('/api/cart/check', 'POST', { country: DeliveryCountry.get(), items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })) }).catch(() => null); if (c && !c.ok) { location.hash = '#/cart'; return; } }
   if (cfg.payments_paused) { $('#view').innerHTML = `<div class="panel" style="text-align:center;padding:28px"><h2>${KinanLang.t('Checkout is paused for a short while')}</h2><p class="muted">${KinanLang.t('Your cart is saved. Please come back soon to complete your order.')}</p><a class="btn" href="#/">${KinanLang.t('Keep shopping')}</a></div>`; return; }
   const a = { name: me.name || '', ...savedAddress() };
   const cur = items[0].currency || cfg.currency;
@@ -1160,11 +1405,12 @@ async function checkout() {
   const extras = () => { const f = $('#af'); return f.packaging && f.packaging.value === 'protect' ? Number((cfg.packaging || {}).protect || 2) : 0; };
   let coupon = null;
   let bundleOff = 0;
-  const paintTotal = () => { const t = Math.max(0, sub + lastFee + extras() - (coupon ? coupon.discount : 0) - bundleOff); { const kb = $('#kbundle'); if (kb) { kb.hidden = !bundleOff; kb.querySelector('span:last-child').textContent = '−' + money(bundleOff, cur); } } $('#kdisc').hidden = !coupon; if (coupon) { $('#kcode').textContent = coupon.code; $('#kdiscv').textContent = '−' + money(coupon.discount, cur); } $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
+  let shownTotal = null; let quoted = false;
+  const paintTotal = () => { const t = Math.max(0, sub + lastFee + extras() - (coupon ? coupon.discount : 0) - bundleOff); shownTotal = quoted ? Math.round(t * 100) / 100 : null; { const kb = $('#kbundle'); if (kb) { kb.hidden = !bundleOff; kb.querySelector('span:last-child').textContent = '−' + money(bundleOff, cur); } } $('#kdisc').hidden = !coupon; if (coupon) { $('#kcode').textContent = coupon.code; $('#kdiscv').textContent = '−' + money(coupon.discount, cur); } $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
   const requote = async () => {
     const code = $('#af').country_code.value; if (!code) return;
     try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: code });
-      lastFee = q.fee || 0; bundleOff = Number(q.bundle_discount) || 0;
+      lastFee = q.fee || 0; bundleOff = Number(q.bundle_discount) || 0; quoted = true;
       const imp = Number(q.import_fee) || 0; const ship = Math.max(0, (q.fee || 0) - imp);
       $('#kship').textContent = ship ? money(ship, cur) : KinanLang.t('Included');
       $('#kimp').hidden = !imp; if (imp) $('#kimpv').textContent = money(imp, cur);
@@ -1205,12 +1451,25 @@ async function checkout() {
     const sid = $('#abook') ? $('#abook').value : Book.selectedId();
     Book.upsert({ ...Object.fromEntries(ADDR_KEYS.map((k) => [k, addr[k] ?? (Book.list().find((x) => x.id === sid) || {})[k] ?? ''])), ...(sid ? { id: sid } : {}) });
     $('#go').disabled = true; $('#go').textContent = 'Placing order…';
-    try {
-      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '', currency: Locale.get().currency });
+    const place = async (expected) => {
+      const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '', currency: Locale.get().currency, ...(expected != null ? { expected_total: expected } : {}) });
       Cart.set([]);
       K.track('begin_checkout', { currency: o.currency, value: o.total });
       location.hash = `#/pay/${o.id}`;
-    } catch (err) { $('#ce').textContent = err.message; $('#go').disabled = false; $('#go').textContent = 'Continue to payment'; }
+    };
+    const reset = () => { $('#go').disabled = false; $('#go').textContent = 'Continue to payment'; };
+    try { await place(shownTotal); }
+    catch (err) {
+      // The server checked the real address: undeliverable lines are named; a changed total is shown for confirmation
+      if (err.code === 'NOT_DELIVERABLE' && err.details) {
+        $('#ce').innerHTML = `${esc(err.message)}<ul style="margin:6px 0 0;padding-inline-start:18px">${err.details.lines.map((x) => `<li>${esc(x.title)} — ${esc(cs(`why_${x.reason}`))}</li>`).join('')}</ul><a class="btn sm ghost" href="#/cart" style="margin-top:8px">${esc(KinanLang.t('Back to cart'))}</a>`;
+      } else if (err.code === 'TOTAL_CHANGED' && err.details) {
+        const t = err.details.total;
+        $('#ce').innerHTML = `<span data-no-tr>${esc(cs('totalChanged', money(t, cur)))}</span> <button type="button" class="btn sm" id="ctconfirm" data-no-tr>${esc(cs('confirmTotal'))}</button>`;
+        $('#ctconfirm').onclick = async () => { $('#ctconfirm').disabled = true; try { await place(t); } catch (e2) { $('#ce').textContent = e2.message; reset(); } };
+      } else $('#ce').textContent = err.message;
+      reset();
+    }
   };
 }
 
@@ -1964,8 +2223,17 @@ function wireInstall() {
   sessionReady = api('/api/me').then(asMe).catch(() => null).then((user) => {
     me = user;
     Cart.sync(); Book.sync();
+    // keep the account and this device in step: an account without a country takes this device's
+    const local = DeliveryCountry.get();
+    if (me && me.role === 'buyer' && local && me.delivery_country !== local) { me.delivery_country = local; api('/api/buyer/profile', 'PATCH', { delivery_country: local }).catch(() => {}); }
   }).finally(() => { sessionReady = null; });
   cfg = await configReady;
+  // Delivery country: earlier choices count; otherwise wait briefly for the account, then ask before the catalogue
+  DeliveryCountry.migrate();
+  if (!DeliveryCountry.get() && sessionReady) { await Promise.race([sessionReady, new Promise((r) => setTimeout(r, 1500))]); DeliveryCountry.migrate(); }
+  window.KinanCountry = DeliveryCountry.get() || undefined;
+  renderCountryChip();
+  const catalogRoute = () => /^#?\/?(?:$|search\/|c\/|x\/|p\/|deals|s\/)/.test((location.hash || '#/').replace(/^#/, '#'));
   $('#foot').innerHTML = K.footer(cfg.operator?.name);
   K.analyticsConsent(cfg.analytics);
   if (cfg.whatsapp) { const a = document.createElement('a'); a.className = 'wafab'; a.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent('Hello Kinan')}`; a.target = '_blank'; a.rel = 'noopener'; a.setAttribute('aria-label', 'WhatsApp'); a.innerHTML = WA; document.body.append(a); }
@@ -1973,6 +2241,9 @@ function wireInstall() {
   if (loginError) {
     if (sessionReady) await sessionReady;
     signin(encodeURIComponent('/'), 'in', loginError);
+  } else if (!DeliveryCountry.get() && catalogRoute()) {
+    $('#view').innerHTML = skeletonGrid();
+    countrySelector({ first: true, after: () => route() });
   } else route();
   K.registerSW();
   try { K.presence('shop'); } catch { /* optional */ }
