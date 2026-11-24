@@ -678,3 +678,23 @@ test('review fixes: stock, photo access, test payments, cleanup, client IP', asy
   assert.strictEqual(clientIp({ headers: { 'cf-connecting-ip': '6.6.6.6', 'x-forwarded-for': '8.8.8.8' }, socket: {} }), '8.8.8.8');
   assert.strictEqual(clientIp({ headers: {}, socket: { remoteAddress: '10.0.0.1' } }), '10.0.0.1');
 });
+
+test('Seller Center: cancelled orders can be removed from the seller list (their view only), open ones cannot', async () => {
+  const sTok = await login('s1@x.com', 'sellerpass');
+  const seller = db.sellers.find((s) => s.user_id === db.users.find((u) => u.email === 's1@x.com').id);
+  const line = { seller_id: seller.id, title: 'Gloves', props: '', qty: 3, price: 3.99, cost_cny: 10 };
+  const mk = (status, sub) => db.orders.insert({ status, currency: 'USD', created_at: Date.now(), lines: [line], sub_orders: sub ? [sub] : [] });
+  const open = mk('paid'); const gone = mk('cancelled'); const aeGone = mk('procuring', { seller_id: seller.id, direct: true, status: 'AE_CANCELLED' });
+  const ids = async () => (await api('GET', '/api/seller/orders', null, sTok)).body.map((o) => o.id);
+  assert.strictEqual((await api('POST', `/api/seller/orders/${open.id}/hide`, null, sTok)).status, 409, 'an open order stays');
+  assert.strictEqual((await api('POST', `/api/seller/orders/${gone.id}/hide`, null, sTok)).status, 200);
+  let list = await ids();
+  assert.ok(!list.includes(gone.id) && list.includes(open.id) && list.includes(aeGone.id));
+  const all = await api('POST', '/api/seller/orders/hide-cancelled', null, sTok);
+  assert.ok(all.body.hidden >= 1);
+  list = await ids();
+  assert.ok(!list.includes(aeGone.id), 'a supplier-cancelled order counts as cancelled too');
+  assert.ok(list.includes(open.id));
+  assert.strictEqual(db.orders.get(gone.id).status, 'cancelled', 'the order itself is untouched');
+  assert.strictEqual((await api('POST', `/api/seller/orders/${gone.id}/hide`, null, null)).status, 401);
+});

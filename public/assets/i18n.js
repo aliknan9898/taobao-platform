@@ -79,7 +79,7 @@
     'Wallet balance:': 'رصيد المحفظة:', 'Not enough for this order': 'الرصيد لا يكفي لهذا الطلب', 'Card payments are not configured yet. Please try again later.': 'الدفع بالبطاقة غير مُعدّ بعد. حاول لاحقاً.',
     'Could not load the payment form. Check your connection.': 'تعذّر تحميل نموذج الدفع. تحقق من اتصالك.',
     // ---- orders ----
-    'Your orders': 'طلباتك', 'No orders yet': 'لا توجد طلبات بعد', 'When you place an order, you can follow it here.': 'عندما تطلب، يمكنك متابعة طلبك من هنا.', 'Start shopping': 'ابدأ التسوق',
+    'Your orders': 'طلباتك', 'No orders yet': 'لا توجد طلبات بعد', 'Cancelled orders': 'الطلبات الملغاة', 'No open orders': 'لا توجد طلبات مفتوحة', 'Remove from my list': 'إزالة من قائمتي', 'Remove all cancelled from my list': 'إزالة كل الملغاة من قائمتي', 'Removed from your list': 'أُزيل من قائمتك', 'When you place an order, you can follow it here.': 'عندما تطلب، يمكنك متابعة طلبك من هنا.', 'Start shopping': 'ابدأ التسوق',
     'Awaiting payment': 'بانتظار الدفع', 'Paid': 'مدفوع', 'Buying from supplier': 'جارٍ الشراء من المورّد', 'At our China warehouse soon': 'في الطريق إلى مستودعنا في الصين', 'Packed, ready to ship': 'مُغلّف وجاهز للشحن',
     'Shipped': 'تم الشحن', 'Delivered': 'تم التوصيل', 'Cancelled': 'ملغى', 'Refunded': 'تم الاسترداد', 'Being reviewed': 'قيد المراجعة',
     'This order is waiting for payment.': 'هذا الطلب بانتظار الدفع.', 'Pay now': 'ادفع الآن', 'Progress': 'مراحل الطلب', 'Cancel order': 'إلغاء الطلب', 'Order cancelled': 'تم إلغاء الطلب',

@@ -732,7 +732,22 @@ r('POST', '/api/seller/products/bulk', SELLER, async ({ req, seller }) => ops.bu
 const sellerOrder = (seller, id) => { const o = db.orders.get(id); if (!o || !o.lines.some((l) => l.seller_id === seller.id) || o.status === 'pending_payment') throw httpError(404, 'Not found'); return o; };
 r('GET', '/api/seller/orders/:id/messages', SELLER, async ({ seller, params }) => messages.threadsFor(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id }));
 r('POST', '/api/seller/orders/:id/messages', SELLER, async ({ req, seller, user, params }) => messages.post(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id, user }, await readJson(req)));
-r('GET', '/api/seller/orders', SELLER, async ({ seller }) => db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment').sort((a, b) => b.created_at - a.created_at).map((o) => orders.sellerView(o, seller.id)));
+/** Cancelled / refunded for this seller (same rule as the seller page): only those can be removed from the seller's list. */
+const sellerCancelled = (view) => ['cancelled', 'refunded'].includes(view.status) || /CANCEL/i.test(view.purchase?.status || '');
+const hideOrders = (seller, ids) => db.sellers.update(seller.id, (s) => ({ hidden_orders: [...new Set([...(s.hidden_orders || []), ...ids])].slice(-5000) }));
+r('POST', '/api/seller/orders/hide-cancelled', SELLER, async ({ seller }) => {
+  const hidden = new Set(seller.hidden_orders || []);
+  const ids = db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment' && !hidden.has(o.id)).filter((o) => sellerCancelled(orders.sellerView(o, seller.id))).map((o) => o.id);
+  if (ids.length) hideOrders(seller, ids);
+  return { hidden: ids.length };
+});
+r('POST', '/api/seller/orders/:id/hide', SELLER, async ({ seller, params }) => {
+  const o = sellerOrder(seller, params.id);
+  if (!sellerCancelled(orders.sellerView(o, seller.id))) throw httpError(409, 'Only cancelled orders can be removed from your list');
+  hideOrders(seller, [o.id]);
+  return { ok: true };
+});
+r('GET', '/api/seller/orders', SELLER, async ({ seller }) => db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment' && !(seller.hidden_orders || []).includes(o.id)).sort((a, b) => b.created_at - a.created_at).map((o) => orders.sellerView(o, seller.id)));
 const sellerSub = (seller, id) => { const o = db.orders.get(id); const s = o?.sub_orders.find((x) => x.seller_id === seller.id && !x.direct && !x.manual); if (!s) throw httpError(404, 'Not found'); return { o, s }; };
 r('POST', '/api/seller/orders/:id/pay', SELLER, async ({ seller, params }) => { if (sellerAuth.platformConnected()) throw httpError(403, 'Kinan pays Taobao for this order'); const { o, s } = sellerSub(seller, params.id); return orders.paySub(o.id, s.outer_purchase_id); });
 r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => {

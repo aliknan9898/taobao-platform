@@ -1227,7 +1227,7 @@ async function lyProduct(id) {
         <div class="row"><div class="qty"><button type="button" id="qm" aria-label="−">−</button><input id="qv" inputmode="numeric" value="1" aria-label="Quantity"><button type="button" id="qp" aria-label="+">+</button></div></div>
         <div class="row"><button class="btn" id="add" style="flex:1" ${ok && sku ? '' : 'disabled'}>${esc(KinanLang.t('Add to cart'))}</button></div>
         <div class="lydel small">${d ? `<h4><span>${esc(cs('lyDelivery'))} · ${esc(lyName(lyCityObj()))}</span><b>${money(d.fee_lyd, 'LYD')}</b></h4><div>${esc(cs('lyDays', d.min_days && d.max_days ? `${d.min_days}–${d.max_days}` : d.max_days || '—'))}</div>${d.includes ? `<div class="muted">${esc(cs('lyIncludes', d.includes))}</div>` : ''}${d.due_on_delivery_lyd ? `<div class="muted">${esc(cs('lyDue', money(d.due_on_delivery_lyd, 'LYD')))}${d.due_on_delivery_note ? ` — ${esc(d.due_on_delivery_note)}` : ''}</div>` : ''}` : `<div>${esc(cs('lyCityPrompt'))}</div>`}</div>
-        ${desc ? `<p class="desc" dir="auto">${esc(plain(desc))}</p>` : ''}
+        ${desc ? `<details class="panel flat pdesc"><summary><b>${KinanLang.t('About this product')}</b></summary><p class="desc" dir="auto" style="margin-top:8px">${esc(plain(desc))}</p></details>` : ''}
       </div></div>`;
   $$('#lyvars [data-v]').forEach((b) => b.onclick = () => { sku = p.skus.find((x) => x.mp_sku_id === b.dataset.v); $$('#lyvars [data-v]').forEach((y) => y.classList.toggle('on', y === b)); $('#lyprice').textContent = money(sku.price, 'LYD'); });
   const setQ = (n) => { qty = Math.max(1, Math.min(sku?.stock || 1, n)); $('#qv').value = qty; };
@@ -1273,7 +1273,7 @@ async function product(id) {
         </div>
         ${p.safety ? `<details class="panel flat small"><summary><b>${KinanLang.t('Product safety')}</b></summary><div class="desc" style="margin-top:8px"><ul style="margin:0 0 8px;padding-inline-start:18px">${p.safety.warnings.map((w) => `<li dir="auto">${esc(w)}</li>`).join('')}</ul><p><b>${KinanLang.t('EU responsible person')}:</b> ${esc(p.safety.responsible.name)}, ${esc(p.safety.responsible.address)} · <a href="mailto:${esc(p.safety.responsible.email)}">${esc(p.safety.responsible.email)}</a></p>${p.safety.manufacturer ? `<p><b>${KinanLang.t('Manufacturer')}:</b> ${esc(p.safety.manufacturer.name)}${p.safety.manufacturer.address ? `, ${esc(p.safety.manufacturer.address)}` : ''}</p>` : ''}</div></details>` : ''}
         ${p.return_policy !== undefined ? `<details class="panel flat small"><summary><b>Returns</b></summary><p class="desc" style="margin-top:8px">${esc(p.return_policy || 'Returns are accepted only for items that arrive damaged or different from the listing. Contact Kinan support within 7 days of delivery with photos.')}</p></details>` : ''}
-        ${desc ? `<div class="stack"><h3>About this product</h3><p class="desc" dir="auto">${esc(desc)}</p></div>` : ''}
+        ${desc ? `<details class="panel flat pdesc"><summary><b>${KinanLang.t('About this product')}</b></summary><p class="desc" dir="auto" style="margin-top:8px">${esc(desc)}</p></details>` : ''}
         <div class="stack" id="reviews"></div>
         <div class="stack" id="qa"></div>
       </div>
