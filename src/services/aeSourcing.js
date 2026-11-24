@@ -211,7 +211,9 @@ async function run({ count } = {}, by = 'auto') {
           // Each destination is checked on its own (no all-markets rule): an option is kept when it reaches at least one
           // market within the limit. Every answer is stored per country (services/eligibility.js), so the product can
           // appear in the markets it reaches as soon as it is approved, and nowhere else.
-          for (const sku of inStock.slice(0, 4)) {
+          // only options inside the price range, cheapest first: verifying a pricier option (the old first-4-in-stock
+          // rule) spent 11 delivery checks and an import on a product that was then dropped at import time
+          for (const sku of inStock.filter((s) => s.cost_sale >= p.min_cost && s.cost_sale <= p.max_cost).sort((a, b) => a.cost_sale - b.cost_sale).slice(0, 4)) {
             if (!sku.ae_sku_id) continue;
             const quotes = {}; const results = {};
             for (const country of DELIVERY_MARKETS) {

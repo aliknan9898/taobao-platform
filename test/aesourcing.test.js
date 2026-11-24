@@ -32,7 +32,7 @@ aeClient.call = async (method, params) => {
 aes.status = () => ({ connected: true });
 aes.token = async () => 'tok';
 const fetched = new Set();
-aes.fetchProduct = async (id) => { fetched.add(id); return ({ ae_product_id: id, title: PRODUCTS[id].title, description: 'A lamp', images: Array.from({ length: PRODUCTS[id].imgs }, (_, i) => `https://img.example/${id}/${i + 1}.jpg`), skus: [{ mp_sku_id: `AE${id}`, ae_sku_id: `S${id}`, props: '', stock: 50, cost_sale: 5 }] }); };
+aes.fetchProduct = async (id) => { fetched.add(id); return ({ ae_product_id: id, title: PRODUCTS[id].title, description: 'A lamp', images: Array.from({ length: PRODUCTS[id].imgs }, (_, i) => `https://img.example/${id}/${i + 1}.jpg`), skus: PRODUCTS[id].skus || [{ mp_sku_id: `AE${id}`, ae_sku_id: `S${id}`, props: '', stock: 50, cost_sale: 5 }] }); };
 aes.publish = async (seller, { link }) => { const p = await aes.fetchProduct(link); return db.listings.insert({ seller_id: seller.id, source: 'aliexpress', fulfillment: 'direct', ae_product_id: link, title: p.title, description: p.description, images: p.images, skus: p.skus.map((s) => ({ ...s, price: 9 })), status: 'pending_review' }); };
 ai.enabled = () => true;
 ai.structured = async ({ text }) => {
@@ -140,4 +140,27 @@ test('keyword search refused app-wide: paused for 12 hours after two refusals, f
   assert.equal(searches, 2, 'no keyword searches while paused');
   assert.ok(second.search_paused_until);
   aeClient.call = original;
+});
+
+test('the option checked for delivery is one inside the price range (cheapest first), not simply the first in stock', async () => {
+  const id = '1005000000000020';
+  PRODUCTS[id] = { title: 'Two-size lamp', days: 6, imgs: 5, keep: true, skus: [
+    { mp_sku_id: `AE${id}big`, ae_sku_id: `B${id}`, props: 'Size:XL', stock: 50, cost_sale: 95 },
+    { mp_sku_id: `AE${id}small`, ae_sku_id: `S${id}`, props: 'Size:S', stock: 50, cost_sale: 12 }
+  ] };
+  const freightAsked = [];
+  const original = aeClient.call;
+  aeClient.call = async (method, params) => {
+    if (method === 'aliexpress.ds.text.search') return { data: { products: { selection_search_product: [{ itemId: id, title: 'Two-size lamp', orders: 1200, targetSalePrice: '12.00' }] } } };
+    if (method === 'aliexpress.ds.recommend.feed.get') return { result: { products: { traffic_product_d_t_o: [] } } };
+    if (method === 'aliexpress.ds.freight.query') freightAsked.push(params.queryDeliveryReq.selectedSkuId || params.queryDeliveryReq.skuId || JSON.stringify(params.queryDeliveryReq));
+    return original(method, params);
+  };
+  db.settings.update('ae_sourcing', (s) => ({ ...s, feed_pages: {}, cursor: 0, search_off_until: 0, seen: {} }));
+  const st = await A.run({ count: 1 }, 'test');
+  aeClient.call = original;
+  assert.equal(st.reasons['verified option changed during import'], undefined, JSON.stringify(st.reasons));
+  const l = db.listings.find((x) => x.ae_product_id === id);
+  assert.ok(l, `added: ${JSON.stringify(st.reasons)}`);
+  assert.ok(freightAsked.length && freightAsked.every((x) => !String(x).includes(`B${id}`)), 'the out-of-range XL option is never checked');
 });
