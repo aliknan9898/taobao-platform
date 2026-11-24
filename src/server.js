@@ -277,7 +277,7 @@ function sendImage(res, img) {
 // ---------- routes ----------
 // [method, pattern, roles (null = public), handler({req,res,params,url,user,seller,body})]
 const routes = [];
-const r = (method, pattern, roles, handler) => routes.push({ method, re: new RegExp(`^${pattern.replace(/:(\w+)/g, '(?<$1>[A-Za-z0-9_-]{1,80})')}$`), roles, handler });
+const r = (method, pattern, roles, handler) => routes.push({ method, pattern, re: new RegExp(`^${pattern.replace(/:(\w+)/g, '(?<$1>[A-Za-z0-9_-]{1,80})')}$`), roles, handler });
 const ADMIN = ['admin']; const SELLER = ['seller']; const BUYER = ['buyer']; const WH = ['warehouse', 'admin'];
 // Staff roles: who may use which part of the admin dashboard
 const STAFF = ['admin', 'procurement', 'finance', 'support'];       // overview + read orders
@@ -1199,6 +1199,12 @@ r('POST', '/api/admin/partners/orders/:id/settle', ADMIN, async ({ req, user, pa
 r('POST', '/api/admin/partners/sandbox/simulate', ADMIN, async ({ req }) => { const b = await readJson(req); return b.reset ? require('./partner/catalog').resetSandbox() : require('./partner/catalog').simulate(b.product, b); });
 r('GET', '/api/admin/exceptions', STAFF, async ({ url, user }) => require('./services/exceptions').list({ area: url.searchParams.get('area') || '', provider: url.searchParams.get('provider') || '', result: url.searchParams.get('result') || '', mine: url.searchParams.get('mine') || '' }, user));
 r('POST', '/api/admin/exceptions/assign', STAFF, async ({ req, user }) => { const b = await readJson(req); return require('./services/exceptions').assign(b.key, { assignee_id: b.assignee_id, note: b.note }, user); });
+/** Admin → Activity log: customer and seller actions plus the staff audit trail, newest first, filtered. */
+r('GET', '/api/admin/activity', ADMIN, async ({ url, user }) => {
+  const g = (k) => url.searchParams.get(k) || '';
+  // staff entries (the audit trail) stay owner-only, as in /api/admin/audit
+  return require('./activity').list({ who: g('who'), category: g('category'), q: g('q'), days: g('days'), failed: g('failed') === '1', before: g('before'), limit: g('limit'), staff: auth.isOwner(user) });
+});
 r('GET', '/api/admin/audit', ADMIN, async ({ user, url }) => {
   requireOwner(user);
   return require('./audit').list({ limit: url.searchParams.get('limit'), actor: url.searchParams.get('actor') || '', path: url.searchParams.get('path') || '' });
@@ -1354,6 +1360,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   let auditCtx = null; // set for routes that need a role: the admin audit trail records who did it
+  let actCtx = null; // customer / seller actions: Admin → Activity log (src/activity.js)
   try {
     if (p === '/healthz') return send(res, 200, 'ok');
     // Send visitors of the old *.onrender.com address to the main domain (pages only; API calls and webhooks keep working)
@@ -1557,6 +1564,7 @@ const server = http.createServer(async (req, res) => {
       const m = p.match(rt.re);
       if (!m) continue;
       const ctx = { req, res, url, params: m.groups || {} };
+      if (require('./activity').wants(req.method, rt.pattern)) actCtx = { pattern: rt.pattern, params: ctx.params, user: auth.authenticate(req) }; // before the handler: sign-out still knows who
       // Remember each person's app language so emails and notifications reach them in it
       const hl = req.headers['x-kinan-lang'];
       if (APP_LANGS.includes(hl)) { const lu = auth.authenticate(req); const rec = lu && db.users.get(lu.id); if (rec && rec.lang !== hl) db.users.update(rec.id, { lang: hl }); }
@@ -1569,6 +1577,7 @@ const server = http.createServer(async (req, res) => {
       const out = await rt.handler(ctx);
       if (req.auditStaffUser) auditCtx = { user: req.auditStaffUser, params: {} };
       if (auditCtx) { try { require('./audit').record({ req, path: p, user: auditCtx.user, status: res.statusCode >= 300 && res.writableEnded ? res.statusCode : 200, params: auditCtx.params }); } catch (e) { console.error('[audit]', e.message); } }
+      if (actCtx) { try { require('./activity').record({ req, method: req.method, pattern: actCtx.pattern, path: p, user: ctx.user || actCtx.user, status: res.statusCode >= 300 && res.writableEnded ? res.statusCode : 200, params: actCtx.params, out }); } catch (e) { console.error('[activity]', e.message); } }
       if (res.writableEnded) return; // handler wrote its own response (e.g. a CSV download)
       return send(res, req.method === 'POST' && /register|checkout|products$|manual$|products\/aliexpress$|staff|requests$/.test(p) ? 201 : 200, out ?? { ok: true });
     }
@@ -1577,6 +1586,7 @@ const server = http.createServer(async (req, res) => {
     const status = e.status || (e.name === 'TaobaoApiError' ? 502 : 500);
     if (!auditCtx && req.auditStaffUser) auditCtx = { user: req.auditStaffUser, params: {} };
     if (auditCtx) { try { require('./audit').record({ req, path: p, user: auditCtx.user, status, params: auditCtx.params, error: e.message }); } catch { /* never block the answer */ } }
+    if (actCtx) { try { require('./activity').record({ req, method: req.method, pattern: actCtx.pattern, path: p, user: actCtx.user, status, params: actCtx.params, error: e.message }); } catch { /* never block the answer */ } }
     const errorId = status >= 500 ? require('crypto').randomBytes(4).toString('hex') : undefined;
     if (status >= 500) { console.error('[error]', errorId, req.method, p, e.code || '', e.message); errorAlert(`${req.method} ${p}: ${e.message} (${errorId})`); require('./sentry').captureException(e, { method: req.method, path: p, tags: { error_id: errorId, status } }); }
     // Customers never see internal or supplier error text (it can name a supplier or a system): a plain message and an id
@@ -1596,6 +1606,7 @@ function cleanup(now = Date.now()) {
   for (const x of db.oauthStates.all((s) => (s.expires_at || 0) < now)) { db.oauthStates.remove(x.id); n++; }
   for (const x of db.tokens.all((t) => t.expires_at < now)) { db.tokens.remove(x.id); n++; }
   n += require('./audit').prune(now);
+  n += require('./activity').prune(now);
   return n;
 }
 

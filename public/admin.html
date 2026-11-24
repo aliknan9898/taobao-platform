@@ -211,7 +211,7 @@ const ALL_TABS = [
   ['overview','Overview','*'],['team-orders','Order status','operator'],['team','Staff & activity','owner'],['control','Control centre','admin'],['partners','Partner API (B2B)','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
   ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','owner operator'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['countries','Delivery countries','admin'],['libya','Libya (ليبيا)','owner admin procurement finance support ly_staff'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
-  ['sellers','Sellers','admin'],['users','Users','admin finance support'],['reviews','Reviews','admin support'],
+  ['sellers','Sellers','admin'],['users','Users','admin finance support'],['activity','Activity log','admin'],['reviews','Reviews','admin support'],
   ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
@@ -220,7 +220,7 @@ const NAV_GROUPS = [
   ['Libya',['libya']],
   ['Catalogue',['listings','platforms','imports','ai-tools']],
   ['Suppliers & channels',['cj','ebay','connections','partners']],
-  ['People',['sellers','users','reviews','team']],
+  ['People',['sellers','users','activity','reviews','team']],
   ['Money',['payouts','reports','coupons']],
   ['Growth',['kinan','advertising','mail']],
   ['System',['tools','backup']]
@@ -1230,6 +1230,57 @@ const VIEWS = {
     });
     if ($('#sf')) $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/admin/staff', 'POST', f); render(); } catch (err) { $('#se').textContent = err.message; } };
   }
+};
+
+// ---------- Activity log: every customer and seller action (and, for the owner, staff actions), by day ----------
+const ACT_CATS = [['account', 'Account & sign-in'], ['shopping', 'Shopping'], ['orders', 'Orders'], ['payments', 'Payments & payouts'], ['returns', 'Returns & reviews'], ['messages', 'Messages'], ['products', 'Products'], ['shop', 'Seller shop'], ['channels', 'Selling channels'], ['staff', 'Staff']];
+const actState = { who: '', category: '', q: '', days: '7', failed: false };
+VIEWS.activity = async (v) => {
+  const qs = (extra = {}) => new URLSearchParams(Object.entries({ ...actState, failed: actState.failed ? '1' : '', limit: 200, ...extra }).filter(([, x]) => x !== '' && x !== false)).toString();
+  const catName = Object.fromEntries(ACT_CATS);
+  const who = (a) => (a.category === 'staff' ? 'Staff' : a.actor?.role === 'seller' ? 'Seller' : a.actor?.role === 'guest' ? 'Visitor' : 'Customer');
+  const day = (t) => new Date(t).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const time = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const row = (a) => `<tr class="${a.ok ? '' : 'actfail'}"><td class="nowrap"><b>${time(a.at)}</b></td>
+    <td><span class="pill act-${esc(a.category)}">${esc(catName[a.category] || a.category)}</span></td>
+    <td><b>${esc(a.action)}</b>${a.ref ? `<div class="muted small"><bdi dir="ltr">${esc(a.ref)}</bdi></div>` : ''}${a.reason ? `<div class="muted small">“${esc(a.reason)}”</div>` : ''}</td>
+    <td>${esc(a.actor?.name || a.actor?.email || '—')}${a.actor?.name && a.actor?.email ? `<div class="muted small">${esc(a.actor.email)}</div>` : ''}<div class="muted small">${esc(who(a))}</div></td>
+    <td>${a.ok ? '<span class="pill ok">Done</span>' : `<span class="pill bad">Failed${a.status ? ` · ${esc(a.status)}` : ''}</span>${a.error ? `<div class="muted small">${esc(a.error)}</div>` : ''}`}</td>
+    <td class="muted small"><bdi dir="ltr">${esc(a.ip || '')}</bdi></td></tr>`;
+  const table = (items) => {
+    const groups = []; for (const a of items) { const d = day(a.at); const g = groups[groups.length - 1]; if (g && g.d === d) g.items.push(a); else groups.push({ d, items: [a] }); }
+    return groups.map((g) => `<h3 class="actday">${esc(g.d)} <span class="muted small">(${g.items.length})</span></h3><div style="overflow-x:auto"><table class="acttable"><thead><tr><th>Time</th><th>Type</th><th>Action</th><th>Who</th><th>Result</th><th>IP</th></tr></thead><tbody>${g.items.map(row).join('')}</tbody></table></div>`).join('');
+  };
+  const d = await api(`/api/admin/activity?${qs()}`);
+  v.innerHTML = `<style>.acttable{width:100%;min-width:760px;border-collapse:collapse;font-size:13px;table-layout:fixed}.acttable th:nth-child(1){width:80px}.acttable th:nth-child(2){width:150px}.acttable th:nth-child(4){width:180px}.acttable th:nth-child(5){width:130px}.acttable th:nth-child(6){width:95px}.acttable td{overflow-wrap:anywhere}.acttable th,.acttable td{text-align:start;padding:7px 8px;border-bottom:1px solid var(--line,#e5e7eb);vertical-align:top}.acttable tr.actfail td{background:rgba(220,38,38,.06)}.actday{margin:18px 0 6px;font-size:15px}.nowrap{white-space:nowrap}.actchips{display:flex;flex-wrap:wrap;gap:6px}.actchips button{border-radius:99px}.actchips button.on{outline:2px solid currentColor}</style>
+    <div class="card stack">
+      <p class="muted small" style="margin:0">Every action customers and sellers take, with date and time: sign-ins, account changes, cart, orders, payments, returns, reviews, messages, products and payouts${me?.owner ? ' — and, for you as owner, every staff action' : ''}. Passwords, card details, addresses and message text are never recorded. Kept 180 days.</p>
+      <form class="row" id="actf" style="gap:8px;flex-wrap:wrap;align-items:end">
+        <label class="stack small" style="gap:2px">Who<select name="who"><option value="">Everyone</option><option value="buyer">Customers</option><option value="seller">Sellers</option>${me?.owner ? '<option value="staff">Staff</option>' : ''}</select></label>
+        <label class="stack small" style="gap:2px">Type<select name="category"><option value="">All types</option>${ACT_CATS.filter(([k]) => k !== 'staff' || me?.owner).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join('')}</select></label>
+        <label class="stack small" style="gap:2px">Period<select name="days"><option value="1">Today</option><option value="7">7 days</option><option value="30">30 days</option><option value="0">All (180 days)</option></select></label>
+        <label class="stack small" style="gap:2px;flex:1;min-width:180px">Search<input name="q" placeholder="E-mail, name, order or product id"></label>
+        <label class="row small" style="gap:6px"><input type="checkbox" name="failed"> Failed only</label>
+        <button class="btn">Show</button>
+      </form>
+      <div class="actchips">${ACT_CATS.filter(([k]) => d.counts[k]).map(([k, n]) => `<button type="button" class="btn sm ghost ${actState.category === k ? 'on' : ''}" data-actcat="${k}">${esc(n)} · ${d.counts[k]}</button>`).join('') || '<span class="muted small">Nothing recorded in this period.</span>'}</div>
+      <p class="muted small" style="margin:0">${d.total} action${d.total === 1 ? '' : 's'}</p>
+    </div>
+    <div id="actlist">${table(d.items) || '<div class="card muted">No actions match.</div>'}</div>
+    <div class="row" style="justify-content:center;padding:12px">${d.more ? '<button class="btn ghost" id="actmore">Show older</button>' : ''}</div>`;
+  const f = v.querySelector('#actf');
+  f.who.value = actState.who; f.category.value = actState.category; f.days.value = actState.days; f.q.value = actState.q; f.failed.checked = actState.failed;
+  f.onsubmit = (e) => { e.preventDefault(); Object.assign(actState, { who: f.who.value, category: f.category.value, days: f.days.value, q: f.q.value.trim(), failed: f.failed.checked }); VIEWS.activity(v); };
+  v.querySelectorAll('[data-actcat]').forEach((b) => b.onclick = () => { actState.category = actState.category === b.dataset.actcat ? '' : b.dataset.actcat; VIEWS.activity(v); });
+  let cursor = d.more; let shown = d.items;
+  const more = v.querySelector('#actmore');
+  if (more) more.onclick = async () => {
+    more.disabled = true;
+    const n = await api(`/api/admin/activity?${qs({ before: cursor })}`);
+    shown = shown.concat(n.items); cursor = n.more;
+    v.querySelector('#actlist').innerHTML = table(shown);
+    if (cursor) more.disabled = false; else more.remove();
+  };
 };
 
 VIEWS['team-orders'] = async (v) => {
