@@ -248,3 +248,42 @@ test('the buyer sees their Libya orders; Admin export and overview are scoped to
   const ov = (await api('GET', `/api/admin/ly/overview?city=${C.tripoli.id}`, null, { token: T.owner })).body;
   assert.equal(ov.market_open, true); assert.ok(ov.orders_by_status.delivered >= 1 || ov.orders_by_status.returned >= 1); assert.ok(Array.isArray(ov.low_stock));
 });
+
+test('Libya inbound cartons reconcile split orders and preserve tracking on a repeated receipt', async () => {
+  const order = db.ly_orders.insert({
+    delivery_status: 'confirmed',
+    lines: [{ route: 'china', qty: 3, title: 'Test headphones', variant_id: 'test-variant' }],
+  });
+  const owner = { token: T.owner };
+  const buyer = { token: T.a };
+  const route = '/api/admin/ly/inbound';
+  const scan = (code, credentials = owner) => api('GET', route + '/scan?code=' + encodeURIComponent(code), null, credentials);
+  const register = (tracking, qty) => api('POST', route, {
+    tracking, source_tracking: ['TEST-SOURCE'], items: [{ order_id: order.id, line_index: 0, qty }],
+  }, owner);
+  const receive = (code, quantities) => api('POST', route + '/receive', { code, quantities }, owner);
+  const stages = () => (db.ly_orders.get(order.id).customer_tracking || []).map((event) => event.stage);
+
+  assert.equal((await scan('TEST-CARTON-A', buyer)).status, 403);
+  assert.equal((await scan('TEST-CARTON-A')).body.status, 'unmatched');
+  assert.equal((await register('test-carton-a', 2)).body.status, 'expected');
+  assert.equal((await scan(' test-carton-a ')).body.label, null);
+  assert.equal((await scan('test-source')).body.tracking, 'TEST-CARTON-A');
+  assert.equal((await register('TEST-CARTON-B', 2)).status, 409);
+  assert.equal((await register('TEST-CARTON-B', 1)).status, 200);
+  assert.equal((await scan('TEST-SOURCE')).status, 409);
+
+  assert.equal((await receive('TEST-CARTON-A', [1])).status, 409);
+  assert.deepEqual(stages(), []);
+  const first = await receive('TEST-CARTON-A', [2]);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.status, 'received');
+  assert.match(first.body.label, /^KN-LY-/);
+  assert.deepEqual(stages(), ['libya_partial']);
+  assert.equal((await scan(first.body.label)).body.tracking, 'TEST-CARTON-A');
+
+  assert.equal((await receive('TEST-CARTON-B', [1])).status, 200);
+  assert.deepEqual(stages(), ['libya_partial', 'libya_received']);
+  assert.equal((await receive(first.body.label, [2])).body.received_at, first.body.received_at);
+  assert.deepEqual(stages(), ['libya_partial', 'libya_received']);
+});
