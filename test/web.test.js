@@ -109,3 +109,30 @@ test('legal pages are served with the owner and no third-party requests', async 
   assert.strictEqual((await fetch(base + '/assets/bricolage-700.woff')).headers.get('content-type'), 'font/woff');
   assert.strictEqual((await fetch(base + '/assets/FONTS-OFL.txt')).status, 200);
 });
+
+test('integrated kinan pages retain the dedicated storefront and seller portal', async () => {
+  for (const [page, lang, sellerLink] of [
+    ['/about/', 'ar', '/about/seller/'],
+    ['/about/en/', 'en', '/about/en/seller/'],
+    ['/about/seller/', 'ar', null],
+    ['/about/en/seller/', 'en', null]
+  ]) {
+    const response = await fetch(base + page);
+    assert.strictEqual(response.status, 200, page);
+    const html = await response.text();
+    assert.ok(html.includes(`<html lang="${lang}"`), page);
+    assert.match(html, /\/assets\/about-kinan-language\.js/);
+    assert.doesNotMatch(html, /chatgpt\.site/);
+    if (sellerLink) {
+      assert.ok(html.includes(`href="${sellerLink}"`));
+      assert.doesNotMatch(html, /id="affiliate"/);
+    } else {
+      assert.match(html, /id="affiliate"/);
+      assert.match(html, /href="https:\/\/kinan\.shop\/seller"/);
+    }
+  }
+  const image = await fetch(base + '/assets/about-kinan-journey.webp');
+  assert.strictEqual(image.status, 200);
+  assert.strictEqual(image.headers.get('content-type'), 'image/webp');
+  assert.strictEqual(Buffer.from(await image.arrayBuffer()).toString('ascii', 8, 12), 'WEBP');
+});

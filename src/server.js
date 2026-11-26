@@ -173,7 +173,14 @@ function assetVersion(name) {
 const versionAssets = (html) => html.replace(/(["'])\/assets\/([\w.-]+\.(?:css|js))\1/g, (m, q, name) => `${q}/assets/${name}?v=${assetVersion(name)}${q}`);
 
 // Static assets (CSS, JS, icons, manifests) — flat folder, no traversal
-const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.pdf': 'application/pdf' };
+const aboutPages = new Map([
+  ['/about', 'about.html'],
+  ['/about/en', 'about-en.html'],
+  ['/about/seller', 'about-seller.html'],
+  ['/about/en/seller', 'about-seller-en.html']
+]);
+
+const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.webmanifest': 'application/manifest+json', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.pdf': 'application/pdf' };
 function asset(res, rel, cache = 'public, max-age=3600') {
   const name = path.basename(rel);
   const type = MIME[path.extname(name)];
@@ -1416,6 +1423,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(appControl.page(held.app));
     }
     if (req.method === 'GET') {
+      const aboutPage = aboutPages.get(p.replace(/\/$/, ''));
+      if (aboutPage) return page(res, aboutPage);
       if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true, head: seo.siteJsonLd() + `<link rel="canonical" href="${attr(config.publicBaseUrl)}/">`, body: seo.ssrList({ title: 'Kinan Shop — delivered to your door', intro: 'Shop home and kitchen, fashion, electronics, beauty, toys and gifts from independent sellers and Kinan. Delivered to Europe, the UK and worldwide with tracking.', limit: 60 }) });
       const catPage = p.match(/^\/c\/([a-z_]{2,20})$/);
       if (catPage) {
