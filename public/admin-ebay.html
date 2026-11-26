@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eBay Publisher | Kinan Admin</title>
+<link rel="stylesheet" href="/assets/fonts.css">
+<link rel="stylesheet" href="/assets/kinan.css">
+<style>
+main { max-width: 780px; margin: 32px auto; padding-inline: 16px; }
+form { display: grid; gap: 12px; margin-block: 18px; }
+label { display: grid; gap: 6px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid #888; }
+</style>
+</head>
+<body><main>
+<a href="/admin#ebay">Kinan Admin</a>
+<h1>eBay Publisher</h1>
+<p>Check a listing or preview up to 10 products. Publishing requires the server's eBay publication switch.</p>
+<form id="single">
+<label>Kinan listing ID <input name="id" required maxlength="80" pattern="[A-Za-z0-9_\-]+"></label>
+<div class="row"><button class="btn" type="submit" value="validate">Validate product</button>
+<button class="btn ghost" type="submit" value="publish">Publish product</button></div>
+</form>
+<form id="batch">
+<label>Batch size <input type="number" name="limit" min="1" max="10" value="5" required></label>
+<div class="row"><button class="btn" type="submit" value="preview">Preview batch</button>
+<button class="btn ghost" type="submit" value="publish">Publish batch</button></div>
+</form>
+<h2>Result</h2><pre id="result" aria-live="polite">Ready.</pre>
+<script>
+'use strict';
+const base = '/api/admin/ebay';
+const result = document.querySelector('#result');
+
+async function call(path, payload) {
+  const buttons = [...document.querySelectorAll('button')];
+  for (const button of buttons) button.disabled = true;
+  result.textContent = 'Working…';
+  try {
+    const response = await fetch(base + path, payload ? {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    } : {});
+    const data = await response.json();
+    result.textContent = JSON.stringify(data, null, 2);
+  } catch {
+    result.textContent = 'Could not get a response. Try again or check your Admin session.';
+  } finally {
+    for (const button of buttons) button.disabled = false;
+  }
+}
+document.querySelector('#single').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const id = encodeURIComponent(event.currentTarget.elements.id.value.trim());
+  const publish = event.submitter?.value === 'publish';
+  if (publish && !confirm('Publish this product to the configured eBay environment?')) return;
+  call((publish ? '/publish/' : '/validate/') + id, publish ? {} : undefined);
+});
+document.querySelector('#batch').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const limit = Number(event.currentTarget.elements.limit.value);
+  const publish = event.submitter?.value === 'publish';
+  if (publish && !confirm('Publish this batch to the configured eBay environment?')) return;
+  call('/sync-batch', { limit, dryRun: !publish });
+});
+</script>
+</main></body></html>

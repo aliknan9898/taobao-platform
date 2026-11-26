@@ -1041,6 +1041,7 @@ r('PUT', '/api/admin/ebay/icon', ADMIN, async ({ req }) => {
   if (db.settings.get('ebay_icon')) db.settings.update('ebay_icon', doc); else db.settings.insert({ id: 'ebay_icon', ...doc });
   return { icon: `/brand/ebay-icon?v=${doc.at}` };
 });
+require('./routes/ebayAdmin').register(r, ADMIN, { readJson, send });
 r('GET', '/api/admin/ebay', ADMIN, async () => require('./services/ebay').status());
 r('GET', '/api/admin/delivery-audit', ADMIN, async () => require('./services/deliveryAudit').status());
 // ---------------- Libya market (services/libya.js) ----------------
@@ -1468,6 +1469,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === '/christmas' || p === '/xmas') return page(res, 'shop.html', { stripe: true, title: 'Christmas Shop — decorations, lights & gifts | Kinan', body: seo.ssrList({ title: 'Kinan Christmas Shop', intro: 'Christmas decorations, fairy lights, Christmas jumpers, gifts and baking tools — shipped from European warehouses so they arrive before Christmas. Code XMAS10 gives 10% off.', collection: 'christmas' }), head: seo.listJsonLd('Kinan Christmas Shop', seo.liveProducts().filter(({ l }) => (l.collections || []).includes('christmas')), '/christmas') + shareHead({ title: 'Kinan Christmas Shop 🎄 — decorations, lights & gifts', description: 'Christmas decorations, lights, jumpers and gifts — shipped from European warehouses so they arrive before Christmas. Use code XMAS10 for 10% off.', image: '/assets/xmas-og.png', url: '/christmas', hash: '#/x/christmas' }) });
       if (p === '/seller') return page(res, 'seller.html');
+      if (p === '/admin/ebay') {
+        auth.requireRole(auth.authenticate(req), ...ADMIN);
+        return page(res, 'admin-ebay.html');
+      }
       if (p === '/admin') return page(res, 'admin.html');
       if (p === '/warehouse/libya') return page(res, 'warehouse-libya.html');
       if (p === '/warehouse') return page(res, 'warehouse.html');
@@ -1512,11 +1517,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (p === '/webhooks/ebay/deletion') {
-      // eBay's marketplace account deletion notices: Kinan keeps no eBay member data beyond order addresses
-      const code = url.searchParams.get('challenge_code');
-      if (req.method === 'GET' && code) return send(res, 200, { challengeResponse: require('./ebay/client').challenge(code, `${config.publicBaseUrl}/webhooks/ebay/deletion`) });
-      if (req.method === 'POST') await readRaw(req).catch(() => null);
-      return send(res, 200, { ok: true });
+      return await require('./routes/ebayDeletionWebhook').handle(req, res, { url, send, readRaw, publicBaseUrl: config.publicBaseUrl });
     }
     if (p === '/webhooks/nss') {
       if (req.method !== 'POST') return send(res, 200, { ok: true });
