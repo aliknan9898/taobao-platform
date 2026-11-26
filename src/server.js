@@ -397,7 +397,7 @@ r('GET', '/api/catalog', null, async ({ req, url }) => {
   if (cc === 'LY' && libya.open()) return libya.browse({ ...Object.fromEntries(url.searchParams), city: url.searchParams.get('city') || req.headers['x-kinan-city'] || '' });
   const params = { ...Object.fromEntries(url.searchParams), ...(cc ? { country: cc } : {}) };
   // the delivery country and the eligibility data are part of the key: a change in either gives fresh results
-  const out = await cached(`catalog?${new URLSearchParams(params)}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}`, 30e3, () => catalog.browse(params));
+  const out = await cached(`catalog?${new URLSearchParams(params)}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}|${db.version('settings')}`, 30e3, () => catalog.browse(params));
   // what customers look for (free trends engine): only real searches, first page
   const q = url.searchParams.get('q'); if (q && !Number(url.searchParams.get('offset'))) { try { require('./services/trends').logSearch(q, out.total); } catch { /* never block the shop */ } }
   return out;
@@ -409,7 +409,7 @@ r('GET', '/api/catalog/many', null, async ({ req, url }) => {
   if (cc === 'LY' && libya.open()) return { items: String(url.searchParams.get('ids') || '').split(',').slice(0, 30).map((id) => { try { const v = libya.offerView(id.trim(), req.headers['x-kinan-city']); return v.availability.available ? v : null; } catch { return null; } }).filter(Boolean) };
   return catalog.many(url.searchParams.get('ids'), cc);
 });
-r('GET', '/api/catalog/:id/similar', null, async ({ req, url, params }) => { const cc = countryOf(req, url); if (cc === 'LY' && libya.open()) { const o = db.ly_offers.get(params.id); return { items: o ? libya.browse({ category: o.category, city: req.headers['x-kinan-city'] || '', limit: 13 }).items.filter((x) => x.id !== o.id).slice(0, 12) : [] }; } return cached(`similar:${params.id}|${cc}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}`, 60e3, () => catalog.similar(params.id, 12, cc)); });
+r('GET', '/api/catalog/:id/similar', null, async ({ req, url, params }) => { const cc = countryOf(req, url); if (cc === 'LY' && libya.open()) { const o = db.ly_offers.get(params.id); return { items: o ? libya.browse({ category: o.category, city: req.headers['x-kinan-city'] || '', limit: 13 }).items.filter((x) => x.id !== o.id).slice(0, 12) : [] }; } return cached(`similar:${params.id}|${cc}|${db.version('listings')}|${db.version('sellers')}|${eligibility.version()}|${db.version('settings')}`, 60e3, () => catalog.similar(params.id, 12, cc)); });
 r('GET', '/api/catalog/:id/questions', null, async ({ params }) => require('./services/assistant').questionsFor(params.id));
 r('POST', '/api/catalog/:id/questions', BUYER, async ({ req, params, user }) => { throttleLight(req); return require('./services/assistant').ask(db.users.get(user.id), params.id, (await readJson(req)).question); });
 r('POST', '/api/assistant', null, async ({ req, url }) => { throttleLight(req); photoLimit(req); const b = await readJson(req); return require('./services/assistant').chat({ messages: b.messages, currency: b.currency, lang: b.lang, country: countryOf(req, url) }); });
@@ -495,19 +495,35 @@ r('GET', '/api/geo/country', null, async ({ req, url }) => {
 });
 r('POST', '/api/shipping/prepare', null, async ({ req }) => { throttleLight(req); const b = await readJson(req); return cjs.prepareCountry(String(b.country_code || '').toUpperCase()); });
 r('POST', '/api/shipping/quote', null, async ({ req }) => {
-  const b = await readJson(req); const items = require('./services/publicIds').itemsIn(Array.isArray(b.items) ? b.items.slice(0, 100) : []);
+  const b = await readJson(req); const items = require('./services/publicIds').itemsIn(Array.isArray(b.items) ? b.items.slice(0, 100).filter((x) => x && typeof x === 'object') : []);
   const q = shipping.quote(items, b.country_code || b.country);
   const cc = q.country_code || require('./countries').countryCode(b.country_code || b.country);
-  const c = await cjs.quote(items, cc);
-  const g = await require('./services/banggood').quote(items, cc);
-  const bundle = require('./services/together').forItems(items);
-  // EU import duty + handling (included in the delivery price shown, at cost)
-  const imp = require('./services/landed').importCharges(items, cc);
+  const pricing = require('./services/routePricing');
+  const rules = pricing.load();
+  let hasRoutePrice = false;
+  let subtotal = 0;
+  const extra = [];
+  for (const it of items) {
+    const l = db.listings.get(it?.listing_id);
+    const sku = l?.skus?.find((s) => s.mp_sku_id === it.mp_sku_id);
+    if (!sku || !['active', 'private'].includes(l.status)) { extra.push(it); continue; }
+    const qty = Math.max(1, Math.floor(Number(it.qty) || 1));
+    const picked = pricing.select(l, sku, cc, qty);
+    const priced = l.status === 'active' ? pricing.priceFor(l, picked, cc, rules) : null;
+    if (l.status === 'active' && !priced && pricing.routeFor(l, picked, cc, rules)) throw httpError(409, 'The delivered price is awaiting verification.');
+    subtotal += (priced?.price ?? require('./services/deals').priceOf(l, picked)) * qty;
+    if (priced) hasRoutePrice = true; else extra.push(it);
+  }
+  const c = await cjs.quote(extra, cc);
+  const g = await require('./services/banggood').quote(extra, cc);
+  const bundle = hasRoutePrice ? { amount: 0 } : require('./services/together').forItems(items);
+  const imp = require('./services/landed').importCharges(extra, cc);
+  const pricedOut = hasRoutePrice ? { pricing_subtotal: Math.round(subtotal * 100) / 100 } : {};
   const impOut = imp.fee ? { import_fee: imp.fee, import: imp } : {};
-  if (!c && !g) return { ...q, fee: Math.round((q.fee + imp.fee) * 100) / 100, ...(imp.fee ? { note: undefined } : {}), ...impOut, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
-  const fe = cjs.freeEu(items, c);
-  const extra = (c?.fee || 0) - fe.free + (g?.fee || 0) + imp.fee;
-  return { ...q, fee: Math.round((q.fee + extra) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), ...impOut, days: q.fee ? q.days : c?.days || g?.days || q.days, note: extra ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
+  if (!c && !g) return { ...q, ...pricedOut, fee: Math.round((q.fee + imp.fee) * 100) / 100, ...(imp.fee ? { note: undefined } : {}), ...impOut, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
+  const fe = cjs.freeEu(extra, c);
+  const extraFee = (c?.fee || 0) - fe.free + (g?.fee || 0) + imp.fee;
+  return { ...q, ...pricedOut, fee: Math.round((q.fee + extraFee) * 100) / 100, free_shipping: fe, ...(c ? { cj: c } : {}), ...(g ? { banggood: g } : {}), ...impOut, days: q.fee ? q.days : c?.days || g?.days || q.days, note: extraFee ? undefined : q.note, ...(bundle.amount ? { bundle_discount: bundle.amount } : {}) };
 });
 r('GET', '/api/config/public', null, async () => ({ payments_paused: process.env.PAYMENTS_PAUSED === '1' || appControl.get().checkout === false, signups_paused: appControl.get().signups === false, currency: config.currency, shipping_flat: config.shippingFlat, payments: stripe.demoMode() ? 'demo' : 'stripe', stripe_publishable_key: config.stripePublishableKey || null, cny_rate: config.cnyRate, google_signin: google.enabled(), google_native: require('./nativeAuth').googleEnabled(), apple_signin: require('./nativeAuth').appleEnabled(), facebook_signin: facebook.enabled(), phone_signin: phoneAuth.enabled(), aliexpress: { import: aliexpress.apiReady(), delivery_days: config.aliexpress.deliveryDays }, cj: require('./cj/client').enabled(), banggood: require('./banggood/client').enabled(), taobao_kinan: sellerAuth.platformConnected(), ai: require('./services/ai').enabled(), deals: require('./services/deals').publicDeals(), campaign: require('./services/campaigns').publicInfo(), ebay_icon: (() => { const d = db.settings.get('ebay_icon'); return d ? `/brand/ebay-icon?v=${d.at}` : null; })(), free_shipping_over: require('./cj/client').enabled() ? Number(cjs.prefs().free_ship_over) || 0 : 0, points: { per_unit: require('./services/points').PER_UNIT(), value: require('./services/points').VALUE() }, collections: [...require('./services/seasonal').publicInfo(), ...require('./services/sourcing').publicDepartments()], countries: [...require('./countries').MARKETS].sort((a, b) => a[1].localeCompare(b[1], 'en')), categories: shipping.CATEGORIES.map(([id, en, ar]) => ({ id, en, ar })), packaging: orders.PACKAGING, storage_days: orders.STORAGE_DAYS, fx: fx.publicRates(), currency_by_country: Object.fromEntries(COUNTRIES.map(([c]) => [c, fx.currencyFor(c)]).filter(([, v]) => v !== 'USD')), analytics: seo.analytics(), whatsapp: String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '') || null, app_links: Object.fromEntries(Object.entries({ shop_android: process.env.SHOP_ANDROID_URL, shop_ios: process.env.SHOP_IOS_URL, seller_android: process.env.SELLER_ANDROID_URL, seller_ios: process.env.SELLER_IOS_URL }).filter(([, v]) => /^https:\/\//.test(v || ''))), brand: 'Kinan', operator: { name: config.operator.name, email: config.operator.email || null } }));
 
@@ -846,6 +862,27 @@ const OPERATOR = ['admin', 'operator'];
 const requireOwner = (user) => {
   if (!user.owner) throw httpError(403, 'Only the project owner can access this');
 };
+const routePricing = require('./services/routePricing');
+r('GET', '/api/admin/pricing', ADMIN, async ({ user }) => {
+  requireOwner(user);
+  return { ...routePricing.load(), currency: config.currency, countries: require('./countries').MARKETS };
+});
+r('PATCH', '/api/admin/pricing', ADMIN, async ({ req, user }) => {
+  requireOwner(user);
+  const saved = routePricing.save(await readJson(req), user);
+  await db.flush();
+  return saved;
+});
+r('POST', '/api/admin/pricing/preview', ADMIN, async ({ req, user }) => {
+  requireOwner(user);
+  return routePricing.calculate(await readJson(req), routePricing.load());
+});
+r('GET', '/api/admin/pricing/products/:id', ADMIN, async ({ params, user }) => {
+  requireOwner(user);
+  const listing = db.listings.get(params.id);
+  if (!listing || listing.seller_id !== 'sel_kinan' || listing.fulfillment !== 'direct' || listing.from_kinan) throw httpError(404, 'KINAN direct product not found.');
+  return { title: listing.title, variants: listing.skus.map((s) => ({ id: s.mp_sku_id, label: s.props, cost: s.cost_sale ?? null, origin: require('./services/landed').originOf(listing, s) })) };
+});
 const assignedMailboxes = (user) => {
   if (user.owner) return adminMail.addresses;
   if (user.role !== 'operator') throw httpError(403, 'Business email access has not been granted');

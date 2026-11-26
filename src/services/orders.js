@@ -113,6 +113,8 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   const undeliverable = [];
 
   const lines = [];
+  const pricing = require('./routePricing');
+  const pricingRules = pricing.load();
   for (const it of items) {
     const qty = Math.floor(Number(it.qty));
     if (!(qty >= 1 && qty <= 999)) throw httpError(400, 'Invalid quantity');
@@ -144,7 +146,10 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     sku = require('./shipsFrom').pick(l, sku, address.country_code, qty, market ? (s) => E.variantState(l, s, market).state === 'eligible' : null);
     if (sku.stock < qty) throw httpError(409, `Not enough stock: ${l.title} (${sku.props})`);
     if (qty < (l.begin_amount || 1)) throw httpError(400, `Minimum order quantity is ${l.begin_amount}`);
+    const routePrice = pricing.priceFor(l, sku, address.country_code, pricingRules);
+    if (!routePrice && pricing.routeFor(l, sku, address.country_code, pricingRules)) throw httpError(409, 'The delivered price is awaiting verification.');
     lines.push({
+      ...(routePrice ? { route_pricing: { ...routePrice, revision: pricingRules.revision } } : {}),
       line_no: String(lines.length + 1), listing_id: l.id, seller_id: l.seller_id,
       mp_id: l.mp_id, mp_sku_id: sku.mp_sku_id, title: l.title, props: require('./shipsFrom').split(sku).props, ...(require('./shipsFrom').originOfSku(sku) ? { ships_from: require('./shipsFrom').originOfSku(sku) } : {}),
       ...(l.source === 'manual' ? { manual: true, source_link: l.source_link || '' } : {}),
@@ -154,7 +159,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
       image: (l.own_images || []).length ? catalog.photoUrl(l, 0, l.own_images[0]) : (l.images || [])[0] || null,
       ...(l.source === 'manual' || (l.source === 'aliexpress' && !sku.ae_sku_id) ? { own_stock: true } : {}), // typed-in stock, not synced from an API
       ...(l.last_synced_at ? { checked_at: l.last_synced_at } : {}), // when stock and price were last confirmed with the supplier
-      qty, price: require('./deals').priceOf(l, sku), ...(require('./deals').dealFor(l) ? { deal_pct: require('./deals').dealFor(l).pct, list_price: sku.price } : {}), cost_cny: sku.cost_cny
+      qty, price: routePrice?.price ?? require('./deals').priceOf(l, sku), ...(!routePrice && require('./deals').dealFor(l) ? { deal_pct: require('./deals').dealFor(l).pct, list_price: sku.price } : {}), cost_cny: sku.cost_cny
     });
   }
   if (undeliverable.length) {
@@ -162,7 +167,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   }
   // Never sell at a loss: Kinan's own supplier products are repriced to the 20%-net price, sellers' are refused
   const landed = require('./landed');
-  const short = landed.guard(lines, address.country_code);
+  const short = landed.guard(lines.filter((l) => !l.route_pricing), address.country_code);
   if (short.length) {
     const own = short.filter((x) => x.own);
     if (own.length) landed.repriceKinan({ ids: own.map((x) => x.listing.id) });
@@ -173,19 +178,35 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
   const subtotal = money(lines.reduce((s, x) => s + x.price * x.qty, 0));
   const ship = require('./shipping').quote(lines.map((l) => ({ listing_id: l.listing_id, qty: l.qty })), address.country_code || address.country);
   // EU import duty (€3 + VAT per item line from outside the EU) and AliExpress's handling fee, charged at cost
-  const imp = landed.importCharges(lines, address.country_code);
+  const extraLines = lines.filter((l) => !l.route_pricing);
+  const imp = landed.importCharges(extraLines, address.country_code);
   // CJ items: CJ's real shipping price to the customer's country
   const cjShip = await cj.quote(lines.filter((l) => l.source === 'cj').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
   // Banggood items: Banggood's real shipping price to the customer's country
   const bgShip = await banggood.quote(lines.filter((l) => l.source === 'banggood').map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), address.country_code);
   // Free delivery for items from CJ's European/UK warehouses once they add up to the threshold (Kinan pays that delivery)
   const fe = cj.freeEu(lines.map((l) => ({ listing_id: l.listing_id, mp_sku_id: l.mp_sku_id, qty: l.qty })), cjShip); const freeEu = fe.free; const fso = fe.over;
-  const shipping = money(ship.fee + (cjShip?.fee || 0) - freeEu + (bgShip?.fee || 0) + imp.fee);
+  const cjExtra = lines.some((l) => l.route_pricing && l.source === 'cj') ? await cj.quote(extraLines.filter((l) => l.source === 'cj'), address.country_code) : cjShip;
+  const bgExtra = lines.some((l) => l.route_pricing && l.source === 'banggood') ? await banggood.quote(extraLines.filter((l) => l.source === 'banggood'), address.country_code) : bgShip;
+  for (const line of lines.filter((l) => l.route_pricing && l.source === 'cj')) {
+    if (!cjShip || cjShip.estimated || cjShip.origins?.[line.cj_from]) throw httpError(409, 'The approved dispatch warehouse could not be confirmed.');
+  }
+  for (const [source, quote, extra] of [['cj', cjShip, cjExtra], ['banggood', bgShip, bgExtra]]) {
+    const approved = lines.filter((l) => l.route_pricing && l.source === source);
+    if (!approved.length) continue;
+    const allowance = approved.reduce((sum, l) => sum + l.route_pricing.shipping * l.qty, 0);
+    if (!quote || quote.estimated || money(quote.fee - (extra?.fee || 0)) > money(allowance)) {
+      throw httpError(409, 'Supplier shipping changed. The delivered price must be reviewed.');
+    }
+  }
+  const includedShipping = lines.some((l) => l.route_pricing);
+  const shipping = money(ship.fee + (cjExtra?.fee || 0) - (includedShipping ? cj.freeEu(extraLines, cjExtra).free : freeEu) + (bgExtra?.fee || 0) + imp.fee);
   const warehouseItems = lines.some((l) => !l.direct);
   const packagingFee = warehouseItems ? money(PACKAGING[packaging]) : 0;
+  if (includedShipping && coupon) throw httpError(400, 'Coupons are unavailable for carts with approved delivered prices.');
   const disc = coupon ? require('./growth').couponFor(coupon, buyer, subtotal) : null;
   // Bought together: the bundle saving on items that go with another item in the cart
-  const bundle = require('./together').discount(lines);
+  const bundle = includedShipping ? { amount: 0 } : require('./together').discount(lines);
   const discount = money((disc ? disc.discount : 0) + bundle.amount);
   // The shop sends the total it showed: if the revalidated total for the real address differs, nothing is ordered and
   // the customer sees the new figures and confirms again
@@ -197,7 +218,7 @@ async function checkout(buyer, { items, shipping_address, packaging = 'standard'
     buyer_id: buyer.id, lines, currency: config.currency, subtotal, shipping_fee: shipping,
     ...(disc || bundle.amount ? { discount } : {}), ...(disc ? { coupon_code: disc.code, coupon_id: disc.coupon_id, coupon_discount: disc.discount } : {}),
     ...(bundle.amount ? { bundle_discount: bundle.amount, bundle_lines: bundle.lines } : {}),
-    ...(freeEu ? { free_shipping: { amount: freeEu, over: fso } } : {}),
+    ...(!includedShipping && freeEu ? { free_shipping: { amount: freeEu, over: fso } } : {}),
     ...(imp.fee ? { import_fee: imp.fee, import_detail: imp } : {}),
     packaging: warehouseItems ? packaging : 'standard', packaging_fee: packagingFee, hold: Boolean(hold) && warehouseItems,
     total: money(Math.max(0, subtotal + shipping + packagingFee - discount)), ...chargeFor(money(Math.max(0, subtotal + shipping + packagingFee - discount)), address.country_code, payCur), ...(payCur ? { pay_currency: payCur } : {}), shipping_address: address, shipping_quote: { weight_kg: ship.weight_kg, chargeable_kg: ship.chargeable_kg ?? null, zone: ship.zone, days: ship.days },

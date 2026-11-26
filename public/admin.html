@@ -212,7 +212,7 @@ const ALL_TABS = [
   ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','owner operator'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['countries','Delivery countries','admin'],['libya','Libya (ليبيا)','owner admin procurement finance support ly_staff'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['activity','Activity log','admin'],['reviews','Reviews','admin support'],
-  ['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
+  ['pricing','Pricing studio','owner'],['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
 const NAV_GROUPS = [
   ['Today',['overview','exceptions','control','team-orders']],
@@ -221,7 +221,7 @@ const NAV_GROUPS = [
   ['Catalogue',['listings','platforms','imports','ai-tools']],
   ['Suppliers & channels',['cj','ebay','connections','partners']],
   ['People',['sellers','users','activity','reviews','team']],
-  ['Money',['payouts','reports','coupons']],
+  ['Money',['pricing','payouts','reports','coupons']],
   ['Growth',['kinan','advertising','mail']],
   ['System',['tools','backup']]
 ];
@@ -451,6 +451,65 @@ const CTL = [
   ['signups', 'New accounts', 'Pause sign-ups for new customers and sellers. Existing accounts can still sign in.', false]
 ];
 const VIEWS = {
+  async pricing(v) {
+    const state = await api('/api/admin/pricing');
+    const amount = (n) => new Intl.NumberFormat(undefined, { style: 'currency', currency: state.currency.toUpperCase() }).format(n);
+    const field = (name, title, value = '', step = '0.01') => `<label class="field">${title}<input name="${name}" type="number" min="0" step="${step}" value="${esc(String(value))}" required></label>`;
+    v.innerHTML = `<section class="card"><h2>Pricing studio · لوحة التسعير</h2>
+      <p class="muted">15% profit on landed cost plus operating expenses, after the estimated corporation tax reserve. Final prices round up to .99 in ${esc(state.currency.toUpperCase())}.</p>
+      <form id="pricing-policy"><div class="row">${field('operating_pct', 'Operating expenses %', state.operating_pct)}${field('corporation_reserve_pct', 'Corporation tax reserve %', state.corporation_reserve_pct)}
+      <button class="btn">Save policy</button></div></form></section>
+      <section class="card"><h2>Approve a delivered price</h2>
+      <p class="muted">Use a verified carrier or broker quote per unit, in ${esc(state.currency.toUpperCase())}. Enter zero explicitly for charges that do not apply. Only include unrecoverable import tax and sales tax due at checkout.</p>
+      <form id="pricing-route"><div class="row"><label class="field">Product ID<input name="listing_id" required></label><button type="button" class="btn ghost" id="pricing-find">Find variants</button>
+      <label class="field">Variant<select name="sku_id" required></select></label><label class="field">Dispatch country<input name="origin" readonly required></label>
+      <label class="field">Destination<select name="destination">${state.countries.filter(([code]) => code !== 'LY').map(([code,name]) => `<option value="${esc(code)}">${esc(name)} (${esc(code)})</option>`).join('')}</select></label></div>
+      <div class="row">${field('cost','Supplier cost')}${field('shipping','Shipping')}${field('duty','Customs duty')}${field('import_tax','Import VAT / tax')}${field('handling','Clearance / handling')}${field('sales_tax_pct','Checkout VAT / sales tax %')}${field('valid_days','Valid days', 7, '1')}</div>
+      <div class="row"><label class="field">HS code<input name="hs_code" pattern="[0-9]{6,10}" required></label><label class="field">Country of manufacture (ISO)<input name="made_in" maxlength="2" required></label><label class="field">Quote or tariff evidence<input name="evidence" maxlength="500" required></label></div>
+      <div class="row"><button type="button" class="btn ghost" id="pricing-preview">Preview</button><button class="btn">Approve route</button></div></form>
+      <div id="pricing-breakdown" aria-live="polite"></div></section>
+      <section class="card"><h2>Approved routes</h2><div style="overflow:auto"><table><thead><tr><th>Product / variant</th><th>Route</th><th>HS / origin</th><th>Shipping / duty / import tax</th><th>Evidence</th><th>Expires</th><th></th></tr></thead>
+      <tbody>${state.routes.map((r,i) => `<tr><td>${esc(r.listing_id)} / ${esc(r.sku_id)}</td><td>${esc(r.origin)} → ${esc(r.destination)}</td><td>${esc(r.hs_code)} / ${esc(r.made_in)}</td><td>${amount(r.shipping)} / ${amount(r.duty)} / ${amount(r.import_tax)}</td><td>${esc(r.evidence)}</td><td>${esc(new Date(r.expires_at).toLocaleDateString())}</td><td><button class="btn ghost" data-route-remove="${i}">Remove</button></td></tr>`).join('')}</tbody></table></div></section>
+      <p id="pricing-result" role="status"></p>`;
+    const route = v.querySelector('#pricing-route');
+    const policy = v.querySelector('#pricing-policy');
+    const message = v.querySelector('#pricing-result');
+    route.elements.cost.readOnly = true;
+    let variants = [];
+    async function run(fn) { try { message.textContent = ''; await fn(); } catch (e) { message.textContent = e.message; } }
+    function applyVariant() {
+      const variant = variants.find((x) => x.id === route.elements.sku_id.value);
+      route.elements.origin.value = variant?.origin || '';
+      route.elements.cost.value = variant?.cost ?? '';
+    }
+    route.elements.sku_id.onchange = applyVariant;
+    route.elements.listing_id.oninput = () => { variants = []; route.elements.sku_id.replaceChildren(); applyVariant(); };
+    v.querySelector('#pricing-find').onclick = () => run(async () => {
+      const id = route.elements.listing_id.value.trim();
+      const product = await api('/api/admin/pricing/products/' + encodeURIComponent(id));
+      if (id !== route.elements.listing_id.value.trim()) return;
+      variants = product.variants;
+      route.elements.sku_id.replaceChildren(...variants.map((x) => new Option(x.label || x.id, x.id)));
+      applyVariant();
+      message.textContent = product.title;
+    });
+    v.querySelector('#pricing-preview').onclick = () => run(async () => {
+      const quote = await api('/api/admin/pricing/preview', 'POST', Object.fromEntries(new FormData(route)));
+      const labels = { cost:'Product', shipping:'Shipping', duty:'Customs duty', import_tax:'Import tax', handling:'Handling', operating:'Operating expenses', corporation_reserve:'Corporation tax reserve', target_profit:'Target profit (15%)', sales_tax:'Checkout tax', unrounded:'Before rounding', price:'Customer price' };
+      v.querySelector('#pricing-breakdown').innerHTML = `<dl>${Object.entries(labels).map(([k,l]) => `<dt>${l}</dt><dd>${amount(quote[k])}</dd>`).join('')}</dl>`;
+    });
+    const save = (data) => run(async () => {
+      await api('/api/admin/pricing', 'PATCH', { ...data, revision: state.revision });
+      await VIEWS.pricing(v);
+    });
+    const savedPolicy = { operating_pct: state.operating_pct, corporation_reserve_pct: state.corporation_reserve_pct };
+    policy.onsubmit = (e) => { e.preventDefault(); save(Object.fromEntries(new FormData(policy))); };
+    route.onsubmit = (e) => { e.preventDefault(); save({ ...savedPolicy, route: Object.fromEntries(new FormData(route)) }); };
+    v.querySelectorAll('[data-route-remove]').forEach((button) => {
+      button.onclick = () => { if (confirm('Remove this approved delivered price and return to standard pricing?')) save({ ...savedPolicy, route: { ...state.routes[Number(button.dataset.routeRemove)], remove: true } }); };
+    });
+  },
+
   async partners(v) {
     const [d, po, sh] = await Promise.all([api('/api/admin/partners'), api('/api/admin/partners/orders').catch(() => ({ enabled: false, orders: [] })), api('/api/admin/partners/connections').catch(() => ({ ordering: false, connections: [] }))]);
     const sb = d.health.find((h) => h.env === 'sandbox');

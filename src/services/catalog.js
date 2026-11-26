@@ -296,10 +296,10 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
   if (!min_price && !max_price && !['price_asc', 'price_desc'].includes(sort)) {
     listings.sort((a, b) => newest(b) - newest(a));
     total = listings.length;
-    page = listings.slice(start, start + count).map((l) => toBuyerView(l, activeSellers.get(l.seller_id)));
+    page = listings.slice(start, start + count).map((l) => toBuyerView(l, activeSellers.get(l.seller_id), ccx));
   } else {
     const { visibleSkus } = require('./shipsFrom');
-    const { priceOf } = require('./deals');
+    const priceOf = (listing, sku) => buyerPrice(listing, sku, ccx).price;
     const items = listings.map((listing) => ({
       listing,
       listed_at: newest(listing),
@@ -311,7 +311,7 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
     total = items.length;
     page = items.slice(start, start + (limit === 100000 ? items.length : count))
       .map(({ listing, min_price }) => ({
-        ...toBuyerView(listing, activeSellers.get(listing.seller_id)),
+        ...toBuyerView(listing, activeSellers.get(listing.seller_id), ccx),
         min_price
       }));
   }
@@ -320,6 +320,8 @@ function browse({ q = '', seller_id, category, collection, group, sort = 'new', 
   if (cc) {
     const shipping = require('./shipping'); const cj = require('./cj');
     for (const p of page) {
+      const cheapest = p.skus.find((s) => s.price === p.min_price);
+      if (cheapest?.landed_price) { p.ship_fee = 0; p.delivered_price = p.min_price; continue; }
       const l = db.listings.get(p.id); let fee = null;
       try {
         if (l.source === 'cj') fee = cj.cachedFee(l, cc);
@@ -376,8 +378,8 @@ function optionGroups(skus) {
 }
 
 /** Customers see Kinan's copy of supplier photos once it exists (services/media.js); unchanged while that is off. */
-function toBuyerView(l, seller) {
-  const v = toBuyerViewRaw(l, seller);
+function toBuyerView(l, seller, country = null) {
+  const v = toBuyerViewRaw(l, seller, country);
   const media = require('./media');
   if (!media.enabled()) return v;
   const h = media.hosted;
@@ -386,20 +388,27 @@ function toBuyerView(l, seller) {
     option_groups: v.option_groups ? v.option_groups.map((g) => ({ ...g, values: g.values.map((x) => (x.image ? { ...x, image: h(x.image) } : x)) })) : v.option_groups
   };
 }
-function toBuyerViewRaw(l, seller) {
+function buyerPrice(l, s, country) {
+  const pricing = require('./routePricing');
+  const selected = pricing.select(l, s, country);
+  const priced = pricing.priceFor(l, selected, country);
+  return priced ? { price: priced.price, landed_price: true } : { price: require('./deals').priceOf(l, s) };
+}
+
+function toBuyerViewRaw(l, seller, country) {
   return {
     id: l.id, title: l.title, images: galleryOf(l), description: l.description, title_ar: l.title_ar || '', description_ar: l.description_ar || '',
     currency: l.currency, shop: seller ? { id: seller.id, name: seller.shop_name, logo: logoUrl(seller) } : null,
     listed_at: l.review?.decided_at || l.created_at, fulfillment: l.fulfillment || 'warehouse', ...(['cj', 'banggood'].includes(l.source) ? { ship_extra: true } : {}), category: l.category || 'other', ...((l.collections || []).length ? { collections: l.collections } : {}), ...(l.cj_from && l.cj_from !== 'CN' ? { ships_from: l.cj_from } : {}),
     // the real delivery time found when the product was checked (to the UK and to the EU): [fastest, slowest] days
     ...(() => { const so = l.sourcing || {}; if (so.delivery_by_country) return { ship_days_exact: true, ship_days: Object.fromEntries(Object.entries(so.delivery_by_country).map(([country, quote]) => [country, [quote.min || null, quote.days]])) }; const d = {}; if (so.gb_days) d.GB = [so.gb_min || null, so.gb_days]; if (so.eu_days) d.EU = [so.eu_min || null, so.eu_days]; return Object.keys(d).length ? { ship_days: d } : {}; })(),
-    min_price: Math.min(...require('./shipsFrom').visibleSkus(l).map((s) => require('./deals').priceOf(l, s))), ...require('./growth').ratingFor(l.id),
+    min_price: Math.min(...require('./shipsFrom').visibleSkus(l).map((s) => buyerPrice(l, s, country).price)), ...require('./growth').ratingFor(l.id),
     ...(() => { const no = l.source === 'cj' ? require('./cj').noDeliveryList(l) : []; return no.length ? { no_delivery: no } : {}; })(),
     ...(() => { const d = require('./deals').dealFor(l); return d ? { deal: d, was_min_price: Math.min(...l.skus.map((s) => s.price)) } : {}; })(),
     // AliExpress "Ships From" is hidden: one option per colour/size, Kinan picks the warehouse for each address
     ...(() => { const vis = require('./shipsFrom').visibleSkus(l); const og = optionGroups(vis); return {
       option_groups: og ? og.groups : null,
-      skus: vis.map((s, i) => ({ mp_sku_id: require('./publicIds').skuPub(l.id, s.mp_sku_id), props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), price: require('./deals').priceOf(l, s), ...(require('./deals').dealFor(l) ? { was: s.price } : {}), in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }))
+      skus: vis.map((s, i) => { const price = buyerPrice(l, s, country); return { mp_sku_id: require('./publicIds').skuPub(l.id, s.mp_sku_id), props: og ? og.picks[i].join(' / ') : s.props, ...(og ? { pick: og.picks[i] } : {}), ...(s.image ? { image: s.image } : {}), ...price, ...(!price.landed_price && require('./deals').dealFor(l) ? { was: s.price } : {}), in_stock: s.stock > 0, stock: Math.min(s.stock, 200) }; })
     }; })()
   };
 }
@@ -411,11 +420,11 @@ function buyerListing(id, country = null) {
   const extra = { return_policy: s.return_policy || null, safety: require('./gpsr').forListing(l) };
   const E = require('./eligibility');
   const cc = /^[A-Z]{2}$/.test(String(country || '')) ? country : null;
-  if (!cc || !E.enforced(cc)) return { ...toBuyerView(l, s), ...extra };
+  if (!cc || !E.enforced(cc)) return { ...toBuyerView(l, s, cc), ...extra };
   // Enforced market: only the variants that can be delivered there. A direct link to a product that cannot be delivered
   // still opens, with the reason and no purchasable variant (the shop offers to change the country).
   const m = E.forMarket(l, cc);
-  if (m) return { ...toBuyerView(m, s), ...extra, availability: { country: cc, available: true } };
+  if (m) return { ...toBuyerView(m, s, cc), ...extra, availability: { country: cc, available: true } };
   const view = toBuyerView(l, s);
   return { ...view, ...extra, skus: [], option_groups: null, availability: { country: cc, available: false, reason: E.reasonFor(l, cc) || 'unavailable' } };
 }
@@ -527,7 +536,7 @@ function similar(id, limit = 12, country = null) {
     for (const w of words(`${o.title} ${(o.keywords || []).join(' ')}`)) if (mine.has(w)) sc += 2;
     if (sc >= 3) out.push({ o, sc, at: newest(o) });
   }
-  return { items: out.sort((a, b) => b.sc - a.sc || b.at - a.at).slice(0, limit).map((x) => toBuyerView(x.o, activeSellers.get(x.o.seller_id))) };
+  return { items: out.sort((a, b) => b.sc - a.sc || b.at - a.at).slice(0, limit).map((x) => toBuyerView(x.o, activeSellers.get(x.o.seller_id), country)) };
 }
 
 module.exports = { delivery, many, similar,

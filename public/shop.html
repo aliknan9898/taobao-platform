@@ -1330,13 +1330,14 @@ async function product(id) {
     const q = await api('/api/shipping/quote', 'POST', { items: [{ listing_id: p.id, mp_sku_id: sku.mp_sku_id, qty }], country_code: loc.country }).catch(() => null);
     if (my !== lq) return;
     if (!q) { pr.innerHTML = `<span class="tag lg">${money(sku.price * qty, p.currency)}</span> <span class="muted small">+ shipping</span>`; return; }
-    const total = sku.price * qty + (q.fee || 0);
+    const itemTotal = q.pricing_subtotal ?? sku.price * qty;
+    const total = itemTotal + (q.fee || 0);
     const days = q.cj?.days ? String(q.cj.days).replace('-', '–') : realDays(p, loc.country) || (p.fulfillment === 'direct' ? (cfg.aliexpress?.delivery_days || '10–15') : (() => { const m = String(q.days || '7–15').match(/(\d+)\D+(\d+)/); return m ? `${Number(m[1]) + 3}–${Math.min(15, Number(m[2]) + 7)}` : '10–15'; })());
     pr.innerHTML = `<span class="tag lg">${money(total, p.currency)}</span> <span class="muted small">${q.fee ? 'including shipping' : 'shipping included'}${qty > 1 ? ` · ${qty} pcs` : ''}</span>`;
     el.innerHTML = `<button class="locchip" type="button"></button>
-      <div><span>${q.fee ? `Item ${money(sku.price * qty, p.currency)} + shipping ${money(q.fee, p.currency)}` : 'Shipping included'}</span> · <span>arrives in about</span> <b>${esc(days)} days</b></div>
+      <div><span>${q.fee ? `Item ${money(itemTotal, p.currency)} + shipping ${money(q.fee, p.currency)}` : 'Shipping included'}</span> · <span>arrives in about</span> <b>${esc(days)} days</b></div>
       ${q.weight_kg ? '<div class="muted">Shipping is checked by the real weight — if it weighs less, we refund the difference to your wallet.</div>' : ''}
-      <div class="muted">${q.import_fee ? `Delivery includes the EU import duty (${money(q.import_fee, p.currency)}) — nothing more to pay on delivery.` : 'Import duties or VAT may be charged by your country’s customs on delivery.'}</div>`;
+      <div class="muted">${q.pricing_subtotal !== undefined && !q.fee ? 'Shipping and approved import charges are included in this price.' : q.import_fee ? `Delivery includes the EU import duty (${money(q.import_fee, p.currency)}) — nothing more to pay on delivery.` : 'Import duties or VAT may be charged by your country’s customs on delivery.'}</div>`;
     renderLocaleChip();
   }
   // Opening a product without an address: ask for it (the customer can still look around)
@@ -1450,10 +1451,10 @@ async function cart() {
       </aside>
     </div>`;
   if (savedAddress().country_code && items.length) api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: savedAddress().country_code }).then((q) => {
-    if (!$('#cship')) return; $('#cship').textContent = q.fee ? money(q.fee, cur) : 'Included';
+    if (!$('#cship')) return; const quotedSub = q.pricing_subtotal ?? sub; $('#cship').textContent = q.fee ? money(q.fee, cur) : 'Included';
     const bd = Number(q.bundle_discount) || 0;
     if (bd) $('#cship').parentElement.insertAdjacentHTML('afterend', `<div><span>${KinanLang.t('Bought together')}</span><span class="dealtxt">−${money(bd, cur)}</span></div>`);
-    $('#ctot').innerHTML = `${money(sub + q.fee - bd, cur)}${localPrice(sub + q.fee - bd) ? `<div class="lp" style="font-weight:400">${localPrice(sub + q.fee - bd)}</div>` : ''}`;
+    $('#ctot').innerHTML = `${money(quotedSub + q.fee - bd, cur)}${localPrice(quotedSub + q.fee - bd) ? `<div class="lp" style="font-weight:400">${localPrice(quotedSub + q.fee - bd)}</div>` : ''}`;
   }).catch(() => {});
   $('#cartcc')?.addEventListener('click', () => countrySelector());
   const upd = (i, q) => { const c = Cart.get(); if (q <= 0) c.splice(i, 1); else c[i].qty = Math.min(q, items[i].max || 999); Cart.set(c); cart(); };
@@ -1565,7 +1566,7 @@ async function checkout() {
       <p class="muted">Your address is only used to deliver your order. By placing your order you agree to the <a href="/terms" target="_blank">Terms of Service</a>; import taxes may apply in your country.</p>
     </form>
     <aside class="panel sum" aria-label="Order summary"><div class="summeta small" id="kmeta" aria-live="polite">${esc(KinanLang.t('Choose a country to see delivery, taxes and the final total.'))}</div>${items.map((x) => `<div class="small"><span>${x.qty} × ${esc(x.title.slice(0, 40))}${x.title.length > 40 ? '…' : ''}</span><span>${money(x.price * x.qty, cur)}</span></div>`).join('')}
-      <div class="subt"><span>Subtotal</span><span>${money(sub, cur)}</span></div>
+      <div class="subt"><span>Subtotal</span><span id="ksubtotal">${money(sub, cur)}</span></div>
       <div><span>Shipping</span><span id="kship">Choose a country</span></div>
       <div id="kimp" hidden><span>Import duty & handling</span><span id="kimpv"></span></div><div class="muted small" id="kshipnote"></div>
       <div id="kpack" hidden><span>Extra protection</span><span id="kpackv"></span></div>
@@ -1575,20 +1576,31 @@ async function checkout() {
       <div class="total"><span>Total</span><span id="ktot">${money(sub, cur)}</span></div><p class="muted small" id="ktax"></p></aside></div>`;
   let lastFee = 0;
   const extras = () => { const f = $('#af'); return f.packaging && f.packaging.value === 'protect' ? Number((cfg.packaging || {}).protect || 2) : 0; };
+  let quotedSub = sub;
+  let approvedPrice = false;
+  let quoteRequest = 0;
   let coupon = null;
   let bundleOff = 0;
   let shownTotal = null; let quoted = false;
-  const paintTotal = () => { const t = Math.max(0, sub + lastFee + extras() - (coupon ? coupon.discount : 0) - bundleOff); shownTotal = quoted ? Math.round(t * 100) / 100 : null; { const kb = $('#kbundle'); if (kb) { kb.hidden = !bundleOff; kb.querySelector('span:last-child').textContent = '−' + money(bundleOff, cur); } } $('#kdisc').hidden = !coupon; if (coupon) { $('#kcode').textContent = coupon.code; $('#kdiscv').textContent = '−' + money(coupon.discount, cur); } $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
+  const paintTotal = () => { const t = Math.max(0, quotedSub + lastFee + extras() - (coupon ? coupon.discount : 0) - bundleOff); shownTotal = quoted ? Math.round(t * 100) / 100 : null; { const kb = $('#kbundle'); if (kb) { kb.hidden = !bundleOff; kb.querySelector('span:last-child').textContent = '−' + money(bundleOff, cur); } } $('#kdisc').hidden = !coupon; if (coupon) { $('#kcode').textContent = coupon.code; $('#kdiscv').textContent = '−' + money(coupon.discount, cur); } $('#ktot').innerHTML = `${money(t, cur)}${localPrice(t) ? `<div class="lp" style="font-weight:400">${localPrice(t)}</div>` : ''}`; $('#kpack').hidden = !extras(); $('#kpackv').textContent = money(extras(), cur); };
   const requote = async () => {
     const code = $('#af').country_code.value; if (!code) return;
+    const request = ++quoteRequest;
+    quoted = false; shownTotal = null;
     try { const q = await api('/api/shipping/quote', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), country_code: code });
+      if (request !== quoteRequest || !$('#ksubtotal')) return;
+      approvedPrice = q.pricing_subtotal !== undefined;
+      if (approvedPrice) coupon = null;
+      $('#cpf').hidden = approvedPrice;
+      quotedSub = q.pricing_subtotal ?? sub;
+      $('#ksubtotal').textContent = money(quotedSub, cur);
       lastFee = q.fee || 0; bundleOff = Number(q.bundle_discount) || 0; quoted = true;
       const imp = Number(q.import_fee) || 0; const ship = Math.max(0, (q.fee || 0) - imp);
       $('#kship').textContent = ship ? money(ship, cur) : KinanLang.t('Included');
       $('#kimp').hidden = !imp; if (imp) $('#kimpv').textContent = money(imp, cur);
       const days = q.days || (items.every((x) => x.direct) ? null : '');
       $('#kmeta').innerHTML = `<div><span>${esc(KinanLang.t('Deliver to'))}</span><b>${esc(KinanLang.t(countryName(code)))}</b></div><div><span>${esc(KinanLang.t('Currency'))}</span><b dir="ltr">${esc(String(cur).toUpperCase())}</b></div><div><span>${esc(KinanLang.t('Delivery'))}</span><b>${days ? `${esc(days)} ${esc(KinanLang.t('days'))}` : esc(KinanLang.t('Supplier estimate on each item'))}</b></div>`;
-      $('#ktax').textContent = imp ? KinanLang.t('EU import duty and handling are included in the total above.') : KinanLang.t('Import taxes or fees may apply in your country and are not included above.');
+      $('#ktax').textContent = approvedPrice && !q.fee ? 'Approved import charges are included in the item price.' : imp ? KinanLang.t('EU import duty and handling are included in the total above.') : KinanLang.t('Import taxes or fees may apply in your country and are not included above.');
       $('#kshipnote').textContent = [q.weight_kg ? `${q.weight_kg} kg estimated · arrives in about ${q.days} days. If your parcel weighs less, we refund the difference to your wallet.` : '', q.cj?.fee ? `Includes ${money(q.cj.fee, cur)} for items that ship separately${q.cj.days ? ` (about ${String(q.cj.days).replace('-', '–')} days)` : ''}.` : '', q.import_fee ? `Includes the EU import duty (${money(q.import_fee, cur)}) — nothing more to pay on delivery.` : ''].filter(Boolean).join(' ');
       paintTotal();
     } catch {}
@@ -1612,6 +1624,7 @@ async function checkout() {
   $$('#af [name=packaging]').forEach((r) => r.onchange = paintTotal);
   $('#cpf').onsubmit = async (e) => {
     e.preventDefault(); const code = e.target.code.value.trim(); $('#cpm').textContent = '';
+    if (approvedPrice) return;
     if (!code) { coupon = null; paintTotal(); return; }
     try { coupon = await api('/api/buyer/coupon', 'POST', { code, subtotal: sub }); $('#cpm').innerHTML = `<span class="ok">${esc(coupon.label)} applied</span>`; }
     catch (err) { coupon = null; $('#cpm').innerHTML = `<span class="error">${esc(err.message)}</span>`; }
