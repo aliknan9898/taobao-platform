@@ -127,9 +127,12 @@ test('integrated kinan pages retain the dedicated storefront and seller portal',
     assert.doesNotMatch(html, /chatgpt\.site/);
     if (sellerLink) {
       assert.ok(html.includes(`href="${sellerLink}"`));
-      assert.doesNotMatch(html, /id="affiliate"/);
+      assert.doesNotMatch(html, /id="affiliate"|class="seller-theme"/);
     } else {
       assert.match(html, /id="affiliate"/);
+      assert.match(html, /<body class="seller-theme">/);
+      assert.match(html, /name="theme-color" content="#2b2050"/);
+      assert.match(html, /\/assets\/about-kinan-seller-brand\.png/);
       assert.match(html, /href="https:\/\/kinan\.shop\/seller"/);
     }
   }
