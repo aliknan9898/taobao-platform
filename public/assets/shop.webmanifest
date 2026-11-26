@@ -2,7 +2,7 @@
  "name": "Kinan Shop",
  "short_name": "Kinan Shop",
  "id": "/",
- "start_url": "/",
+ "start_url": "/shop",
  "scope": "/",
  "display": "standalone",
  "description": "Shop many sellers in one place, delivered to your door.",

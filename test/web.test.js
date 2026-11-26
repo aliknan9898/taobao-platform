@@ -17,7 +17,7 @@ test.before(async () => { await new Promise((r) => server.listen(0, r)); base = 
 test.after(() => server.close());
 
 test('every interface is served with its brand and manifest', async () => {
-  for (const [p, needle, manifest] of [['/', 'Kinan', 'shop'], ['/seller', 'Kinan Seller Center', 'seller'], ['/admin', 'Kinan Admin', 'admin'], ['/warehouse', 'Kinan Warehouse', 'warehouse']]) {
+  for (const [p, needle, manifest] of [['/shop', 'Kinan', 'shop'], ['/seller', 'Kinan Seller Center', 'seller'], ['/admin', 'Kinan Admin', 'admin'], ['/warehouse', 'Kinan Warehouse', 'warehouse']]) {
     const r = await fetch(base + p);
     assert.strictEqual(r.status, 200, p);
     const html = await r.text();
@@ -25,7 +25,7 @@ test('every interface is served with its brand and manifest', async () => {
     assert.ok(html.includes(`/assets/${manifest}.webmanifest`), `${p} has manifest`);
     assert.match(r.headers.get('content-security-policy'), /default-src 'self'/);
   }
-  const shopCsp = (await fetch(base + '/')).headers.get('content-security-policy');
+  const shopCsp = (await fetch(base + '/shop')).headers.get('content-security-policy');
   assert.match(shopCsp, /js\.stripe\.com/);
   const sellerCsp = (await fetch(base + '/seller')).headers.get('content-security-policy');
   assert.doesNotMatch(sellerCsp, /stripe/);
@@ -101,7 +101,7 @@ test('legal pages are served with the owner and no third-party requests', async 
     assert.ok(!/\{\{\w+\}\}/.test(html), `${p} has no unfilled placeholders`);
     assert.match(r.headers.get('content-security-policy'), /script-src 'none'/);
   }
-  for (const p of ['/', '/seller', '/admin', '/warehouse']) {
+  for (const p of ['/shop', '/seller', '/admin', '/warehouse']) {
     const html = await (await fetch(base + p)).text();
     assert.ok(!html.includes('fonts.googleapis') && !html.includes('fonts.gstatic'), `${p} loads no Google Fonts`);
     assert.ok(html.includes('/assets/fonts.css'));
@@ -112,6 +112,8 @@ test('legal pages are served with the owner and no third-party requests', async 
 
 test('integrated kinan pages retain the dedicated storefront and seller portal', async () => {
   for (const [page, lang, sellerLink] of [
+    ['/', 'ar', '/about/seller/'],
+    ['/en/', 'en', '/about/en/seller/'],
     ['/about/', 'ar', '/about/seller/'],
     ['/about/en/', 'en', '/about/en/seller/'],
     ['/about/seller/', 'ar', null],
@@ -135,4 +137,20 @@ test('integrated kinan pages retain the dedicated storefront and seller portal',
   assert.strictEqual(image.status, 200);
   assert.strictEqual(image.headers.get('content-type'), 'image/webp');
   assert.strictEqual(Buffer.from(await image.arrayBuffer()).toString('ascii', 8, 12), 'WEBP');
+});
+
+test('the landing page preserves legacy checkout, sign-in, referral and shop bookmarks', async () => {
+  assert.strictEqual((await (await fetch(base + '/assets/shop.webmanifest')).json()).start_url, '/shop');
+  for (const query of ['?order=demo&redirect_status=succeeded', '?login_error=fixture', '?ref=demo', '?install=1']) {
+    const response = await fetch(base + '/' + query, { redirect: 'manual' });
+    assert.strictEqual(response.status, 302);
+    assert.strictEqual(response.headers.get('location'), '/shop' + query);
+  }
+  const script = await (await fetch(base + '/assets/about-kinan-language.js')).text();
+  let destination;
+  require('node:vm').runInNewContext(script, {
+    URL,
+    window: { location: { href: base + '/?campaign=demo#/track', replace(url) { destination = url; } } }
+  });
+  assert.strictEqual(destination, base + '/shop?campaign=demo#/track');
 });

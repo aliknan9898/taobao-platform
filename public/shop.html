@@ -1736,8 +1736,8 @@ async function pay(id) {
     $('#paybtn').onclick = async () => {
       $('#paybtn').disabled = true; $('#pe').textContent = '';
       const { error } = pick !== 'new'
-        ? await stripe.confirmCardPayment(cp.client_secret, { payment_method: pick, return_url: `${location.origin}/?order=${encodeURIComponent(id)}` })
-        : await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/?order=${encodeURIComponent(id)}` } });
+        ? await stripe.confirmCardPayment(cp.client_secret, { payment_method: pick, return_url: `${location.origin}/shop?order=${encodeURIComponent(id)}` })
+        : await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/shop?order=${encodeURIComponent(id)}` } });
       if (error) { $('#pe').textContent = error.message; $('#paybtn').disabled = false; return; }
       await api(`/api/buyer/orders/${id}/confirm-card`, 'POST').catch(() => {});
       K.track('purchase', { id, currency: (o.charge?.currency || o.currency || '').toUpperCase(), value: o.charge?.total ?? o.total }); // what the customer actually paid
@@ -2117,7 +2117,7 @@ async function giftcardsPage(code = '') {
         $$('#gcf input, #gcf textarea, [data-amt]').forEach((x) => { x.disabled = true; });
         $('#gcgo').textContent = `${KinanLang.t('Pay')} ${money(gc.amount, gc.currency)}`; $('#gcgo').disabled = false; return;
       }
-      const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/#/giftcards` } });
+      const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: `${location.origin}/shop#/giftcards` } });
       if (error) throw error;
       const r = await api(`/api/buyer/giftcards/${gc.id}/confirm`, 'POST');
       done(r.to_email);
@@ -2403,7 +2403,7 @@ function wireInstall() {
   // Back from a bank check (3-D Secure) or a wallet app: confirm the payment with Stripe before showing the order
   const backFromPay = params.get('order');
   if (backFromPay) {
-    history.replaceState(null, '', `/#/orders/${encodeURIComponent(backFromPay)}`);
+    history.replaceState(null, '', `/shop#/orders/${encodeURIComponent(backFromPay)}`);
     if (params.get('redirect_status') === 'succeeded') await api(`/api/buyer/orders/${encodeURIComponent(backFromPay)}/confirm-card`, 'POST').catch(() => {});
     else if (params.get('redirect_status') === 'failed') setTimeout(() => toast('The payment did not go through. You can try again from the order.'), 600);
   }

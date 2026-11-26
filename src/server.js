@@ -120,7 +120,7 @@ function page(res, file, { stripe: withStripe = false, head = '', title = '', bo
   });
   // Reuse unchanged HTML templates instead of blocking the event loop with disk I/O on every page request.
   let html = pageTemplate(file);
-  const meta = ['shop.html', 'download.html'].includes(file) ? seo.verificationMeta() : '';
+  const meta = ['shop.html', 'download.html', 'about.html', 'about-en.html'].includes(file) ? seo.verificationMeta() : '';
   if (title) html = html.replace(/<title>[^<]*<\/title>/, `<title>${attr(title)}</title>`);
   if (/name="description"/.test(head)) html = html.replace(/<meta name="description"[^>]*>\n?/, '');
   if (head || meta) html = html.replace('</head>', `${meta}${head}\n</head>`);
@@ -174,6 +174,8 @@ const versionAssets = (html) => html.replace(/(["'])\/assets\/([\w.-]+\.(?:css|j
 
 // Static assets (CSS, JS, icons, manifests) — flat folder, no traversal
 const aboutPages = new Map([
+  ['', 'about.html'],
+  ['/en', 'about-en.html'],
   ['/about', 'about.html'],
   ['/about/en', 'about-en.html'],
   ['/about/seller', 'about-seller.html'],
@@ -1423,9 +1425,14 @@ const server = http.createServer(async (req, res) => {
       return res.end(appControl.page(held.app));
     }
     if (req.method === 'GET') {
+      // Preserve existing payment returns, sign-in errors and referral links.
+      if (p === '/' && ['order', 'login_error', 'ref', 'install'].some((key) => url.searchParams.has(key))) {
+        res.writeHead(302, { Location: '/shop' + url.search, 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       const aboutPage = aboutPages.get(p.replace(/\/$/, ''));
-      if (aboutPage) return page(res, aboutPage);
-      if (p === '/' || p === '/shop') return page(res, 'shop.html', { stripe: true, head: seo.siteJsonLd() + `<link rel="canonical" href="${attr(config.publicBaseUrl)}/">`, body: seo.ssrList({ title: 'Kinan Shop — delivered to your door', intro: 'Shop home and kitchen, fashion, electronics, beauty, toys and gifts from independent sellers and Kinan. Delivered to Europe, the UK and worldwide with tracking.', limit: 60 }) });
+      if (aboutPage) return page(res, aboutPage, { head: seo.siteJsonLd() });
+      if (p === '/shop' || p === '/shop/') return page(res, 'shop.html', { stripe: true, head: seo.siteJsonLd() + `<link rel="canonical" href="${attr(config.publicBaseUrl)}/shop">`, body: seo.ssrList({ title: 'Kinan Shop — delivered to your door', intro: 'Shop home and kitchen, fashion, electronics, beauty, toys and gifts from independent sellers and Kinan. Delivered to Europe, the UK and worldwide with tracking.', limit: 60 }) });
       const catPage = p.match(/^\/c\/([a-z_]{2,20})$/);
       if (catPage) {
         const cat = shipping.CATEGORIES.find(([id]) => id === catPage[1]);

@@ -44,7 +44,7 @@ test('seo and analytics', async () => {
   assert.match(page.text, /msvalidate\.01" content="BING123"/);
   assert.match(rb.text, /User-agent: OAI-SearchBot\nAllow: \//);
   assert.match(sm.text, /\/c\/men/);
-  const home = await get('/'); assert.match(home.text, new RegExp(`href="/p/${p.id}"`)); assert.match(home.text, /"@type":"Organization"/);
+  const home = await get('/shop'); assert.match(home.text, new RegExp(`href="/p/${p.id}"`)); assert.match(home.text, /"@type":"Organization"/);
   const cat = await get('/c/men'); assert.strictEqual(cat.status, 200); assert.match(cat.text, /<h1>Men’s fashion<\/h1>/); assert.match(cat.text, /"ItemList"/);
   const llms = await get('/llms.txt'); assert.match(llms.text, /^# Kinan Shop/); assert.match(llms.text, new RegExp(`/p/${p.id}\\): from 39\\.00 USD`));
   const oa = (await get('/feeds/openai.jsonl')).text.trim().split('\n').map((x) => JSON.parse(x));
