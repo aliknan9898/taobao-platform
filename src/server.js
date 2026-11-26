@@ -1155,7 +1155,10 @@ r('GET', '/api/admin/requests', CARE, async () => shopSvc.adminRequests());
 r('PATCH', '/api/admin/requests/:id', CARE, async ({ req, params }) => shopSvc.answerRequest(params.id, await readJson(req)));
 // One queue of cross-app exceptions; derived from live records, staff can assign and note
 // Control centre (owner switches): maintenance for the shop / Seller Center, pause checkout or sign-ups
-r('GET', '/api/app-status', null, async () => appControl.status());
+r('GET', '/api/app-status', null, async () => {
+  const status = appControl.status();
+  return { ...status, checkout: status.checkout && process.env.PAYMENTS_PAUSED !== '1' };
+});
 r('GET', '/api/admin/control', ADMIN, async () => appControl.get());
 r('POST', '/api/admin/control', ADMIN, async ({ req, user }) => appControl.set(await readJson(req), user));
 // Partner API administration (owner/admin only): organisations, stores, entitlements, keys, sandbox simulation

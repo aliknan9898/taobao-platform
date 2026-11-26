@@ -63,3 +63,18 @@ test('over HTTP: 503 page with Retry-After, JSON for the API, webhooks still ans
   C.set({ shop: 'open' }, admin);
   assert.strictEqual((await fetch(base + '/')).status, 200);
 });
+
+test('public checkout status reports the environment pause without changing the admin switch', async (t) => {
+  const previous = process.env.PAYMENTS_PAUSED;
+  process.env.PAYMENTS_PAUSED = '1';
+  t.after(() => {
+    if (previous === undefined) delete process.env.PAYMENTS_PAUSED;
+    else process.env.PAYMENTS_PAUSED = previous;
+  });
+
+  const status = await fetch(base + '/api/app-status').then((response) => response.json());
+  const config = await fetch(base + '/api/config/public').then((response) => response.json());
+  assert.strictEqual(config.payments_paused, true);
+  assert.strictEqual(status.checkout, false);
+  assert.strictEqual(C.get().checkout, true);
+});
