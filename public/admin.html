@@ -428,7 +428,7 @@ function ebayCard() {
   return api('/api/admin/ebay').then((e) => {
       const el = $('#ebay'); if (!el) return;
       const env = e.env === 'sandbox' ? ' <span class="pill warn">Sandbox (test)</span>' : ' <span class="pill ok">Live</span>';
-      const setup = `<details ${e.configured ? '' : 'open'}><summary>Setup (eBay developer account)</summary><ol class="small">
+      const setup = `<details ${e.configured ? '' : 'open'}><summary>Setup (eBay developer account)</summary><p><a href="/admin/ebay">Open eBay Publisher</a></p><ol class="small">
         <li>Render → Environment: <code>EBAY_CLIENT_ID</code> (App ID), <code>EBAY_CLIENT_SECRET</code> (Cert ID), <code>EBAY_RUNAME</code>, <code>EBAY_ENV</code> = sandbox or production.</li>
         <li>eBay developer → User Tokens → Get a Token from eBay via Your Application → add a redirect URL: “Your auth accepted URL” = <code>${esc(e.accept_url)}</code>. Its name (RuName) goes in <code>EBAY_RUNAME</code>.</li>
         <li>Alerts &amp; Notifications (Production) → Marketplace account deletion: endpoint <code>${esc(e.deletion_endpoint)}</code>, verification token <code style="word-break:break-all">${esc(e.deletion_token || '')}</code> (needed for live keys).</li></ol></details>`;
