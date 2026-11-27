@@ -22,9 +22,10 @@ const platform = () => db.settings.get(PLATFORM)?.taobao || null;
 const platformConnected = () => { const t = platform(); return Boolean(t && t.access_token && t.expires_at > Date.now()); };
 function savePlatform(t) { const doc = { taobao: t }; return db.settings.get(PLATFORM) ? db.settings.update(PLATFORM, doc) : db.settings.insert({ id: PLATFORM, ...doc }); }
 /** Kinan's Taobao settings: pay purchase orders automatically from Kinan's balance. */
-function prefs() { return { auto_pay: true, ...(db.settings.get(PREFS) || {}) }; }
+function prefs() { return { auto_pay: false, auto_pay_locked: true }; }
 function savePrefs(b = {}) {
-  const doc = { auto_pay: b.auto_pay === undefined ? prefs().auto_pay : Boolean(b.auto_pay) };
+  if (b.auto_pay !== undefined && b.auto_pay !== false) throw Object.assign(new Error('Automatic Taobao payment is locked'), { status: 403 });
+  const doc = { auto_pay: false };
   db.settings.get(PREFS) ? db.settings.update(PREFS, doc) : db.settings.insert({ id: PREFS, ...doc });
   return prefs();
 }
@@ -77,7 +78,9 @@ async function refreshWith(t, save) {
   }
   const r = await call(API.TOKEN_REFRESH, { refresh_token: t.refresh_token });
   const n = normalize(r);
-  n.refresh_expires_at = t.refresh_expires_at; // not reset by refresh
+  // Honor the provider's returned expiry, including zero (reauthorization required).
+  if (r.refresh_expires_in === undefined) n.refresh_expires_at = t.refresh_expires_at;
+  if (!n.refresh_token) n.refresh_token = t.refresh_token;
   if (!n.taobao_seller_id) n.taobao_seller_id = t.taobao_seller_id;
   save({ ...t, ...n });
   return n.access_token;
