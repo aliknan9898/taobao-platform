@@ -972,6 +972,23 @@ r('GET', '/api/admin/ai-review', STAFF, async () => require('./services/autorevi
 r('POST', '/api/admin/ai-review/run', ADMIN, async () => ({ reviewed: await require('./services/autoreview').tick({ max: 10 }) }));
 r('POST', '/api/admin/listings/:id/ai-review', ADMIN, async ({ params }) => require('./services/autoreview').reviewListing(params.id, { force: true }).then((l) => ({ id: l.id, ai_review: { ...l.ai_review, before: undefined } })));
 r('POST', '/api/admin/listings/:id/ai-undo', ADMIN, async ({ params }) => { const l = require('./services/autoreview').revert(params.id); return { id: l.id, title: l.title }; });
+const smartImport = require('./services/smartImportSettings');
+const smartImportBody = (req) => {
+  if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+    throw httpError(415, 'Expected application/json');
+  }
+  return readJson(req);
+};
+r('GET', '/api/admin/smart-import', ADMIN, async () => smartImport.list());
+const smartImportShadow = require('./services/smartImportShadow');
+r('GET', '/api/admin/smart-import/:source/shadow', ADMIN, async ({ params }) => smartImportShadow.get(params.source));
+r('POST', '/api/admin/smart-import/:source/shadow', ADMIN, async ({ req, params }) => smartImportShadow.run(params.source, await smartImportBody(req)));
+const smartImportProbe = require('./services/smartImportProbe');
+r('GET', '/api/admin/smart-import/:source/probe', ADMIN, async ({ params }) => smartImportProbe.capability(params.source));
+r('POST', '/api/admin/smart-import/:source/probe', ADMIN, async ({ req, params }) => smartImportProbe.request(params.source, await smartImportBody(req)));
+r('GET', '/api/admin/smart-import/:source/products', ADMIN, async ({ params, url }) => smartImport.products(params.source, url.searchParams));
+r('PUT', '/api/admin/smart-import/:source', ADMIN, async ({ req, params }) => smartImport.save(params.source, await smartImportBody(req)));
+r('POST', '/api/admin/smart-import/:source/review', ADMIN, async ({ req, params }) => smartImport.evaluate(params.source, await smartImportBody(req)));
 r('GET', '/api/admin/cj', STAFF, async () => cjs.status());
 r('PUT', '/api/admin/cj/settings', ADMIN, async ({ req }) => cjs.savePrefs(await readJson(req)));
 r('POST', '/api/admin/cj/webhooks', ADMIN, async () => { db.settings.remove('set_cj_webhooks'); return cjs.registerWebhooks(); });

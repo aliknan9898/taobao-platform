@@ -218,16 +218,23 @@ function showLogin(msg = '') {
 let googleSignin = false; let cfg = {};
 // [tab, label, roles that see it]
 const ALL_TABS = [
+  ['smart-import', 'Smart Import Center', 'admin'],
+  ['smart-import-taobao','Taobao','admin'],['smart-import-aliexpress','AliExpress','admin'],['smart-import-cj','CJdropshipping','admin'],
+  ['smart-import-1688','1688','admin'],['smart-import-buckydrop','BuckyDrop','admin'],['smart-import-hiobuy','HIOBuy','admin'],['smart-import-banggood','Banggood','admin'],
   ['overview','Overview','*'],['team-orders','Order status','operator'],['team','Staff & activity','owner'],['control','Control centre','admin'],['partners','Partner API (B2B)','admin'],['imports','Live Imports','admin'],['ai-tools','AI & Product Research','*'],
   ['connections','Integrations','*'],['tools','Admin Tools','admin'],['kinan','KINAN Business','admin'],['advertising','Advertising','admin'],['mail','KINAN Email','owner operator'],['platforms','Product Catalog','admin'],['listings','Product Review','admin'],['cj','CJdropshipping','admin procurement'],['ebay','eBay','admin'],
   ['exceptions','Exceptions','*'],['orders','Orders','*'],['shipping','Shipping','admin'],['countries','Delivery countries','admin'],['libya','Libya (ليبيا)','owner admin procurement finance support ly_staff'],['returns','Returns','admin finance support'],['requests','Item Requests','admin procurement support'],
   ['sellers','Sellers','admin'],['users','Users','admin finance support'],['activity','Activity log','admin'],['reviews','Reviews','admin support'],
   ['pricing','Pricing studio','owner'],['reports','Reports & Analytics','admin finance'],['payouts','Withdrawals','admin finance'],['coupons','Discount Codes','admin'],['backup','Backup & Data','admin']
 ];
+const smartImportUrl = '/api/admin/smart-import';
+const smartImportTab = (source) => 'smart-import-' + source;
+const smartImportTabs = ALL_TABS.map(([id]) => id).filter((id) => id.startsWith('smart-import-'));
 const NAV_GROUPS = [
   ['Workspace',['overview','exceptions','team-orders']],
   ['Orders & delivery',['orders','returns','requests','shipping','countries']],
   ['Catalogue & sourcing',['platforms','listings','imports','ai-tools','cj']],
+  ['Smart Import',['smart-import', ...smartImportTabs]],
   ['Pricing & finance',['pricing','coupons','reports','payouts']],
   ['Libya',['libya']],
   ['Sales channels',['ebay','partners','advertising','kinan','connections']],
@@ -1631,6 +1638,154 @@ VIEWS.mail = async (v) => {
 };
 
 const importPanel = '<div class="card" id="import-live" aria-live="polite"><h2>Live product imports</h2><p class="muted">Connecting to AliExpress and CJ import status…</p></div>';
+
+VIEWS['smart-import'] = async (v) => {
+  const suppliers = await api(smartImportUrl);
+  v.innerHTML = '<div class="card"><p class="muted">Catalogue records by supplier. Discovery and usage metrics will appear when supplier workers are connected.</p>' +
+    '<p>Publication guard: ' + (suppliers[0]?.gateEnabled ? 'On' : 'Off') + ' · V2 automatic publishing and external AI: Off</p>' +
+    '<div class="scroll"><table><thead><tr><th>Supplier</th><th>Total</th><th>Published</th><th>Pending review</th><th>Rejected</th></tr></thead><tbody>' +
+    suppliers.map(({ source, counts }) => '<tr><td><button type="button" class="btn ghost" data-go="' + smartImportTab(source) + '">' +
+      esc(sectionLabel(smartImportTab(source))) + '</button></td><td>' + counts.total + '</td><td>' + counts.published +
+      '</td><td>' + counts.pending + '</td><td>' + counts.rejected + '</td></tr>').join('') +
+    '</tbody></table></div></div>';
+};
+
+async function smartImportSupplier(v, source) {
+  const base = smartImportUrl + '/' + source;
+  const supplier = (await api(smartImportUrl)).find((item) => item.source === source);
+  const { policy } = supplier;
+  v.innerHTML = '<div class="card"><button type="button" class="btn ghost" data-go="smart-import">All suppliers</button>' +
+    '<h2>Import policy</h2><p class="muted">Dry run uses existing records. Automatic publishing and external AI are off.</p>' +
+    '<form data-policy><label>Minimum sales <input name="minSales" type="number" min="0" max="100000000" required></label> ' +
+    '<label>Maximum shipping days <input name="maxShippingDays" type="number" min="1" max="90" required></label> ' +
+    '<label>Minimum net margin (%) <input name="marginPercent" type="number" min="0" max="100" step="any" required></label> ' +
+    '<button class="btn">Save policy</button> <output aria-live="polite"></output></form></div>' +
+    '<div class="card" data-shadow><h2>Shadow import</h2><p data-shadow-status role="status"></p><div data-shadow-controls></div></div>' +
+    '<div class="card"><h2>Supplier products</h2><form data-filters><label>Search <input type="search" name="q" maxlength="100" placeholder="Title or listing ID"></label> ' +
+    '<label>Status <select name="status"><option value="">All</option><option value="active">Published</option><option value="pending_review">Pending review</option>' +
+    '<option value="rejected">Rejected</option><option value="paused">Paused</option><option value="unavailable">Unavailable</option>' +
+    '<option value="private">Private</option><option value="draft">Draft</option></select></label> <button class="btn ghost">Filter</button></form>' +
+    '<p data-result role="status"></p><div data-products></div><output data-review aria-live="polite"></output></div>';
+  const form = v.querySelector('[data-policy]');
+  const field = (name) => form.elements.namedItem(name);
+  field('minSales').value = policy.minSales;
+  field('maxShippingDays').value = policy.maxShippingDays;
+  field('marginPercent').value = Number((policy.minMargin * 100).toFixed(10));
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const output = form.querySelector('output');
+    const button = form.querySelector('button');
+    button.disabled = true;
+    try {
+      await api(base, 'PUT', { minSales: field('minSales').valueAsNumber,
+        maxShippingDays: field('maxShippingDays').valueAsNumber, minMargin: field('marginPercent').valueAsNumber / 100 });
+      output.textContent = 'Policy saved.';
+      v.querySelector('[data-review]').textContent = '';
+    } catch (error) { output.textContent = error.message; }
+    finally { button.disabled = false; }
+  };
+  const filters = v.querySelector('[data-filters]');
+  const rows = v.querySelector('[data-products]');
+  const result = v.querySelector('[data-result]');
+  const review = v.querySelector('[data-review]');
+  let query = new URLSearchParams();
+  let loadId = 0;
+  async function load(page) {
+    const currentLoad = ++loadId;
+    result.textContent = 'Loading products…';
+    review.textContent = '';
+    rows.replaceChildren();
+    query.set('page', page);
+    try {
+      const data = await api(base + '/products?' + query);
+      if (currentLoad !== loadId) return;
+      const pages = Math.max(1, Math.ceil(data.total / data.size));
+      if (data.page > pages) return load(pages);
+      result.textContent = data.total ? data.total + ' products · Page ' + data.page + ' of ' + pages : 'No matching products.';
+      if (!data.items.length) return;
+      rows.innerHTML = '<div class="scroll"><table><thead><tr><th>Product</th><th>Status</th><th>Review</th></tr></thead><tbody>' +
+        data.items.map((item, index) => '<tr><td>' + esc(item.title || item.id) + '</td><td>' + esc(item.status || 'Unknown') +
+          '</td><td><button type="button" class="btn ghost" data-review-row="' + index + '">Dry run</button></td></tr>').join('') +
+        '</tbody></table></div><button type="button" class="btn ghost" data-prev>Previous</button> ' +
+        '<button type="button" class="btn ghost" data-next>Next</button>';
+      const prev = rows.querySelector('[data-prev]');
+      const next = rows.querySelector('[data-next]');
+      prev.disabled = data.page === 1;
+      next.disabled = data.page === pages;
+      prev.onclick = () => load(data.page - 1);
+      next.onclick = () => load(data.page + 1);
+      rows.querySelectorAll('[data-review-row]').forEach((button) => {
+        button.onclick = async () => {
+          button.disabled = true;
+          const item = data.items[Number(button.dataset.reviewRow)];
+          try {
+            const outcome = await api(base + '/review', 'POST', { listingId: item.id });
+            if (currentLoad !== loadId) return;
+            review.textContent = [item.title || item.id, outcome.status,
+              outcome.reasons.length ? 'Reasons: ' + outcome.reasons.join(', ') : '',
+              outcome.missing.length ? 'Missing: ' + outcome.missing.join(', ') : ''].filter(Boolean).join(' · ');
+          } catch (error) { if (currentLoad === loadId) review.textContent = error.message; }
+          finally { button.disabled = false; }
+        };
+      });
+    } catch (error) { if (currentLoad === loadId) result.textContent = error.message; }
+  }
+  filters.onsubmit = (event) => {
+    event.preventDefault();
+    query = new URLSearchParams(new FormData(filters));
+    load(1);
+  };
+  await Promise.all([load(1), smartImportShadow(v, base)]);
+}
+
+async function smartImportShadow(v, base) {
+  const status = v.querySelector('[data-shadow-status]');
+  const controls = v.querySelector('[data-shadow-controls]');
+  const route = base + '/shadow';
+  try {
+    const info = await api(route);
+    if (!info.enabled) {
+      status.textContent = 'Shadow import is off.';
+      return;
+    }
+    let job = info.job;
+    function renderJob() {
+      status.textContent = job
+        ? job.state + ' · ' + job.processed + '/' + job.total + ' · ' +
+          Object.entries(job.counts).map(([key, count]) => key + ': ' + count).join(' · ') +
+          ' · Supplier requests: ' + job.usage.supplierRequests
+        : 'Ready to review local catalogue records.';
+      const actions = !job || job.state === 'completed' ? [['enqueue', 'Start dry run']]
+        : job.state === 'paused' ? [['resume', 'Resume']] : [['step', 'Review next batch'], ['pause', 'Pause']];
+      controls.replaceChildren();
+      for (const [action, label] of actions) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn ghost';
+        button.textContent = label;
+        button.onclick = async () => {
+          for (const control of controls.children) control.disabled = true;
+          try {
+            job = await api(route, 'POST', {
+              id: action === 'enqueue' ? crypto.randomUUID() : job.id, action,
+              ...(action === 'step' ? { cursor: job.processed } : {})
+            });
+            renderJob();
+          } catch (error) {
+            status.textContent = error.message;
+            for (const control of controls.children) control.disabled = false;
+          }
+        };
+        controls.append(button);
+      }
+    }
+    renderJob();
+  } catch (error) { status.textContent = error.message; }
+}
+
+for (const id of smartImportTabs) {
+  VIEWS[id] = (v) => smartImportSupplier(v, id.slice(smartImportTab('').length));
+}
 
 VIEWS.imports = (v) => {
   v.innerHTML = importPanel + `<div class="row">

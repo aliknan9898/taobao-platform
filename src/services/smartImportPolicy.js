@@ -19,4 +19,21 @@ function review(product, policy = {}) {
   if (product.complianceReview !== 'pass') missing.push('complianceReview');
   return {status:reasons.length?'rejected':missing.length?'review':'eligible',reasons,missing,externalAI:false};
 }
-module.exports = {SUPPLIERS,DEFAULTS,review};
+function listingSource(listing) {
+  return listing.source || (listing.taobao_item_id || listing.mp_id ? 'taobao' : null);
+}
+
+const gateEnabled = () => process.env.SMART_IMPORT_V2_ENABLED === '1';
+
+// All catalogue writes pass through this guard, including old bulk imports, AI release and resync.
+function gateListing(next, previous) {
+  if (!gateEnabled() || !SUPPLIERS.includes(listingSource(next)) || next.status !== 'active' ||
+      previous?.status === 'active') return next;
+  return {
+    ...next,
+    status: 'pending_review',
+    review: { state: 'pending', submitted_at: Date.now(), note: 'Smart Import V2 publication is disabled' }
+  };
+}
+
+module.exports = { SUPPLIERS, DEFAULTS, review, listingSource, gateEnabled, gateListing };

@@ -33,7 +33,7 @@ function record({ req, path, user, status, params, error }) {
     fields: body ? Object.keys(body).filter((k) => !SECRET_KEY.test(k)).slice(0, 30) : [],
     ...(req.auditMailbox ? { mailbox: req.auditMailbox } : {}),
     ...(req.auditMailId ? { message_id: req.auditMailId } : {}),
-    ...(reason && !path.startsWith('/api/admin/mailbox/') ? { reason: reason.slice(0, 200) } : {}),
+    ...(reason && !path.startsWith('/api/admin/mailbox/') && !path.startsWith('/api/admin/smart-import') ? { reason: reason.slice(0, 200) } : {}),
     ...(error ? { error: String(error).slice(0, 200) } : {})
   });
 }
