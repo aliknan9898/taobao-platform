@@ -225,22 +225,23 @@ function wireConnect() {
 async function dashboard() {
   const v = $('#view');
   v.innerHTML = '<div class="skeleton" style="height:120px"></div>';
-  const [prods, ords, earn] = await Promise.all([api('/api/seller/products'), api('/api/seller/orders'), api('/api/seller/earnings')]);
-  const count = (s) => prods.filter((p) => p.status === s).length;
-  const toPay = cfg.taobao_kinan ? [] : ords.filter((o) => o.purchase && /WAIT_BUYER_P/.test(o.purchase.status));
+  const summary = await api('/api/seller/dashboard');
+  const { recent: ords, earnings: earn, counts } = summary;
+  const count = (status) => counts[status] || 0;
+  const toPay = cfg.taobao_kinan ? 0 : summary.awaiting;
   v.innerHTML = `<div class="head"><div><h1>Hello, ${esc(shop.shop_name)}</h1><p class="muted">Here’s what needs your attention today.</p></div><a class="btn" href="#/add">Add product</a></div>
     ${approvalBanner()}${taobaoCard()}
-    ${toPay.length ? `<div class="banner" style="background:color-mix(in srgb,var(--bad) 9%,var(--surface))"><div><b>${toPay.length} order${toPay.length > 1 ? 's' : ''} waiting for your payment to Taobao</b><div class="small">Unpaid purchase orders are closed by Taobao at the deadline and the buyer is refunded.</div></div><a class="btn" href="#/orders">Pay now</a></div>` : ''}
+    ${toPay ? `<div class="banner" style="background:color-mix(in srgb,var(--bad) 9%,var(--surface))"><div><b>${toPay} order${toPay > 1 ? 's' : ''} waiting for your payment to Taobao</b><div class="small">Unpaid purchase orders are closed by Taobao at the deadline and the buyer is refunded.</div></div><a class="btn" href="#/orders">Pay now</a></div>` : ''}
     <div class="kpis">
       <a class="kpi" href="#/ebay"><span>Sell on eBay</span><b>🏷</b></a>
       <a class="kpi" href="#/products"><span>Live products</span><b>${count('active')}</b></a>
       <a class="kpi" href="#/products"><span>In review</span><b>${count('pending_review')}</b></a>
       <a class="kpi" href="#/products"><span>Needs changes</span><b class="${count('rejected') ? 'bad' : ''}">${count('rejected')}</b></a>
-      <a class="kpi" href="#/orders"><span>Orders</span><b>${ords.length}</b></a>
-      <a class="kpi" href="#/earnings"><span>Available to pay out</span><b>${money(earn.payable, earn.currency)}</b></a>
+      <a class="kpi" href="#/orders"><span>Orders</span><b>${summary.orderCount}</b></a>
+      <a class="kpi" href="#/earnings"><span>Available to pay out</span><b>${money(earn.available, earn.currency)}</b></a>
       <a class="kpi" href="#/earnings"><span>On the way</span><b>${money(earn.pending, earn.currency)}</b></a>
     </div>
-    ${attentionPanel(prods, ords, earn, toPay)}
+    ${attentionPanel(summary, toPay)}
     <section class="panel" id="stats"></section>
     <section class="panel"><div class="row between" style="margin-bottom:6px"><h2>Recent orders</h2><a class="muted" href="#/orders">See all</a></div>
       ${ords.slice(0, 5).map(orderRow).join('') || '<div class="empty" style="padding:24px"><p>No orders yet. Once buyers order your products, they appear here.</p></div>'}</section>`;
@@ -254,16 +255,16 @@ async function dashboard() {
 }
 
 /** One list of what the seller should look at, most urgent first; every row links to the screen that fixes it. */
-function attentionPanel(prods, ords, earn, toPay) {
-  const n = (f) => prods.filter(f).length;
+function attentionPanel(summary, toPay) {
+  const { counts, earnings: earn } = summary;
   const rows = [
-    [toPay.length, 'Orders waiting for your Taobao payment', '#/orders', 'bad'],
-    [ords.filter((o) => o.purchase && o.purchase.error && !o.purchase.direct).length, 'Orders with a purchase problem', '#/orders', 'bad'],
-    [n((p) => p.status === 'rejected'), 'Products that need changes', '#/products', 'bad'],
-    [n((p) => p.status === 'unavailable'), 'Products unavailable at the supplier', '#/products', 'warn'],
-    [n((p) => p.sync_error && p.status !== 'unavailable'), 'Products whose last price or stock update failed', '#/products', 'warn'],
-    [ords.filter((o) => ['paid', 'procuring'].includes(o.status) && o.purchase && !o.purchase.direct && !o.purchase.error && !/WAIT_BUYER_P/.test(o.purchase.status || '')).length, 'Orders being prepared', '#/orders', ''],
-    [n((p) => p.status === 'pending_review'), 'Products in review', '#/products', ''],
+    [toPay, 'Orders waiting for your Taobao payment', '#/orders', 'bad'],
+    [summary.problems, 'Orders with a purchase problem', '#/orders', 'bad'],
+    [counts.rejected, 'Products that need changes', '#/products', 'bad'],
+    [counts.unavailable, 'Products unavailable at the supplier', '#/products', 'warn'],
+    [counts.sync_errors, 'Products whose last price or stock update failed', '#/products', 'warn'],
+    [summary.preparing, 'Orders being prepared', '#/orders', ''],
+    [counts.pending_review, 'Products in review', '#/products', ''],
     [Number(earn.available) >= Number(earn.min_withdrawal || 0) && Number(earn.available) > 0 ? 1 : 0, `Money ready to withdraw: ${money(earn.available, earn.currency)}`, '#/earnings', 'ok']
   ].filter((r) => r[0] > 0);
   return `<section class="panel attn" aria-labelledby="attn-h"><div class="row between"><h2 id="attn-h">Needs attention</h2><span class="muted small">${rows.length ? `${rows.length} open` : ''}</span></div>
@@ -287,14 +288,28 @@ function parseCsv(text) {
 
 // ---------- products ----------
 let prodFilter = 'all';
+let productPage = 1;
+let orderPage = 1;
+function sellerPager(data) {
+  return data.pages > 1 ? `<div class="row between">
+    <button type="button" class="btn sm ghost" data-seller-page="${data.page - 1}" ${data.page === 1 ? 'disabled' : ''}>Previous</button>
+    <span class="muted small">Page ${data.page} / ${data.pages}</span>
+    <button type="button" class="btn sm ghost" data-seller-page="${data.page + 1}" ${data.page === data.pages ? 'disabled' : ''}>Next</button>
+  </div>` : '';
+}
+function wireSellerPager(load) {
+  $$('[data-seller-page]').forEach((button) => button.onclick = () => load(Number(button.dataset.sellerPage)));
+}
 async function products() {
   const v = $('#view');
   v.innerHTML = '<div class="skeleton" style="height:240px"></div>';
-  const list = (await api('/api/seller/products')).sort((a, b) => (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0));
+  const result = await api(`/api/seller/products?page=${productPage}&status=${encodeURIComponent(prodFilter)}`);
+  productPage = result.page;
+  const list = result.items;
+  const shown = list;
   const F = [['all', 'All'], ['active', 'Live'], ['pending_review', 'In review'], ['rejected', 'Needs changes'], ['paused', 'Paused']];
-  const shown = list.filter((p) => prodFilter === 'all' || p.status === prodFilter);
   v.innerHTML = `<div class="head"><h1>Products</h1><a class="btn" href="#/add">Add product</a></div>
-    <div class="tabs">${F.map(([k, t]) => `<button data-f="${k}" class="${k === prodFilter ? 'on' : ''}">${t} (${k === 'all' ? list.length : list.filter((p) => p.status === k).length})</button>`).join('')}</div>
+    <div class="tabs">${F.map(([k, t]) => `<button data-f="${k}" class="${k === prodFilter ? 'on' : ''}">${t} (${result.counts[k]})</button>`).join('')}</div>
     <section class="panel prodlist">${shown.length ? `<div class="selbar"><label><input type="checkbox" id="selall"> Select all</label><span class="muted small" id="selinfo"></span><span style="flex:1"></span><button class="btn sm danger" id="selremove" disabled>🗑 <span>Remove</span></button></div>` : ''}${shown.map((p) => {
       const img = [...(p.own_images || []), ...(p.images || [])][0];
       const [lab, cls] = PRODUCT_STATUS[p.status] || [p.status, ''];
@@ -313,7 +328,9 @@ async function products() {
           ${p.source === 'kinan' || p.supplier_hidden ? '<span class="pill">Kinan catalogue · Kinan ships it</span>' : p.source === 'cj' ? `<span class="pill">${shop?.supplier_imports ? 'CJdropshipping' : 'Kinan'} · ships direct</span><button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : p.source === 'aliexpress' ? `<span class="pill">${shop?.supplier_imports ? 'AliExpress' : 'Kinan'} · ships direct</span>${p.ae_product_id && cfg.aliexpress?.import ? `<button class="btn sm quiet" data-sync="${esc(p.id)}">Refresh</button>` : ''}` : p.source === 'manual' ? '<span class="muted small">Added manually</span>' : `<button class="btn sm quiet" data-sync="${esc(p.id)}" title="Refresh cost and stock from Taobao">Refresh</button>`}
         </div></div>`; }).join('') || `<div class="empty"><h3>${list.length ? 'Nothing in this list' : 'No products yet'}</h3><p>Paste a Taobao link to import your first product.</p><a class="btn" href="#/add">Add product</a></div>`}</section>
     <p class="muted">New products and changes to titles, descriptions or photos are reviewed by Kinan before buyers see them. Price changes go live right away.</p>`;
-  $$('[data-f]').forEach((b) => b.onclick = () => { prodFilter = b.dataset.f; products(); });
+  v.insertAdjacentHTML('beforeend', sellerPager(result));
+  wireSellerPager((page) => { productPage = page; products(); });
+  $$('[data-f]').forEach((b) => b.onclick = () => { prodFilter = b.dataset.f; productPage = 1; products(); });
   // Select and remove
   const picks = () => $$('[data-pick]').filter((x) => x.checked).map((x) => x.dataset.pick);
   const paintSel = () => {
@@ -629,7 +646,7 @@ function aiBox(el, { read, apply, removePhoto }) {
 async function manualForm(id, aeFlag) {
   const v = $('#view');
   if (shop.status !== 'active') { v.innerHTML = `<div class="head"><h1>Add product</h1></div>${approvalBanner()}`; return; }
-  const ex = id ? (await api('/api/seller/products')).find((x) => x.id === id) : null;
+  const ex = id ? await api('/api/seller/products/' + encodeURIComponent(id)) : null;
   if (id && !ex) throw new Error('Product not found');
   const m = { source: ex ? (ex.source === 'aliexpress' ? 'aliexpress' : 'taobao') : (aeFlag ? 'aliexpress' : 'taobao'), images: [...(ex?.own_images || []), ...(ex?.source === 'aliexpress' ? ex.images || [] : [])], variants: ex ? ex.skus.map((s) => ({ name: s.props, price: s.price, stock: s.stock, cost_cny: (ex.source === 'aliexpress' ? s.cost_sale : s.cost_cny) ?? '' })) : [{ name: '', price: '', stock: 99, cost_cny: '' }] };
   v.innerHTML = `<div class="head"><div><a class="muted" href="#/add" style="text-decoration:none">← Add product</a><h1>${ex ? 'Edit product' : 'Add a product manually'}</h1></div></div>
@@ -703,7 +720,7 @@ async function manualForm(id, aeFlag) {
 }
 
 async function editProduct(id) {
-  const p = (await api('/api/seller/products')).find((x) => x.id === id);
+  const p = await api('/api/seller/products/' + encodeURIComponent(id));
   if (!p) throw new Error('Product not found');
   draft = { mode: 'edit', category: p.category, id: p.id, link: p.taobao_item_id, taobao_item_id: p.taobao_item_id, item_type: p.item_type, status: p.status, review: p.review,
     title: p.title, description: plain(p.description), taobao_images: p.images || [], own_images: p.own_images || [], skus: p.skus.map((s) => ({ ...s })),
@@ -815,10 +832,17 @@ function orderRow(o) {
   const pills = p && p.direct
     ? pill(p.status_label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(p.status) ? 'ok' : p.status === 'AE_CANCELLED' ? 'bad' : 'warn')
     : pill(o.status_label, tone(o.status)) + (p ? pill(p.manual ? p.status_label : `Taobao: ${p.status_label}`, PO_STATUS_CLS(p.status)) : '');
-  const parcels = (p?.logistics || []).map((x) => {
-    const label = `<span>${esc(carrierName(x.carrier) || 'Carrier')}</span> <bdi dir="ltr" class="trk">${esc(x.tracking)}</bdi>`;
-    return x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${label}</a>` : label;
-  }).join('<br>');
+  const purchases = o.purchases || (p ? [p] : []);
+  const parcels = purchases.map((part, i) => {
+    const links = (part.logistics || []).map((x) => {
+      const label = `<span>${esc(carrierName(x.carrier) || 'Carrier')}</span> <bdi dir="ltr" class="trk">${esc(x.tracking)}</bdi>`;
+      return x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${label}</a>` : label;
+    }).join('<br>');
+    return `<div class="otrack small"><span class="muted">${purchases.length > 1 ? `Parcel ${i + 1} · ` : ''}${part.direct ? 'To the customer' : 'To warehouse'}</span>
+      <div>${esc(part.status_label)}${links ? '<br>' + links : ''}</div>
+      ${part.error ? `<div class="small bad">${esc(part.error)}</div>` : ''}
+      ${part.direct ? K.journey(part.track, { seller: true }) : ''}</div>`;
+  }).join('');
   const items = o.lines.reduce((n, l) => n + l.qty, 0);
   // closed by default: the summary shows what to scan (order, amount, first item, status); the rest opens on tap
   return `<details class="ocard" data-order="${esc(o.id)}">
@@ -828,15 +852,16 @@ function orderRow(o) {
     <div class="obody">
     <ul class="olines">${o.lines.map((l) => `<li><span class="qty">${l.qty}×</span><span dir="auto">${esc(l.title)}${l.props ? ` <span class="muted">(${esc(variantLabel(l.props))})</span>` : ''}</span></li>`).join('')}</ul>
     <div class="row opills">${pills}${due && p.pay_deadline ? `<span class="small bad">Pay by ${date(p.pay_deadline)}</span>` : ''}</div>
-    ${p?.error ? `<div class="small bad">${esc(p.error)}</div>` : ''}
-    ${parcels ? `<div class="otrack small"><span class="muted">${p.direct ? 'To the customer' : 'To warehouse'}</span><div>${parcels}</div></div>` : ''}
-    ${p?.direct ? K.journey(p.track, { seller: true }) : ''}
-    <div class="row oacts">${due && !cfg.taobao_kinan ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${p && !p.manual && (!p.direct || (p.logistics || []).length) ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">${p.direct ? 'Refresh tracking' : 'Refresh'}</button>` : ''}<button class="btn sm quiet" data-msgs="${esc(o.id)}">Messages</button></div>
+    ${parcels}
+    <div class="row oacts">${due && !cfg.taobao_kinan ? `<button class="btn sm" data-pay="${esc(o.id)}">Pay Taobao</button>` : ''}${purchases.some((part) => !part.manual && (!part.direct || (part.logistics || []).length)) ? `<button class="btn sm ghost" data-osync="${esc(o.id)}">${p.direct ? 'Refresh tracking' : 'Refresh'}</button>` : ''}<button class="btn sm quiet" data-msgs="${esc(o.id)}">Messages</button></div>
     ${isCancelled(o) ? `<div class="row"><button type="button" class="btn sm ghost" data-ohide="${esc(o.id)}">Remove from my list</button></div>` : ''}
     <div class="stack" data-mbox="${esc(o.id)}" hidden></div></div></details>`;
 }
 /** Cancelled or refunded for this seller: nothing left to do, so these sit apart and can be removed from the list. */
-function isCancelled(o) { return ['cancelled', 'refunded'].includes(o.status) || /CANCEL/i.test(o.purchase?.status || ''); }
+function isCancelled(o) {
+  const parts = o.purchases || (o.purchase ? [o.purchase] : []);
+  return ['cancelled', 'refunded'].includes(o.status) || (parts.length > 0 && parts.every((part) => /CANCEL/i.test(part.status || '')));
+}
 function wireOrderActions() {
   $$('[data-pay]').forEach((b) => b.onclick = async () => { if (!confirm('Pay this purchase order from your Taobao Distribution account balance?')) return; b.disabled = true; try { await api(`/api/seller/orders/${b.dataset.pay}/pay`, 'POST'); toast('Payment sent to Taobao'); } catch (e) { toast(e.message); } route(); });
   $$('[data-osync]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await api(`/api/seller/orders/${b.dataset.osync}/sync`, 'POST'); toast('Order updated'); } catch (e) { toast(e.message); } route(); });
@@ -845,12 +870,16 @@ function wireOrderActions() {
 }
 async function orders() {
   const v = $('#view'); v.innerHTML = '<div class="skeleton" style="height:240px"></div>';
-  const list = await api('/api/seller/orders');
+  const result = await api(`/api/seller/orders?page=${orderPage}`);
+  orderPage = result.page;
+  const list = result.items;
   const cancelled = list.filter(isCancelled); const active = list.filter((o) => !isCancelled(o));
   v.innerHTML = `<div class="head"><div><h1>Orders</h1><p class="muted">${cfg.taobao_kinan ? 'Kinan orders and pays the supplier for every order and ships it to the customer — nothing to do on your side. ' : shop.taobao?.connected ? `For products imported from Taobao, Kinan creates a purchase order from your account. ${shop.auto_pay ? 'Automatic payment is on.' : 'Pay each one before its deadline.'} Kinan buys AliExpress and manually added products for you.` : 'Kinan buys AliExpress and manually added products for you.'}</p></div></div>
     <section class="panel">${active.map(orderRow).join('') || `<div class="empty"><h3>${cancelled.length ? 'No open orders' : 'No orders yet'}</h3><p>Paid orders for your products appear here.</p></div>`}</section>
     ${cancelled.length ? `<details class="panel ocancelled"><summary><b>Cancelled orders</b> <span class="muted">(${cancelled.length})</span></summary>${cancelled.map(orderRow).join('')}<div class="row" style="padding-top:12px"><button type="button" class="btn sm ghost" id="ohideall">Remove all cancelled from my list</button></div></details>` : ''}
     <p class="muted">Buyer names and addresses stay private. Kinan takes care of delivery to the buyer.</p>`;
+  v.insertAdjacentHTML('beforeend', sellerPager(result));
+  wireSellerPager((page) => { orderPage = page; orders(); });
   wireOrderActions();
   $$('[data-msgs]').forEach((b) => b.onclick = async () => {
     const box = $(`[data-mbox="${b.dataset.msgs}"]`); box.hidden = !box.hidden; if (box.hidden) return;

@@ -113,9 +113,20 @@ test('Seller Terms: needed to open a shop, recorded with the version; older shop
   db.sellers.update(s.id, { terms: { version: '2020-01-01' } });
   const tok = (await api('POST', '/api/auth/login', { email: 'terms2@x.com', password: 'sellerpass', app: 'seller' })).body.token;
   assert.strictEqual((await api('GET', '/api/seller/me', null, tok)).body.terms_ok, false);
+  assert.strictEqual((await api('PATCH', '/api/seller/me', { shop_name: 'Updated' }, tok)).status, 403);
+  assert.strictEqual((await api('POST', '/api/seller/payouts', {}, tok)).status, 403);
+  assert.strictEqual((await api('GET', '/api/seller/dashboard', null, tok)).status, 200);
+
   assert.strictEqual((await api('POST', '/api/seller/terms', {}, tok)).status, 400);
   assert.strictEqual((await api('POST', '/api/seller/terms', { accept: true }, tok)).status, 200);
   assert.strictEqual((await api('GET', '/api/seller/me', null, tok)).body.terms_ok, true);
+  assert.strictEqual((await api('PATCH', '/api/seller/me', { shop_name: 'Updated' }, tok)).status, 200);
+  for (let i = 0; i < 35; i++) db.listings.insert({ seller_id: s.id, status: 'active', title: 'Fixture ' + i, skus: [] });
+  const page2 = await api('GET', '/api/seller/products?page=2&status=active', null, tok);
+  assert.strictEqual(page2.body.total, 35);
+  assert.strictEqual(page2.body.items.length, 5);
+  assert.strictEqual((await api('GET', '/api/seller/dashboard', null, tok)).body.counts.active, 35);
+
   const page = await fetch(`${base}/seller-terms`); const html = await page.text();
   assert.match(html, /Version 2026-11-14/); assert.doesNotMatch(html, /\{\{\w+\}\}/, 'all placeholders filled');
 });
