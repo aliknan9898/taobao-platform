@@ -238,10 +238,19 @@ function libyaTracking(order, event) {
   const key = 'ly-track:' + order.id + ':' + event.key;
   const body = 'KINAN order ' + ref(order);
   const arabicBody = 'طلب KINAN ' + ref(order);
-  push.toUser(order.buyer_id, { title: event.en, body, url: path, tag: key, ar: { title: event.ar, body: arabicBody } });
-  fire(mailer.send({ to: emailOf(order.buyer_id), key, kind: 'order',
-    subject: event.en + ' — ' + body, title: event.en, lines: [body],
-    ar: { subject: event.ar + ' — ' + arabicBody, title: event.ar, lines: [arabicBody], button: { text: 'تتبع طلبك', url: base() + path } },
+  const advice = event.stage === 'delivery_attempted' ? ACTION[13] : [];
+  const tracking = (order.deliveries || []).filter((parcel) => parcel.tracking);
+  const summary = { ...order, lines: (order.lines || []).map((line) => ({ ...line, price: line.price_lyd })),
+    shipping_fee: order.totals?.delivery_lyd, total: order.totals?.total_lyd };
+  const details = (ar) => [
+    ...advice.slice(ar ? 1 : 0, ar ? 2 : 1),
+    ...tracking.map((parcel) => `${ar ? 'رقم التتبع' : 'Tracking'}: ${parcel.tracking}`),
+    ...shippingDetails(summary, ar)
+  ];
+  push.toUser(order.buyer_id, { title: event.en, body: advice[0] || body, url: path, tag: key, ar: { title: event.ar, body: advice[1] || arabicBody } });
+  fire(mailer.send({ to: emailOf(order.buyer_id), key, kind: 'order', shipping: true,
+    subject: event.en + ' — ' + body, title: event.en, lines: details(false),
+    ar: { subject: event.ar + ' — ' + arabicBody, title: event.ar, lines: details(true), button: { text: 'تتبع طلبك', url: base() + path } },
     button: { text: 'Track your order', url: base() + path } }));
 }
 
