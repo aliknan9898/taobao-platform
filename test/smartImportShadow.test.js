@@ -45,8 +45,13 @@ test('CJ shadow resumes a persisted checkpoint, deduplicates across batches and 
   await shadow.run('cj', { id, action: 'resume' });
   const result = await shadow.run('cj', { id, action: 'step', cursor: 25 });
   assert.equal(result.state, 'completed');
-  assert.deepEqual(result.counts, { review: 1, rejected: 0, eligible: 0, duplicates: 25, missing: 0 });
+  assert.deepEqual(result.counts, { review: 1, rejected: 0, eligible: 0, duplicates: 25, missing: 0, reused: 0 });
   assert.deepEqual(result.usage, { supplierRequests: 0, supplierPoints: 0, externalAITokens: 0 });
+  const followup = id + '-repeat';
+  await shadow.run('cj', { id: followup, action: 'enqueue' });
+  const reused = await shadow.run('cj', { id: followup, action: 'step', cursor: 0 });
+  assert.equal(reused.counts.reused, 1);
+  assert.equal(reused.counts.review, 1);
   assert.equal(fetch.mock.callCount(), 0);
   assert.equal(db.listings.peek().length, 27);
   assert.equal((await shadow.run('aliexpress', { id, action: 'enqueue' })).total, 1);

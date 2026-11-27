@@ -1,5 +1,6 @@
 'use strict';
 
+const { createHash } = require('node:crypto');
 const db = require('../db');
 const { httpError } = require('../auth');
 const { SUPPLIERS, listingSource, review } = require('./smartImportPolicy');
@@ -125,7 +126,7 @@ function run(source, input) {
       if (job && job.state !== 'completed') throw httpError(409, 'Supplier already has a shadow job');
       const ids = supplier.discover();
       return { id: input.id, state: ids.length ? 'queued' : 'completed', cursor: 0, ids,
-        policy: settings.get(source), seen: [], counts: { review: 0, rejected: 0, eligible: 0, duplicates: 0, missing: 0 },
+        policy: settings.get(source), seen: [], history: job?.history || [], counts: { review: 0, rejected: 0, eligible: 0, duplicates: 0, missing: 0, reused: 0 },
         usage: supplier.usage(), updatedAt: Date.now() };
     }
     if (job?.id !== input.id) throw httpError(404, 'Shadow job not found');
@@ -134,6 +135,8 @@ function run(source, input) {
     if (input.action === 'resume') return { ...job, state: 'queued', updatedAt: Date.now() };
     if (job.state === 'paused' || input.cursor !== job.cursor) return job;
     const seen = new Set(job.seen);
+    const history = new Map(job.history || []);
+    job.counts.reused ??= 0;
     const ids = job.ids.slice(job.cursor, job.cursor + BATCH);
     for (const id of ids) {
       const listing = supplier.fetchDetails(id);
@@ -141,8 +144,22 @@ function run(source, input) {
       const item = supplier.normalize(listing);
       if (item.externalId && seen.has(item.externalId)) { job.counts.duplicates++; continue; }
       if (item.externalId) seen.add(item.externalId);
-      job.counts[review(item, job.policy).status]++;
+      const key = item.externalId ? 'supplier:' + item.externalId : 'listing:' + item.id;
+      const fingerprint = createHash('sha256').update(JSON.stringify([
+        item.title, item.sales, item.images, job.policy
+      ])).digest('hex');
+      const old = history.get(key);
+      if (old?.fingerprint === fingerprint && old.until > Date.now()) {
+        job.counts.reused++;
+        job.counts[old.status]++;
+        continue;
+      }
+      const { status } = review(item, job.policy);
+      history.delete(key);
+      history.set(key, { fingerprint, status, until: Date.now() + 24 * 3600e3 });
+      job.counts[status]++;
     }
+    job.history = [...history].slice(-MAX_RECORDS);
     job.seen = [...seen];
     job.cursor += ids.length;
     job.state = job.cursor === job.ids.length ? 'completed' : 'queued';
@@ -151,4 +168,4 @@ function run(source, input) {
   }).then(summary);
 }
 
-module.exports = { adapter, get, run };
+module.exports = { adapter, get, run, transact };
