@@ -47,20 +47,17 @@ function block({ title, lines = [], button, highlight, products }, rtl) {
   ${button ? `<p style="margin:18px 0 6px"><a href="${esc(button.url)}" style="display:inline-block;background:#0e7c66;color:#fff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:12px;font-size:15px">${esc(button.text)}</a></p>` : ''}
   </div>`;
 }
-function layout({ title, lines = [], button, highlight, ar, app, products, shipping }) {
+function layout({ title, lines = [], button, highlight, ar, app, products }) {
   const site = config.publicBaseUrl || '';
   const logo = /^https:\/\//.test(site) ? `${site}/assets/${app === 'seller' ? 'icon-seller-192.png' : 'icon-192.png'}` : '';
   const label = app === 'seller' ? 'Seller Center' : 'Shop';
   const head = `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 18px"><tr>
     ${logo ? `<td style="padding-right:10px;vertical-align:middle"><img src="${esc(logo)}" width="44" height="44" alt="Kinan" style="display:block;border-radius:12px;border:0"></td>` : ''}
     <td style="vertical-align:middle"><div style="font-weight:800;font-size:24px;color:#141b3a;letter-spacing:-.3px;line-height:1">KINAN</div><div style="font-size:12px;color:#0e7c66;font-weight:600;margin-top:2px">${label}</div></td></tr></table>`;
-  const banner = shipping && /^https:\/\//.test(site)
-    ? `<img src="${esc(site.replace(/\/$/, '') + '/assets/kinan-delivery-van.jpg')}" width="510" alt="KINAN delivery van" style="display:block;width:100%;height:auto;border-radius:12px;margin:0 0 18px">`
-    : '';
   const en = block({ title, lines, button, highlight, products }, /[\u0600-\u06FF]/.test(String(title)));
   const body = ar ? `${block({ highlight, products, ...ar }, true)}<hr style="border:0;border-top:1px solid #e1e5ee;margin:22px 0">${en}` : en;
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f4f6f9;font-family:Segoe UI,Tahoma,Arial,sans-serif;color:#141b3a">
-  <div style="max-width:560px;margin:0 auto;padding:24px 14px">${head}<div style="background:#fff;border:1px solid #e1e5ee;border-radius:16px;padding:26px 22px">${banner}${body}</div>
+  <div style="max-width:560px;margin:0 auto;padding:24px 14px">${head}<div style="background:#fff;border:1px solid #e1e5ee;border-radius:16px;padding:26px 22px">${body}</div>
   <p style="font-size:12px;color:#6b7290;text-align:center;margin-top:16px;line-height:1.6">${site ? `<a href="${esc(site)}" style="color:#0e7c66;text-decoration:none;font-weight:600">${esc(site.replace(/^https?:\/\//, ''))}</a><br>` : ''}${esc(config.operator.tradingName)} · ${esc(config.operator.name)}</p></div></body></html>`;
   // Brand colours: emerald for customers, violet for sellers (the logo comes from the app icons)
   const accent = app === 'seller' ? '#4b319b' : '#036747'; const soft = app === 'seller' ? '#f1edfc' : '#e8f3ec';
@@ -71,7 +68,7 @@ function layout({ title, lines = [], button, highlight, ar, app, products, shipp
 /** The recipient's language: what their app was set to (phone language or their choice). Unknown → both languages. */
 function langOf(to) { const u = db.users.find((x) => x.email === String(to).toLowerCase()); return u?.lang === 'ar' || u?.lang === 'en' ? u.lang : null; }
 
-async function send({ to, subject, title, lines, button, key, kind = 'general', attachments, ar, highlight, app, lang, products, shipping = false }) {
+async function send({ to, subject, title, lines, button, key, kind = 'general', attachments, ar, highlight, app, lang, products }) {
   if (!to || /\.invalid$/i.test(String(to).trim())) return null; // no address, or a deleted account's placeholder
   // Arabic readers get only the Arabic version, English readers only the English one
   const l = lang || langOf(to);
@@ -86,7 +83,7 @@ async function send({ to, subject, title, lines, button, key, kind = 'general', 
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST', signal: AbortSignal.timeout(15000),
       headers: { 'api-key': config.mail.brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ sender: sender(), ...(config.mail.replyTo ? { replyTo: { email: config.mail.replyTo } } : {}), to: [{ email: to }], ...(attachments ? { attachment: attachments } : {}), subject, htmlContent: layout({ title: title || subject, lines, button, ar, highlight, products, shipping, app: app || (kind === 'seller' ? 'seller' : 'shop') }) })
+      body: JSON.stringify({ sender: sender(), ...(config.mail.replyTo ? { replyTo: { email: config.mail.replyTo } } : {}), to: [{ email: to }], ...(attachments ? { attachment: attachments } : {}), subject, htmlContent: layout({ title: title || subject, lines, button, ar, highlight, products, app: app || (kind === 'seller' ? 'seller' : 'shop') }) })
     });
     if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
     return db.mail.update(rec.id, { status: 'sent', sent_at: Date.now() });

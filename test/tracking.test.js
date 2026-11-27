@@ -116,19 +116,19 @@ test('warehouse parcel sends email and push for each new delivery event, with pi
   const messages = notifyMail.mock.calls.map((call) => call.arguments[0]);
   assert.deepStrictEqual(messages.map((message) => message.key.split(':').pop()), ['10', '13', '11']);
   assert.strictEqual(push.mock.callCount(), 3);
-  assert.ok(messages.every((message) => message.shipping && message.lines.some((line) => line.includes('Cap'))));
+  assert.ok(messages.every((message) => message.lines.some((line) => line.includes('Cap'))));
   assert.match(messages[2].ar.lines.join(' '), /قبل المهلة.*يعيده الناقل/);
 });
 
-test('shipping mail renders the van in the outgoing email', async (t) => {
+test('shipping email keeps order details without the van', async (t) => {
   const { config } = require('../src/config');
   const before = [config.publicBaseUrl, config.mail.brevoKey, config.mail.from];
   t.after(() => { [config.publicBaseUrl, config.mail.brevoKey, config.mail.from] = before; });
   [config.publicBaseUrl, config.mail.brevoKey, config.mail.from] = ['https://kinan.test', 'mock-key', 'noreply@kinan.test'];
   const transport = t.mock.method(global, 'fetch', async () => ({ ok: true }));
-  const response = await require('../src/mailer').send({ to: 'shipping@x.test', subject: 'Fixture', shipping: true, lines: ['Order details'] });
+  const response = await require('../src/mailer').send({ to: 'shipping@x.test', subject: 'Fixture', lines: ['Order details'] });
   assert.strictEqual(response.status, 'sent');
   const payload = JSON.parse(transport.mock.calls[0].arguments[1].body);
-  assert.match(payload.htmlContent, /https:\/\/kinan.test\/assets\/kinan-delivery-van.jpg/);
+  assert.doesNotMatch(payload.htmlContent, /kinan-delivery-van/);
   assert.match(payload.htmlContent, /Order details/);
 });

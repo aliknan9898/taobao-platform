@@ -51,7 +51,7 @@ function shippingDetails(o, ar = false) {
 function orderShipped(o, tracking = []) {
   const t = tracking.filter((x) => x && x.number);
   push.toUser(o.buyer_id, { title: 'Your order is on its way', body: `Order ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}`, url: `/#/orders/${o.id}`, tag: `o-${o.id}`, ar: { title: 'طلبك في الطريق إليك 🚚', body: `الطلب ${ref(o)}${t[0] ? ` · ${t[0].carrier || ''} ${t[0].number}` : ''}` } });
-  fire(mailer.send({ to: emailOf(o.buyer_id), key: `shipped:${o.id}:${t.map((x) => x.number).join(',')}`, kind: 'order', shipping: true, subject: `Order ${ref(o)} is on its way`, title: 'Your order has shipped',
+  fire(mailer.send({ to: emailOf(o.buyer_id), key: `shipped:${o.id}:${t.map((x) => x.number).join(',')}`, kind: 'order', subject: `Order ${ref(o)} is on its way`, title: 'Your order has shipped',
     lines: [...shippingDetails(o), ...t.map((x) => `Tracking: ${x.carrier ? `${x.carrier} ` : ''}${x.number} — ${require('./services/couriers').trackingUrl(x.carrier, x.number)}`), 'You can follow every step in your Kinan orders.'],
     ar: { subject: `طلبك ${ref(o)} في الطريق 🚚`, title: 'تم شحن طلبك', lines: [...shippingDetails(o, true), ...t.map((x) => `رقم التتبع: ${x.carrier ? `${x.carrier} ` : ''}${x.number} — ${require('./services/couriers').trackingUrl(x.carrier, x.number)}`), 'يمكنك متابعة كل خطوة من صفحة طلباتك في كنان.'], button: { text: 'تتبّع طلبك', url: `${base()}/#/orders/${o.id}` } },
     button: { text: 'Track your order', url: `${base()}/#/orders/${o.id}` } }));
@@ -59,7 +59,7 @@ function orderShipped(o, tracking = []) {
 
 function orderDelivered(o) {
   push.toUser(o.buyer_id, { title: 'Delivered', body: `Order ${ref(o)} was delivered. Tell us what you think!`, url: `/#/orders/${o.id}`, tag: `o-${o.id}`, ar: { title: 'تم التسليم 📦', body: `وصل طلبك ${ref(o)}. أخبرنا برأيك!` } });
-  fire(mailer.send({ to: emailOf(o.buyer_id), key: `delivered:${o.id}`, kind: 'order', shipping: true, subject: `Order ${ref(o)} delivered`, title: 'Your order was delivered',
+  fire(mailer.send({ to: emailOf(o.buyer_id), key: `delivered:${o.id}`, kind: 'order', subject: `Order ${ref(o)} delivered`, title: 'Your order was delivered',
     lines: [...shippingDetails(o), 'We hope you love it. If something is wrong, you can request a return from your order page.'], button: { text: 'View order', url: `${base()}/#/orders/${o.id}` },
     ar: { subject: `تم تسليم طلبك ${ref(o)} 📦`, title: 'وصل طلبك', lines: [...shippingDetails(o, true), 'نتمنى أن ينال إعجابك. إذا كانت هناك مشكلة يمكنك طلب إرجاع من صفحة الطلب.'], button: { text: 'عرض الطلب', url: `${base()}/#/orders/${o.id}` } } }));
 }
@@ -111,14 +111,14 @@ function trackingStage(o, sub, code, event) {
   const url = `/#/orders/${o.id}`;
   push.toUser(o.buyer_id, { title: st[0], body: instructions[0] || `Order ${ref(o)}`, url, tag: key,
     ar: { title: st[1], body: instructions[1] || `الطلب ${ref(o)}` } });
-  fire(mailer.send({ to: emailOf(o.buyer_id), key, kind: 'order', shipping: true, subject: `${st[0]} — order ${ref(o)}`, title: st[0],
+  fire(mailer.send({ to: emailOf(o.buyer_id), key, kind: 'order', subject: `${st[0]} — order ${ref(o)}`, title: st[0],
     lines: details(false), button: { text: 'Track your order', url: base() + url },
     ar: { subject: `${st[1]} — الطلب ${ref(o)}`, title: st[1], lines: details(true), button: { text: 'تتبّع طلبك', url: base() + url } } }));
 }
 
 function qcPhotos(o) {
   push.toUser(o.buyer_id, { title: 'Photos of your items are ready', body: `Order ${ref(o)} — check them before we ship`, url: `/#/orders/${o.id}`, tag: `qc-${o.id}`, ar: { title: 'صور منتجاتك جاهزة 📸', body: `الطلب ${ref(o)} — راجعها قبل أن نشحن` } });
-  fire(mailer.send({ to: emailOf(o.buyer_id), key: `qc:${o.id}:${(o.qc_photos || []).length}`, kind: 'order', shipping: true, subject: `Photos of your order ${ref(o)} are ready`, title: 'Your items arrived at our warehouse',
+  fire(mailer.send({ to: emailOf(o.buyer_id), key: `qc:${o.id}:${(o.qc_photos || []).length}`, kind: 'order', subject: `Photos of your order ${ref(o)} are ready`, title: 'Your items arrived at our warehouse',
     lines: [...shippingDetails(o), 'We checked your items and took photos. Have a look and tell us if everything is right before we ship.'],
     ar: { subject: `صور طلبك ${ref(o)} جاهزة 📸`, title: 'وصلت منتجاتك إلى مستودعنا', lines: [...shippingDetails(o, true), 'فحصنا منتجاتك والتقطنا لها صوراً. ألقِ نظرة وأخبرنا إن كان كل شيء صحيحاً قبل الشحن.'], button: { text: 'شاهد الصور', url: `${base()}/#/orders/${o.id}` } },
     button: { text: 'See the photos', url: `${base()}/#/orders/${o.id}` } }));
@@ -248,7 +248,7 @@ function libyaTracking(order, event) {
     ...shippingDetails(summary, ar)
   ];
   push.toUser(order.buyer_id, { title: event.en, body: advice[0] || body, url: path, tag: key, ar: { title: event.ar, body: advice[1] || arabicBody } });
-  fire(mailer.send({ to: emailOf(order.buyer_id), key, kind: 'order', shipping: true,
+  fire(mailer.send({ to: emailOf(order.buyer_id), key, kind: 'order',
     subject: event.en + ' — ' + body, title: event.en, lines: details(false),
     ar: { subject: event.ar + ' — ' + arabicBody, title: event.ar, lines: details(true), button: { text: 'تتبع طلبك', url: base() + path } },
     button: { text: 'Track your order', url: base() + path } }));
