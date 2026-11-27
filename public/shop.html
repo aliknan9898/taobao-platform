@@ -887,6 +887,10 @@ async function trackPage(refArg) {
     finally { go.disabled = false; go.textContent = KinanLang.t('Track order'); }
   };
 }
+function shippingVan() {
+  return '<img src="/assets/kinan-delivery-van.jpg" alt="KINAN" width="760" loading="lazy" style="display:block;width:100%;max-width:420px;height:auto;border-radius:14px">';
+}
+
 function trackResult(t) {
   const cls = ['delivered'].includes(t.status) ? 'ok' : ['attention', 'cancelled', 'refunded'].includes(t.status) ? 'bad' : 'warn';
   const parcel = (p) => `<div class="panel stack" style="gap:6px"><div class="row between"><b>${esc(KinanLang.t(p.label))}</b><span class="muted small">${p.items} ${esc(KinanLang.t(p.items === 1 ? 'item' : 'items'))}</span></div>
@@ -897,6 +901,7 @@ function trackResult(t) {
       <p class="muted small">${esc(KinanLang.t('Placed'))} ${date(t.placed_at)} · ${t.items} ${esc(KinanLang.t(t.items === 1 ? 'item' : 'items'))}</p>
       <div class="nextstep"><div><b>${esc(KinanLang.t('What happens next'))}</b><div class="small">${esc(KinanLang.t(t.next))}</div></div></div>
       <ul class="small" style="margin:0;padding-inline-start:18px">${t.lines.map((l) => `<li dir="auto">${esc(l.title)} × ${l.qty}</li>`).join('')}</ul></div>
+    ${shippingVan()}
     ${t.parcels.map(parcel).join('') || `<p class="muted small">${esc(KinanLang.t('No parcel has left yet.'))}</p>`}
     ${t.timeline.length ? `<details class="panel"><summary><b>${esc(KinanLang.t('Order history'))}</b></summary><ul class="jrny-ev">${t.timeline.slice().reverse().map((x) => `<li><b>${esc(KinanLang.t(x.event))}</b><small>${date(x.at)}</small></li>`).join('')}</ul></details>` : ''}
   </section>`;
@@ -1751,7 +1756,7 @@ async function ordersList() {
   const v = $('#view'); v.innerHTML = '<div class="pagehead"><h1>Your orders</h1></div><div class="skeleton" style="height:160px"></div>';
   const [list, ly] = await Promise.all([api('/api/buyer/orders'), api('/api/ly/orders').catch(() => [])]);
   const LY_STATUS = { pending_confirmation: ['بانتظار التأكيد', 'Awaiting confirmation'], confirmed: ['تم التأكيد', 'Confirmed'], packed: ['تم التجهيز', 'Packed'], dispatched: ['في الطريق', 'On its way'], delivery_attempted: ['محاولة توصيل', 'Delivery attempted'], rescheduled: ['أعيدت جدولة التوصيل', 'Rescheduled'], delivered: ['تم التسليم', 'Delivered'], refused: ['رُفض الاستلام', 'Refused'], returned_to_sender: ['أعيد للمرسل', 'Returned to sender'], cancelled: ['أُلغي', 'Cancelled'], returned: ['مُرتجع', 'Returned'] };
-  const lyHtml = ly.length ? `<h2 style="margin:18px 0 8px" data-no-tr>${esc(cs('lyOrders'))}</h2><div class="panel" data-no-tr>${ly.map((o) => `<div class="orderrow"><div><b>${esc(o.id.slice(-8).toUpperCase())}</b><div class="muted">${date(o.created_at, false)} · ${esc(o.recipient.city || '')} · ${o.lines.reduce((a, l) => a + l.qty, 0)}</div>${(o.tracking_history || []).map((event) => `<div class="small">${esc(KinanLang.lang === 'ar' ? event.ar : event.en)} · ${date(event.at, false)}</div>`).join('')}${o.deliveries.map((d) => `<div class="small">${esc(KinanLang.lang === 'ar' ? d.label.ar : d.label.en)}${d.tracking ? ` · ${esc(d.tracking)}` : ''}</div>`).join('')}</div>
+  const lyHtml = ly.length ? `${shippingVan()}<h2 style="margin:18px 0 8px" data-no-tr>${esc(cs('lyOrders'))}</h2><div class="panel" data-no-tr>${ly.map((o) => `<div class="orderrow"><div><b>${esc(o.id.slice(-8).toUpperCase())}</b><div class="muted">${date(o.created_at, false)} · ${esc(o.recipient.city || '')} · ${o.lines.reduce((a, l) => a + l.qty, 0)}</div>${(o.tracking_history || []).map((event) => `<div class="small">${esc(KinanLang.lang === 'ar' ? event.ar : event.en)} · ${date(event.at, false)}</div>`).join('')}${o.deliveries.map((d) => `<div class="small">${esc(KinanLang.lang === 'ar' ? d.label.ar : d.label.en)}${d.tracking ? ` · ${esc(d.tracking)}` : ''}</div>`).join('')}</div>
       <div style="text-align:end"><b>${money(o.totals.total_lyd, 'LYD')}</b><div>${pill((LY_STATUS[o.delivery_status] || [o.delivery_status, o.delivery_status])[KinanLang.lang === 'ar' ? 0 : 1], '')}</div><div class="small muted">${esc(o.payment.method === 'cod' ? cs('lyCod') : '')}</div></div></div>`).join('')}</div>` : '';
   v.innerHTML = `<div class="pagehead"><h1>Your orders</h1></div>${lyHtml}${list.length ? `<div class="panel">${list.map((o) => {
     const [label, cls] = ORDER_STATUS[o.status] || [o.status_label, ''];
@@ -1814,6 +1819,7 @@ async function orderDetail(id) {
     <div class="two"><div class="stack-lg">
       ${o.status === 'pending_payment' ? `<div class="panel row between"><span>This order is waiting for payment.</span><a class="btn" href="#/pay/${esc(o.id)}">Pay now</a></div>` : ''}
       <div id="ordpush"></div>
+      ${!ended && o.status !== 'pending_payment' ? shippingVan() : ''}
       ${(() => { const per = cfg?.points?.per_unit || 0; const pts = Math.floor(Math.max(0, (o.subtotal || 0) - (o.discount || 0)) * per); if (!per || !pts || ['pending_payment', 'cancelled', 'refunded'].includes(o.status)) return ''; return o.status === 'delivered' ? `<div class="panel row"><span>★ ${KinanLang.t('This order earned you')} <b>${pts.toLocaleString()}</b> ${KinanLang.t('Kinan points')}</span><a class="btn ghost sm" href="#/points">${KinanLang.t('Your points')}</a></div>` : `<div class="panel row"><span>⏳ ${KinanLang.t('You will earn')} <b>${pts.toLocaleString()}</b> ${KinanLang.t('Kinan points when this order is delivered')}</span></div>`; })()}
       ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Separate parcel'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
         <div class="muted small">${d.items.map(esc).join(' · ')}</div>
@@ -1825,7 +1831,7 @@ async function orderDetail(id) {
         ${o.qc.review === 'problem' ? `<p class="small">Thanks — Kinan support will contact you before we ship.${o.qc.note ? ` <span class="muted">“${esc(o.qc.note)}”</span>` : ''}</p>` : ''}</div>` : ''}
       ${o.shipping_due ? `<div class="panel row between warn"><span>Your parcel weighed more than estimated. Extra shipping: <b>${money(o.shipping_due, o.currency)}</b></span><button class="btn sm" id="paydue">Pay from wallet</button></div>` : ''}
       ${o.shipping_settled?.result === 'credited' ? `<div class="panel flat small">Your parcel weighed ${o.shipping_settled.actual_weight_kg} kg, less than estimated — we added ${money(-o.shipping_settled.diff, o.currency)} to your <a href="#/wallet">wallet</a>.</div>` : ''}
-      ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div class="row between"><span><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></span>${o.tracking.url ? `<a class="btn sm" href="${esc(o.tracking.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div></div>` : ''}
+      ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div class="row between"><span><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></span>${o.tracking.url ? `<a class="btn sm" href="${esc(o.tracking.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div>${trackSteps(o.tracking.track)}</div>` : ''}
       <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `${K.img(l.image, 120, 'alt=""')}` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
     </div>
     <aside class="stack">

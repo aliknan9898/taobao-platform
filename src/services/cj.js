@@ -527,6 +527,7 @@ function handleWebhook(msg) {
     const sub = { ...hit.sub };
     if (t === 'ORDER') applyOrder(sub, p);
     let stage = null;
+    let notices = [];
     if (t !== 'ORDER') {
       const tn = p.trackingNumber || p.trackNumber;
       if (tn) sub.logistics = [{ carrier: p.trackingProvider || p.logisticName || 'CJ', tracking: String(tn), url: p.trackingUrl || null, method: p.logisticName || null }];
@@ -540,12 +541,16 @@ function handleWebhook(msg) {
       if (Number.isFinite(code) || events.length) {
         sub.track = { status: Number.isFinite(code) ? code : before, events: events.length ? events : (sub.track?.events || []), at: now() };
         if (Number.isFinite(code) && code !== before && code > 0) stage = code;
+        notices = require('./tracking').transitions(hit.sub.track, events, stage);
+        if (stage && !notices.some((notice) => notice.code === stage)) {
+          notices.push({ code: stage, event: events.find((event) => event.code === stage) });
+        }
       }
     }
     db.orders.update(hit.order.id, (x) => ({ ...x, sub_orders: x.sub_orders.map((s) => (s.outer_purchase_id === sub.outer_purchase_id ? sub : s)) }));
     orders.recompute(hit.order.id);
     // A new stage (arrived in the country, customs, out for delivery…): tell the customer
-    if (stage) { try { require('../notify').trackingStage(db.orders.get(hit.order.id), sub, stage); } catch (e) { console.warn('[cj] tracking notice', e.message); } }
+    for (const notice of notices) { try { require('../notify').trackingStage(db.orders.get(hit.order.id), sub, notice.code, notice.event); } catch (e) { console.warn('[cj] tracking notice', e.message); } }
     return { order: hit.order.id, status: sub.status, ...(stage ? { stage } : {}) };
   }
   if (t === 'PRODUCT' || t === 'VARIANT') {

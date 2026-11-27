@@ -696,7 +696,7 @@ function buyerViewBase(o) {
     lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image: require('./media').hosted(image), listing_id, direct: Boolean(direct) })),
     shipping_address: o.shipping_address,
     payment: { provider: o.payment?.provider, client_secret: o.status === 'pending_payment' ? o.payment?.client_secret : undefined },
-    tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, url: shipment.url || require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,
+    tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, track: shipment.track ? { stage: shipment.track.status, events: shipment.track.events } : null, url: shipment.url || require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,
     // AliExpress parts travel separately, straight to the customer
     direct: (o.sub_orders || []).filter((s) => s.direct).map((s) => ({
       // `status` keeps the stored code for the website; apps read the neutral `state` (ordering, preparing, shipped, delivered, review)

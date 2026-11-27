@@ -297,7 +297,11 @@ const K = (() => {
       var cls = on ? (i === at && i < JOURNEY.length - 1 ? 'on now' : 'on') : '';
       return '<div class="' + cls + '"' + (on ? ' style="--d:' + (Math.max(0, i - 1) * 0.5) + 's"' : '') + '><i></i><span>' + esc(tr(label)) + '</span></div>';
     }).join('') + '</div>';
-    var bad = failed ? '<div class="jrny-bad">⚠️ ' + esc(tr(stage === 14 ? 'Not delivered — going back' : 'Not delivered')) + '</div>' : '';
+    var advice = {11: ['Available for pickup', 'Collect the parcel from the office shown in the carrier notice before its deadline. Uncollected parcels may be returned to the sender.'],
+      13: ['Not delivered', 'Check the carrier notice for redelivery or pickup. If pickup is confirmed, collect your parcel before the stated deadline to avoid return.'],
+      90: ['Local carrier handoff delayed', 'Your parcel is awaiting handoff to the local carrier. Follow tracking for the next update.']};
+    var note = advice[stage];
+    var bad = note ? '<div class="jrny-bad">' + esc(tr(note[0])) + '</div><p class="small">' + esc(tr(note[1])) + '</p>' : failed ? '<div class="jrny-bad">⚠️ ' + esc(tr(stage === 14 ? 'Not delivered — going back' : 'Not delivered')) + '</div>' : '';
     var ev = t.events || [];
     var row = function (e) { return '<li><b>' + esc(e.text) + '</b>' + (e.place ? ' · ' + esc(e.place) : '') + '<small>' + esc(e.at || '') + '</small></li>'; };
     var list = ev.length ? '<ul class="jrny-ev">' + ev.slice(0, 3).map(row).join('') + '</ul>' + (ev.length > 3 ? '<details><summary class="small">' + esc(tr('All updates')) + ' (' + ev.length + ')</summary><ul class="jrny-ev">' + ev.slice(3).map(row).join('') + '</ul></details>' : '') : '';
