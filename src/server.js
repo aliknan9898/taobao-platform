@@ -980,6 +980,9 @@ const smartImportBody = (req) => {
   return readJson(req);
 };
 r('GET', '/api/admin/smart-import', ADMIN, async () => smartImport.list());
+const smartImportShadow = require('./services/smartImportShadow');
+r('GET', '/api/admin/smart-import/:source/shadow', ADMIN, async ({ params }) => smartImportShadow.get(params.source));
+r('POST', '/api/admin/smart-import/:source/shadow', ADMIN, async ({ req, params }) => smartImportShadow.run(params.source, await smartImportBody(req)));
 r('GET', '/api/admin/smart-import/:source/products', ADMIN, async ({ params, url }) => smartImport.products(params.source, url.searchParams));
 r('PUT', '/api/admin/smart-import/:source', ADMIN, async ({ req, params }) => smartImport.save(params.source, await smartImportBody(req)));
 r('POST', '/api/admin/smart-import/:source/review', ADMIN, async ({ req, params }) => smartImport.evaluate(params.source, await smartImportBody(req)));

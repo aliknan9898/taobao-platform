@@ -111,3 +111,13 @@ test('publication guard covers legacy inserts, stock recovery, and policy-held w
     assert.equal(db.listings.get(legacy.id).status, 'active');
   } finally { delete process.env.SMART_IMPORT_V2_ENABLED; }
 });
+
+test('shadow API requires admin access and keeps execution off by default', async () => {
+  const body = { id: 'shadow-test-01', action: 'enqueue' };
+  assert.equal((await request('/cj/shadow', { token: seller })).status, 403);
+  assert.equal((await request('/cj/shadow', { method: 'POST', body })).status, 403);
+  assert.equal((await request('/bad/shadow')).status, 404);
+  const { data } = await request('/cj/shadow');
+  assert.equal(data.liveDiscovery, false);
+  assert.equal(data.job, null);
+});

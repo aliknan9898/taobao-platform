@@ -1660,6 +1660,7 @@ async function smartImportSupplier(v, source) {
     '<label>Maximum shipping days <input name="maxShippingDays" type="number" min="1" max="90" required></label> ' +
     '<label>Minimum net margin (%) <input name="marginPercent" type="number" min="0" max="100" step="any" required></label> ' +
     '<button class="btn">Save policy</button> <output aria-live="polite"></output></form></div>' +
+    '<div class="card" data-shadow><h2>Shadow import</h2><p data-shadow-status role="status"></p><div data-shadow-controls></div></div>' +
     '<div class="card"><h2>Supplier products</h2><form data-filters><label>Search <input type="search" name="q" maxlength="100" placeholder="Title or listing ID"></label> ' +
     '<label>Status <select name="status"><option value="">All</option><option value="active">Published</option><option value="pending_review">Pending review</option>' +
     '<option value="rejected">Rejected</option><option value="paused">Paused</option><option value="unavailable">Unavailable</option>' +
@@ -1734,7 +1735,52 @@ async function smartImportSupplier(v, source) {
     query = new URLSearchParams(new FormData(filters));
     load(1);
   };
-  await load(1);
+  await Promise.all([load(1), smartImportShadow(v, base)]);
+}
+
+async function smartImportShadow(v, base) {
+  const status = v.querySelector('[data-shadow-status]');
+  const controls = v.querySelector('[data-shadow-controls]');
+  const route = base + '/shadow';
+  try {
+    const info = await api(route);
+    if (!info.enabled) {
+      status.textContent = 'Shadow import is off.';
+      return;
+    }
+    let job = info.job;
+    function renderJob() {
+      status.textContent = job
+        ? job.state + ' · ' + job.processed + '/' + job.total + ' · ' +
+          Object.entries(job.counts).map(([key, count]) => key + ': ' + count).join(' · ') +
+          ' · Supplier requests: ' + job.usage.supplierRequests
+        : 'Ready to review local catalogue records.';
+      const actions = !job || job.state === 'completed' ? [['enqueue', 'Start dry run']]
+        : job.state === 'paused' ? [['resume', 'Resume']] : [['step', 'Review next batch'], ['pause', 'Pause']];
+      controls.replaceChildren();
+      for (const [action, label] of actions) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn ghost';
+        button.textContent = label;
+        button.onclick = async () => {
+          for (const control of controls.children) control.disabled = true;
+          try {
+            job = await api(route, 'POST', {
+              id: action === 'enqueue' ? crypto.randomUUID() : job.id, action,
+              ...(action === 'step' ? { cursor: job.processed } : {})
+            });
+            renderJob();
+          } catch (error) {
+            status.textContent = error.message;
+            for (const control of controls.children) control.disabled = false;
+          }
+        };
+        controls.append(button);
+      }
+    }
+    renderJob();
+  } catch (error) { status.textContent = error.message; }
 }
 
 for (const id of smartImportTabs) {
