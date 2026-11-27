@@ -127,6 +127,7 @@ const id = (prefix) => `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
 const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
 
 function collection(name, prefix) {
+  const guard = name === 'listings' ? require('./services/smartImportPolicy').gateListing : (doc) => doc;
   return {
     all: (pred) => clone(pred ? load(name).filter(pred) : load(name)),
     /** Like all(), without copying: the live documents. READ ONLY — never modify what this returns (hot read paths only). */
@@ -135,14 +136,15 @@ function collection(name, prefix) {
     find: (pred) => clone(load(name).find(pred)),
     insert(doc) {
       const d = { id: doc.id || id(prefix), created_at: Date.now(), updated_at: Date.now(), ...doc };
-      load(name).push(d); persist(name, d.id); return clone(d);
+      const next = guard(d);
+      load(name).push(next); persist(name, next.id); return clone(next);
     },
     update(key, patch) {
       const list = load(name);
       const i = list.findIndex((d) => d.id === key);
       if (i < 0) return null;
       const next = typeof patch === 'function' ? patch(clone(list[i])) : { ...list[i], ...patch };
-      list[i] = { ...next, id: list[i].id, updated_at: Date.now() };
+      list[i] = { ...guard(next, list[i]), id: list[i].id, updated_at: Date.now() };
       persist(name, list[i].id); return clone(list[i]);
     },
     remove(key) {

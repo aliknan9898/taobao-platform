@@ -434,6 +434,10 @@ function approve(listingId, adminUser) {
   const l = db.listings.get(listingId);
   if (!l) throw httpError(404, 'Product not found');
   if (l.status !== 'pending_review' && l.review?.state !== 'rejected') throw httpError(409, 'Product is not awaiting review');
+  const { gateEnabled, listingSource, SUPPLIERS } = require('./smartImportPolicy');
+  if (gateEnabled() && SUPPLIERS.includes(listingSource(l))) {
+    throw httpError(409, 'Smart Import V2 publication is disabled');
+  }
   const out = db.listings.update(l.id, { status: 'active', review: { ...l.review, state: 'approved', reason: null, decided_at: Date.now(), decided_by: adminUser.id } });
   require('./translate').translateListing(out.id).catch((err) => console.warn('[translate]', err.message));
   require('../notify').listingDecision(out, true);
