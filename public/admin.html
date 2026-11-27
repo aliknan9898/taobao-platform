@@ -171,6 +171,29 @@
 .pfstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .pfstats div{display:grid;text-align:center;background:var(--bg,#f4f6f9);border-radius:8px;padding:6px 2px}
 .pfstats b{font-size:18px}.pfstats span{font-size:11px;color:var(--muted,#6b7290)}
+
+  .supplier-workspace { --sw-surface:var(--card); --sw-line:var(--line); --sw-muted:var(--muted); color:var(--ink); background:var(--bg); border:1px solid var(--sw-line); border-radius:20px; padding:clamp(14px,3vw,27px); }
+  .supplier-hero { display:flex; align-items:start; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-bottom:19px; }
+  .supplier-hero h2 { font-size:clamp(21px,3vw,29px); margin:0; }
+  .supplier-hero p { color:var(--sw-muted); margin:4px 0 0; }
+  .supplier-mode { color:var(--accent); background:var(--accent-soft); padding:5px 10px; border-radius:999px; font-size:12px; }
+  .supplier-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+  .supplier-card { min-width:0; padding:16px; background:var(--sw-surface); border:1px solid var(--sw-line); border-radius:14px; }
+  .supplier-card header { position:static; background:none; border:0; padding:0; margin-bottom:12px; justify-content:flex-start; gap:12px; }
+  .supplier-card h3 { font-size:17px; margin:0; overflow-wrap:anywhere; }
+  .supplier-code { flex:none; width:44px; height:44px; display:grid; place-items:center; border-radius:11px; background:var(--supplier-color); color:#131713; font-size:14px; font-weight:800; }
+  .supplier-metrics { display:grid; gap:6px; grid-template-columns:repeat(3,minmax(0,1fr)); margin:0 0 9px; }
+  .supplier-metrics div { background:var(--chip); padding:7px 8px; border-radius:8px; }
+  .supplier-metrics dt { color:var(--sw-muted); font-size:11px; }
+  .supplier-metrics dd { margin:0; font-weight:700; font-variant-numeric:tabular-nums; }
+  .supplier-actions a, .supplier-ai { color:inherit; text-decoration:none; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .supplier-actions a { min-height:42px; border-top:1px solid var(--sw-line); padding:6px 2px; }
+  .supplier-actions a:hover, .supplier-ai:hover { color:var(--accent); }
+  .supplier-actions a:focus-visible, .supplier-ai:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+  .supplier-ai { grid-column:1/-1; }
+  .supplier-ai p { color:var(--sw-muted); margin:3px 0 0; font-size:13px; }
+  .supplier-target { scroll-margin-top:110px; }
+  @media (max-width:620px) { .supplier-grid { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
@@ -254,7 +277,7 @@ function adminNav() {
   }).join('');
 }
 function hashSection() {
-  const id = location.hash.replace(/^#(?:section\/)?/, '');
+  const id = location.hash.replace(/^#(?:section\/)?/, '').split('/')[0];
   return sectionLabel(id) ? id : null;
 }
 const STAFF_LOGIN = ['admin', 'procurement', 'finance', 'support', 'operator', 'ly_staff'];
@@ -350,7 +373,9 @@ function boot(user) {
   });
   window.onhashchange = () => {
     const section = hashSection() || TABS[0][0];
-    if ($('#viewtitle') && section !== tab) openSection(section, null, false);
+    if (!$('#viewtitle')) return;
+    if (section !== tab) openSection(section, null, false);
+    else if (smartImportTabs.includes(section)) focusSupplierPanel($('#view'));
   };
   render();
   ctlChip();
@@ -792,6 +817,7 @@ const VIEWS = {
     const max = Math.max(1, ...d.daily.map((x) => x.revenue));
     v.innerHTML = `
       <div class="today">${today.map(([t, big, small, tone]) => `<button type="button" class="tday ${tone}" data-go="${t}"><span>${esc(TABS.find(([key]) => key === t)[1])}</span><b>${esc(big)}</b><small>${esc(small)}</small></button>`).join('')}</div>
+      ${isAdmin() ? '<div class="card row"><strong>Supplier workspace</strong><button type="button" class="btn ghost" data-go="smart-import">Open Smart Import Center →</button></div>' : ''}
       <div class="live" id="live"><div class="lv"><i></i><span>Live on Shop</span><b id="lvShop">…</b></div><div class="lv"><i></i><span>Live on Seller</span><b id="lvSeller">…</b></div><small class="muted" id="lvPeak"></small></div>
       <div class="kpis">
         <div class="kpi"><span>Revenue (30 days)</span><b>${fmt(k.revenue_30d, c)}</b></div>
@@ -1639,29 +1665,54 @@ VIEWS.mail = async (v) => {
 
 const importPanel = '<div class="card" id="import-live" aria-live="polite"><h2>Live product imports</h2><p class="muted">Connecting to AliExpress and CJ import status…</p></div>';
 
+const supplierBadges = {
+  taobao: ['TB','#ff9b58'], aliexpress: ['AE','#ff8682'], cj: ['CJ','#ffd173'],
+  '1688': ['1688','#ffc08b'], buckydrop: ['BD','#83b8ff'], hiobuy: ['HB','#70d6ca'], banggood: ['BG','#d1afff']
+};
+const supplierPanels = { review: 'supplier-review', usage: 'supplier-usage', settings: 'supplier-settings' };
+function focusSupplierPanel(v) {
+  const panel = location.hash.split('/')[2];
+  const target = Object.hasOwn(supplierPanels, panel) && v.querySelector('#' + supplierPanels[panel]);
+  if (target && v.isConnected) {
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'start' });
+  }
+}
 VIEWS['smart-import'] = async (v) => {
   const suppliers = await api(smartImportUrl);
-  v.innerHTML = '<div class="card"><p class="muted">Catalogue records by supplier. Discovery and usage metrics will appear when supplier workers are connected.</p>' +
-    '<p>Publication guard: ' + (suppliers[0]?.gateEnabled ? 'On' : 'Off') + ' · V2 automatic publishing and external AI: Off</p>' +
-    '<div class="scroll"><table><thead><tr><th>Supplier</th><th>Total</th><th>Published</th><th>Pending review</th><th>Rejected</th></tr></thead><tbody>' +
-    suppliers.map(({ source, counts }) => '<tr><td><button type="button" class="btn ghost" data-go="' + smartImportTab(source) + '">' +
-      esc(sectionLabel(smartImportTab(source))) + '</button></td><td>' + counts.total + '</td><td>' + counts.published +
-      '</td><td>' + counts.pending + '</td><td>' + counts.rejected + '</td></tr>').join('') +
-    '</tbody></table></div></div>';
+  v.innerHTML = `<section class="supplier-workspace" aria-label="Supplier workspace">
+    <div class="supplier-hero"><div><h2>Supplier workspace</h2><p>Review products and manage each supplier independently.</p></div>
+      <span class="supplier-mode">Publication guard ${suppliers[0]?.gateEnabled ? 'on' : 'off'}</span></div>
+    <div class="supplier-grid">${suppliers.map(({ source, counts }) => {
+      if (!Object.hasOwn(supplierBadges, source)) return '';
+      const [badge, color] = supplierBadges[source];
+      const name = esc(sectionLabel(smartImportTab(source)));
+      const path = '#section/' + smartImportTab(source);
+      return `<article class="supplier-card"><header><span class="supplier-code" style="--supplier-color:${color}" aria-hidden="true">${badge}</span><h3>${name}</h3></header>
+        <dl class="supplier-metrics"><div><dt>Catalogue</dt><dd>${fmt(counts.total)}</dd></div>
+          <div><dt>In review</dt><dd>${fmt(counts.pending)}</dd></div><div><dt>Published</dt><dd>${fmt(counts.published)}</dd></div></dl>
+        <div class="supplier-actions">${Object.entries({ review:'Import & review', usage:'Points & tokens', settings:'Settings' }).map(([key, label]) =>
+          `<a href="${path}/${key}" aria-label="${label} · ${name}"><span>${label}</span><span aria-hidden="true">→</span></a>`).join('')}</div>
+      </article>`;
+    }).join('')}
+    <a class="supplier-card supplier-ai" href="#section/ai-tools"><div><h3>KINAN AI Control Center</h3>
+      <p>Product quality, local review and AI usage.</p></div><span aria-hidden="true">→</span></a></div></section>`;
 };
 
 async function smartImportSupplier(v, source) {
   const base = smartImportUrl + '/' + source;
   const supplier = (await api(smartImportUrl)).find((item) => item.source === source);
   const { policy } = supplier;
-  v.innerHTML = '<div class="card"><button type="button" class="btn ghost" data-go="smart-import">All suppliers</button>' +
+  v.innerHTML = '<div class="row"><button type="button" class="btn ghost" data-go="smart-import">← All suppliers</button></div>' +
+    '<section id="supplier-settings" class="card supplier-target" tabindex="-1" aria-label="Supplier settings">' +
     '<h2>Import policy</h2><p class="muted">Dry run uses existing records. Automatic publishing and external AI are off.</p>' +
     '<form data-policy><label>Minimum sales <input name="minSales" type="number" min="0" max="100000000" required></label> ' +
     '<label>Maximum shipping days <input name="maxShippingDays" type="number" min="1" max="90" required></label> ' +
     '<label>Minimum net margin (%) <input name="marginPercent" type="number" min="0" max="100" step="any" required></label> ' +
-    '<button class="btn">Save policy</button> <output aria-live="polite"></output></form></div>' +
+    '<button class="btn">Save policy</button> <output aria-live="polite"></output></form></section>' +
+    '<section id="supplier-usage" class="card supplier-target" tabindex="-1" aria-label="Points and tokens"><h2>Points &amp; tokens</h2><p data-supplier-usage role="status">Loading usage…</p></section>' +
     '<div class="card" data-shadow><h2>Shadow import</h2><p data-shadow-status role="status"></p><div data-shadow-controls></div></div>' +
-    '<div class="card"><h2>Supplier products</h2><form data-filters><label>Search <input type="search" name="q" maxlength="100" placeholder="Title or listing ID"></label> ' +
+    '<div id="supplier-review" class="card supplier-target" tabindex="-1" aria-label="Import and review"><h2>Supplier products</h2><form data-filters><label>Search <input type="search" name="q" maxlength="100" placeholder="Title or listing ID"></label> ' +
     '<label>Status <select name="status"><option value="">All</option><option value="active">Published</option><option value="pending_review">Pending review</option>' +
     '<option value="rejected">Rejected</option><option value="paused">Paused</option><option value="unavailable">Unavailable</option>' +
     '<option value="private">Private</option><option value="draft">Draft</option></select></label> <button class="btn ghost">Filter</button></form>' +
@@ -1735,6 +1786,7 @@ async function smartImportSupplier(v, source) {
     query = new URLSearchParams(new FormData(filters));
     load(1);
   };
+  focusSupplierPanel(v);
   await Promise.all([load(1), smartImportShadow(v, base)]);
 }
 
@@ -1742,14 +1794,24 @@ async function smartImportShadow(v, base) {
   const status = v.querySelector('[data-shadow-status]');
   const controls = v.querySelector('[data-shadow-controls]');
   const route = base + '/shadow';
+  const usage = v.querySelector('[data-supplier-usage]');
+  function showUsage(job) {
+    const metrics = job?.usage;
+    usage.textContent = metrics
+      ? 'Last local run · Supplier requests: ' + fmt(metrics.supplierRequests) + ' · Points: ' + fmt(metrics.supplierPoints) +
+        ' · External AI tokens: ' + fmt(metrics.externalAITokens)
+      : 'No local run has recorded usage yet.';
+  }
   try {
     const info = await api(route);
+    showUsage(info.job);
     if (!info.enabled) {
       status.textContent = 'Shadow import is off.';
       return;
     }
     let job = info.job;
     function renderJob() {
+      showUsage(job);
       status.textContent = job
         ? job.state + ' · ' + job.processed + '/' + job.total + ' · ' +
           Object.entries(job.counts).map(([key, count]) => key + ': ' + count).join(' · ') +
@@ -1780,7 +1842,7 @@ async function smartImportShadow(v, base) {
       }
     }
     renderJob();
-  } catch (error) { status.textContent = error.message; }
+  } catch (error) { status.textContent = error.message; usage.textContent = 'Usage unavailable.'; }
 }
 
 for (const id of smartImportTabs) {

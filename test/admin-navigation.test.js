@@ -36,3 +36,9 @@ test('direct links, sidebar and defaults respect staff roles', () => {
   assert.equal(fixture({ role: 'ly_staff' }, '#orders').tab, 'libya');
   assert.equal(fixture({ role: 'admin' }, '#ebay').tab, 'ebay');
 });
+
+test('supplier panel links resolve to the supplier view only for admins', () => {
+  const hash = '#section/smart-import-cj/usage';
+  assert.equal(fixture({ role: 'admin' }, hash).tab, 'smart-import-cj');
+  assert.equal(fixture({ role: 'operator' }, hash).hash, null);
+});
