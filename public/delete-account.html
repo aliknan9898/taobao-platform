@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delete your account | kinan Shop</title>
+<style>
+body{margin:0;background:#f2f7f4;color:#102e26;font:1rem/1.65 system-ui,sans-serif}
+main{box-sizing:border-box;max-width:40rem;margin:8vh auto;padding:clamp(1.25rem,5vw,3rem);background:white;border-radius:1rem}
+a{color:#075d47} label{display:block;margin:1rem 0} input{font:inherit} button{font:inherit;padding:.6rem 1rem;border:0;border-radius:.5rem;background:#8c2727;color:white;cursor:pointer}
+</style>
+<script src="/assets/delete-account.js" defer></script>
+</head>
+<body>
+<main>
+  <a href="/shop">kinan Shop</a>
+  <h1 data-label="title">Delete your account</h1>
+  <p data-label="info">Deletion is permanent. Your profile and saved addresses are removed or anonymized. Order, invoice and payment records are retained for accounting and legal obligations.</p>
+  <p><a href="/privacy" data-label="privacy">Privacy policy</a></p>
+  <p id="status" role="status" data-label="loading">Checking your account…</p>
+  <p id="signin"><a href="/shop#/account" data-label="signin">Open Shop to sign in or switch accounts</a></p>
+  <form id="deletion" hidden>
+    <label id="password-row" hidden><span data-label="password">Current password</span><br><input name="password" type="password" autocomplete="current-password" disabled></label>
+    <label id="wallet-row" hidden><input name="forfeit" type="checkbox" disabled> <span data-label="forfeit">I agree to give up the remaining wallet balance.</span></label>
+    <label><input type="checkbox" required> <span data-label="confirm">I confirm that my account will be permanently deleted.</span></label>
+    <button type="submit" data-label="submit">Permanently delete account</button>
+  </form>
+</main>
+</body>
+</html>

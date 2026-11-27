@@ -561,16 +561,20 @@ r('POST', '/api/buyer/checkout', BUYER, async ({ req, user }) => {
     const o = db.orders.get(t.order_id);
     return o && o.buyer_id === user.id ? orders.buyerView(o) : null;
   };
+  const active = checkoutsInFlight.get(keyHash);
+  if (active) {
+    if (active.bodyHash !== bodyHash) throw httpError(409, 'This Idempotency-Key was already used for a different checkout');
+    return active.promise;
+  }
   const prior = replay(); if (prior) return prior;
-  if (checkoutsInFlight.has(keyHash)) { await checkoutsInFlight.get(keyHash).catch(() => null); const again = replay(); if (again) return again; }
-  const run = orders.checkout(user, body, { idem_key_hash: keyHash, idem_body_hash: bodyHash });
-  checkoutsInFlight.set(keyHash, run);
-  try {
-    const o = await run;
+  const promise = (async () => {
+    const o = await orders.checkout(user, body, { idem_key_hash: keyHash, idem_body_hash: bodyHash });
     db.tokens.insert({ kind: 'idem', token_hash: keyHash, body_hash: bodyHash, user_id: user.id, order_id: o.id, expires_at: Date.now() + 24 * 3600e3 });
     await db.flush();
     return orders.buyerView(o);
-  } finally { checkoutsInFlight.delete(keyHash); }
+  })();
+  checkoutsInFlight.set(keyHash, { bodyHash, promise });
+  try { return await promise; } finally { checkoutsInFlight.delete(keyHash); }
 });
 // Public tracking: order reference + the email on the order. Failed lookups count towards the sign-in limit per IP.
 r('POST', '/api/track', null, async ({ req }) => {
@@ -1498,6 +1502,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(seo.robots()); }
       if (p === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.sitemap()); }
       if (p === '/feeds/google.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=1800' }); return res.end(seo.merchantFeed()); }
+      if (p === '/delete-account') return page(res, 'delete-account.html');
       if (p === '/reset') return page(res, 'reset.html');
       if (legal.PAGES[p]) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=300', 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'" });
