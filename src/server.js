@@ -972,6 +972,9 @@ r('GET', '/api/admin/ai-review', STAFF, async () => require('./services/autorevi
 r('POST', '/api/admin/ai-review/run', ADMIN, async () => ({ reviewed: await require('./services/autoreview').tick({ max: 10 }) }));
 r('POST', '/api/admin/listings/:id/ai-review', ADMIN, async ({ params }) => require('./services/autoreview').reviewListing(params.id, { force: true }).then((l) => ({ id: l.id, ai_review: { ...l.ai_review, before: undefined } })));
 r('POST', '/api/admin/listings/:id/ai-undo', ADMIN, async ({ params }) => { const l = require('./services/autoreview').revert(params.id); return { id: l.id, title: l.title }; });
+r('GET', '/api/admin/smart-import', ADMIN, async () => require('./services/smartImportSettings').list());
+r('PUT', '/api/admin/smart-import/:source', ADMIN, async ({req,params}) => require('./services/smartImportSettings').save(params.source, await readJson(req)));
+r('POST', '/api/admin/smart-import/:source/review', ADMIN, async ({req,params}) => require('./services/smartImportSettings').evaluate(params.source, await readJson(req)));
 r('GET', '/api/admin/cj', STAFF, async () => cjs.status());
 r('PUT', '/api/admin/cj/settings', ADMIN, async ({ req }) => cjs.savePrefs(await readJson(req)));
 r('POST', '/api/admin/cj/webhooks', ADMIN, async () => { db.settings.remove('set_cj_webhooks'); return cjs.registerWebhooks(); });
