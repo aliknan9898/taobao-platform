@@ -42,3 +42,16 @@ test('warehouse: one box for two orders of the same customer and address; differ
   assert.throws(() => warehouse.ship(a1.id, { carrier: 'DHL', tracking: 'T1' }, staff), /not ready to ship/);
   assert.equal(db.shipments.all((x) => x.order_ids.includes(a1.id)).length, 1);
 });
+
+test('seller view includes every parcel belonging to that seller and retains the legacy primary purchase', () => {
+  const make = (seller_id, tracking) => ({
+    seller_id, direct: true, status: 'AE_SHIPPED', logistics: [{ carrier: 'DHL', tracking }]
+  });
+  const view = orders.sellerView({
+    id: 'order_123', status: 'shipped', lines: [],
+    sub_orders: [make('seller-a', 'FIRST'), make('seller-b', 'PRIVATE'), make('seller-a', 'SECOND')]
+  }, 'seller-a');
+  assert.deepEqual(view.purchases.map(item => item.logistics[0].tracking), ['FIRST', 'SECOND']);
+  assert.equal(view.purchase.logistics[0].tracking, 'FIRST');
+  assert.ok(!JSON.stringify(view).includes('PRIVATE'));
+});

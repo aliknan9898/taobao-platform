@@ -713,7 +713,7 @@ r('GET', '/api/seller/taobao/connect', SELLER, async ({ seller, url }) => {
   return { url: sellerAuth.buildAuthorizeUrl(seller.id, rt) };
 });
 r('POST', '/api/seller/products/preview', SELLER, async ({ req, seller, user }) => supplierGate(user, seller) || catalog.preview(seller, (await readJson(req)).link));
-r('POST', '/api/seller/products', SELLER, async ({ req, seller }) => catalog.publish(seller, await readJson(req)));
+r('POST', '/api/seller/products', SELLER, async ({ req, seller, user }) => supplierGate(user, seller) || catalog.publish(seller, await readJson(req)));
 r('POST', '/api/seller/products/aliexpress/preview', SELLER, async ({ req, seller, user }) => supplierGate(user, seller) || aliexpress.preview(seller, (await readJson(req)).link));
 r('POST', '/api/seller/products/aliexpress', SELLER, async ({ req, seller, user }) => supplierGate(user, seller) || aliexpress.publish(seller, await readJson(req)));
 r('POST', '/api/seller/products/manual', SELLER, async ({ req, seller }) => catalog.publishManual(seller, await readJson(req)));
@@ -723,7 +723,57 @@ r('PUT', '/api/admin/ai', ADMIN, async ({ req }) => require('./services/ai').sav
 r('POST', '/api/admin/ai/improve', ADMIN, async () => require('./services/ai').improveKinan(40));
 r('POST', '/api/admin/ai/undo/:id', ADMIN, async ({ params }) => { require('./services/ai').undo(params.id); return { ok: true }; });
 r('POST', '/api/seller/ai/listing', SELLER, async ({ req, seller }) => { throttleLight(req); const b = await readJson(req); return require('./services/ai').assist(seller, { ...b, lang: b.lang || reqLang(req) }); });
-r('GET', '/api/seller/products', SELLER, async ({ seller }) => db.listings.all((l) => l.seller_id === seller.id && l.status !== 'removed').map((l) => require('./services/kinanCatalog').sellerSafe(l.ai_review ? { ...l, ai_review: { ...l.ai_review, before: undefined } } : l)));
+const sellerProducts = (seller) => db.listings.peek((l) => l.seller_id === seller.id && l.status !== 'removed');
+const sellerOrders = (seller) => {
+  const hidden = new Set(seller.hidden_orders || []);
+  return db.orders.peek((o) => o.status !== 'pending_payment' && !hidden.has(o.id) && o.lines.some((l) => l.seller_id === seller.id));
+};
+const sellerProductView = (l) => require('./services/kinanCatalog').sellerSafe(l.ai_review ? { ...l, ai_review: { ...l.ai_review, before: undefined } } : l);
+const newestSellerOrder = (a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id);
+function sellerPage(rows, url, map) {
+  const page = Number(url.searchParams.get('page'));
+  if (!Number.isSafeInteger(page) || page < 1 || page > 1000000) throw httpError(400, 'Invalid page');
+  const size = 30;
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.min(page, pages);
+  return { items: rows.slice((current - 1) * size, current * size).map(map), total: rows.length, pages, page: current };
+}
+function sellerProductCounts(rows) {
+  const counts = { all: rows.length, active: 0, pending_review: 0, rejected: 0, paused: 0, unavailable: 0, sync_errors: 0 };
+  for (const l of rows) {
+    if (l.status !== 'all' && l.status !== 'sync_errors' && Object.hasOwn(counts, l.status)) counts[l.status]++;
+    if (l.sync_error && l.status !== 'unavailable') counts.sync_errors++;
+  }
+  return counts;
+}
+r('GET', '/api/seller/dashboard', SELLER, async ({ seller }) => {
+  const list = sellerOrders(seller).sort(newestSellerOrder);
+  let awaiting = 0, problems = 0, preparing = 0;
+  for (const o of list) {
+    const parts = (o.sub_orders || []).filter((part) => part.seller_id === seller.id && !part.direct);
+    if (parts.some((part) => /WAIT_BUYER_P/.test(part.status))) awaiting++;
+    if (parts.some((part) => part.error)) problems++;
+    if (['paid', 'procuring'].includes(o.status) && parts.some((part) => !part.error && !/WAIT_BUYER_P/.test(part.status))) preparing++;
+  }
+  return { counts: sellerProductCounts(sellerProducts(seller)), orderCount: list.length,
+    recent: list.slice(0, 5).map((o) => orders.sellerView(o, seller.id)), awaiting, problems, preparing,
+    earnings: moneySvc.sellerBalance(seller.id) };
+});
+r('GET', '/api/seller/products', SELLER, async ({ seller, url }) => {
+  const rows = sellerProducts(seller);
+  if (!url.searchParams.has('page')) return rows.map(sellerProductView);
+  const status = url.searchParams.get('status') || 'all';
+  if (!['all', 'active', 'pending_review', 'rejected', 'paused'].includes(status)) throw httpError(400, 'Invalid product status');
+  const counts = sellerProductCounts(rows);
+  const filtered = status === 'all' ? rows : rows.filter((l) => l.status === status);
+  filtered.sort((a, b) => (b.updated_at || b.created_at) - (a.updated_at || a.created_at) || a.id.localeCompare(b.id));
+  return { ...sellerPage(filtered, url, sellerProductView), counts };
+});
+r('GET', '/api/seller/products/:id', SELLER, async ({ seller, params }) => {
+  const l = db.listings.get(params.id);
+  if (!l || l.seller_id !== seller.id || l.status === 'removed') throw httpError(404, 'Not found');
+  return sellerProductView(l);
+});
 // the Kinan catalogue: sellers add Kinan's products to their shop at their own price (suppliers are not shown)
 r('GET', '/api/seller/kinan-catalog', SELLER, async ({ seller, url }) => require('./services/kinanCatalog').browse(seller, { q: url.searchParams.get('q') || '', dept: url.searchParams.get('dept') || '', page: url.searchParams.get('page') || 1 }));
 r('GET', '/api/seller/kinan-catalog/:id', SELLER, async ({ seller, params }) => require('./services/kinanCatalog').details(seller, params.id));
@@ -758,8 +808,9 @@ const sellerOrder = (seller, id) => { const o = db.orders.get(id); if (!o || !o.
 r('GET', '/api/seller/orders/:id/messages', SELLER, async ({ seller, params }) => messages.threadsFor(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id }));
 r('POST', '/api/seller/orders/:id/messages', SELLER, async ({ req, seller, user, params }) => messages.post(sellerOrder(seller, params.id), { role: 'seller', seller_id: seller.id, user }, await readJson(req)));
 /** Cancelled / refunded for this seller (same rule as the seller page): only those can be removed from the seller's list. */
-const sellerCancelled = (view) => ['cancelled', 'refunded'].includes(view.status) || /CANCEL/i.test(view.purchase?.status || '');
-const hideOrders = (seller, ids) => db.sellers.update(seller.id, (s) => ({ hidden_orders: [...new Set([...(s.hidden_orders || []), ...ids])].slice(-5000) }));
+const sellerCancelled = (view) => ['cancelled', 'refunded'].includes(view.status) ||
+  (view.purchases.length > 0 && view.purchases.every((part) => /CANCEL/i.test(part.status || '')));
+const hideOrders = (seller, ids) => db.sellers.update(seller.id, (s) => ({ ...s, hidden_orders: [...new Set([...(s.hidden_orders || []), ...ids])].slice(-5000) }));
 r('POST', '/api/seller/orders/hide-cancelled', SELLER, async ({ seller }) => {
   const hidden = new Set(seller.hidden_orders || []);
   const ids = db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment' && !hidden.has(o.id)).filter((o) => sellerCancelled(orders.sellerView(o, seller.id))).map((o) => o.id);
@@ -772,13 +823,20 @@ r('POST', '/api/seller/orders/:id/hide', SELLER, async ({ seller, params }) => {
   hideOrders(seller, [o.id]);
   return { ok: true };
 });
-r('GET', '/api/seller/orders', SELLER, async ({ seller }) => db.orders.all((o) => o.lines.some((l) => l.seller_id === seller.id) && o.status !== 'pending_payment' && !(seller.hidden_orders || []).includes(o.id)).sort((a, b) => b.created_at - a.created_at).map((o) => orders.sellerView(o, seller.id)));
+r('GET', '/api/seller/orders', SELLER, async ({ seller, url }) => {
+  const rows = sellerOrders(seller).sort(newestSellerOrder);
+  const map = (o) => orders.sellerView(o, seller.id);
+  return url.searchParams.has('page') ? sellerPage(rows, url, map) : rows.map(map);
+});
 const sellerSub = (seller, id) => { const o = db.orders.get(id); const s = o?.sub_orders.find((x) => x.seller_id === seller.id && !x.direct && !x.manual); if (!s) throw httpError(404, 'Not found'); return { o, s }; };
 r('POST', '/api/seller/orders/:id/pay', SELLER, async ({ seller, params }) => { if (sellerAuth.platformConnected()) throw httpError(403, 'Kinan pays Taobao for this order'); const { o, s } = sellerSub(seller, params.id); return orders.paySub(o.id, s.outer_purchase_id); });
 r('POST', '/api/seller/orders/:id/sync', SELLER, async ({ seller, params }) => {
-  const d = db.orders.get(params.id); const direct = d?.sub_orders.find((x) => x.seller_id === seller.id && x.direct);
-  if (direct && !d.sub_orders.some((x) => x.seller_id === seller.id && !x.direct && !x.manual)) { await require('./services/tracking').refresh(d.id, { maxAgeMs: 2 * 60e3 }); return orders.sellerView(db.orders.get(d.id), seller.id); } // the parcel's latest steps
-  const { o, s } = sellerSub(seller, params.id); await orders.syncSub(o.id, s.outer_purchase_id); return orders.sellerView(db.orders.get(o.id), seller.id);
+  const o = sellerOrder(seller, params.id);
+  const parts = (o.sub_orders || []).filter((part) => part.seller_id === seller.id && !part.manual);
+  if (!parts.length) throw httpError(404, 'Not found');
+  for (const part of parts) if (!part.direct) await orders.syncSub(o.id, part.outer_purchase_id);
+  if (parts.some((part) => part.direct)) await require('./services/tracking').refresh(o.id, { maxAgeMs: 2 * 60e3, sellerId: seller.id });
+  return orders.sellerView(db.orders.get(o.id), seller.id);
 });
 r('GET', '/api/seller/earnings', SELLER, async ({ seller }) => {
   const led = db.ledger.all((l) => l.seller_id === seller.id && l.status !== 'void');
@@ -1644,6 +1702,12 @@ const server = http.createServer(async (req, res) => {
         auditCtx = { user, params: ctx.params };
         Object.assign(ctx, auth.requireRole(user, ...rt.roles));
         auditCtx.user = ctx.user || user;
+        const needsSellerTerms = p.startsWith('/api/seller/') && ctx.seller &&
+          !['/api/seller/terms', '/api/seller/verification'].includes(p) &&
+          (req.method !== 'GET' || p === '/api/seller/taobao/connect');
+        if (needsSellerTerms && ctx.seller.terms?.version !== auth.SELLER_TERMS_VERSION) {
+          throw httpError(403, 'Please accept the current Seller Terms in Seller Center');
+        }
       }
       const out = await rt.handler(ctx);
       if (req.auditStaffUser) auditCtx = { user: req.auditStaffUser, params: {} };

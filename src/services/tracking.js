@@ -116,11 +116,11 @@ async function refreshShipment(order, maxAgeMs) {
 }
 
 /** Refresh the steps of every direct parcel of one order. Notifies the customer at new milestones. */
-async function refresh(orderId, { maxAgeMs = 0 } = {}) {
+async function refresh(orderId, { maxAgeMs = 0, sellerId = null } = {}) {
   const o = db.orders.get(orderId); if (!o) return null;
-  const subs = (o.sub_orders || []).filter((s) => s.direct && (s.logistics || []).length && ['AE_PLACED', 'AE_PAID', 'AE_SHIPPED'].includes(s.status)
+  const subs = (o.sub_orders || []).filter((s) => (!sellerId || s.seller_id === sellerId) && s.direct && (s.logistics || []).length && ['AE_PLACED', 'AE_PAID', 'AE_SHIPPED'].includes(s.status)
     && !(s.track && now() - (s.track.at || 0) < maxAgeMs));
-  await refreshShipment(o, maxAgeMs).catch((e) => console.warn('[tracking shipment]', o.id, e.message));
+  if (!sellerId) await refreshShipment(o, maxAgeMs).catch((e) => console.warn('[tracking shipment]', o.id, e.message));
   if (!subs.length) return db.orders.get(o.id);
   const byNo = await fetcher(subs.flatMap((s) => s.logistics.map((x) => x.tracking)));
   const changes = [];
