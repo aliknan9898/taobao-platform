@@ -672,6 +672,15 @@ function renderCountryChip() {
  * The country selector. first = shown before the catalogue when no country is confirmed (cannot be dismissed).
  * Searchable list (combobox + listbox), keyboard: arrows, Home/End, Enter; location only on request.
  */
+function locateDeliveryCountry() {
+  if (!navigator.geolocation) return Promise.reject(new Error('Location unavailable'));
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(({ coords }) => {
+      api(`/api/geo/country?lat=${coords.latitude.toFixed(1)}&lon=${coords.longitude.toFixed(1)}`).then(resolve, reject);
+    }, reject, { timeout: 10000, maximumAge: 600000 });
+  });
+}
+
 function countrySelector({ first = false, after = null } = {}) {
   document.querySelector('dialog.cdlg')?.remove();
   const all = markets();
@@ -740,16 +749,12 @@ function countrySelector({ first = false, after = null } = {}) {
     const btn = d.querySelector('#cloc'); const seq = ++locSeq;
     status.className = 'cstatus'; status.textContent = cs('locating'); btn.setAttribute('aria-busy', 'true');
     const fail = (key, arg) => { if (seq !== locSeq) return; btn.removeAttribute('aria-busy'); status.className = 'cstatus err'; status.textContent = cs(key, arg); q.focus(); };
-    if (!navigator.geolocation) return fail('failed');
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      try {
-        const r = await api(`/api/geo/country?lat=${pos.coords.latitude.toFixed(2)}&lon=${pos.coords.longitude.toFixed(2)}`);
+    locateDeliveryCountry().then((r) => {
         if (seq !== locSeq) return;
         if (!r.country) return fail(r.detected ? 'outside' : 'failed', r.detected ? (new Intl.DisplayNames([KinanLang.lang], { type: 'region' }).of(r.detected) || r.detected) : undefined);
         btn.removeAttribute('aria-busy'); suggested = r.country; q.value = ''; paint(); choose(r.country);
         status.className = 'cstatus'; status.textContent = cs('found', marketName(r.country)); ok.focus();
-      } catch { fail('failed'); }
-    }, (err) => fail(err && err.code === 1 ? 'denied' : 'failed'), { timeout: 10000, maximumAge: 600000 });
+    }).catch((err) => fail(err?.code === 1 ? 'denied' : 'failed'));
   };
   const done = () => { if (!chosen) return; const code = chosen; d.close(); d.remove(); DeliveryCountry.set(code, { quiet: first }); if (after) after(code); };
   ok.onclick = done;
@@ -1634,6 +1639,11 @@ async function checkout() {
   const sub = items.reduce((s, x) => s + x.price * x.qty, 0);
   $('#view').innerHTML = `<div class="pagehead"><div><a class="back" href="#/cart">${ICONS.back} Cart</a><h1 style="margin-top:6px">Delivery address</h1></div></div>
     <div class="two"><form class="panel stack" id="af">
+      <div class="stack small" data-no-tr>
+        <div class="row"><button type="button" class="btn sm ghost" id="checkout-locate">${esc(cs('loc'))}</button>
+        <button type="button" class="btn sm" id="checkout-location-apply" hidden>${esc(cs('confirm'))}</button></div>
+        <p class="muted" role="status" id="checkout-location-status"></p>
+      </div>
       ${Book.list().length > 1 ? `<label class="field">Saved addresses<select id="abook">${Book.list().map((x) => `<option value="${esc(x.id)}" ${x.id === Book.selectedId() ? 'selected' : ''}>${esc(x.label || x.name)} — ${esc(addrLine(x))}</option>`).join('')}<option value="">+ New address</option></select></label>` : ''}
       <div class="grid-2"><label class="field">Full name<input name="name" required autocomplete="name" value="${esc(a.name)}"></label>
       <label class="field">Phone<input name="phone" type="tel" required autocomplete="tel" value="${esc(a.phone)}"></label></div>
@@ -1707,6 +1717,39 @@ async function checkout() {
     }
     if (code) Locale.set({ country: code });
     requote();
+  };
+  const addressForm = $('#af');
+  const loc = $('#checkout-locate');
+  const applyLoc = $('#checkout-location-apply');
+  const locStatus = $('#checkout-location-status');
+  loc.onclick = async () => {
+    const original = addressForm.country_code.value;
+    loc.disabled = true;
+    applyLoc.hidden = true;
+    locStatus.textContent = cs('locating');
+    try {
+      const { country } = await locateDeliveryCountry();
+      if (!addressForm.isConnected || location.hash !== '#/checkout') return;
+      if (!country || !Array.from(addressForm.country_code.options).some((option) => option.value === country)) {
+        locStatus.textContent = cs('failed');
+        return;
+      }
+      if (addressForm.country_code.value !== original) {
+        locStatus.textContent = '';
+        return;
+      }
+      locStatus.textContent = cs('found', marketName(country));
+      applyLoc.hidden = false;
+      applyLoc.onclick = () => {
+        if (addressForm.country_code.value === original) {
+          addressForm.country_code.value = country;
+          addressForm.country_code.onchange();
+        }
+        applyLoc.hidden = true;
+      };
+    } catch (e) {
+      locStatus.textContent = cs(e?.code === 1 ? 'denied' : 'failed');
+    } finally { loc.disabled = false; }
   };
   requote();
   $$('#af [name=packaging]').forEach((r) => r.onchange = paintTotal);
