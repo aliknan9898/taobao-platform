@@ -1,0 +1,13 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {review,SUPPLIERS} = require('../src/services/smartImportPolicy');
+const valid = {source:'cj',id:'1',sales:1000,shippingDays:20,margin:.30,images:['image'],title:'Product',imageReview:'pass',complianceReview:'pass'};
+test('eligible at boundaries',()=>assert.equal(review(valid).status,'eligible'));
+test('duplicate rejected',()=>assert.equal(review({...valid,duplicate:true}).status,'rejected'));
+test('missing shipping requires review',()=>assert.equal(review({...valid,shippingDays:null}).status,'review'));
+test('unreviewed image cannot publish',()=>assert.equal(review({...valid,imageReview:undefined}).status,'review'));
+test('supplier override',()=>assert.equal(review(valid,{maxShippingDays:15}).status,'rejected'));
+test('all supported suppliers',()=>{for(const source of SUPPLIERS) assert.equal(review({...valid,source}).status,'eligible');});
+test('no external AI call requested',()=>assert.equal(review(valid).externalAI,false));
+test('unknown supplier rejected',()=>assert.throws(()=>review({...valid,source:'unknown'})));
