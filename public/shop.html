@@ -934,6 +934,94 @@ function requireBuyer(next) {
   return false;
 }
 
+const pushOnboardingKey = 'kinan_shop_push_intro';
+const pushOrderKey = 'kinan_shop_push_pending_order';
+const pushLinkKey = 'kinan_shop_push_link_after_signin';
+const pushStore = {
+  get(store, key) { try { return window[store].getItem(key); } catch { return null; } },
+  set(store, key, value) { try { window[store].setItem(key, value); } catch {} },
+  remove(store, key) { try { window[store].removeItem(key); } catch {} }
+};
+let pushIntroShown = false;
+let pushOrderShown = '';
+let pushOfferLoading = false;
+
+async function offerOrderNotifications(orderId = '') {
+  if (pushOfferLoading || document.querySelector('dialog[open]')) return;
+  if (orderId ? pushOrderShown === orderId : pushIntroShown || pushStore.get('localStorage', pushOnboardingKey)) return;
+  pushOfferLoading = true;
+  try {
+    if (sessionReady) await sessionReady;
+    const state = await K.pushState();
+    if (document.querySelector('dialog[open]')) return;
+    if (state === 'on' || state === 'denied') {
+      pushStore.set('localStorage', pushOnboardingKey, '1');
+      if (orderId) pushStore.remove('sessionStorage', pushOrderKey);
+      return;
+    }
+    if (state !== 'off' && state !== 'install') return;
+    if (orderId) {
+      pushOrderShown = orderId;
+      pushStore.remove('sessionStorage', pushOrderKey);
+    }
+    pushIntroShown = true;
+    pushStore.set('localStorage', pushOnboardingKey, '1');
+    const ar = KinanLang.lang === 'ar';
+    const d = document.createElement('dialog');
+    d.className = 'addrdlg';
+    d.dir = ar ? 'rtl' : 'ltr';
+    d.setAttribute('aria-labelledby', 'shop-notification-title');
+    d.setAttribute('data-no-tr', '');
+    d.innerHTML = `<div class="stack" style="padding:22px">
+      <h2 id="shop-notification-title">${ar ? 'إشعارات الطلب' : 'Order notifications'}</h2>
+      <p>${state === 'install'
+        ? (ar ? 'أضف KINAN إلى الشاشة الرئيسية، ثم فعّل الإشعارات من التطبيق.' : 'Add KINAN to your home screen, then turn on notifications from the app.')
+        : (ar ? 'فعّل الإشعارات لتعرف متى يُشحن طلبك ويخرج للتسليم ويصل إليك.' : 'Get updates when your order ships, goes out for delivery and arrives.')}</p>
+      <div class="row">
+        ${state === 'install' ? `<a class="btn" href="/download">${ar ? 'طريقة التثبيت' : 'How to install'}</a>`
+          : `<button type="button" class="btn" data-push-allow>${ar ? 'تفعيل الإشعارات' : 'Turn on notifications'}</button>`}
+        <button type="button" class="btn ghost" data-push-later>${ar ? 'لاحقًا' : 'Not now'}</button>
+      </div><p class="muted small" role="status" data-push-status></p>
+    </div>`;
+    d.addEventListener('close', () => d.remove(), { once: true });
+    d.querySelector('[data-push-later]').onclick = () => d.close();
+    const allow = d.querySelector('[data-push-allow]');
+    if (allow) allow.onclick = async () => {
+      allow.disabled = true;
+      try {
+        if (me?.role === 'buyer') {
+          await K.enablePush('shop');
+          $('#ordpush')?.replaceChildren();
+          toast(ar ? 'تم تفعيل الإشعارات' : 'Notifications are on');
+        } else {
+          const permission = await Notification.requestPermission();
+          if (permission === 'granted') {
+            pushStore.set('sessionStorage', pushLinkKey, '1');
+            const next = location.hash.slice(1) || '/';
+            location.hash = '#/signin/' + encodeURIComponent(next);
+            toast(ar ? 'سجّل الدخول لربط الإشعارات بطلباتك' : 'Sign in to link notifications to your orders');
+          }
+        }
+        d.close();
+      } catch (e) {
+        d.querySelector('[data-push-status]').textContent = KinanLang.t(e.message);
+        allow.disabled = false;
+      }
+    };
+    document.body.append(d);
+    d.showModal();
+  } finally { pushOfferLoading = false; }
+}
+
+async function linkPendingPush() {
+  if (me?.role !== 'buyer' || !pushStore.get('sessionStorage', pushLinkKey)) return;
+  if (window.Notification?.permission !== 'granted') return;
+  try {
+    await K.enablePush('shop');
+    pushStore.remove('sessionStorage', pushLinkKey);
+  } catch { /* account settings retain the manual activation option */ }
+}
+
 // ---------- views ----------
 /** While shipping for some products is still being worked out, check again and update their prices in place. */
 let priceTimer = null;
@@ -1523,7 +1611,7 @@ async function lyCheckout() {
     try { localStorage.setItem('kinan_ly_addr', JSON.stringify({ name: b.name, phone: b.phone, city_id: b.city_id, area_id: b.area_id, address: b.address, landmark: b.landmark })); } catch {}
     $('#lygo').disabled = true;
     const send = async (expected) => api('/api/ly/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ offer_id: listing_id, variant_id: mp_sku_id, qty })), recipient: { name: b.name, phone: b.phone, city_id: b.city_id, area_id: b.area_id || undefined, address: b.address, landmark: b.landmark, ...(pin ? { lat: pin.lat, lon: pin.lon } : {}) }, payment: 'cod', ...(expected != null ? { expected_total_lyd: expected } : {}) });
-    const done = (o) => { Cart.set(Cart.get().filter((x) => !String(x.listing_id).startsWith('lyo_'))); toast(cs('lyPlaced')); location.hash = '#/orders'; };
+    const done = (o) => { Cart.set(Cart.get().filter((x) => !String(x.listing_id).startsWith('lyo_'))); toast(cs('lyPlaced')); location.hash = '#/orders'; offerOrderNotifications(o.id).catch(() => {}); };
     try { done(await send(lastTotal)); }
     catch (err) {
       if (err.code === 'TOTAL_CHANGED' && err.details) {
@@ -1639,6 +1727,7 @@ async function checkout() {
     const place = async (expected) => {
       const o = await api('/api/buyer/checkout', 'POST', { items: items.map(({ listing_id, mp_sku_id, qty }) => ({ listing_id, mp_sku_id, qty })), shipping_address: addr, packaging, hold: Boolean(hold), coupon: coupon ? coupon.code : '', currency: Locale.get().currency, ...(expected != null ? { expected_total: expected } : {}) });
       Cart.set([]);
+      pushStore.set('sessionStorage', pushOrderKey, o.id);
       K.track('begin_checkout', { currency: o.currency, value: o.total });
       location.hash = `#/pay/${o.id}`;
     };
@@ -1869,6 +1958,9 @@ async function orderDetail(id) {
   }).catch(() => {});
   const sn = $('#shipnow'); if (sn) sn.onclick = async () => { sn.disabled = true; try { const r = await api('/api/buyer/ship-stored', 'POST'); toast(`${r.released} order(s) will ship together`); orderDetail(o.id); } catch (e) { toast(e.message); sn.disabled = false; } };
   // Not yet asked for notifications: offer them right here, when the shopper wants to know about this parcel
+  if (!ended && o.status !== 'pending_payment' && pushStore.get('sessionStorage', pushOrderKey) === o.id) {
+    offerOrderNotifications(o.id).catch(() => {});
+  }
   if (!ended && !['delivered'].includes(o.status) && o.status !== 'pending_payment') K.pushState().then((st) => {
     const box = $('#ordpush'); if (!box || st !== 'off') return;
     box.innerHTML = `<div class="panel row between"><span>🔔 ${KinanLang.t('Get a notification when your order ships and arrives')}</span><button class="btn sm" id="ordpushbtn" type="button">${KinanLang.t('Turn on')}</button></div>`;
@@ -2349,7 +2441,7 @@ function phoneSignin(next, step = 'num', st = {}) {
     try {
       if (step === 'num') { const r = await api('/api/auth/phone/start', 'POST', { phone: f.phone, lang: KinanLang.lang }); return phoneSignin(next, 'code', { phone: f.phone, masked: r.phone }); }
       const r = await api('/api/auth/phone/verify', 'POST', { phone: st.phone, code: f.code, name: f.name, lang: KinanLang.lang });
-      me = asMe(r.user); toast(r.created ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
+      me = asMe(r.user); linkPendingPush(); toast(r.created ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
       location.hash = '#' + next; if (location.hash === '#' + next) route();
     } catch (err) { $('#perr').textContent = err.message; btn.disabled = false; }
   };
@@ -2380,7 +2472,7 @@ function signin(next, mode = 'in', msg = '') {
       if (mode === 'up') await api('/api/auth/register', 'POST', { ...f, role: 'buyer' });
       const r = await api('/api/auth/login', 'POST', { email: f.email, password: f.password, app: 'shop' });
       if (asMe(r.user).role !== 'buyer') { await api('/api/auth/logout', 'POST'); return signin(encodeURIComponent(next), mode, 'This is not a customer account. Sellers sign in at the Seller Center.'); }
-      me = asMe(r.user); toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
+      me = asMe(r.user); linkPendingPush(); toast(mode === 'up' ? 'Welcome to Kinan' : 'Signed in'); Book.sync();
       location.hash = '#' + next; if (location.hash === '#' + next) route();
     } catch (err) { signin(encodeURIComponent(next), mode, err.message); }
   };
@@ -2410,6 +2502,7 @@ function wireInstall() {
   const configReady = api('/api/config/public').catch(() => cfg);
   sessionReady = api('/api/me').then(asMe).catch(() => null).then((user) => {
     me = user;
+    linkPendingPush();
     Cart.sync(); Book.sync();
     // keep the account and this device in step: an account without a country takes this device's
     const local = DeliveryCountry.get();
@@ -2432,8 +2525,10 @@ function wireInstall() {
     signin(encodeURIComponent('/'), 'in', loginError);
   } else if (!DeliveryCountry.get() && catalogRoute()) {
     $('#view').innerHTML = skeletonGrid();
-    countrySelector({ first: true, after: () => route() });
-  } else route();
+    countrySelector({ first: true, after: () => route().then(() => offerOrderNotifications()).catch(() => {}) });
+  } else {
+    route().then(() => { if (catalogRoute()) return offerOrderNotifications(); }).catch(() => {});
+  }
   K.registerSW();
   try { K.presence('shop'); } catch { /* optional */ }
 })();
