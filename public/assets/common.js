@@ -150,11 +150,12 @@ const K = (() => {
   async function pushState() {
     if (!pushSupported()) return isIOS() && !isStandalone() ? 'install' : 'unsupported';
     if (Notification.permission === 'denied') return 'denied';
+    if (Notification.permission !== 'granted') return 'off';
     try { const reg = await navigator.serviceWorker.ready; return (await reg.pushManager.getSubscription()) ? 'on' : 'off'; } catch { return 'off'; }
   }
   async function enablePush(app) {
     if (!pushSupported()) throw new Error(isIOS() ? 'On iPhone, add Kinan to your home screen first, then turn on notifications from the app.' : 'This browser cannot show notifications.');
-    if ((await Notification.requestPermission()) !== 'granted') throw new Error('Notifications are blocked — allow them in your browser settings.');
+    if (Notification.permission !== 'granted' && (await Notification.requestPermission()) !== 'granted') throw new Error('Notifications are blocked — allow them in your browser settings.');
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     const reg = await navigator.serviceWorker.ready;
     const { key } = await api('/api/push/key');
