@@ -110,9 +110,17 @@ async function init({ Pool } = {}) {
   const sslMode = url.searchParams.get('sslmode');
   // Never disable certificate validation. PostgreSQL internal/private endpoints may use plaintext.
   const external = /\.render\.com$/.test(url.hostname) || sslMode === 'require' || sslMode === 'verify-full' || sslMode === 'verify-ca';
-  pool = new PgPool({ connectionString: config.databaseUrl, ssl: external ? { rejectUnauthorized: true } : false, max: 5 });
-  await pool.query('CREATE TABLE IF NOT EXISTS kinan_docs (coll text NOT NULL, id text NOT NULL, doc jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (coll, id))');
-  const { rows } = await pool.query('SELECT coll, doc FROM kinan_docs');
+  const candidate = new PgPool({ connectionString: config.databaseUrl, ssl: external ? { rejectUnauthorized: true } : false, max: 5 });
+  let rows;
+  try {
+    await candidate.query('CREATE TABLE IF NOT EXISTS kinan_docs (coll text NOT NULL, id text NOT NULL, doc jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (coll, id))');
+    ({ rows } = await candidate.query('SELECT coll, doc FROM kinan_docs'));
+  } catch (error) {
+    // Do not leave a failed connection pool active or accept writes before startup succeeds.
+    await candidate.end().catch(() => {});
+    throw error;
+  }
+  pool = candidate;
   cache.clear();
   for (const [name] of COLLECTIONS) cache.set(name, []);
   for (const r of rows) { const d = typeof r.doc === 'string' ? JSON.parse(r.doc) : r.doc; (cache.get(r.coll) || cache.set(r.coll, []).get(r.coll)).push(d); }
