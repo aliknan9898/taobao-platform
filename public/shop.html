@@ -349,16 +349,6 @@ dialog.cdlg { width: min(520px, 100vw); max-height: min(720px, 100dvh); border-r
 .lydel { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 6px; }
 .lydel h4 { margin: 0; font-size: 14.5px; display: flex; justify-content: space-between; gap: 8px; }
 .lysum > div:not(.lydel) { display: flex; justify-content: space-between; gap: 10px; }
-  .shipping-watermark { position:relative; isolation:isolate; }
-  .shipping-watermark::before {
-    content:""; position:absolute; z-index:-1; pointer-events:none;
-    inset-inline-end:12px; inset-block-end:8px; width:min(68%, 380px); height:min(90%, 170px);
-    background:url('/assets/kinan-delivery-van.jpg') no-repeat center bottom / contain;
-    opacity:.12;
-  }
-  :root[data-theme="dark"] .shipping-watermark::before { opacity:.18; }
-  @media (max-width:540px) { .shipping-watermark::before { width:76%; height:min(85%, 130px); } }
-  @media (forced-colors:active) { .shipping-watermark::before { display:none; } }
 </style>
 </head>
 <body class="has-tabbar">
@@ -899,7 +889,7 @@ async function trackPage(refArg) {
 }
 function trackResult(t) {
   const cls = ['delivered'].includes(t.status) ? 'ok' : ['attention', 'cancelled', 'refunded'].includes(t.status) ? 'bad' : 'warn';
-  const parcel = (p) => `<div class="panel stack shipping-watermark" style="gap:6px"><div class="row between"><b>${esc(KinanLang.t(p.label))}</b><span class="muted small">${p.items} ${esc(KinanLang.t(p.items === 1 ? 'item' : 'items'))}</span></div>
+  const parcel = (p) => `<div class="panel stack" style="gap:6px"><div class="row between"><b>${esc(KinanLang.t(p.label))}</b><span class="muted small">${p.items} ${esc(KinanLang.t(p.items === 1 ? 'item' : 'items'))}</span></div>
     ${p.number ? `<div class="small">${esc(p.carrier || KinanLang.t('Carrier'))} · <bdi dir="ltr"><b>${esc(p.number)}</b></bdi>${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(KinanLang.t('Carrier tracking'))}</a>` : ''}</div>` : `<div class="small muted">${esc(KinanLang.t('A tracking number appears here when the parcel leaves.'))}</div>`}
     ${p.track ? K.journey(p.track) : ''}</div>`;
   return `<section class="stack" style="max-width:720px;margin-top:16px">
@@ -1825,7 +1815,7 @@ async function orderDetail(id) {
       ${o.status === 'pending_payment' ? `<div class="panel row between"><span>This order is waiting for payment.</span><a class="btn" href="#/pay/${esc(o.id)}">Pay now</a></div>` : ''}
       <div id="ordpush"></div>
       ${(() => { const per = cfg?.points?.per_unit || 0; const pts = Math.floor(Math.max(0, (o.subtotal || 0) - (o.discount || 0)) * per); if (!per || !pts || ['pending_payment', 'cancelled', 'refunded'].includes(o.status)) return ''; return o.status === 'delivered' ? `<div class="panel row"><span>★ ${KinanLang.t('This order earned you')} <b>${pts.toLocaleString()}</b> ${KinanLang.t('Kinan points')}</span><a class="btn ghost sm" href="#/points">${KinanLang.t('Your points')}</a></div>` : `<div class="panel row"><span>⏳ ${KinanLang.t('You will earn')} <b>${pts.toLocaleString()}</b> ${KinanLang.t('Kinan points when this order is delivered')}</span></div>`; })()}
-      ${(o.direct || []).map((d) => `<div class="panel stack shipping-watermark"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Separate parcel'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
+      ${(o.direct || []).map((d) => `<div class="panel stack"><div class="row between"><h3>${o.all_direct ? 'Delivery' : 'Separate parcel'}</h3>${pill(d.label, ['AE_SHIPPED', 'AE_DELIVERED'].includes(d.status) ? 'ok' : 'warn')}</div>
         <div class="muted small">${d.items.map(esc).join(' · ')}</div>
         ${d.tracking.length ? d.tracking.map((t) => `<div class="row between"><span><b>${esc(t.carrier || 'Tracking')}</b> · <code>${esc(t.number)}</code></span>${t.url ? `<a class="btn sm" href="${esc(t.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div>`).join('') : '<div class="muted small">You’ll get a tracking number as soon as it ships.</div>'}${trackSteps(d.track)}</div>`).join('')}
       ${o.hold && !ended ? `<div class="panel stack"><div class="row between"><h3>Stored in our warehouse</h3>${pill('Stored', 'warn')}</div><p class="muted small">We keep it${o.hold_until ? ` free until ${date(o.hold_until, false)}` : ''} and ship it in one box with your other stored orders.</p><button class="btn" id="shipnow">Ship my stored orders now</button></div>` : ''}
@@ -1835,7 +1825,7 @@ async function orderDetail(id) {
         ${o.qc.review === 'problem' ? `<p class="small">Thanks — Kinan support will contact you before we ship.${o.qc.note ? ` <span class="muted">“${esc(o.qc.note)}”</span>` : ''}</p>` : ''}</div>` : ''}
       ${o.shipping_due ? `<div class="panel row between warn"><span>Your parcel weighed more than estimated. Extra shipping: <b>${money(o.shipping_due, o.currency)}</b></span><button class="btn sm" id="paydue">Pay from wallet</button></div>` : ''}
       ${o.shipping_settled?.result === 'credited' ? `<div class="panel flat small">Your parcel weighed ${o.shipping_settled.actual_weight_kg} kg, less than estimated — we added ${money(-o.shipping_settled.diff, o.currency)} to your <a href="#/wallet">wallet</a>.</div>` : ''}
-      ${o.tracking ? `<div class="panel stack shipping-watermark"><h3>Tracking</h3><div class="row between"><span><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></span>${o.tracking.url ? `<a class="btn sm" href="${esc(o.tracking.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div>${trackSteps(o.tracking.track)}</div>` : ''}
+      ${o.tracking ? `<div class="panel stack"><h3>Tracking</h3><div class="row between"><span><b>${esc(o.tracking.carrier)}</b> · <code>${esc(o.tracking.number)}</code></span>${o.tracking.url ? `<a class="btn sm" href="${esc(o.tracking.url)}" target="_blank" rel="noopener">Track parcel</a>` : ''}</div><div class="muted">Shipped ${date(o.tracking.shipped_at)}</div>${trackSteps(o.tracking.track)}</div>` : ''}
       <div class="panel">${o.lines.map((l) => `<div class="line">${l.image ? `${K.img(l.image, 120, 'alt=""')}` : '<div class="thumb"></div>'}<div><a href="#/p/${esc(l.listing_id)}" style="text-decoration:none;font-weight:600">${esc(l.title)}</a><div class="muted">${esc(variantLabel(l.props, ''))} · Qty ${l.qty}</div></div><b>${money(l.price * l.qty, o.currency)}</b></div>`).join('')}</div>
     </div>
     <aside class="stack">
