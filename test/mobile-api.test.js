@@ -123,6 +123,60 @@ test('customers see neutral variant ids; old and new ids both work at checkout',
   assert.deepStrictEqual(legacy.map((x) => [x.requested, x.exact, x.mp_sku_id === view.skus[0].mp_sku_id]), [['cj_998877', true, true], ['cj_gone', false, true]]);
 });
 
+test('concurrent checkout retries share a failure and allow a later retry', async (t) => {
+  await shopWithProducts();
+  const cust = await customer('idem-failure@x.com');
+  const sku = (await api('GET', `/api/catalog/${product2.id}`)).body.skus[0].mp_sku_id;
+  const path = '/api/buyer/checkout';
+  const body = { items: [{ listing_id: product2.id, mp_sku_id: sku, qty: 1 }], shipping_address: addr };
+  const headers = { 'Idempotency-Key': 'temporary-failure-1' };
+  const original = orders.checkout;
+  let entered;
+  let release;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  let attempts = 0;
+  const checkout = t.mock.method(orders, 'checkout', async (...args) => {
+    attempts += 1;
+    if (attempts > 1) return original(...args);
+    entered();
+    await gate;
+    throw auth.httpError(409, 'Temporary checkout failure');
+  });
+  const first = api('POST', path, body, cust, headers);
+  await started;
+  const retries = [api('POST', path, body, cust, headers), api('POST', path, body, cust, headers)];
+  try {
+    const conflict = await api('POST', path, { ...body, shipping_address: { ...addr, city: 'Other' } }, cust, headers);
+    assert.strictEqual(conflict.status, 409);
+    assert.match(conflict.body.error, /different checkout/);
+  } finally {
+    release();
+  }
+  const results = await Promise.all([first, ...retries]);
+  assert.deepStrictEqual(results.map((r) => r.body.error), Array(3).fill('Temporary checkout failure'));
+  assert.strictEqual(checkout.mock.callCount(), 1);
+  const retry = await api('POST', path, body, cust, headers);
+  assert.strictEqual(retry.status, 201, JSON.stringify(retry.body));
+  assert.strictEqual(checkout.mock.callCount(), 2);
+});
+
+test('account deletion has a public web entry and a protected preflight', async () => {
+  const page = await api('GET', '/delete-account');
+  assert.strictEqual(page.status, 200);
+  assert.match(page.body, /id="deletion"/);
+  assert.match(page.body, /kinan Shop/);
+  assert.strictEqual((await api('GET', '/assets/delete-account.js')).status, 200);
+  assert.strictEqual((await api('GET', '/api/buyer/account/delete')).status, 401);
+  const token = await customer('deletion-web@x.com');
+  const signedIn = await api('GET', '/api/buyer/account/delete', null, null, { Cookie: `sid=${token}` });
+  assert.strictEqual(signedIn.status, 200);
+  assert.strictEqual(signedIn.body.can_delete, true);
+  assert.strictEqual(signedIn.body.needs_password, true);
+  const shop = await api('GET', '/shop');
+  assert.match(shop.body, /href="\/delete-account"/);
+});
+
 test('checkout with an Idempotency-Key makes one order, even for parallel taps', async () => {
   await shopWithProducts();
   const cust = await customer('idem@x.com');
