@@ -15,7 +15,7 @@ test('steps are read as milestones (codes and words, several languages)', () => 
   assert.strictEqual(T.stepCode(ev('Departed from departure country/region', '')), 5);
   assert.strictEqual(T.stepCode(ev('Arrived at destination country/region', '')), 6);
   assert.strictEqual(T.stepCode(ev('Arrived at destination country', '')), 6);
-  assert.strictEqual(T.stepCode(ev('Import customs clearance started', '')), 6);
+  assert.strictEqual(T.stepCode(ev('Import customs clearance started', '')), 7);
   assert.strictEqual(T.stepCode(ev('Out for delivery', '')), 10);
   assert.strictEqual(T.stepCode(ev('Paket in Zustellung', '')), 10);
   assert.strictEqual(T.stepCode(ev('Delivered', '')), 12);
@@ -88,4 +88,47 @@ test('two parcels of one order are tracked apart: one delivered, the other still
   const keys = (x.notices || []).filter((k) => k.startsWith('trk:'));
   assert.ok(keys.some((k) => k.includes(':P1:12')) && keys.some((k) => k.includes(':P2:5')), JSON.stringify(keys));
   T._setFetcher(null);
+});
+
+test('carrier handoff, failed attempt, pickup and return have distinct stages', () => {
+  assert.strictEqual(T.stepCode(ev('Package not accepted by local delivery company.Package not yet arrived in local destination/destination country', '', 'EXCEPTION')), 90);
+  assert.strictEqual(T.stepCode(ev('Delivery attempt unsuccessful', '')), 13);
+  assert.strictEqual(T.stepCode(ev('Available for pickup', '')), 11);
+  assert.strictEqual(T.stepCode(ev('Returning to sender', '')), 14);
+  const events = [ev('Delivery attempt unsuccessful', '3'), ev('Out for delivery', '2'), ev('Arrived at destination country', '1')];
+  assert.deepStrictEqual(T.transitions({ status: 6, events: events.slice(2) }, events, T.stageOf(events)).map(({ code }) => code), [10, 13]);
+});
+
+test('warehouse parcel sends email and push for each new delivery event, with pickup instructions', async (t) => {
+  const notifyMail = t.mock.method(require('../src/mailer'), 'send', async () => {});
+  const push = t.mock.method(require('../src/push'), 'toUser', () => {});
+  const user = db.users.insert({ email: 'shipping@x.test', lang: 'ar' });
+  const shipment = db.shipments.insert({ tracking: 'WH_TRACK', carrier: 'Carrier', status: 'in_transit',
+    track: { status: 9, at: 0, events: [ev('Received by local carrier', '1')] } });
+  const order = db.orders.insert({ buyer_id: user.id, status: 'shipped', shipment_id: shipment.id, currency: 'eur',
+    total: 15, shipping_fee: 5, lines: [{ title: 'Cap', qty: 1, price: 10 }], timeline: [] });
+  T._setFetcher(async () => ({ WH_TRACK: [ev('Ready for pickup', '4'), ev('Delivery attempt unsuccessful', '3'),
+    ev('Out for delivery', '2'), ev('Received by local carrier', '1')] }));
+  t.after(() => T._setFetcher(null));
+  await T.refresh(order.id);
+  await T.refresh(order.id);
+  assert.strictEqual(db.shipments.get(shipment.id).track.status, 11);
+  const messages = notifyMail.mock.calls.map((call) => call.arguments[0]);
+  assert.deepStrictEqual(messages.map((message) => message.key.split(':').pop()), ['10', '13', '11']);
+  assert.strictEqual(push.mock.callCount(), 3);
+  assert.ok(messages.every((message) => message.shipping && message.lines.some((line) => line.includes('Cap'))));
+  assert.match(messages[2].ar.lines.join(' '), /قبل المهلة.*يعيده الناقل/);
+});
+
+test('shipping mail renders the van in the outgoing email', async (t) => {
+  const { config } = require('../src/config');
+  const before = [config.publicBaseUrl, config.mail.brevoKey, config.mail.from];
+  t.after(() => { [config.publicBaseUrl, config.mail.brevoKey, config.mail.from] = before; });
+  [config.publicBaseUrl, config.mail.brevoKey, config.mail.from] = ['https://kinan.test', 'mock-key', 'noreply@kinan.test'];
+  const transport = t.mock.method(global, 'fetch', async () => ({ ok: true }));
+  const response = await require('../src/mailer').send({ to: 'shipping@x.test', subject: 'Fixture', shipping: true, lines: ['Order details'] });
+  assert.strictEqual(response.status, 'sent');
+  const payload = JSON.parse(transport.mock.calls[0].arguments[1].body);
+  assert.match(payload.htmlContent, /https:\/\/kinan.test\/assets\/kinan-delivery-van.jpg/);
+  assert.match(payload.htmlContent, /Order details/);
 });

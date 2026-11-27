@@ -47,7 +47,7 @@ function view(o) {
   const { ORDER_STATUS_LABEL } = require('./orders');
   const shipment = o.shipment_id ? db.shipments.get(o.shipment_id) : null;
   const parcels = [];
-  if (shipment && shipment.tracking) parcels.push({ kind: 'consolidated', label: 'From our warehouse', carrier: shipment.carrier || null, number: shipment.tracking, url: shipment.url || couriers.trackingUrl(shipment.carrier, shipment.tracking), track: null, items: o.lines.filter((l) => !l.direct).reduce((a, l) => a + l.qty, 0) });
+  if (shipment && shipment.tracking) parcels.push({ kind: 'consolidated', label: 'From our warehouse', carrier: shipment.carrier || null, number: shipment.tracking, url: shipment.url || couriers.trackingUrl(shipment.carrier, shipment.tracking), track: shipment.track ? { stage: shipment.track.status, events: (shipment.track.events || []).slice(0, 25).map(({ text, at }) => ({ text, at })) } : null, items: o.lines.filter((l) => !l.direct).reduce((a, l) => a + l.qty, 0) });
   for (const s of o.sub_orders || []) {
     if (!s.direct) continue;
     parcels.push({
