@@ -186,14 +186,18 @@ function releaseExpired(days = Number(process.env.STORAGE_DAYS || 30)) {
 function markDelivered(orderId) {
   const o = db.orders.get(orderId);
   if (!o || o.status !== 'shipped') throw httpError(409, 'Order has not been shipped yet');
-  if (o.shipment_id) db.shipments.update(o.shipment_id, { status: 'delivered', delivered_at: Date.now() });
-  // Orders that travelled in the same box are delivered together
   const sh = o.shipment_id ? db.shipments.get(o.shipment_id) : null;
-  for (const id of (sh?.order_ids || []).filter((id) => id !== o.id)) { const x = db.orders.get(id); if (x && x.status === 'shipped') { db.orders.update(x.id, { shipment_id: null }); markDelivered(x.id); db.orders.update(x.id, { shipment_id: sh.id }); } }
-  for (const l of db.ledger.all((x) => x.order_id === o.id && x.status === 'pending_payout')) db.ledger.update(l.id, { status: 'payable' });
-  const out = db.orders.update(o.id, (x) => ({ ...x, status: 'delivered', timeline: [...x.timeline, { at: Date.now(), event: 'delivered' }] }));
-  notify.orderDelivered(out);
-  return out;
+  const at = sh?.delivered_at || Date.now();
+  if (sh && sh.status !== 'delivered') db.shipments.update(sh.id, { status: 'delivered', delivered_at: at });
+  for (const id of new Set([o.id, ...(sh?.order_ids || [])])) {
+    const order = db.orders.get(id);
+    if (order?.status !== 'shipped' || order.shipment_id !== o.shipment_id) continue;
+    if (sh && (order.sub_orders || []).some((part) => part.direct && part.status !== 'AE_DELIVERED')) continue;
+    for (const entry of db.ledger.all((x) => x.order_id === id && x.status === 'pending_payout')) db.ledger.update(entry.id, { status: 'payable' });
+    const delivered = db.orders.update(id, (x) => ({ ...x, status: 'delivered', timeline: [...(x.timeline || []), { at: Date.now(), event: 'delivered' }] }));
+    notify.orderDelivered(delivered);
+  }
+  return db.orders.get(o.id);
 }
 
 /** Inventory overview = what is physically in the warehouse right now. */

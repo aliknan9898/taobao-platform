@@ -565,7 +565,13 @@ function recompute(orderId) {
   const all = o.sub_orders || [];
   const subs = all.filter((s) => !s.direct);          // go through the China warehouse
   const direct = all.filter((s) => s.direct);         // AliExpress → customer
-  if (o.status === 'shipped' && subs.length) return o; // warehouse part already left; delivery is confirmed by staff
+  if (o.status === 'shipped' && (o.shipment_id || subs.length)) {
+    if (o.shipment_id && db.shipments.get(o.shipment_id)?.status === 'delivered' &&
+        direct.every((part) => part.status === 'AE_DELIVERED')) {
+      return require('./warehouse').markDelivered(o.id);
+    }
+    return o;
+  }
   let status = o.status;
   if (subs.some((s) => s.status === 'CREATE_FAILED' || s.status === 'TRADE_CLOSED') || direct.some((s) => s.status === 'AE_CANCELLED' || (s.error && (s.status === 'AE_TO_BUY' || (s.source === 'cj' && s.status === 'AE_PLACED'))))) status = 'attention';
   else if (subs.length) {
