@@ -279,17 +279,35 @@ const K = (() => {
   // Parcel journey: 4 big steps (the ones the customer is notified about) + every carrier update below
   var JOURNEY = [[5, 'Left origin country'], [6, 'In your country'], [10, 'Out for delivery'], [12, 'Delivered']];
   var JOURNEY_AT = { 1: -1, 2: -1, 3: -1, 4: -1, 5: 0, 6: 1, 7: 1, 8: 1, 9: 1, 10: 2, 11: 2, 12: 3 };
+  var journeyUpdates = new Map();
+  function journeyUpdate(key, stage, event) {
+    if (!key) return false;
+    var storageKey = 'kinan:tracking:' + key;
+    var at = event && event.at ? String(event.at).trim().replace(' ', 'T').slice(0, 19) : '';
+    var previous = journeyUpdates.get(key);
+    try { previous = previous || JSON.parse(sessionStorage.getItem(storageKey)); } catch (_) {}
+    if (previous && previous.at > at) return false;
+    var changed = Boolean(previous && (at > previous.at || stage !== previous.stage));
+    var current = { at: at, stage: stage };
+    journeyUpdates.set(key, current);
+    try { sessionStorage.setItem(storageKey, JSON.stringify(current)); } catch (_) {}
+    return changed;
+  }
   function journeyCss() {
     if (document.getElementById('jrny-css')) return;
     var st = document.createElement('style'); st.id = 'jrny-css';
-    st.textContent = '.jrny{position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:6px 0 2px}.jrny>div{display:grid;gap:4px;justify-items:center;align-content:start;text-align:center;font-size:12px;line-height:1.25;color:#6b7280;position:relative}.jrny i{width:14px;height:14px;border-radius:50%;border:2px solid #d1d5db;background:#fff;z-index:1}.jrny>div:not(:first-child):before{content:"";position:absolute;top:6px;inset-inline-end:50%;width:100%;height:2px;background:#d1d5db}.jrny .on{color:inherit;font-weight:600}.jrny .on i{background:var(--jade,#036747);border-color:var(--jade,#036747);animation:jrnyPop .4s ease-out both;animation-delay:calc(var(--d,0s) + .45s)}.jrny>div.on:not(:first-child):after{content:"";position:absolute;top:6px;inset-inline-end:50%;width:100%;height:3px;margin-top:-.5px;border-radius:3px;background:linear-gradient(90deg,var(--jade,#036747) 0%,#34d399 45%,#a7f3d0 50%,#34d399 55%,var(--jade,#036747) 100%);background-size:200% 100%;box-shadow:0 0 8px rgba(52,211,153,.75);transform-origin:left center;animation:jrnyGrow .6s ease-out both,jrnyFlow 2.4s linear infinite;animation-delay:var(--d,0s),var(--d,0s)}[dir=rtl] .jrny>div.on:not(:first-child):after{transform-origin:right center;animation-direction:normal,reverse}.jrny .now i{animation:jrnyPop .4s ease-out both,jrnyPulse 1.8s ease-out infinite;animation-delay:calc(var(--d,0s) + .45s),calc(var(--d,0s) + .9s)}@keyframes jrnyGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}@keyframes jrnyFlow{from{background-position:200% 0}to{background-position:0 0}}@keyframes jrnyPop{0%{transform:scale(.7);background:#fff;border-color:#d1d5db}70%{transform:scale(1.18)}100%{transform:scale(1)}}@keyframes jrnyPulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.75)}70%{box-shadow:0 0 0 9px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}@media (prefers-reduced-motion:reduce){.jrny i,.jrny>div:after{animation:none!important}}' +
-      '.jrny[data-leg="-1"]{--leg-start:0%;--leg-width:12.5%}.jrny[data-leg="0"]{--leg-start:12.5%}.jrny[data-leg="1"]{--leg-start:37.5%}.jrny[data-leg="2"]{--leg-start:62.5%}' +
-      '.jrny[data-leg]:before,.jrny[data-leg]:after{content:"";position:absolute;pointer-events:none;inset-inline-start:var(--leg-start);z-index:2}' +
-      '.jrny[data-leg]:before{top:6px;width:var(--leg-width,25%);height:2px;background:var(--jade,#036747);opacity:.5}' +
-      '.jrny[data-leg]:after{top:2px;width:10px;height:10px;border-radius:50%;background:#10b981;box-shadow:0 0 0 2px #fff,0 0 8px #34d399;animation:jrnyTravel 2.8s linear infinite}' +
-      '@keyframes jrnyTravel{0%{inset-inline-start:calc(var(--leg-start) - 5px);opacity:0}15%,85%{opacity:1}100%{inset-inline-start:calc(var(--leg-start) + var(--leg-width,25%) - 5px);opacity:0}}' +
-      '@media (prefers-reduced-motion:reduce){.jrny[data-leg]:after{animation:none;inset-inline-start:calc(var(--leg-start) + var(--leg-width,25%) / 2 - 5px)}}' +
-      '.jrny .bad i{background:#dc2626;border-color:#dc2626}.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid color-mix(in srgb,var(--jade,#036747) 25%,transparent);display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
+    st.textContent = '.jrny{position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:6px 0 2px}' +
+      '.jrny>div{display:grid;gap:4px;justify-items:center;align-content:start;text-align:center;font-size:12px;line-height:1.25;color:#6b7280;position:relative}' +
+      '.jrny i{width:14px;height:14px;border-radius:50%;border:2px solid #d1d5db;background:#fff;z-index:1}' +
+      '.jrny>div:not(:first-child):before{content:"";position:absolute;top:6px;inset-inline-end:50%;width:100%;height:2px;background:#d1d5db}' +
+      '.jrny .on{color:inherit;font-weight:600}.jrny .on i,.jrny>div.on:not(:first-child):before{background:var(--jade,#036747);border-color:var(--jade,#036747)}' +
+      '.jrny[data-leg="-1"]{--from:0%;--to:8%}.jrny[data-leg="0"]{--from:12.5%;--to:25%}.jrny[data-leg="1"]{--from:37.5%;--to:50%}.jrny[data-leg="2"]{--from:62.5%;--to:75%}' +
+      '.jrny[data-leg="11"]{--from:50%;--to:62.5%}.jrny[data-leg="12"]{--from:75%;--to:87.5%}' +
+      '.jrny-plane{position:absolute;top:-3px;inset-inline-start:calc(var(--to) - 10px);width:20px;height:20px;display:grid;place-items:center;z-index:2;color:var(--jade,#036747);background:#fff;border-radius:50%;font-size:17px;line-height:1;pointer-events:none}' +
+      '[dir=rtl] .jrny-plane span{transform:scaleX(-1)}.jrny.updated .jrny-plane{animation:jrnyTravel 1.15s ease-out both}' +
+      '@keyframes jrnyTravel{from{inset-inline-start:calc(var(--from) - 10px)}to{inset-inline-start:calc(var(--to) - 10px)}}' +
+      '@media(prefers-reduced-motion:reduce){.jrny.updated .jrny-plane{animation:none}}' +
+      '.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid color-mix(in srgb,var(--jade,#036747) 25%,transparent);display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
     document.head.appendChild(st);
   }
   function journey(t, opts) {
@@ -298,21 +316,21 @@ const K = (() => {
     var tr = function (x) { return window.KinanLang ? KinanLang.t(x) : x; };
     var stage = t.stage || 0; var at = JOURNEY_AT[stage]; var failed = stage === 13 || stage === 14;
     if (failed) at = -1;
-    // Keep travelling on the current leg while the carrier reports an active shipping stage.
-    var moving = at !== undefined && !failed && stage !== 11 && stage !== 12;
-    var bar = '<div class="jrny"' + (moving ? ' data-leg="' + at + '"' : '') + '>' + JOURNEY.map(function (j, i) {
+    var leg = stage === 11 || stage === 12 ? stage : at;
+    var showPlane = leg !== undefined && !failed;
+    var ev = t.events || [];
+    var updated = journeyUpdate(opts && opts.key, stage, ev[0]);
+    var bar = '<div class="jrny' + (updated && showPlane ? ' updated' : '') + '"' +
+      (showPlane ? ' data-leg="' + leg + '"' : '') + '>' + JOURNEY.map(function (j, i) {
       var label = (opts && opts.seller && j[0] === 6) ? 'In customer’s country' : j[1];
-      // Reached stages fill in one after another (the line grows, then glows and flows); the current stage pulses
-      var on = at !== undefined && i <= at;
-      var cls = on ? (i === at && i < JOURNEY.length - 1 ? 'on now' : 'on') : '';
-      return '<div class="' + cls + '"' + (on ? ' style="--d:' + (Math.max(0, i - 1) * 0.5) + 's"' : '') + '><i></i><span>' + esc(tr(label)) + '</span></div>';
-    }).join('') + '</div>';
+      var cls = at !== undefined && i <= at ? 'on' : '';
+      return '<div class="' + cls + '"><i></i><span>' + esc(tr(label)) + '</span></div>';
+    }).join('') + (showPlane ? '<span class="jrny-plane" aria-hidden="true"><span>✈︎</span></span>' : '') + '</div>';
     var advice = {11: ['Available for pickup', 'Collect the parcel from the office shown in the carrier notice before its deadline. Uncollected parcels may be returned to the sender.'],
       13: ['Not delivered', 'Check the carrier notice for redelivery or pickup. If pickup is confirmed, collect your parcel before the stated deadline to avoid return.'],
       90: ['Local carrier handoff delayed', 'Your parcel is awaiting handoff to the local carrier. Follow tracking for the next update.']};
     var note = advice[stage];
     var bad = note ? '<div class="jrny-bad">' + esc(tr(note[0])) + '</div><p class="small">' + esc(tr(note[1])) + '</p>' : failed ? '<div class="jrny-bad">⚠️ ' + esc(tr(stage === 14 ? 'Not delivered — going back' : 'Not delivered')) + '</div>' : '';
-    var ev = t.events || [];
     var row = function (e) { return '<li><b>' + esc(e.text) + '</b>' + (e.place ? ' · ' + esc(e.place) : '') + '<small>' + esc(e.at || '') + '</small></li>'; };
     var list = ev.length ? '<ul class="jrny-ev">' + ev.slice(0, 3).map(row).join('') + '</ul>' + (ev.length > 3 ? '<details><summary class="small">' + esc(tr('All updates')) + ' (' + ev.length + ')</summary><ul class="jrny-ev">' + ev.slice(3).map(row).join('') + '</ul></details>' : '') : '';
     return '<div class="trk">' + bar + bad + list + '</div>';
