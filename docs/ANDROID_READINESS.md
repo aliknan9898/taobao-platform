@@ -12,3 +12,7 @@ Reviewed baseline: `d859413d62982b9bbc83386febb0b490a838e516`.
 | Push notifications | The native registration endpoint accepts Expo push tokens. | A native Flutter notifications implementation needs its own registration and delivery integration. |
 
 The first Android candidate is a Flutter shell for the existing Shop and Seller web flows. Backend role permissions and review rules still apply. Public endpoint checks were read-only. No live orders, payments, database writes, deployment or production configuration changes were performed.
+
+## Android test package
+
+Flutter 3.41.9 analysis and two navigation tests passed. The APK build passed, and Android SDK tooling verified the v2 signature and inspected the manifest. Version `0.1.0+1` targets API 36, requires API 24 or newer, and includes ARM64, ARMv7 and x86-64. It uses a test signing key. Installation and end-to-end use on a physical Android device remain unverified.
