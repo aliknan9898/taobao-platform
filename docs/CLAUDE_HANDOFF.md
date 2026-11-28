@@ -1,7 +1,7 @@
 # KINAN — Claude Code engineering handoff
 
 **Prepared:** 2026-11-18  
-**Repository:** `aliknan9898/taobao-platform`  
+**Repository:** `aliknan9898/kinan-platform` (renamed from `taobao-platform`; GitHub redirects the old address)  
 **Authorized development branch:** `fix/chatgpt-security-db-ci-20261118`  
 **Production:** NO changes authorized.
 
