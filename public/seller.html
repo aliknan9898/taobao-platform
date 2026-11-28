@@ -467,14 +467,15 @@ function addStart(err = '') {
     $('#aego').disabled = true; $('#aego').textContent = 'Fetching from AliExpress…';
     try {
       const p = await api('/api/seller/products/aliexpress/preview', 'POST', { link });
-      $('#aeprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="aet" value="${esc(p.title)}" maxlength="200"></label></div><div id="aecat">${catSelect('')}</div>
+      $('#aeprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="aet" value="${esc(p.title)}" maxlength="200"></label></div><label class="field">Description<textarea id="aed" rows="5" maxlength="5000">${esc(plain(p.description))}</textarea></label><input type="hidden" id="aek" value=""><div class="panel flat stack aibox" id="aeai"></div><div id="aecat">${catSelect('')}</div>
         <table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>Cost</th><th>Your price</th></tr></thead><tbody>${p.skus.map((k) => `<tr><td>${esc(k.props || 'Standard')}</td><td style="text-align:center">${money(k.cost_sale, cfg.currency)}</td><td><input type="number" step="0.01" min="0" data-aep="${esc(k.mp_sku_id)}" value="${k.suggested_price}" style="min-height:34px"></td></tr>`).join('')}</tbody></table>
         <button class="btn" id="aepub">Submit for review</button></div>`;
+      supplierAiBox('ae', p);
       $('#aepub').onclick = async () => {
         const prices = Object.fromEntries($$('[data-aep]').map((i) => [i.dataset.aep, Number(i.value)]));
         $('#aepub').disabled = true;
         const category = $('#aecat select').value; if (!category) { $('#aee').textContent = 'Choose a category'; $('#aepub').disabled = false; return; }
-        try { await api('/api/seller/products/aliexpress', 'POST', { link, title: $('#aet').value, prices, category }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
+        try { await api('/api/seller/products/aliexpress', 'POST', { link, title: $('#aet').value, description: $('#aed').value, keywords: $('#aek').value || undefined, prices, category }); toast('Sent to Kinan for review'); location.hash = '#/products'; }
         catch (err) { $('#aee').textContent = err.message; $('#aepub').disabled = false; }
       };
     } catch (err) { $('#aee').textContent = err.message; }
@@ -511,10 +512,7 @@ function addStart(err = '') {
         <p class="muted small" style="margin:0">Ships from the <b>${esc(p.warehouse)}</b> warehouse${p.warehouses.length > 1 ? ` (also in ${esc(p.warehouses.filter((w) => w !== p.warehouse).join(', '))})` : ''}.</p><div id="bgcat">${catSelect('')}</div>
         <div class="scroll"><table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>Banggood cost</th><th>Stock</th><th>Your price</th></tr></thead><tbody>${p.skus.map((k) => `<tr><td>${esc(k.props || 'Standard')}</td><td style="text-align:center">$${Number(k.cost_sale).toFixed(2)}</td><td style="text-align:center">${k.stock}</td><td><input type="number" step="0.01" min="0" data-bgp="${esc(k.mp_sku_id)}" value="${k.suggested_price}" style="min-height:34px"></td></tr>`).join('')}</tbody></table></div>
         <button class="btn" id="bgpub">Submit for review</button></div>`;
-      aiBox($('#bgai'), {
-        read: () => ({ title: $('#bgt').value, description: $('#bgd').value, category: $('#bgcat select').value, options: p.skus.map((k) => k.props).filter(Boolean), images: (p.images || []).slice(0, 6) }),
-        apply: (k, v) => { if (k === 'title') $('#bgt').value = v; else if (k === 'description') $('#bgd').value = v; else if (k === 'keywords') $('#bgk').value = v; else if (k === 'category') $('#bgcat select').value = v; }
-      });
+      supplierAiBox('bg', p);
       $('#bgpub').onclick = async () => {
         const prices = Object.fromEntries($$('[data-bgp]').map((i) => [i.dataset.bgp, Number(i.value)]));
         const category = $('#bgcat select').value; if (!category) { $('#bge').textContent = 'Choose a category'; return; }
@@ -533,10 +531,7 @@ function addStart(err = '') {
       $('#cjprev').innerHTML = `<div class="stack" style="margin-top:8px"><div class="row" style="gap:12px">${p.images[0] ? `<img src="${esc(p.images[0])}" alt="" referrerpolicy="no-referrer" style="width:72px;height:72px;object-fit:cover;border-radius:10px">` : ''}<label class="field" style="flex:1">Title<input id="cjt" value="${esc(p.title)}" maxlength="200"></label></div><label class="field">Description<textarea id="cjd" rows="5" maxlength="5000">${esc(plain(p.description))}</textarea></label><input type="hidden" id="cjk" value=""><div class="panel flat stack aibox" id="cjai"></div><div id="cjcat">${catSelect('')}</div>
         <table class="small" style="width:100%"><thead><tr><th style="text-align:left">Option</th><th>CJ cost</th><th>Stock</th><th>Your price</th></tr></thead><tbody>${p.skus.map((k) => `<tr><td>${esc(k.props || 'Standard')}</td><td style="text-align:center">$${Number(k.cost_sale).toFixed(2)}</td><td style="text-align:center">${k.stock}</td><td><input type="number" step="0.01" min="0" data-cjp="${esc(k.mp_sku_id)}" value="${k.suggested_price}" style="min-height:34px"></td></tr>`).join('')}</tbody></table>
         <button class="btn" id="cjpub">Submit for review</button></div>`;
-      aiBox($('#cjai'), {
-        read: () => ({ title: $('#cjt').value, description: $('#cjd').value, category: $('#cjcat select').value, options: p.skus.map((k) => k.props).filter(Boolean), images: (p.images || []).slice(0, 6) }),
-        apply: (k, v) => { if (k === 'title') $('#cjt').value = v; else if (k === 'description') $('#cjd').value = v; else if (k === 'keywords') $('#cjk').value = v; else if (k === 'category') $('#cjcat select').value = v; }
-      });
+      supplierAiBox('cj', p);
       $('#cjpub').onclick = async () => {
         const prices = Object.fromEntries($$('[data-cjp]').map((i) => [i.dataset.cjp, Number(i.value)]));
         const category = $('#cjcat select').value; if (!category) { $('#cje').textContent = 'Choose a category'; return; }
@@ -599,13 +594,33 @@ function resizeImage(file, max = 1000) {
   });
 }
 // ---------- AI listing assistant ----------
+function supplierAiBox(prefix, product) {
+  const fields = {
+    title: $(`#${prefix}t`),
+    description: $(`#${prefix}d`),
+    keywords: $(`#${prefix}k`),
+    category: $(`#${prefix}cat select`)
+  };
+  aiBox($(`#${prefix}ai`), {
+    read: () => ({
+      title: fields.title.value,
+      description: fields.description.value,
+      category: fields.category.value,
+      options: product.skus.map((sku) => sku.props).filter(Boolean),
+      images: (product.images || []).slice(0, 6)
+    }),
+    apply: (field, value) => { fields[field].value = value; },
+    applyTranslations: false
+  });
+}
+
 const AI_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
 /**
  * A panel that sends the listing to the AI assistant and shows its suggestions.
  * read() → { title, description, options, category, images }; apply(field, value) puts one suggestion in the form;
  * removePhoto(index) (optional) takes a flagged photo out.
  */
-function aiBox(el, { read, apply, removePhoto }) {
+function aiBox(el, { read, apply, removePhoto, applyTranslations = true }) {
   if (!el) return;
   if (!cfg.ai) { el.hidden = true; return; }
   el.innerHTML = `<div class="row between" style="gap:12px;flex-wrap:wrap"><div class="row" style="gap:10px;flex-wrap:nowrap"><span class="aiicon">${AI_ICON}</span><div><b>AI assistant</b><div class="muted small">Rewrites your title, description and keywords, translates to Arabic and checks your photos. You choose what to use.</div></div></div>
@@ -622,7 +637,7 @@ function aiBox(el, { read, apply, removePhoto }) {
       const cat = r.category && (cfg.categories || []).find((c) => c.id === r.category);
       const V = { good: ['Good', 'ok'], fix: ['Improve', 'warn'], remove: ['Remove', 'bad'] };
       out.innerHTML = `<div class="row between"><b>Suggestions</b><button type="button" class="btn sm" id="aiall">Use all</button></div>
-        ${sug.map(([k, label, v]) => `<div class="aisug"><div class="row between"><span class="muted small">${label}</span><button type="button" class="btn sm ghost" data-ai="${k}">Use</button></div><div class="aitext" ${/_ar$/.test(k) ? 'dir="rtl"' : 'dir="auto"'} data-no-tr>${esc(v)}</div></div>`).join('')}
+        ${sug.map(([k, label, v]) => `<div class="aisug"><div class="row between"><span class="muted small">${label}</span>${applyTranslations || !k.endsWith('_ar') ? `<button type="button" class="btn sm ghost" data-ai="${k}">Use</button>` : ''}</div><div class="aitext" ${/_ar$/.test(k) ? 'dir="rtl"' : 'dir="auto"'} data-no-tr>${esc(v)}</div></div>`).join('')}
         ${cat ? `<div class="aisug"><div class="row between"><span class="muted small">Category</span><button type="button" class="btn sm ghost" data-ai="category">Use</button></div><div class="aitext">${esc(KinanLang.lang === 'ar' && cat.ar ? cat.ar : cat.en)}</div></div>` : ''}
         ${(r.photos || []).length ? `<div class="stack" style="gap:8px"><b>Photo check</b>${r.photos.map((p) => `<div class="aiphoto" data-pi="${p.index}"><span class="pill ${V[p.verdict][1]}">${V[p.verdict][0]}</span><span><b><span>Photo</span> ${p.index}</b>${p.issues.length ? `<span class="muted small" style="display:block" data-no-tr>${p.issues.map(esc).join(' · ')}</span>` : ''}</span>${p.verdict === 'remove' && removePhoto ? `<button type="button" class="btn sm quiet" data-airm="${p.index}">Remove photo</button>` : ''}</div>`).join('')}</div>` : ''}
         ${(r.tips || []).length ? `<div class="stack" style="gap:4px"><b>Tips</b><ul class="small" style="margin:0;padding-inline-start:18px" data-no-tr>${r.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}
