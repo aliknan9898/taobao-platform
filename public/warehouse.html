@@ -272,18 +272,22 @@ function openShip(o) {
   };
   const gr = $('#getr');
   if (gr) gr.onclick = async () => {
-    if (!f.weight_g.value) { $('#she').textContent = 'Enter the weight first'; return; }
+    const quote = dims();
+    if (![quote.weight_g, quote.length_cm, quote.width_cm, quote.height_cm].every((n) => n > 0)) {
+      $('#she').textContent = 'Enter the weight and all three box dimensions first'; return;
+    }
     gr.disabled = true; gr.textContent = 'Asking couriers…'; $('#rates').innerHTML = '';
     try {
-      const r = await api(`/api/warehouse/orders/${o.id}/rates`, 'POST', dims());
+      const r = await api(`/api/warehouse/orders/${o.id}/rates`, 'POST', quote);
       $('#rates').innerHTML = r.rates.map((x, i) => `<div class="rate"><div><b>${esc(x.carrier_label)}</b> · ${esc(x.service || '')}<div class="muted">${x.eta ? 'Arrives ' + esc(String(x.eta).slice(0, 10)) : ''}</div></div><div class="row"><b>${esc(x.price)} ${esc(x.currency)}</b><button type="button" class="btn" data-buy="${i}">Buy label</button></div></div>`).join('')
         + r.errors.map((m) => `<div class="err">${esc(m)}</div>`).join('') || '<div class="muted">No prices returned.</div>';
       $('#rates').querySelectorAll('[data-buy]').forEach((bt) => bt.onclick = async () => {
         const x = r.rates[Number(bt.dataset.buy)];
+        if (JSON.stringify(dims()) !== JSON.stringify(quote)) { $('#she').textContent = 'Box details changed. Get new courier prices first.'; return; }
         if (!confirm(`Book ${x.carrier_label} ${x.service || ''} for ${x.price} ${x.currency}? The courier will charge your account.`)) return;
         bt.disabled = true; bt.textContent = 'Booking…';
         try {
-          const s = await api(`/api/warehouse/orders/${o.id}/label`, 'POST', { carrier: x.carrier, code: x.code, price: x.price, ...dims() });
+          const s = await api(`/api/warehouse/orders/${o.id}/label`, 'POST', { carrier: x.carrier, code: x.code, price: x.price, ...quote });
           b.innerHTML = `<h2>Shipped ✓</h2><p>${esc(s.carrier)} · <code>${esc(s.tracking)}</code></p>${s.label ? `<a class="btn" href="/api/warehouse/shipments/${esc(s.id)}/label" target="_blank" rel="noopener">Print label</a>` : '<p class="muted">The courier did not return a label — print it from their website.</p>'}<button class="btn ghost" id="shx2">Close</button>`;
           $('#shx2').onclick = () => d.close(); tab = 'shipments'; load();
         } catch (err) { bt.disabled = false; bt.textContent = 'Buy label'; $('#she').textContent = err.message; }

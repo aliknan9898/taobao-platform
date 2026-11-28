@@ -35,6 +35,7 @@ function stepCode(e) {
   if (/import (customs|clearance)|customs clearance (started|in progress)/i.test(text)) return 7;
   if (/received by (the )?(local|destination)|handed over to (the )?(local|last.?mile)/i.test(text)) return 9;
   if (/departed from (a |the )?transit country/i.test(text)) return null;
+  if (/^PICKED_UP$/.test(code)) return 4;
   if ((/leave|left|depart/i.test(text) && /warehouse/i.test(text)) || /GWMS_OUTBOUND/i.test(code)) return 1;
   if (/picked up by (the )?carrier|accepted by (the )?shipping partner/i.test(text)) return 4;
   for (const [c, codeRe, textRe] of RULES) if ((code && codeRe.test(code)) || textRe.test(text)) return c;
@@ -103,14 +104,25 @@ async function refreshShipment(order, maxAgeMs) {
       (shipment.track && now() - shipment.track.at < maxAgeMs)) return;
   const events = (await fetcher([shipment.tracking]))[shipment.tracking] || [];
   const current = db.shipments.get(shipment.id);
-  if (!current || current.status === 'delivered') return;
+  if (!current || current.status === 'delivered' || current.track?.status === 12) return;
+  if (current.track?.source === '17track' &&
+      (!events.length || String(events[0].at) <= String(current.track.events?.[0]?.at || ''))) {
+    db.shipments.update(current.id, { track: { ...current.track, at: now() } });
+    return;
+  }
+  updateShipmentTracking(current, events, 'cainiao', order.id);
+}
+
+function updateShipmentTracking(current, events, source, fallbackOrderId) {
   const stage = stageOf(events);
   db.shipments.update(current.id, { track: { status: stage || current.track?.status || null,
-    events: events.length ? events : (current.track?.events || []), at: now() } });
+    events: events.length ? events : (current.track?.events || []), at: now(), source } });
   const parcel = { outer_purchase_id: current.id, logistics: [{ carrier: current.carrier, tracking: current.tracking }] };
-  for (const id of new Set([order.id, ...(current.order_ids || [])])) {
+  for (const id of new Set([current.order_id || fallbackOrderId, ...(current.order_ids || [])].filter(Boolean))) {
+    const order = db.orders.get(id);
+    if (!order) continue;
     for (const { code, event } of transitions(current.track, events, stage)) {
-      require('../notify').trackingStage(db.orders.get(id), parcel, code, event);
+      require('../notify').trackingStage(order, parcel, code, event);
     }
   }
 }
@@ -161,4 +173,4 @@ async function freshen(orderId) {
   return db.orders.get(orderId);
 }
 
-module.exports = { stepCode, stageOf, transitions, parseCainiao, fetchCainiao, refresh, refreshOpen, freshen, MILESTONES, _setFetcher: (f) => { fetcher = f || fetchCainiao; } };
+module.exports = { updateShipmentTracking, stepCode, stageOf, transitions, parseCainiao, fetchCainiao, refresh, refreshOpen, freshen, MILESTONES, _setFetcher: (f) => { fetcher = f || fetchCainiao; } };

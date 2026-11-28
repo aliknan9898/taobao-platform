@@ -151,6 +151,15 @@ async function rates(order, dims) {
 }
 
 /** Book the shipment and get the label. Returns { carrier, tracking, cost, label }. */
+function validateLabelRequest(order, { carrier, weight_g, length_cm, width_cm, height_cm }) {
+  if (!order.shipping_address?.country_code) throw httpError(400, 'The customer’s country is not recognised');
+  if (carrier === 'dhl' && order.lines.length > 50) throw httpError(400, 'DHL labels support up to 50 declaration lines in this integration');
+  if (!((carrier === 'dhl' && dhlOn()) || (carrier === 'aramex' && aramexOn()))) throw httpError(400, 'That courier is not connected');
+  if (![weight_g, length_cm, width_cm, height_cm].every((n) => Number.isFinite(Number(n)) && Number(n) > 0)) {
+    throw httpError(400, 'Enter a positive weight and all three parcel dimensions');
+  }
+}
+
 async function label(order, { carrier, code, price }, dims) {
   const p = parcel(dims);
   let out;
@@ -162,4 +171,4 @@ async function label(order, { carrier, code, price }, dims) {
   return out;
 }
 
-module.exports = { CARRIERS, carrierKey, trackingUrl, status, rates, label, parcel };
+module.exports = { CARRIERS, carrierKey, trackingUrl, status, rates, label, validateLabelRequest, parcel };

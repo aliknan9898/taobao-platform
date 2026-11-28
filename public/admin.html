@@ -780,6 +780,8 @@ const VIEWS = {
         <div class="exmeta"><span>${esc(EX_AREA[x.area] || x.area)}</span>${x.provider ? `<span>${esc(x.provider)}</span>` : ''}${x.at ? `<span title="${esc(date(x.at))}">${esc(ago(x.at))}</span>` : ''}${x.assignee ? `<span>→ ${esc(x.assignee)}</span>` : ''}</div>
         <div class="exact">${x.order_id ? `<button class="btn ghost" data-exopen="${esc(x.order_id)}">Open order <bdi dir="ltr">${esc(x.order_ref)}</bdi></button>` : ''}
           ${x.retry.eligible && canBuy() ? `<button class="btn" data-exretry="${esc(x.order_id)}" title="${esc(x.retry.why)}">Retry purchase</button>` : x.order_id && x.area === 'supplier' ? `<span class="muted" title="Retry not available">${esc(x.retry.why)}</span>` : ''}
+          ${x.booking_confirmed && isAdmin() ? `<button type="button" class="btn" data-booking-finalize="${esc(x.booking_id)}">Finalize saved label</button>` : ''}
+          ${x.booking_id && isAdmin() ? `<button type="button" class="btn ghost" data-booking-release="${esc(x.booking_id)}">Release after carrier confirmation</button>` : ''}
           <select data-exwho aria-label="Assign to"><option value="">Unassigned</option>${d.staff.map((u) => `<option value="${esc(u.id)}" ${u.id === x.assignee_id ? 'selected' : ''}>${esc(u.name)} · ${esc(u.role)}</option>`).join('')}</select>
           <input data-exnote placeholder="Note for the team" value="${esc(x.note)}" maxlength="300" aria-label="Note"><button class="btn ghost" data-exsave>Save</button></div>
         <div class="err" data-exerr role="alert"></div></li>`).join('')}</ul>` : '<p>Nothing is open. 🎉</p>'}`;
@@ -789,6 +791,30 @@ const VIEWS = {
       const li = b.closest('li'); b.disabled = true; b.textContent = 'Retrying…';
       try { await api(`/api/admin/orders/${b.dataset.exretry}/procure`, 'POST'); render(); }
       catch (e) { li.querySelector('[data-exerr]').textContent = e.message; b.disabled = false; b.textContent = 'Retry purchase'; }
+    });
+    v.querySelectorAll('[data-booking-finalize]').forEach((button) => button.onclick = async () => {
+      if (!window.confirm('Use the saved label and mark these orders as shipped?')) return;
+      button.disabled = true;
+      try {
+        await api(`/api/admin/warehouse/bookings/${encodeURIComponent(button.dataset.bookingFinalize)}/finalize`, 'POST');
+        render();
+      } catch (err) {
+        button.closest('li').querySelector('[data-exerr]').textContent = err.message;
+        button.disabled = false;
+      }
+    });
+    v.querySelectorAll('[data-booking-release]').forEach((button) => button.onclick = async () => {
+      const note = window.prompt('Confirm with the carrier that no active label exists. Enter the carrier confirmation reference to release the booking.');
+      if (!note?.trim()) return;
+      const error = button.closest('li').querySelector('[data-exerr]');
+      button.disabled = true;
+      try {
+        await api(`/api/admin/warehouse/bookings/${encodeURIComponent(button.dataset.bookingRelease)}/release`, 'POST', { confirmation: 'CARRIER_CONFIRMED', note });
+        render();
+      } catch (err) {
+        error.textContent = err.message;
+        button.disabled = false;
+      }
     });
     v.querySelectorAll('[data-exsave]').forEach((b) => b.onclick = async () => {
       const li = b.closest('li'); const err = li.querySelector('[data-exerr]'); err.textContent = ''; b.disabled = true;

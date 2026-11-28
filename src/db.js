@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const { config } = require('./config');
 
 const COLLECTIONS = [['users', 'usr'], ['sessions', 'ses'], ['sellers', 'sel'], ['listings', 'lst'], ['orders', 'ord'], ['parcels', 'pcl'],
-  ['shipments', 'shp'], ['ledger', 'led'], ['inbox', 'msg'], ['oauth_states', 'st'], ['wallet', 'wal'], ['requests', 'req'], ['settings', 'set'],
+  ['shipments', 'shp'], ['shipment_bookings', 'shb'], ['ledger', 'led'], ['inbox', 'msg'], ['oauth_states', 'st'], ['wallet', 'wal'], ['requests', 'req'], ['settings', 'set'],
   ['payouts', 'pay'], ['returns', 'ret'], ['tokens', 'tok'], ['mail', 'mail'],
   ['coupons', 'cpn'], ['reviews', 'rev'], ['wishlist', 'wsh'], ['carts', 'crt'], ['push_subs', 'psh'], ['messages', 'chat'], ['views', 'vw'], ['kyc_docs', 'kyc'], ['questions', 'qst'], ['giftcards', 'gc'], ['devices', 'dev'], ['media', 'med'], ['product_review_feedback', 'prf'], ['audit', 'aud'], ['activity', 'act'], ['exceptions_meta', 'exm'],
   // delivery eligibility: one document per listing × destination country (services/eligibility.js)
