@@ -841,7 +841,7 @@ function orderRow(o) {
     return `<div class="otrack small"><span class="muted">${purchases.length > 1 ? `Parcel ${i + 1} · ` : ''}${part.direct ? 'To the customer' : 'To warehouse'}</span>
       <div>${esc(part.status_label)}${links ? '<br>' + links : ''}</div>
       ${part.error ? `<div class="small bad">${esc(part.error)}</div>` : ''}
-      ${part.direct ? K.journey(part.track, { seller: true }) : ''}</div>`;
+      ${part.direct ? K.journey(part.track, { seller: true, key: part.logistics?.[0]?.tracking && o.id.slice(-8).toUpperCase() + ':' + part.logistics[0].tracking }) : ''}</div>`;
   }).join('');
   const items = o.lines.reduce((n, l) => n + l.qty, 0);
   // closed by default: the summary shows what to scan (order, amount, first item, status); the rest opens on tap
