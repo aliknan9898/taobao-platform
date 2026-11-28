@@ -47,14 +47,14 @@ function view(o) {
   const { ORDER_STATUS_LABEL } = require('./orders');
   const shipment = o.shipment_id ? db.shipments.get(o.shipment_id) : null;
   const parcels = [];
-  if (shipment && shipment.tracking) parcels.push({ kind: 'consolidated', label: 'From our warehouse', carrier: shipment.carrier || null, number: shipment.tracking, url: shipment.url || couriers.trackingUrl(shipment.carrier, shipment.tracking), track: shipment.track ? { stage: shipment.track.status, events: (shipment.track.events || []).slice(0, 25).map(({ text, at }) => ({ text, at })) } : null, items: o.lines.filter((l) => !l.direct).reduce((a, l) => a + l.qty, 0) });
+  if (shipment && shipment.tracking) parcels.push({ kind: 'consolidated', label: 'From our warehouse', carrier: shipment.carrier || null, number: shipment.tracking, url: shipment.url || couriers.trackingUrl(shipment.carrier, shipment.tracking), track: shipment.track ? { stage: shipment.track.status, events: require('./track17').customerEvents(shipment.track.events).map(({ text, at }) => ({ text, at })) } : null, items: o.lines.filter((l) => !l.direct).reduce((a, l) => a + l.qty, 0) });
   for (const s of o.sub_orders || []) {
     if (!s.direct) continue;
     parcels.push({
       kind: 'direct', label: DIRECT_LABEL[s.status] || 'Being ordered',
       carrier: s.logistics?.[0]?.carrier || null, number: s.logistics?.[0]?.tracking || null,
       url: s.logistics?.[0] ? couriers.trackingUrl(s.logistics[0].carrier, s.logistics[0].tracking) : null,
-      track: s.track ? { stage: s.track.status || 0, events: (s.track.events || []).slice(0, 25).map((e) => ({ text: e.text, place: e.place, at: e.at })) } : null,
+      track: s.track ? { stage: s.track.status || 0, events: require('./track17').customerEvents(s.track.events).map((e) => ({ text: e.text, place: e.place, at: e.at })) } : null,
       items: o.lines.filter((l) => (s.line_nos || []).includes(l.line_no)).reduce((a, l) => a + l.qty, 0)
     });
   }
