@@ -116,8 +116,12 @@ function transitions(previous, events, stage) {
 
 async function refreshShipment(order, maxAgeMs) {
   const shipment = order.shipment_id && db.shipments.get(order.shipment_id);
-  if (!shipment?.tracking || shipment.status === 'delivered' || shipment.track?.status === 12 ||
-      (shipment.track && now() - shipment.track.at < maxAgeMs)) return;
+  if (!shipment?.tracking || shipment.status === 'delivered' || order.status !== 'shipped') return;
+  if (shipment.track?.status === 12) {
+    require('./warehouse').markDelivered(order.id);
+    return;
+  }
+  if (shipment.track && now() - shipment.track.at < maxAgeMs) return;
   const events = (await fetcher([shipment.tracking]))[shipment.tracking] || [];
   const current = db.shipments.get(shipment.id);
   if (!current || current.tracking !== shipment.tracking || current.track?.at !== shipment.track?.at || current.status === 'delivered') return;
@@ -127,8 +131,12 @@ async function refreshShipment(order, maxAgeMs) {
   const parcel = { outer_purchase_id: current.id, logistics: [{ carrier: current.carrier, tracking: current.tracking }] };
   for (const id of new Set([order.id, ...(current.order_ids || [])])) {
     for (const { code, event } of transitions(current.track, events, stage)) {
+      if (code === 12) continue; // The completed order sends its own delivery confirmation.
       require('../notify').trackingStage(db.orders.get(id), parcel, code, event);
     }
+  }
+  if (stage === 12 && db.orders.get(order.id)?.status === 'shipped') {
+    require('./warehouse').markDelivered(order.id);
   }
 }
 

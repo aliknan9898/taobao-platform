@@ -120,6 +120,45 @@ test('warehouse parcel sends email and push for each new delivery event, with pi
   assert.match(messages[2].ar.lines.join(' '), /قبل المهلة.*يعيده الناقل/);
 });
 
+test('carrier delivery completes a shared shipment and waits for direct parcels on mixed orders', async (t) => {
+  const mail = t.mock.method(require('../src/mailer'), 'send', async () => {});
+  const push = t.mock.method(require('../src/push'), 'toUser', () => {});
+  const user = db.users.insert({ email: 'combined-delivery@x.test' });
+  const shipment = db.shipments.insert({ tracking: 'WH_DELIVERY', status: 'in_transit' });
+  const order = { buyer_id: user.id, status: 'shipped', shipment_id: shipment.id, lines: [], timeline: [] };
+  const first = db.orders.insert(order);
+  const mixed = db.orders.insert({ ...order, sub_orders: [{
+    outer_purchase_id: 'DIRECT', direct: true, status: 'AE_SHIPPED', logistics: [{ tracking: 'DIRECT_TRACK' }]
+  }] });
+  db.shipments.update(shipment.id, { order_ids: [first.id, mixed.id] });
+  const firstEntry = db.ledger.insert({ order_id: first.id, status: 'pending_payout' });
+  const mixedEntry = db.ledger.insert({ order_id: mixed.id, status: 'pending_payout' });
+  let directDelivered = false;
+  T._setFetcher(async () => ({
+    WH_DELIVERY: [ev('Delivered', '3')],
+    DIRECT_TRACK: [directDelivered ? ev('Delivered', '5') : ev('Out for delivery', '4')]
+  }));
+  t.after(() => T._setFetcher(null));
+  await T.refresh(first.id);
+  await T.refresh(first.id);
+  assert.equal(db.shipments.get(shipment.id).status, 'delivered');
+  assert.equal(db.orders.get(first.id).status, 'delivered');
+  assert.equal(db.orders.get(mixed.id).status, 'shipped');
+  assert.equal(db.ledger.get(firstEntry.id).status, 'payable');
+  assert.equal(db.ledger.get(mixedEntry.id).status, 'pending_payout');
+  assert.equal(push.mock.callCount(), 1);
+
+  directDelivered = true;
+  await T.refresh(mixed.id);
+  await T.refresh(mixed.id);
+  assert.equal(db.orders.get(mixed.id).status, 'delivered');
+  assert.equal(db.orders.get(mixed.id).shipment_id, shipment.id);
+  assert.equal(db.ledger.get(mixedEntry.id).status, 'payable');
+  assert.equal(push.mock.callCount(), 2);
+  assert.deepEqual(mail.mock.calls.map(({ arguments: [message] }) => message.key),
+    [`delivered:${first.id}`, `delivered:${mixed.id}`]);
+});
+
 test('shipping email keeps order details without the van', async (t) => {
   const { config } = require('../src/config');
   const before = [config.publicBaseUrl, config.mail.brevoKey, config.mail.from];
