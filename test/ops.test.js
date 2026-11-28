@@ -104,6 +104,17 @@ test('operations and growth', async () => {
   const pdf = await realFetch(`${base}/api/warehouse/shipments/${lab.body.id}/label`, { headers: { Authorization: `Bearer ${wh}` } });
   assert.deepStrictEqual([pdf.status, pdf.headers.get('content-type'), (await pdf.text()).slice(0, 8)], [200, 'application/pdf', '%PDF-1.4']);
   const bv = (await api('GET', `/api/buyer/orders/${o.id}`, null, cust)).body;
+  const [sellerOrders, adminOrder, warehouseOverview] = await Promise.all([
+    api('GET', '/api/seller/orders', null, sel),
+    api('GET', `/api/admin/orders/${o.id}`, null, boss),
+    api('GET', '/api/warehouse/overview', null, wh),
+  ]);
+  assert.equal(bv.status, 'shipped');
+  assert.equal(sellerOrders.body.find((row) => row.id === o.id)?.status, 'shipped');
+  assert.equal(adminOrder.body.status, 'shipped');
+  assert.equal(warehouseOverview.body.shipments.find((row) => row.id === lab.body.id)?.tracking, lab.body.tracking);
+  assert.equal((await api('POST', '/api/admin/warehouse/bookings/unknown/release', {}, wh)).status, 403);
+  assert.equal((await api('POST', '/api/admin/warehouse/bookings/unknown/finalize', {}, wh)).status, 403);
   assert.match(bv.tracking.url, /^https:\/\/www\.dhl\.com\/.*tracking-id=1234567890$/);
   assert.ok(!JSON.stringify((await api('GET', '/api/warehouse/overview', null, wh)).body).includes('JVBERi'), 'label PDFs are not sent with the overview');
   await api('POST', `/api/warehouse/orders/${o.id}/delivered`, null, wh);

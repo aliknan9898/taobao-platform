@@ -65,9 +65,16 @@ function receive(user, code, quantities) {
   }
   if (!Array.isArray(quantities) || quantities.length !== parcel.items.length ||
       parcel.items.some((item, index) => quantities[index] !== item.qty)) {
+    if (Array.isArray(quantities) && quantities.length === parcel.items.length &&
+        quantities.every((qty) => Number.isSafeInteger(qty) && qty >= 0)) {
+      db.ly_inbound.update(parcel.id, { discrepancy: {
+        at: parcel.discrepancy?.at || Date.now(), by: user.id,
+        lines: parcel.items.filter((item, i) => quantities[i] !== item.qty).length,
+      } });
+    }
     throw httpError(409, 'Quantity discrepancy: hold the carton for manual review');
   }
-  const received = db.ly_inbound.update(parcel.id, { received_at: Date.now(), received_by: user.id });
+  const received = db.ly_inbound.update(parcel.id, { received_at: Date.now(), received_by: user.id, discrepancy: null });
   libya.inboundReceived(received);
   return view(received);
 }

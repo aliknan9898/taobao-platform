@@ -1320,6 +1320,12 @@ r('POST', '/api/admin/partners/webhooks/deliveries/:id/replay', ADMIN, async ({ 
 r('POST', '/api/admin/partners/orders/:id/settle', ADMIN, async ({ req, user, params }) => { const b = await readJson(req); const o = await require('./partner/orders').settle(params.id, { mode: b.mode || 'settled', actor: user.email || user.id }); return { id: o.id, payment_state: o.payment_state }; });
 r('POST', '/api/admin/partners/sandbox/simulate', ADMIN, async ({ req }) => { const b = await readJson(req); return b.reset ? require('./partner/catalog').resetSandbox() : require('./partner/catalog').simulate(b.product, b); });
 r('GET', '/api/admin/exceptions', STAFF, async ({ url, user }) => require('./services/exceptions').list({ area: url.searchParams.get('area') || '', provider: url.searchParams.get('provider') || '', result: url.searchParams.get('result') || '', mine: url.searchParams.get('mine') || '' }, user));
+r('POST', '/api/admin/warehouse/bookings/:id/finalize', ADMIN, async ({ params, user }) => {
+  const shipment = await require('./services/warehouseBooking').finalize(params.id, user);
+  return { id: shipment.id, tracking: shipment.tracking };
+});
+r('POST', '/api/admin/warehouse/bookings/:id/release', ADMIN, async ({ req, params, user }) =>
+  require('./services/warehouseBooking').release(params.id, await readJson(req), user));
 r('POST', '/api/admin/exceptions/assign', STAFF, async ({ req, user }) => { const b = await readJson(req); return require('./services/exceptions').assign(b.key, { assignee_id: b.assignee_id, note: b.note }, user); });
 /** Admin → Activity log: customer and seller actions plus the staff audit trail, newest first, filtered. */
 r('GET', '/api/admin/activity', ADMIN, async ({ url, user }) => {
@@ -1445,11 +1451,7 @@ r('POST', '/api/warehouse/orders/:id/rates', WH, async ({ req, params }) => {
   return couriers.rates(o, await readJson(req));
 });
 r('POST', '/api/warehouse/orders/:id/label', WH, async ({ req, params, user }) => {
-  const o = db.orders.get(params.id); if (!o) throw httpError(404, 'Order not found');
-  if (o.status !== 'ready_to_ship') throw httpError(409, 'Order is not ready to ship');
-  const b = await readJson(req);
-  const out = await couriers.label(o, b, b);
-  const s = warehouse.ship(o.id, { carrier: out.carrier, tracking: out.tracking, weight_g: b.weight_g, cost: out.cost, label: out.label, with: b.with }, user);
+  const s = await require('./services/warehouseBooking').book(params.id, await readJson(req), user);
   return { ...s, label: s.label ? { type: s.label.type } : null };
 });
 r('GET', '/api/warehouse/shipments/:id/label', WH, async ({ params, res }) => {
@@ -1601,6 +1603,10 @@ const server = http.createServer(async (req, res) => {
       send(res, 200, { ok: true });
       setImmediate(() => { try { n.onWebhook(JSON.parse(raw)).catch((e) => console.error('[nss] webhook', e.message)); } catch (e) { console.error('[nss] webhook', e.message); } });
       return;
+    }
+    if (p === '/webhooks/17track' && req.method === 'POST') {
+      await require('./services/tracking17').webhook(await readRaw(req), req.headers.sign);
+      return send(res, 200, { ok: true });
     }
     if (p === '/webhooks/stripe' && req.method === 'POST') {
       const out = await webhooks.stripeHook(await readRaw(req), req.headers);
@@ -1755,6 +1761,7 @@ function startJobs() {
   every(10 * 60e3, () => require('./services/media').tick()); // supplier photos → Kinan's own storage (off unless R2_* is set)
   every(3600e3, async () => { if (new Date().getUTCHours() === 3) require('./services/account').redactDeletedOrders(); }); // retention for deleted accounts (off unless ORDER_PII_RETENTION_DAYS is set)
   every(config.orderSyncMinutes * 60e3, orders.syncOpen);
+  every(30 * 60e3, () => require('./services/tracking17').registerOpen());
   every(30 * 60e3, () => require('./services/tracking').refreshOpen()); // parcel steps + milestone notices (left the country, arrived, out for delivery, delivered)
   every(3600e3, catalog.resyncStale);
   every(6 * 3600e3, sellerAuth.refreshAllDue);

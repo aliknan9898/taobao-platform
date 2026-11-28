@@ -70,14 +70,17 @@ function assign(parcelId, orderId) {
 }
 
 const money = (n) => Math.round(Number(n) * 100) / 100;
-const sameAddress = (a, b) => ['country_code', 'city', 'line1', 'postal_code', 'name'].every((k) => String(a?.[k] || '').trim().toLowerCase() === String(b?.[k] || '').trim().toLowerCase());
+const addressValue = (value) => String(value || '').trim().toLowerCase();
+const sameAddress = (a, b) => Boolean(a && b) &&
+  addressValue(a.country_code || a.country) === addressValue(b.country_code || b.country) &&
+  ['city', 'line1', 'line2', 'postal_code', 'name'].every((key) => addressValue(a[key]) === addressValue(b[key]));
 
 /**
  * Pack all received parcels of an order into one outbound shipment.
  * `with` = other ready orders of the same customer and address to put in the same box (consolidation):
  * the customer paid shipping per order, so the saving from one combined box goes back to their wallet.
  */
-function ship(orderId, { carrier, tracking, weight_g, cost, label, with: withIds = [] }, staff) {
+function validateShipment(orderId, withIds, bookingId) {
   const o = db.orders.get(orderId);
   if (!o) throw httpError(404, 'Order not found');
   const group = [o, ...[...new Set((Array.isArray(withIds) ? withIds : []).map(String))].filter((id) => id !== o.id).map((id) => db.orders.get(id))];
@@ -86,12 +89,21 @@ function ship(orderId, { carrier, tracking, weight_g, cost, label, with: withIds
     if (x.status !== 'ready_to_ship') throw httpError(409, `Order ${x.id.slice(-8)} is not ready to ship (all parcels must be received and pass QC)`);
     if (x.hold) throw httpError(409, `Order ${x.id.slice(-8)}: the customer asked us to store it until they tap “Ship now”`);
     if (x.qc_review === 'problem') throw httpError(409, `Order ${x.id.slice(-8)}: the customer reported a problem with the check photos — Kinan support must resolve it first`);
-    if (x !== o && (x.buyer_id !== o.buyer_id || !sameAddress(x.shipping_address, o.shipping_address))) throw httpError(400, 'Only orders of the same customer going to the same address can share a box');
+    if (x !== o && (!o.buyer_id || x.buyer_id !== o.buyer_id || !sameAddress(x.shipping_address, o.shipping_address))) throw httpError(400, 'Only orders of the same customer going to the same address can share a box');
   }
+  const ids = new Set(group.map((order) => order.id));
+  if (db.shipment_bookings.find((booking) => booking.id !== bookingId && booking.status !== 'released' &&
+      booking.order_ids.some((id) => ids.has(id)))) throw httpError(409, 'A carrier booking already exists for this shipment. Review Warehouse exceptions.');
+  return group;
+}
+
+function ship(orderId, { carrier, tracking, weight_g, cost, label, with: withIds = [] }, staff, bookingId = null) {
+  const group = validateShipment(orderId, withIds, bookingId);
+  const [o] = group;
   if (!carrier || !tracking) throw httpError(400, 'Carrier and tracking number are required');
   const parcels = db.parcels.all((p) => group.some((x) => x.id === p.order_id) && p.status === 'received');
   const s = db.shipments.insert({
-    order_id: o.id, order_ids: group.map((x) => x.id), parcel_ids: parcels.map((p) => p.id), carrier: String(carrier).slice(0, 60),
+    order_id: o.id, ...(bookingId ? { booking_id: bookingId } : {}), order_ids: group.map((x) => x.id), parcel_ids: parcels.map((p) => p.id), carrier: String(carrier).slice(0, 60),
     tracking: String(tracking).slice(0, 60), weight_g: weight_g ? Number(weight_g) : null,
     cost: Number(cost) > 0 ? Math.round(Number(cost) * 100) / 100 : null, // what Kinan paid the courier (for profit reports)
     label: label || null,
@@ -235,4 +247,4 @@ function lists() {
   };
 }
 
-module.exports = { receive, assign, ship, settleGroup, markDelivered, inventory, lists, addQcPhotos, qcPhoto, qcDecision, releaseStored, releaseExpired, PARCEL_LABEL };
+module.exports = { receive, assign, ship, validateShipment, settleGroup, markDelivered, inventory, lists, addQcPhotos, qcPhoto, qcDecision, releaseStored, releaseExpired, PARCEL_LABEL };

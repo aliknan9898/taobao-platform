@@ -43,6 +43,33 @@ function collect() {
   // Warehouse
   for (const p of db.parcels.all((x) => x.unmatched && x.status !== 'packed')) add({ key: `unmatched:${p.id}`, area: 'warehouse', result: 'action', title: `Parcel ${p.tracking} received but not matched to an order`, detail: p.location ? `Location ${p.location}` : '', at: p.received_at });
   for (const p of db.parcels.all((x) => x.status === 'qc_failed')) { const o = p.order_id ? db.orders.get(p.order_id) : null; add({ key: `qcfail:${p.id}`, area: 'warehouse', result: 'failed', severity: 'high', title: `Parcel ${p.tracking} failed quality check`, detail: p.notes || '', order_ref: o ? ref(o) : null, order_id: o?.id || null, at: p.received_at }); }
+  for (const carton of db.ly_inbound.peek((x) => x.discrepancy && !x.received_at)) {
+    add({ key: `carton:${carton.id}`, area: 'warehouse', result: 'review', severity: 'high',
+      title: `Libya carton ${carton.tracking}: quantity discrepancy`,
+      detail: `${carton.discrepancy.lines} line(s) differ. Recount the carton before confirming receipt.`, at: carton.discrepancy.at });
+  }
+  for (const booking of db.shipment_bookings.peek((x) => ['uncertain', 'booked'].includes(x.status) ||
+      (x.status === 'pending' && Date.now() - x.created_at > 2 * 60e3))) {
+    if (db.shipments.find((s) => s.booking_id === booking.id)) continue;
+    const order = db.orders.get(booking.order_id);
+    add({ key: `booking:${booking.id}`, booking_id: booking.id, booking_confirmed: booking.status === 'booked', area: 'warehouse', provider: booking.carrier,
+      result: 'review', severity: 'high', title: `Order ${ref({ id: booking.order_id })}: carrier booking requires review`,
+      detail: booking.status === 'booked'
+        ? `Carrier tracking ${booking.carrier_result?.tracking || 'unavailable'}. Resolve the order issue, then finalize the saved label.`
+        : 'Check the carrier for an active label. Release the booking only after the carrier confirms no label is active.',
+      order_ref: order ? ref(order) : null, order_id: order?.id || null, at: booking.created_at });
+  }
+  for (const shipment of db.shipments.peek((row) => row.status === 'in_transit' &&
+      (row.track?.status === 13 || row.track?.status === 14 || (!row.track?.events?.length && Date.now() - row.shipped_at > 10 * DAY)))) {
+    const stage = shipment.track?.status;
+    const order = db.orders.get(shipment.order_id);
+    const issue = stage === 13 ? 'delivery failed' : stage === 14 ? 'return to sender' : 'no carrier events after 10 days';
+    add({ key: `warehouse-tracking:${shipment.id}`, area: 'warehouse', provider: shipment.carrier,
+      result: stage === 13 || stage === 14 ? 'failed' : 'stuck',
+      severity: stage === 13 || stage === 14 ? 'high' : 'medium',
+      title: `Shipment ${shipment.tracking}: ${issue}`, detail: 'Check the current status with the carrier.',
+      order_ref: order ? ref(order) : null, order_id: order?.id || null, at: shipment.shipped_at });
+  }
   // Product syncs, one row per provider
   const syncFail = {};
   for (const l of db.listings.all((x) => x.sync_error && ['active', 'pending_review', 'unavailable'].includes(x.status))) (syncFail[l.source || 'taobao'] = syncFail[l.source || 'taobao'] || []).push(l);
