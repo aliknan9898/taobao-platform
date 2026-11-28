@@ -132,3 +132,34 @@ test('shipping email keeps order details without the van', async (t) => {
   assert.doesNotMatch(payload.htmlContent, /kinan-delivery-van/);
   assert.match(payload.htmlContent, /Order details/);
 });
+
+test('17TRACK registers unknown numbers and merges origin and last-mile events without exposing locations', async (context) => {
+  const provider = require('../src/services/track17');
+  const number = 'LZ123456789CN';
+  const requests = [];
+  context.mock.method(global, 'fetch', async (url, options) => {
+    requests.push({ endpoint: url.split('/').pop(), body: JSON.parse(options.body) });
+    assert.equal(options.headers['17token'], 'test-key');
+    const event = (stage, time_utc, description, location) => ({ stage, time_utc, description, location });
+    const data = requests.length === 1
+      ? { rejected: [{ number, error: { code: -18019902 } }] }
+      : { accepted: [{ number, track_info: { tracking: { providers: [
+        { provider: { name: 'China Post' }, events: [event('InTransit_Departure', '2026-11-25T13:00:00Z', 'Departed', 'China')] },
+        { provider: { name: 'Malta Post' }, events: [event('OutForDelivery', '2026-11-28T08:00:00Z', 'Out', 'Malta')] }
+      ] } } }] };
+    return { ok: true, json: async () => ({ code: 0, data }) };
+  });
+  const before = await provider.fetchTracking([number, 'CAINIAO_FULFILLMENT_STD'], 'test-key');
+  assert.equal(before[number], undefined);
+  assert.deepEqual(requests, [
+    { endpoint: 'gettrackinfo', body: [{ number }] },
+    { endpoint: 'register', body: [{ number }] }
+  ]);
+  const after = await provider.fetchTracking([number], 'test-key');
+  assert.deepEqual(after[number].map((entry) => entry.carrier), ['Malta Post', 'China Post']);
+  assert.equal(T.stageOf(after[number]), 10);
+  assert.deepEqual(provider.customerEvents(after[number]), [
+    { at: '2026-11-28T08:00:00.000Z', text: 'Out for delivery' },
+    { at: '2026-11-25T13:00:00.000Z', text: 'Departed from origin' }
+  ]);
+});

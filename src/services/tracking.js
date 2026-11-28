@@ -10,6 +10,7 @@
  * Steps come from Cainiao's public tracking (AliExpress parcels: AP…, LP…, CNSTB…, and most last-mile numbers).
  */
 const db = require('../db');
+const track17 = require('./track17');
 
 const list = (v) => (Array.isArray(v) ? v : []);
 const now = () => Date.now();
@@ -27,6 +28,7 @@ const RULES = [
 
 /** Map one carrier event to a shipping stage. */
 function stepCode(e) {
+  if (e.source === '17track') return e.code;
   const code = String(e.action || ''); const text = String(e.text || '');
   if (/not accepted by (the )?local delivery|not yet arrived|awaiting (transfer|transit) to (the )?final delivery office/i.test(text)) return 90;
   if (/RETURN_?(TO_)?SENDER|^RTS$/i.test(code) || /return(ed|ing)? to (the )?sender/i.test(text)) return 14;
@@ -56,7 +58,7 @@ function stageOf(events) {
 
 /** Cainiao public tracking for up to 10 numbers → { number: [{ text, place, at, action }] newest first }. */
 async function fetchCainiao(numbers) {
-  const nums = [...new Set(numbers.map((n) => String(n).trim()).filter(Boolean))].slice(0, 10);
+  const nums = [...new Set(numbers.map((n) => String(n).trim()).filter(Boolean))];
   if (!nums.length) return {};
   if (nums.length > 10) {
     const out = Object.create(null);
@@ -83,7 +85,22 @@ function parseCainiao(j) {
   return out;
 }
 
-let fetcher = fetchCainiao;
+async function fetchProviders(numbers) {
+  const key = process.env.TRACK17_API_KEY?.trim();
+  if (!key) return fetchCainiao(numbers);
+  let events = {};
+  try { events = await track17.fetchTracking(numbers, key); }
+  catch (error) { console.warn('[tracking] 17TRACK:', error.message); }
+  const missing = numbers.filter((number) => !events[number]?.length);
+  if (!missing.length) return events;
+  try { return { ...events, ...await fetchCainiao(missing) }; }
+  catch (error) {
+    if (Object.values(events).some((items) => items.length)) return events;
+    throw error;
+  }
+}
+
+let fetcher = fetchProviders;
 
 function transitions(previous, events, stage) {
   const lastAt = previous?.events?.[0]?.at;
@@ -103,7 +120,7 @@ async function refreshShipment(order, maxAgeMs) {
       (shipment.track && now() - shipment.track.at < maxAgeMs)) return;
   const events = (await fetcher([shipment.tracking]))[shipment.tracking] || [];
   const current = db.shipments.get(shipment.id);
-  if (!current || current.status === 'delivered') return;
+  if (!current || current.tracking !== shipment.tracking || current.track?.at !== shipment.track?.at || current.status === 'delivered') return;
   const stage = stageOf(events);
   db.shipments.update(current.id, { track: { status: stage || current.track?.status || null,
     events: events.length ? events : (current.track?.events || []), at: now() } });
@@ -129,8 +146,10 @@ async function refresh(orderId, { maxAgeMs = 0, sellerId = null } = {}) {
     if (!latest || latest.status === 'AE_DELIVERED' || (latest.track?.at || 0) > (s.track?.at || 0)) continue;
     const events = s.logistics.flatMap((x) => byNo[x.tracking] || []).sort((a,b) => String(b.at).localeCompare(String(a.at))).slice(0, 40);
     if (!events.length) { changes.push({ ...s, track: { ...(s.track || { status: null, events: [] }), at: now() } }); continue; }
-    const stage = stageOf(events); const before = s.track?.status ?? null;
-    const sub = { ...s, track: { status: stage || before, events, at: now(), source: 'cainiao' } };
+    // A supplier sub-order can include several packages. Mark it delivered only after all arrive.
+    const allDelivered = s.logistics.every((x) => stageOf(byNo[x.tracking] || []) === 12);
+    const stage = stageOf(allDelivered ? events : events.filter((event) => stepCode(event) !== 12)); const before = s.track?.status ?? null;
+    const sub = { ...s, track: { status: stage || before, events, at: now(), source: events.some((event) => event.source === '17track') ? '17track' : 'cainiao' } };
     if (stage === 12) sub.status = 'AE_DELIVERED';
     else if (stage && ['AE_PLACED', 'AE_PAID'].includes(sub.status)) sub.status = 'AE_SHIPPED';
     if (stage === 13 && before !== 13) sub.error = sub.error || 'Delivery problem reported by the carrier — check the tracking';
@@ -161,4 +180,4 @@ async function freshen(orderId) {
   return db.orders.get(orderId);
 }
 
-module.exports = { stepCode, stageOf, transitions, parseCainiao, fetchCainiao, refresh, refreshOpen, freshen, MILESTONES, _setFetcher: (f) => { fetcher = f || fetchCainiao; } };
+module.exports = { stepCode, stageOf, transitions, parseCainiao, fetchCainiao, refresh, refreshOpen, freshen, MILESTONES, _setFetcher: (f) => { fetcher = f || fetchProviders; } };
