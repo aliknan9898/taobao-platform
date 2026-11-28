@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const os = require('os'); const fs = require('fs'); const path = require('path');
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kcat-'));
 Object.assign(process.env, { ADMIN_EMAIL: 'boss@x.com', ADMIN_PASSWORD: 'adminpass1', ADMIN_GOOGLE_EMAILS: 'boss@x.com', KINAN_WHOLESALE_PCT: '10' });
-delete process.env.SELLER_SUPPLIER_IMPORTS;
+process.env.SELLER_SUPPLIER_IMPORTS = '0';
 const auth = require('../src/auth');
 const db = require('../src/db');
 const { server } = require('../src/server');

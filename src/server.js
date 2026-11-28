@@ -676,8 +676,8 @@ r('POST', '/api/push/devices', auth.ROLES, async ({ req, user }) => require('./p
 r('DELETE', '/api/push/devices', auth.ROLES, async ({ req, user }) => require('./push').removeDevice(user, (await readJson(req)).token));
 
 // Seller
-/** Supplier imports (Taobao, AliExpress, CJ, Banggood) are for Kinan itself; sellers add from the Kinan catalogue (SELLER_SUPPLIER_IMPORTS=1 opens them to all). */
-const supplierAllowed = (s) => process.env.SELLER_SUPPLIER_IMPORTS === '1' || (s && (s.id === require('./services/buyforme').systemSeller().id || auth.isOwner(db.users.get(s.user_id))));
+/** Set SELLER_SUPPLIER_IMPORTS=0 to restrict supplier imports to Kinan and the owner. */
+const supplierAllowed = (s) => process.env.SELLER_SUPPLIER_IMPORTS !== '0' || (s && (s.id === require('./services/buyforme').systemSeller().id || auth.isOwner(db.users.get(s.user_id))));
 const supplierGate = (user, seller) => { if (user && user.role !== 'seller') return undefined; if (!supplierAllowed(seller)) throw httpError(403, 'Add products from the Kinan catalogue'); return undefined; };
 const sellerSelf = (s) => ({ profit_commission_pct: Number(s.profit_commission_pct ?? config.profitCommissionPct), supplier_imports: supplierAllowed(s), verification: (({ state, reason, submitted_at }) => ({ state, reason, submitted_at }))(require('./services/kyc').view(s)), id: s.id, shop_name: s.shop_name, logo: s.logo || null, description: s.description || '', return_policy: s.return_policy || '', status: s.status, commission_pct: s.commission_pct, default_markup_pct: s.default_markup_pct ?? 30, auto_pay: s.auto_pay, taobao: sellerAuth.status(s), terms_ok: s.terms?.version === auth.SELLER_TERMS_VERSION, terms_version: auth.SELLER_TERMS_VERSION });
 r('GET', '/api/seller/me', SELLER, async ({ seller }) => sellerSelf(seller));
