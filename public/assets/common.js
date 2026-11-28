@@ -303,10 +303,14 @@ const K = (() => {
       '.jrny .on{color:inherit;font-weight:600}.jrny .on i,.jrny>div.on:not(:first-child):before{background:var(--jade,#036747);border-color:var(--jade,#036747)}' +
       '.jrny[data-leg="-1"]{--from:0%;--to:8%}.jrny[data-leg="0"]{--from:12.5%;--to:25%}.jrny[data-leg="1"]{--from:37.5%;--to:50%}.jrny[data-leg="2"]{--from:62.5%;--to:75%}' +
       '.jrny[data-leg="11"]{--from:50%;--to:62.5%}.jrny[data-leg="12"]{--from:75%;--to:87.5%}' +
-      '.jrny-plane{position:absolute;top:-3px;inset-inline-start:calc(var(--to) - 10px);width:20px;height:20px;display:grid;place-items:center;z-index:2;color:var(--jade,#036747);background:#fff;border-radius:50%;font-size:17px;line-height:1;pointer-events:none}' +
-      '[dir=rtl] .jrny-plane span{transform:scaleX(-1)}.jrny.updated .jrny-plane{animation:jrnyTravel 1.15s ease-out both}' +
-      '@keyframes jrnyTravel{from{inset-inline-start:calc(var(--from) - 10px)}to{inset-inline-start:calc(var(--to) - 10px)}}' +
-      '@media(prefers-reduced-motion:reduce){.jrny.updated .jrny-plane{animation:none}}' +
+      '.jrny[data-leg]{--plane-radius:13px;--travel-time:1.15s;--trail-angle:90deg}' +
+      '.jrny-trail{position:absolute;top:5px;inset-inline-start:var(--from);width:calc(var(--to) - var(--from));height:4px;border-radius:4px;z-index:1;pointer-events:none;background:linear-gradient(var(--trail-angle),#047857,#34d399 72%,#d1fae5);box-shadow:0 0 7px #34d399}' +
+      '.jrny-plane{position:absolute;top:-6px;inset-inline-start:calc(var(--to) - var(--plane-radius));width:26px;height:26px;display:grid;place-items:center;z-index:2;color:var(--jade,#036747);background:#fff;border-radius:50%;font-size:21px;line-height:1;pointer-events:none}' +
+      '[dir=rtl] .jrny[data-leg]{--trail-angle:270deg}[dir=rtl] .jrny-plane span{transform:scaleX(-1)}' +
+      '.jrny.updated .jrny-plane{animation:jrnyTravel var(--travel-time) ease-out both}.jrny.updated .jrny-trail{animation:jrnyTrail var(--travel-time) ease-out both}' +
+      '@keyframes jrnyTravel{from{inset-inline-start:calc(var(--from) - var(--plane-radius))}to{inset-inline-start:calc(var(--to) - var(--plane-radius))}}' +
+      '@keyframes jrnyTrail{from{width:0}to{width:calc(var(--to) - var(--from))}}' +
+      '@media(prefers-reduced-motion:reduce){.jrny.updated .jrny-plane,.jrny.updated .jrny-trail{animation:none}}' +
       '.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid color-mix(in srgb,var(--jade,#036747) 25%,transparent);display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
     document.head.appendChild(st);
   }
@@ -325,7 +329,7 @@ const K = (() => {
       var label = (opts && opts.seller && j[0] === 6) ? 'In customer’s country' : j[1];
       var cls = at !== undefined && i <= at ? 'on' : '';
       return '<div class="' + cls + '"><i></i><span>' + esc(tr(label)) + '</span></div>';
-    }).join('') + (showPlane ? '<span class="jrny-plane" aria-hidden="true"><span>✈︎</span></span>' : '') + '</div>';
+    }).join('') + (showPlane ? '<span class="jrny-trail" aria-hidden="true"></span><span class="jrny-plane" aria-hidden="true"><span>✈︎</span></span>' : '') + '</div>';
     var advice = {11: ['Available for pickup', 'Collect the parcel from the office shown in the carrier notice before its deadline. Uncollected parcels may be returned to the sender.'],
       13: ['Not delivered', 'Check the carrier notice for redelivery or pickup. If pickup is confirmed, collect your parcel before the stated deadline to avoid return.'],
       90: ['Local carrier handoff delayed', 'Your parcel is awaiting handoff to the local carrier. Follow tracking for the next update.']};
