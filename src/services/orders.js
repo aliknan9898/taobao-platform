@@ -696,13 +696,13 @@ function buyerViewBase(o) {
     lines: o.lines.map(({ line_no, title, props, qty, price, image, listing_id, direct }) => ({ line_no, title, props, qty, price, image: require('./media').hosted(image), listing_id, direct: Boolean(direct) })),
     shipping_address: o.shipping_address,
     payment: { provider: o.payment?.provider, client_secret: o.status === 'pending_payment' ? o.payment?.client_secret : undefined },
-    tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, track: shipment.track ? { stage: shipment.track.status, events: shipment.track.events } : null, url: shipment.url || require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,
+    tracking: shipment ? { carrier: shipment.carrier, number: shipment.tracking, shipped_at: shipment.shipped_at, track: shipment.track ? { stage: shipment.track.status, events: require('./track17').customerEvents(shipment.track.events, 40) } : null, url: shipment.url || require('./couriers').trackingUrl(shipment.carrier, shipment.tracking) } : null,
     // AliExpress parts travel separately, straight to the customer
     direct: (o.sub_orders || []).filter((s) => s.direct).map((s) => ({
       // `status` keeps the stored code for the website; apps read the neutral `state` (ordering, preparing, shipped, delivered, review)
       status: s.status, state: require('./publicIds').directState(s.status), label: { AE_TO_BUY: 'Being ordered', AE_PLACED: 'Being ordered', AE_PAID: 'Ordered — preparing', AE_SHIPPED: 'On its way to you', AE_DELIVERED: 'Delivered', AE_CANCELLED: 'Being reviewed' }[s.status] || 'Being ordered',
       items: o.lines.filter((l) => s.line_nos.includes(l.line_no)).map((l) => l.title), tracking: (s.logistics || []).map((x) => ({ carrier: x.carrier, number: x.tracking, url: require('./couriers').trackingUrl(x.carrier, x.tracking) })),
-      track: s.track ? { stage: s.track.status || 0, events: (s.track.events || []).slice(0, 25) } : null
+      track: s.track ? { stage: s.track.status || 0, events: require('./track17').customerEvents(s.track.events) } : null
     })),
     all_direct: (o.lines || []).every((l) => l.direct),
     timeline: (o.timeline || []).map((t) => ({ at: t.at, event: t.event }))
@@ -716,7 +716,7 @@ function sellerView(o, sellerId) {
   const parts = (o.sub_orders || []).filter((s) => s.seller_id === sellerId);
   const viewPart = (sub) => sub.direct
       // Kinan orders and pays the supplier: the seller sees neutral steps, never the supplier's name, order numbers or Kinan's to-dos
-    ? { direct: true, source: null, manual: false, status: sub.status, status_label: SELLER_DIRECT_LABEL[sub.status] || 'Kinan is handling it', error: sub.error ? 'Kinan is sorting out a supplier issue with this order — nothing to do on your side' : null, logistics: (sub.logistics || []).map(({ carrier, tracking }) => ({ carrier, tracking, url: require('./couriers').trackingUrl(carrier, tracking) })), track: sub.track ? { stage: sub.track.status || 0, events: (sub.track.events || []).slice(0, 25) } : null }
+    ? { direct: true, source: null, manual: false, status: sub.status, status_label: SELLER_DIRECT_LABEL[sub.status] || 'Kinan is handling it', error: sub.error ? 'Kinan is sorting out a supplier issue with this order — nothing to do on your side' : null, logistics: (sub.logistics || []).map(({ carrier, tracking }) => ({ carrier, tracking, url: require('./couriers').trackingUrl(carrier, tracking) })), track: sub.track ? { stage: sub.track.status || 0, events: require('./track17').customerEvents(sub.track.events) } : null }
     : { direct: false, source: sub.source || null, manual: Boolean(sub.manual), outer_purchase_id: sub.outer_purchase_id, purchase_ids: sub.purchase_ids, status: sub.status, status_label: (LABELS_OF(sub.source) ? LABELS_OF(sub.source)[sub.status] : TB_STATUS_LABEL[sub.status]) || sub.status, pay_deadline: sub.pay_deadline, error: sub.error, logistics: sub.logistics || [] };
   const purchases = parts.map(viewPart);
   return {
