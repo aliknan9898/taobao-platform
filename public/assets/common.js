@@ -305,12 +305,14 @@ const K = (() => {
       '.jrny[data-leg="11"]{--from:50%;--to:62.5%}.jrny[data-leg="12"]{--from:75%;--to:87.5%}' +
       '.jrny[data-leg]{--plane-radius:13px;--travel-time:1.15s;--trail-angle:90deg}' +
       '.jrny-trail{position:absolute;top:5px;inset-inline-start:var(--from);width:calc(var(--to) - var(--from));height:4px;border-radius:4px;z-index:1;pointer-events:none;background:linear-gradient(var(--trail-angle),#047857,#34d399 72%,#d1fae5);box-shadow:0 0 7px #34d399}' +
+      '.jrny-trail{overflow:hidden}.jrny.in-transit .jrny-trail:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent 25%,#ecfdf5 50%,transparent 75%);background-size:35% 100%;background-repeat:no-repeat;animation:jrnyShimmer 2s linear infinite}' +
+      '@keyframes jrnyShimmer{from{background-position:-55% 0}to{background-position:155% 0}}[dir=rtl] .jrny.in-transit .jrny-trail:after{animation-direction:reverse}' +
       '.jrny-plane{position:absolute;top:-6px;inset-inline-start:calc(var(--to) - var(--plane-radius));width:26px;height:26px;display:grid;place-items:center;z-index:2;color:var(--jade,#036747);background:#fff;border-radius:50%;font-size:21px;line-height:1;pointer-events:none}' +
       '[dir=rtl] .jrny[data-leg]{--trail-angle:270deg}[dir=rtl] .jrny-plane span{transform:scaleX(-1)}' +
       '.jrny.updated .jrny-plane{animation:jrnyTravel var(--travel-time) ease-out both}.jrny.updated .jrny-trail{animation:jrnyTrail var(--travel-time) ease-out both}' +
       '@keyframes jrnyTravel{from{inset-inline-start:calc(var(--from) - var(--plane-radius))}to{inset-inline-start:calc(var(--to) - var(--plane-radius))}}' +
       '@keyframes jrnyTrail{from{width:0}to{width:calc(var(--to) - var(--from))}}' +
-      '@media(prefers-reduced-motion:reduce){.jrny.updated .jrny-plane,.jrny.updated .jrny-trail{animation:none}}' +
+      '@media(prefers-reduced-motion:reduce){.jrny.updated .jrny-plane,.jrny.updated .jrny-trail,.jrny.in-transit .jrny-trail:after{animation:none}}' +
       '.jrny-bad{color:#dc2626;font-weight:600;font-size:13px}.jrny-ev{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-inline-start:2px solid color-mix(in srgb,var(--jade,#036747) 25%,transparent);display:grid;gap:8px;font-size:13px}.jrny-ev small{color:#6b7280;display:block}';
     document.head.appendChild(st);
   }
@@ -324,7 +326,8 @@ const K = (() => {
     var showPlane = leg !== undefined && !failed;
     var ev = t.events || [];
     var updated = journeyUpdate(opts && opts.key, stage, ev[0]);
-    var bar = '<div class="jrny' + (updated && showPlane ? ' updated' : '') + '"' +
+    var inTransit = showPlane && stage !== 11 && stage !== 12;
+    var bar = '<div class="jrny' + (inTransit ? ' in-transit' : '') + (updated && showPlane ? ' updated' : '') + '"' +
       (showPlane ? ' data-leg="' + leg + '"' : '') + '>' + JOURNEY.map(function (j, i) {
       var label = (opts && opts.seller && j[0] === 6) ? 'In customer’s country' : j[1];
       var cls = at !== undefined && i <= at ? 'on' : '';
